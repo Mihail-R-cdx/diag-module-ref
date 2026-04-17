@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+
+run_stdout.log
+run_stderr.log
+startup_trace.log
+output.txt
+output_test.txt

@@ -1,0 +1,44 @@
+vcs_diagnostic/
+│
+├── main.py                    # Точка входа, запуск приложения
+├── requirements.txt          # Зависимости
+│
+├── core/                     # Ядро приложения
+│   ├── __init__.py
+│   ├── base_handler.py      # ProtocolHandler, BaseHuaweiCodecHandler
+│   ├── factory.py           # ProtocolFactory
+│   ├── parser.py            # HuaweiTE40DataParser
+│   └── worker.py            # WorkerSignals, HuaweiCodecWorker, PolycomWorker
+│
+├── handlers/                 # Обработчики устройств
+│   ├── __init__.py
+│   ├── huawei/
+│   │   ├── __init__.py
+│   │   ├── te20.py         # HuaweiTE20Handler
+│   │   ├── te40.py         # HuaweiTE40Handler
+│   │   ├── box300.py       # CloudLinkBox300Handler
+│   │   └── bar310.py       # CloudLinkBar310Handler
+│   └── polycom/
+│       ├── __init__.py
+│       └── rpg310.py       # PolycomRPG310Handler
+│
+├── gui/                      # GUI компоненты
+│   ├── __init__.py
+│   ├── main_window.py       # VCSDiagnosticApp
+│   ├── screens/
+│   │   ├── __init__.py
+│   │   ├── base_screen.py  # BaseScreen
+│   │   ├── codec_screen.py # CodecScreen
+│   │   └── matrix_screen.py # MatrixScreen
+│   └── dialogs/             # Диалоги
+│       ├── __init__.py
+│       └── password_dialog.py
+│
+├── utils/                    # Утилиты
+│   ├── __init__.py
+│   ├── ssl_adapter.py      # SSLAdapter
+│   └── helpers.py          # Вспомогательные функции
+│
+└── resources/               # Ресурсы
+    ├── styles/
+    └── icons/

@@ -1,0 +1,628 @@
+"""
+Обработчик для Huawei CloudLink Bar 310.
+Реализует протокол взаимодействия с устройством через HTTPS API.
+"""
+
+import requests
+import json
+import urllib3
+from typing import Dict, Any, Optional
+from requests.auth import HTTPBasicAuth
+from core.base_handler import BaseHuaweiCodecHandler
+from core.exceptions import AuthenticationError, ConnectionError
+
+# Отключаем предупреждения о самоподписанных сертификатах
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
+    """Обработчик для Huawei CloudLink Bar 310"""
+    
+    def __init__(self, ip_address: str, port: int = 443,
+                 username: str = 'api', password: str = '',
+                 use_ssl: bool = True, verify_ssl: bool = False):
+        print(f"=== CloudLinkBar310Handler.__init__ для {ip_address} ===")
+        print(f"[INIT] Инициализация handler с логином: '{username}', паролем: '{password}'")
+        super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
+        self.device_model = 'Huawei CloudLink Bar 310'
+        self.base_url = f"https://{ip_address}:{port}"
+        self.username = username
+        self.password = password
+        self.session = None
+        self.acCSRFToken = None
+        self.session_cookie = None
+        self._connected = False
+        
+        # Маппинг команд на ActionID для Bar 310
+        self.command_map = {
+            # Информация об устройстве
+            'get_version': 'action.cgi?ActionID=WEB_GetVersionInfoAPI',
+            'get_mac': 'action.cgi?ActionID=WEB_GetSystemMacAddrAPI',
+            'get_line_state': 'action.cgi?ActionID=WEB_GetLineStateInfoAPI',
+            
+            # Статусы
+            'get_call_status': 'action.cgi?ActionID=WEB_GetMailboxDataAPI',
+            'get_audio_status': 'action.cgi?ActionID=WEB_InitAudioCtrlParamsAPI',
+            'get_presentation': 'action.cgi?ActionID=WEB_IsSendAuxStreamAPI',
+            'get_sleep_mode': 'action.cgi?ActionID=WEB_IsSystemSleepAPI',
+            'get_camera_status': 'action.cgi?ActionID=WEB_GetCurCtrlCamSrcAPI',
+            
+            # Конфигурация
+            'get_config_default': 'action.cgi?ActionID=WEB_GetTermSpecsInfoAPI',
+            'get_config': 'action.cgi?ActionID=WEB_GetCfgParamAPI',
+
+        }
+        
+        # Создаем сессию с HTTP Basic аутентификацией
+        self.session = requests.Session()
+        self.session.auth = HTTPBasicAuth(username, password)
+        self.session.verify = False  # Отключаем проверку SSL
+        
+    def connect(self) -> bool:
+        """Установка соединения с кодеком Huawei CloudLink Bar 310"""
+        try:
+            print(f"Подключаюсь к {self.base_url}/")
+            
+            # 1. Получаем Session ID
+            endpoint = "action.cgi?ActionID=WEB_RequestSessionIDAPI"
+            result = self._make_request(endpoint)
+            
+            if result and result.get('success') == 1:
+                print("✓ Сессия успешно получена")
+                self.session_cookie = True
+            else:
+                print("✗ Не удалось получить сессию")
+                # Проверяем, не ошибка ли это аутентификации
+                if result and result.get('error'):
+                    error_msg = result.get('message', '')
+                    if "authentication" in error_msg.lower() or result.get('error') == 401:
+                        raise AuthenticationError(f"Ошибка аутентификации: {error_msg}")
+                # Если не удалось получить сессию без явной ошибки аутентификации - тоже считаем ошибкой
+                raise AuthenticationError("Ошибка аутентификации при получении сессии")
+            
+            # 2. Получаем CSRF Token
+            endpoint = "action.cgi?ActionID=WEB_RequestCertificateAPI"
+            data = {
+                "user": self.username,
+                "password": self.password
+            }
+            
+            print(f"🔐 Попытка аутентификации с логином: {self.username}")
+            result = self._make_request(endpoint, data=data)
+            
+            if result and result.get('success') == 1:
+                data_field = result.get('data', {})
+                
+                if isinstance(data_field, dict):
+                    self.acCSRFToken = data_field.get('acCSRFToken')
+                elif isinstance(data_field, str):
+                    try:
+                        inner_data = json.loads(data_field)
+                        self.acCSRFToken = inner_data.get('acCSRFToken')
+                    except:
+                        pass
+                
+                if self.acCSRFToken:
+                    print(f"✓ CSRF токен получен: {self.acCSRFToken[:20]}...")
+                    self._connected = True
+                    return True
+                else:
+                    print("✗ Не удалось извлечь CSRF токен")
+                    raise AuthenticationError("Не удалось извлечь CSRF токен")
+            else:
+                error_msg = result.get('message', 'Неизвестная ошибка') if result else 'Нет ответа'
+                print(f"✗ Ошибка аутентификации: {error_msg}")
+                # Проверяем, не ошибка ли это аутентификации
+                if result and (result.get('error') == 401 or "authentication" in error_msg.lower()):
+                    raise AuthenticationError(f"Ошибка аутентификации: {error_msg}")
+                # Если ошибка не 401, но и не успешная аутентификация - тоже считаем ошибкой аутентификации
+                raise AuthenticationError(f"Ошибка аутентификации: {error_msg}")
+                
+        except AuthenticationError:
+            # Пробрасываем AuthenticationError дальше
+            raise
+        except Exception as e:
+            print(f"✗ Ошибка подключения: {type(e).__name__}: {str(e)}")
+            raise ConnectionError(f"Ошибка подключения: {str(e)}")
+    
+    def disconnect(self) -> None:
+        """Разорвать соединение"""
+        if self._connected and self.acCSRFToken:
+            try:
+                endpoint = "action.cgi?ActionID=WEB_LogoutAPI"
+                data = {"acCSRFToken": self.acCSRFToken}
+                self._make_request(endpoint, data=data)
+            except:
+                pass
+        
+        if self.session:
+            self.session.close()
+        
+        self._connected = False
+        self.acCSRFToken = None
+        self.session_cookie = None
+    
+    def _parse_response(self, response_text: str) -> Optional[Dict]:
+        """
+        Парсинг ответа от сервера с обработкой двойной сериализации
+        """
+        try:
+            # Сначала парсим внешний JSON
+            outer_data = json.loads(response_text)
+            
+            # Проверяем, есть ли поле data и является ли оно строкой
+            if isinstance(outer_data, dict) and 'data' in outer_data:
+                data_field = outer_data['data']
+                
+                # Если data - это строка, которая содержит JSON, парсим её
+                if isinstance(data_field, str):
+                    try:
+                        inner_data = json.loads(data_field)
+                        outer_data['data'] = inner_data
+                    except json.JSONDecodeError:
+                        # Если не получается распарсить, оставляем как есть
+                        pass
+            
+            return outer_data
+            
+        except json.JSONDecodeError as e:
+            print(f"Ошибка парсинга JSON: {e}")
+            return None
+    
+    def _get_error_text(self, error_data) -> str:
+        """Получить текст ошибки"""
+        if not error_data:
+            return "Неизвестная ошибка"
+        
+        # Если error_data - строка, возвращаем её
+        if isinstance(error_data, str):
+            return error_data
+        
+        # Если error_data - словарь, возвращаем его представление
+        if isinstance(error_data, dict):
+            return json.dumps(error_data, ensure_ascii=False)
+        
+        # Если не нашли, возвращаем как есть
+        return str(error_data)
+
+
+    def _make_request(self, endpoint: str, method: str = 'POST', data: Optional[Dict] = None) -> Optional[Dict]:
+        """
+        Универсальный метод для выполнения запросов к API
+        """
+        url = f"{self.base_url}/{endpoint}"
+        headers = {'Content-Type': 'application/json'}
+        
+        if data:
+            request_data = json.dumps(data)
+        else:
+            request_data = None
+        
+        try:
+            print(f"  -> Запрос: {method} {url}")
+            
+            # ВЫВОД ССЫЛКИ ДЛЯ БРАУЗЕРА (только для GET запросов)
+            if method == 'GET':
+                print(f"  🔗 Ссылка для браузера: {url}")
+            
+            if request_data:
+                print(f"  -> Данные: {request_data}")
+            
+            response = self.session.request(
+                method=method,
+                url=url,
+                data=request_data,
+                headers=headers,
+                timeout=5
+            )
+            
+            # ВЫВОД СЫРОГО ОТВЕТА
+            print(f"  ! Сырой ответ (статус {response.status_code}):")
+            if response.text:
+                # Пытаемся распарсить и вывести красиво
+                try:
+                    parsed = json.loads(response.text)
+                    # Если есть поле data с строкой JSON, распарсим и его
+                    if isinstance(parsed, dict) and 'data' in parsed and isinstance(parsed['data'], str):
+                        try:
+                            inner_data = json.loads(parsed['data'])
+                            parsed['data'] = inner_data
+                        except:
+                            pass
+                    # Выводим полный отформатированный JSON
+                    print(json.dumps(parsed, indent=2, ensure_ascii=False))
+                except:
+                    # Если не получается распарсить, выводим как есть, но полностью
+                    print(response.text)
+            else:
+                print(f"  <пустой ответ>")
+            
+            if response.status_code == 200:
+                # Парсим ответ
+                parsed_response = self._parse_response(response.text)
+                return parsed_response
+            else:
+                print(f"  ! HTTP ошибка {response.status_code}")
+                error_message = response.text.strip() if response.text else f"HTTP {response.status_code}"
+                return {
+                    'success': 0,
+                    'error': response.status_code,
+                    'message': error_message,
+                }
+                
+        except requests.exceptions.RequestException as e:
+            print(f"  ! Ошибка запроса: {e}")
+            return {
+                'success': 0,
+                'error': 'request_exception',
+                'message': str(e),
+            }
+    
+
+    def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
+        """Отправить команду устройству"""
+        if not self.is_connected() or not self.acCSRFToken:
+            if not self.connect():
+                return {'success': False, 'error': 'Not connected'}
+        
+        endpoint = self.command_map.get(command, command)
+        
+        # Подготавливаем данные
+        request_data = data or {}
+        
+        # Добавляем CSRF токен для всех action.cgi запросов
+        if self.acCSRFToken and 'acCSRFToken' not in request_data:
+            request_data['acCSRFToken'] = self.acCSRFToken
+        
+        result = self._make_request(endpoint, data=request_data if request_data else None)
+        
+        if result:
+            return result
+        else:
+            return {'success': False, 'error': 'No response'}
+
+
+    def get_status(self) -> Dict[str, Any]:
+        """Получение полного статуса устройства"""
+        status = {}
+        
+        try:
+            print("📊 Начинаю сбор статуса для Huawei CloudLink Bar 310...")
+            
+            # Список базовых команд, которые точно работают
+            base_commands = ['get_version', 'get_mac', 'get_audio_status', 'get_line_state', 'get_camera_status']
+            
+            # Сначала выполняем базовые команды
+            for cmd in base_commands:
+                if cmd in self.command_map:
+                    print(f"\n  Запрос {cmd} ({self.command_map[cmd]})...")
+                    result = self.send_command(cmd)
+                    
+                    if result:
+                        if result.get('success') == 1:
+                            data = result.get('data', {})
+                            if isinstance(data, dict):
+                                # Сохраняем все полученные данные в status
+                                for key, value in data.items():
+                                    status[f"{cmd}_{key}"] = value
+                                print(f"  вњ… {cmd} выполнен успешно")
+                                
+                                # Для get_version сразу извлекаем основные поля
+                                if cmd == 'get_version':
+                                    status['model'] = data.get('model', 'Huawei CloudLink Bar 310')
+                                    status['version'] = data.get('softVersion', 'Unknown')
+                                    status['serial_number'] = data.get('lisence', 'N/A')
+                                    status['mic_version'] = data.get('micVersion', 'N/A')
+                                    print(f"    Модель: {status['model']}")
+                                    print(f"    Серийный номер: {status['serial_number']}")
+                                    print(f"    Версия: {status['version']}")
+                                
+                                # Для get_mac извлекаем MAC адрес
+                                elif cmd == 'get_mac':
+                                    status['mac_address'] = (data.get('system_wanMAC_addr') or 
+                                                            data.get('system_lanMAC_addr') or 'N/A')
+                                    print(f"    MAC адрес: {status['mac_address']}")
+                                
+                                # Для get_audio_status извлекаем аудио параметры
+                                elif cmd == 'get_audio_status':
+                                    status['mic_mute'] = 'On' if data.get('MicSwitch', 0) == 0 else 'Off'
+                                    status['speaker_mute'] = 'On' if data.get('SpeakerSwitch', 0) == 1 else 'Off'
+                                    status['speaker_volume'] = data.get('speakerValue', 0)
+                                    print(f"    Микрофон: {status['mic_mute']}, Динамик: {status['speaker_mute']}, Громкость: {status['speaker_volume']}")
+                                
+                                # Для get_line_state извлекаем время работы и SIP информацию
+                                elif cmd == 'get_line_state':
+                                    # Время работы
+                                    run_day = int(data.get('runDay', 0))
+                                    run_hour = int(data.get('runHour', 0))
+                                    run_min = int(data.get('runMin', 0))
+                                    
+                                    uptime_parts = []
+                                    if run_day > 0:
+                                        uptime_parts.append(f"{run_day} д")
+                                    if run_hour > 0:
+                                        uptime_parts.append(f"{run_hour} ч")
+                                    if run_min > 0:
+                                        uptime_parts.append(f"{run_min} мин")
+                                    
+                                    status['uptime'] = ' '.join(uptime_parts) if uptime_parts else '0 мин'
+                                    
+                                    # SIP информация
+                                    status['sip_server'] = data.get('sipAddr', 'N/A')
+                                    status['sip_number'] = data.get('sipNumber', '')
+                                    
+                                    # SIP статус из sipStatusTxStr
+                                    sip_status_str = data.get('sipStatusTxStr', '')
+                                    status['sip_status'] = 'On' if sip_status_str == 'SIP_STATE_OK' else 'Off'
+                                    
+                                    print(f"    Время работы: {status['uptime']}")
+                                    print(f"    SIP статус: {status['sip_status']}")
+                                    print(f"    SIP сервер: {status['sip_server']}")
+                                    print(f"    SIP номер: {status['sip_number']}")
+                                    
+                                elif cmd == 'get_call_status':
+                                    state = data.get('state', {})
+                                    if isinstance(state, dict):
+                                        # Статус звонка
+                                        call_state = state.get('callstate', 0)
+                                        call_status_map = {
+                                            0: 'No Call',
+                                            1: 'Calling',
+                                            2: 'Disconnected',
+                                            3: 'Connected'
+                                        }
+                                        status['call_status'] = call_status_map.get(call_state, 'Unknown')
+                                        
+                                        # SIP статус из поля sip
+                                        sip_value = state.get('sip', 0)
+                                        if 'sip_status' not in status:
+                                            status['sip_status'] = 'On' if sip_value == 1 else 'Off'
+                                        
+                                        # Громкость микрофона из micValue
+                                        mic_value = state.get('micValue', 0)
+                                        status['mic_volume'] = mic_value
+                                        print(f"      Громкость микрофона: {mic_value}")
+                                        
+                                        print(f"      Статус звонка: {status['call_status']}")    
+                                elif cmd == 'get_camera_status':
+                                    local_source = data.get('localInMainSource', 0)
+                                    # 255 - подключена, 0 - не подключена
+                                    status['camera_status'] = 'On' if local_source == 255 else 'Off'
+                                    print(f"    Статус камеры: {'Подключена' if local_source == 255 else 'Не подключена'} (localInMainSource={local_source})")
+                        else:
+                            error_data = result.get('error', {})
+                            if isinstance(error_data, dict):
+                                error_text = self._get_error_text(error_data)
+                            else:
+                                error_text = str(error_data)
+                            print(f"  ! {cmd} вернул ошибку: {error_text}")
+                    else:
+                        print(f"  ✗ {cmd} - нет ответа")
+            
+            # Затем тестируем ВСЕ остальные команды из command_map
+            print("\n📋 Тестирование всех доступных команд:")
+            for cmd_name, cmd_endpoint in self.command_map.items():
+                # Пропускаем уже выполненные базовые команды
+                if cmd_name in base_commands:
+                    continue
+                    
+                print(f"\n  Тест: {cmd_name} -> {cmd_endpoint}")
+                result = self.send_command(cmd_name)
+                
+                if result:
+                    if result.get('success') == 1:
+                        print(f"    вњ… Успешно (success=1)")
+                        # Сохраняем данные из успешных ответов
+                        data = result.get('data', {})
+                        if isinstance(data, dict):
+                            for key, value in data.items():
+                                status[f"{cmd_name}_{key}"] = value
+                            
+                            # СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ get_call_status
+                            if cmd_name == 'get_call_status':
+                                state = data.get('state', {})
+                                if isinstance(state, dict):
+                                    # Статус звонка
+                                    call_state = state.get('callstate', 0)
+                                    call_status_map = {
+                                        0: 'No Call',
+                                        1: 'Calling',
+                                        2: 'Disconnected',
+                                        3: 'Connected'
+                                    }
+                                    status['call_status'] = call_status_map.get(call_state, 'Unknown')
+                                    
+                                    # SIP статус из поля sip
+                                    sip_value = state.get('sip', 0)
+                                    # Не перезаписываем sip_status, если он уже есть из get_line_state
+                                    if 'sip_status' not in status:
+                                        status['sip_status'] = 'On' if sip_value == 1 else 'Off'
+                                    print(f"      Статус звонка: {status['call_status']}")
+                    else:
+                        error_data = result.get('error', {})
+                        if isinstance(error_data, dict):
+                            error_text = self._get_error_text(error_data)
+                        else:
+                            error_text = str(error_data)
+                        print(f"    ! Ошибка: {error_text}")
+                else:
+                    print(f"    ✗ Нет ответа")
+            
+            # Формируем итоговый статус
+            final_status = {
+                'model': status.get('model', 'Huawei CloudLink Bar 310'),
+                'version': status.get('version', 'Unknown'),
+                'serial_number': status.get('serial_number', 'N/A'),
+                'mac_address': status.get('mac_address', 'N/A'),
+                'mic_version': status.get('mic_version', 'N/A'),
+                'mic_mute': status.get('mic_mute', 'Off'),
+                'mic_volume': status.get('mic_volume', 0),
+                'speaker_mute': status.get('speaker_mute', 'Off'),
+                'speaker_volume': status.get('speaker_volume', 0),
+                'call_status': status.get('call_status', 'No Call'),
+                'sip_status': status.get('sip_status', 'Off'),
+                'sip_server': status.get('sip_server', 'N/A'),
+                'sip_number': status.get('sip_number', ''),
+                'presentation': status.get('presentation', 'Stop'),
+                'sleep_mode': status.get('sleep_mode', 'Off'),
+                'uptime': status.get('uptime', 'N/A'),
+                'camera_status': status.get('camera_status', 'Off'),
+            }
+            
+            print(f"\n📊 Сбор статуса завершен. Протестировано команд: {len(self.command_map)}")
+            print(f"📊 Получено полей в статусе: {len(final_status)}")
+            print(f"📊 Время работы: {final_status['uptime']}")
+            
+            return final_status
+            
+        except Exception as e:
+            print(f"✗ Ошибка получения статуса: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+  
+    # Реализация абстрактных методов
+    def get_device_info(self) -> Dict[str, str]:
+        """Получить информацию об устройстве"""
+        status = self.get_status()
+        return {
+            'model': status.get('model', 'Huawei CloudLink Bar 310'),
+            'serial': status.get('serial_number', 'N/A'),
+            'version': status.get('version', 'N/A'),
+            'mac': status.get('mac_address', 'N/A'),
+            'ip': self.ip_address,
+            'mic_version': status.get('mic_version', 'N/A')
+        }
+    
+    def get_system_info(self) -> Dict[str, Any]:
+        """Получить системную информацию"""
+        status = self.get_status()
+        return {
+            'uptime': status.get('uptime', 'N/A'),
+            'sleep_mode': status.get('sleep_mode', 'Off'),
+            'temperature': 'N/A'
+        }
+    
+    def get_call_status(self) -> Dict[str, Any]:
+        """Получить статус вызова"""
+        status = self.get_status()
+        return {
+            'status': status.get('call_status', 'Idle'),
+            'type': status.get('call_type', 'Unknown'),
+            'remote_number': '',
+            'remote_name': '',
+            'duration': 0,
+            'protocol': status.get('call_type', ''),
+            'bandwidth': 0
+        }
+    
+    def get_network_status(self) -> Dict[str, Any]:
+        """Получить статус сети"""
+        status = self.get_status()
+        return {
+            'ip': self.ip_address,
+            'gateway': 'N/A',
+            'dns': 'N/A',
+            'bandwidth': 'N/A',
+            'sip_server': status.get('sip_server', 'N/A'),
+            'sip_number': status.get('sip_number', 'N/A')
+        }
+    
+    def get_audio_status(self) -> Dict[str, Any]:
+        """Получить статус аудио"""
+        status = self.get_status()
+        return {
+            'volume': status.get('speaker_volume', 0),
+            'mute': status.get('mic_mute', 'Off'),
+            'speaker_volume': status.get('speaker_volume', 0),
+            'speaker_mute': status.get('speaker_mute', 'Off')
+        }
+    
+    def get_video_status(self) -> Dict[str, Any]:
+        """Получить статус видео"""
+        status = self.get_status()
+        return {
+            'presentation': status.get('presentation', 'Stop'),
+            'camera': 'N/A',
+            'format': '',
+            'resolution': ''
+        }
+    
+    def get_mac_address(self) -> str:
+        """Получение MAC адреса"""
+        result = self.send_command('get_mac')
+        if result and result.get('success') == 1:
+            data = result.get('data', {})
+            if isinstance(data, dict):
+                return (data.get('system_wanMAC_addr') or 
+                       data.get('system_lanMAC_addr') or 
+                       data.get('mac_addr') or 'N/A')
+        return 'N/A'
+    
+    def get_presentation_status(self) -> str:
+        """Получить статус презентации"""
+        status = self.get_status()
+        return status.get('presentation', 'Stop')
+    
+    def get_sleep_mode(self) -> str:
+        """Получить режим сна"""
+        result = self.send_command('get_sleep_mode')
+        if result and result.get('success') == 1:
+            data = result.get('data', {})
+            if isinstance(data, dict):
+                is_sleep = data.get('isSystemSleep', 'unsleep')
+                return 'On' if is_sleep == 'sleep' else 'Off'
+        return 'Off'
+
+    def get_volume_range(self):
+        return 0, 15
+
+    def set_presentation(self, value: str) -> bool:
+        command_map = {
+            'Start': 'action.cgi?ActionID=WEB_StartSendAuxStreamAPI',
+            'Stop': 'action.cgi?ActionID=WEB_StopSendAuxStreamAPI',
+        }
+        command = command_map.get(value)
+        if not command:
+            raise ValueError("Presentation value must be 'Start' or 'Stop'")
+
+        payload = {
+            "acCSRFToken": self.acCSRFToken or "",
+        }
+        result = self.send_command(command, payload)
+        return bool(result and result.get('success') == 1)
+
+    def set_speaker_volume(self, value: int) -> bool:
+        min_value, max_value = self.get_volume_range()
+        if not min_value <= value <= max_value:
+            raise ValueError(f"Speaker volume must be in range {min_value}..{max_value}")
+
+        payload = {
+            "speaker": 1,
+            "speakerValue": int(value),
+            "acCSRFToken": self.acCSRFToken or "",
+        }
+        result = self.send_command('WEB_SetSpeakVolumeAPI', payload)
+        return bool(result and result.get('success') == 1)
+
+    def get_speaker_volume(self) -> Optional[int]:
+        result = self.send_command('get_audio_status')
+        if not result or result.get('success') != 1:
+            return None
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return None
+
+        if not isinstance(data, dict):
+            return None
+
+        volume = data.get('speakerValue')
+        try:
+            return int(volume)
+        except (TypeError, ValueError):
+            return None
+
