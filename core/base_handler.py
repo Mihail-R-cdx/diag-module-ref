@@ -415,22 +415,32 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         """Чтение ответа от сокета"""
         response = b''
         start_time = time.time()
+        last_chunk_time = None
+        idle_after_data = 0.35
+        poll_timeout = 0.1
+        previous_timeout = self._set_transport_timeout(poll_timeout)
 
-        while True:
-            try:
-                if time.time() - start_time > self.timeout:
-                    break
+        try:
+            while True:
+                try:
+                    if time.time() - start_time > self.timeout:
+                        break
 
-                chunk = self._recv_bytes(1024)
-                if not chunk:
-                    break
-                response += chunk
+                    if response and last_chunk_time and (time.time() - last_chunk_time) > idle_after_data:
+                        break
 
-                if b'\r\n' in chunk or b'\n' in chunk:
-                    break
+                    chunk = self._recv_bytes(1024)
+                    if not chunk:
+                        break
+                    response += chunk
+                    last_chunk_time = time.time()
 
-            except socket.timeout:
-                break
+                except socket.timeout:
+                    if response and last_chunk_time and (time.time() - last_chunk_time) > idle_after_data:
+                        break
+                    continue
+        finally:
+            self._set_transport_timeout(previous_timeout)
 
         return response
 
@@ -442,19 +452,24 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         response = b''
         start_time = time.time()
         normalized_patterns = [pattern.lower() for pattern in patterns]
+        poll_timeout = 0.1
+        previous_timeout = self._set_transport_timeout(poll_timeout)
 
-        while time.time() - start_time <= timeout:
-            try:
-                chunk = self._recv_bytes(1024)
-                if not chunk:
-                    break
+        try:
+            while time.time() - start_time <= timeout:
+                try:
+                    chunk = self._recv_bytes(1024)
+                    if not chunk:
+                        break
 
-                response += chunk
-                lowered_response = response.lower()
-                if any(pattern in lowered_response for pattern in normalized_patterns):
-                    break
-            except socket.timeout:
-                break
+                    response += chunk
+                    lowered_response = response.lower()
+                    if any(pattern in lowered_response for pattern in normalized_patterns):
+                        break
+                except socket.timeout:
+                    continue
+        finally:
+            self._set_transport_timeout(previous_timeout)
 
         return response
 
@@ -507,6 +522,19 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 self.log_callback(message)
             except Exception:
                 pass
+
+    def _set_transport_timeout(self, timeout_value: float):
+        previous_timeout = None
+        try:
+            if self.ssh_channel:
+                previous_timeout = self.ssh_channel.gettimeout()
+                self.ssh_channel.settimeout(timeout_value)
+            elif self.socket:
+                previous_timeout = self.socket.gettimeout()
+                self.socket.settimeout(timeout_value)
+        except Exception:
+            previous_timeout = None
+        return previous_timeout
 
     @staticmethod
     def _format_bytes(payload: bytes) -> str:

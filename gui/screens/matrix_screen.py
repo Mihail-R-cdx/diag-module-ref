@@ -383,29 +383,17 @@ class MatrixScreen(BaseScreen):
             current_idx = 0
         creds = creds_list[current_idx]
         
-        # Создаем временное соединение для отправки команды
-        from handlers.extron.in1804 import ExtronIN1804Handler
-        
         try:
-            # Создаем обработчик и подключаемся
-            handler = ExtronIN1804Handler(
+            handler = self.main_window.ensure_matrix_persistent_handler(
                 ip_address=ip_address,
-                port=22023,
                 username=creds.get('username', ''),
                 password=creds.get('password', '')
             )
-            
-            # Подключаемся (с аутентификацией)
-            print("Connecting to matrix for switch command...")
-            handler.connect()
-            
+
             # Отправляем команду переключения
             print(f"Sending switch command to input {input_num}")
             handler.set_connection(1, input_num)
-            
-            # Закрываем соединение
-            handler.disconnect()
-            
+
             print(f"Successfully switched to input {input_num}")
             
             # Быстрое обновление только статуса коммутации
@@ -479,28 +467,16 @@ class MatrixScreen(BaseScreen):
             current_idx = 0
         creds = creds_list[current_idx]
         
-        # Создаем временное соединение для быстрого опроса
-        from handlers.extron.in1804 import ExtronIN1804Handler
-        
         try:
-            # Создаем обработчик и подключаемся
-            handler = ExtronIN1804Handler(
+            handler = self.main_window.ensure_matrix_persistent_handler(
                 ip_address=ip_address,
-                port=22023,
                 username=creds.get('username', ''),
                 password=creds.get('password', '')
             )
-            
-            # Подключаемся (с аутентификацией)
-            print("Quick connecting to update connection status...")
-            handler.connect()
-            
+
             # Получаем только текущие коммутации (быстрая команда)
             connections = handler.get_connections()
-            
-            # Закрываем соединение
-            handler.disconnect()
-            
+
             if connections:
                 self.current_connection = connections[0]
                 print(f"Updated connection: {self.current_connection}")

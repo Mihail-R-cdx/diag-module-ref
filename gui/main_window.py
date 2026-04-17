@@ -180,6 +180,13 @@ class VCSDiagnosticApp(QMainWindow):
         
         
         self.progress_dialog = None
+        self.matrix_persistent_handler = None
+        self.matrix_persistent_ip = None
+        self.matrix_persistent_username = None
+        self.matrix_persistent_password = None
+        self.matrix_keepalive_timer = QTimer(self)
+        self.matrix_keepalive_timer.setInterval(15000)
+        self.matrix_keepalive_timer.timeout.connect(self.on_matrix_keepalive)
         
         # Инициализация экранов
         self.screens = {}
@@ -720,6 +727,8 @@ class VCSDiagnosticApp(QMainWindow):
         codec_screen = self.screens.get("codec") if hasattr(self, 'screens') else None
         if codec_screen and hasattr(codec_screen, 'reset_volume_session'):
             codec_screen.reset_volume_session()
+        if device_name != "Extron IN1804":
+            self.disconnect_matrix_persistent_handler()
 
         screen_type = self.device_to_screen.get(device_name, "codec")
         
@@ -734,6 +743,93 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Обновляем заголовок окна
         self.setWindowTitle(f"Диагностический модуль ММК - {device_name}")
+
+    def get_current_matrix_credentials(self):
+        device_name = "Extron IN1804"
+        creds_list = self.device_credentials.get(device_name, [])
+        if not creds_list:
+            return None
+
+        current_idx = self.current_credential_index.get(device_name, 0)
+        if current_idx >= len(creds_list):
+            current_idx = 0
+        return creds_list[current_idx]
+
+    def ensure_matrix_persistent_handler(self, ip_address=None, username=None, password=None, force_reconnect=False):
+        from handlers.extron.in1804 import ExtronIN1804Handler
+
+        creds = None
+        if username is None or password is None:
+            creds = self.get_current_matrix_credentials()
+            if not creds:
+                raise RuntimeError("Нет credentials для Extron IN1804")
+            username = creds.get('username', '')
+            password = creds.get('password', '')
+
+        if ip_address is None:
+            ip_address = self.ip_entry.text().strip()
+
+        same_connection = (
+            self.matrix_persistent_handler is not None and
+            self.matrix_persistent_ip == ip_address and
+            self.matrix_persistent_username == username and
+            self.matrix_persistent_password == password and
+            self.matrix_persistent_handler.is_connected()
+        )
+        if same_connection and not force_reconnect:
+            return self.matrix_persistent_handler
+
+        self.disconnect_matrix_persistent_handler()
+
+        handler = ExtronIN1804Handler(
+            ip_address=ip_address,
+            port=22023,
+            username=username,
+            password=password
+        )
+        handler.connect()
+
+        self.matrix_persistent_handler = handler
+        self.matrix_persistent_ip = ip_address
+        self.matrix_persistent_username = username
+        self.matrix_persistent_password = password
+        self.matrix_keepalive_timer.start()
+        print(f"Persistent Extron handler connected for {ip_address}")
+        return handler
+
+    def disconnect_matrix_persistent_handler(self):
+        if hasattr(self, 'matrix_keepalive_timer') and self.matrix_keepalive_timer.isActive():
+            self.matrix_keepalive_timer.stop()
+
+        if self.matrix_persistent_handler:
+            try:
+                self.matrix_persistent_handler.disconnect()
+            except Exception as e:
+                print(f"Error disconnecting persistent Extron handler: {e}")
+
+        self.matrix_persistent_handler = None
+        self.matrix_persistent_ip = None
+        self.matrix_persistent_username = None
+        self.matrix_persistent_password = None
+
+    @pyqtSlot()
+    def on_matrix_keepalive(self):
+        if not self.matrix_persistent_handler or not self.matrix_persistent_handler.is_connected():
+            self.disconnect_matrix_persistent_handler()
+            return
+
+        original_log_callback = self.matrix_persistent_handler.log_callback
+        try:
+            self.matrix_persistent_handler.log_callback = None
+            result = self.matrix_persistent_handler.send_command('w20STAT')
+            if not result or not result.get('success'):
+                raise RuntimeError(result.get('error', 'keepalive failed') if result else 'keepalive failed')
+        except Exception as e:
+            print(f"Matrix keepalive failed: {e}")
+            self.disconnect_matrix_persistent_handler()
+        finally:
+            if self.matrix_persistent_handler:
+                self.matrix_persistent_handler.log_callback = original_log_callback
 
     
     def switch_screen(self, screen_type):
@@ -1335,6 +1431,18 @@ class VCSDiagnosticApp(QMainWindow):
             if device_name:
                 self.current_credential_index[device_name] = current_idx
                 print(f"Запомнен успешный credentials #{current_idx + 1} для {device_name}")
+                if device_name == "Extron IN1804":
+                    creds_list = getattr(self.current_worker, 'creds_list', [])
+                    if creds_list and current_idx < len(creds_list):
+                        creds = creds_list[current_idx]
+                        try:
+                            self.ensure_matrix_persistent_handler(
+                                ip_address=data.get('ip_address', self.ip_entry.text()),
+                                username=creds.get('username', ''),
+                                password=creds.get('password', '')
+                            )
+                        except Exception as e:
+                            print(f"Failed to establish persistent Extron handler: {e}")
         
         # Обновляем данные на текущем экране
         if hasattr(self, 'current_screen_type'):
@@ -2080,5 +2188,9 @@ class VCSDiagnosticApp(QMainWindow):
     def finish_matrix_terminal(self, message: str):
         if hasattr(self, 'matrix_terminal_dialog') and self.matrix_terminal_dialog:
             self.matrix_terminal_dialog.append_line(f"[session] {message}")
+
+    def closeEvent(self, event):
+        self.disconnect_matrix_persistent_handler()
+        super().closeEvent(event)
             
 
