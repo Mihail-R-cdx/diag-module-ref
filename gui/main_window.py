@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime
 from PyQt5.QtGui import QPalette, QColor
@@ -40,6 +40,38 @@ class RightAlignHeaderDelegate(QStyledItemDelegate):
             # Для обычных элементов используем стандартное рисование
             # Вызываем родительский метод
             QStyledItemDelegate.paint(self, painter, option, index)
+
+
+class MatrixTerminalDialog(QDialog):
+    def __init__(self, colors, parent=None):
+        super().__init__(parent)
+        self.colors = colors
+        self.setWindowTitle("Терминал Extron IN1804")
+        self.resize(820, 420)
+
+        layout = QVBoxLayout(self)
+        self.output = QPlainTextEdit(self)
+        self.output.setReadOnly(True)
+        self.output.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: #0F1115;
+                color: #D7FBE8;
+                border: 1px solid {self.colors['divider']};
+                border-radius: 6px;
+                padding: 8px;
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 10pt;
+            }}
+        """)
+        layout.addWidget(self.output)
+
+    def reset_session(self, title: str):
+        self.setWindowTitle(title)
+        self.output.clear()
+
+    def append_line(self, text: str):
+        self.output.appendPlainText(text)
+        self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
 
 class VCSDiagnosticApp(QMainWindow):
     def __init__(self):
@@ -1073,6 +1105,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем прогресс
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
+        self.show_matrix_terminal(ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
         
         try:
             from core.worker import ExtronIN1804Worker
@@ -1094,6 +1127,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.signals.error.connect(self.on_device_error)
             self.current_worker.signals.progress.connect(self.on_progress_update)
             self.current_worker.signals.status.connect(self.on_status_update)
+            self.current_worker.signals.terminal_log.connect(self.on_terminal_log)
             self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
@@ -1278,6 +1312,8 @@ class VCSDiagnosticApp(QMainWindow):
     def on_device_data_received(self, data):
         """Обработка полученных данных от устройства"""
         self.hide_progress_dialog()
+        if self.device_combo.currentText() == "Extron IN1804":
+            self.finish_matrix_terminal("Опрос завершён успешно")
 
         meaningful_keys = [
             key for key, value in data.items()
@@ -1342,6 +1378,8 @@ class VCSDiagnosticApp(QMainWindow):
     def on_device_error(self, error_info):
         """Обработка ошибок от устройства с автоматическим перебором credentials"""
         error_type, error, traceback_text = error_info
+        if hasattr(self, 'current_worker') and getattr(self.current_worker, 'device_name', None) == "Extron IN1804":
+            self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
         
         # Проверяем, есть ли текущий worker и нужно ли пробовать другие credentials
         if hasattr(self, 'current_worker') and self.current_worker:
@@ -2018,5 +2056,29 @@ class VCSDiagnosticApp(QMainWindow):
         if hasattr(self, 'progress_dialog') and self.progress_dialog:
             self.progress_dialog.close()
             self.progress_dialog = None         
+
+    def show_matrix_terminal(self, ip_address: str, attempt_no: int, total_attempts: int, reset: bool = True):
+        if not hasattr(self, 'matrix_terminal_dialog') or self.matrix_terminal_dialog is None:
+            self.matrix_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+
+        title = f"Терминал Extron IN1804 - {ip_address}"
+        if reset:
+            self.matrix_terminal_dialog.reset_session(title)
+            self.matrix_terminal_dialog.append_line(f"[session] start {ip_address}")
+        else:
+            self.matrix_terminal_dialog.setWindowTitle(title)
+        self.matrix_terminal_dialog.append_line(f"[session] attempt {attempt_no}/{total_attempts}")
+        self.matrix_terminal_dialog.show()
+        self.matrix_terminal_dialog.raise_()
+        self.matrix_terminal_dialog.activateWindow()
+
+    @pyqtSlot(str)
+    def on_terminal_log(self, message: str):
+        if hasattr(self, 'matrix_terminal_dialog') and self.matrix_terminal_dialog:
+            self.matrix_terminal_dialog.append_line(message)
+
+    def finish_matrix_terminal(self, message: str):
+        if hasattr(self, 'matrix_terminal_dialog') and self.matrix_terminal_dialog:
+            self.matrix_terminal_dialog.append_line(f"[session] {message}")
             
 

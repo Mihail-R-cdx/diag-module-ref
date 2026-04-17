@@ -19,6 +19,7 @@ class WorkerSignals(QObject):
     result = pyqtSignal(dict)
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
+    terminal_log = pyqtSignal(str)
     connected = pyqtSignal()
     disconnected = pyqtSignal()
 
@@ -423,6 +424,7 @@ class ExtronIN1804Worker(QRunnable):
                 username=self.username,
                 password=self.password
             )
+            self.handler.log_callback = self.signals.terminal_log.emit
             
             self.signals.status.emit("Установка соединения...")
             self.signals.progress.emit(20)

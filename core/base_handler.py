@@ -128,39 +128,92 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         self.authenticated = False
         self.connection_protocol = 'Unknown'
         self._last_prompt = b''
+        self.log_callback = None
 
     def connect(self) -> bool:
         """Установка TCP соединения с матрицей и аутентификация"""
-        try:
+        errors = []
+
+        for attempt in self._build_connection_attempts():
             self.disconnect()
-            print(f"Connecting to {self.ip_address}:{self.port}")
+            attempt_name = attempt['name']
+            attempt_port = attempt['port']
+            print(f"Connecting to {self.ip_address}:{attempt_port} via {attempt_name}")
+            self._emit_log(f"[connect] {self.ip_address}:{attempt_port} via {attempt_name}")
 
-            initial_response = self._connect_plain_socket()
-            if self._is_ssh_banner(initial_response):
-                print("SSH banner detected during plain TCP connect, switching to SSH")
-                self._close_socket()
-                self._connect_via_ssh()
-            else:
-                if not self._authenticate(initial_response):
-                    raise AuthenticationError("Authentication failed")
+            try:
+                if attempt['type'] == 'ssh':
+                    self._connect_via_ssh(
+                        port=attempt_port,
+                        protocol_label=attempt['protocol_label']
+                    )
+                else:
+                    initial_response = self._connect_plain_socket(
+                        port=attempt_port,
+                        protocol_label=attempt['protocol_label']
+                    )
+                    if self._is_ssh_banner(initial_response):
+                        print(f"SSH banner detected on plain TCP port {attempt_port}, switching to SSH")
+                        self._emit_log(f"[connect] SSH banner detected on {attempt_port}, switching to SSH")
+                        self._close_socket()
+                        self._connect_via_ssh(
+                            port=attempt_port,
+                            protocol_label=f"SSH ({attempt_port})"
+                        )
+                    else:
+                        if not self._authenticate(initial_response):
+                            raise AuthenticationError("Authentication failed")
 
-            self._connected = True
-            self.authenticated = True
-            print(f"Successfully connected and authenticated to Extron matrix via {self.connection_protocol}")
-            return True
+                self._connected = True
+                self.authenticated = True
+                print(f"Successfully connected and authenticated to Extron matrix via {self.connection_protocol}")
+                self._emit_log(f"[connect] connected via {self.connection_protocol}")
+                return True
+            except Exception as e:
+                errors.append(f"{attempt_name}: {e}")
+                print(f"Connection attempt failed ({attempt_name}): {e}")
+                self._emit_log(f"[error] {attempt_name}: {e}")
 
-        except (AuthenticationError, ConnectionError):
-            self.disconnect()
-            raise
-        except Exception as e:
-            self.disconnect()
-            raise ConnectionError(f"Failed to connect to Extron matrix: {e}")
+        self.disconnect()
 
-    def _connect_plain_socket(self) -> bytes:
+        auth_errors = [message for message in errors if 'auth' in message.lower() or 'login' in message.lower() or 'password' in message.lower()]
+        if auth_errors:
+            raise AuthenticationError("; ".join(auth_errors))
+        raise ConnectionError(f"Failed to connect to Extron matrix: {'; '.join(errors)}")
+
+    def _build_connection_attempts(self):
+        attempts = [
+            {
+                'type': 'ssh',
+                'port': 22022,
+                'name': 'SSH first priority',
+                'protocol_label': 'SSH (22022)'
+            }
+        ]
+
+        if self.port != 22022:
+            attempts.append({
+                'type': 'plain',
+                'port': self.port,
+                'name': f'plain TCP on {self.port}',
+                'protocol_label': f'Telnet ({self.port})'
+            })
+
+        if self.port != 22023:
+            attempts.append({
+                'type': 'plain',
+                'port': 22023,
+                'name': 'plain TCP fallback on 22023',
+                'protocol_label': 'Telnet (22023)'
+            })
+
+        return attempts
+
+    def _connect_plain_socket(self, port: int, protocol_label: str) -> bytes:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.timeout)
-        self.socket.connect((self.ip_address, self.port))
-        self.connection_protocol = 'Telnet'
+        self.socket.connect((self.ip_address, port))
+        self.connection_protocol = protocol_label
 
         initial_response = self._read_until_patterns(
             [b'login as:', b'password:', b'ssh-'],
@@ -179,9 +232,11 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
         self._last_prompt = initial_response
         print(f"Initial plain response: {initial_response[:200]}...")
+        if initial_response:
+            self._emit_log(f"[recv] {self._format_bytes(initial_response)}")
         return initial_response
 
-    def _connect_via_ssh(self) -> None:
+    def _connect_via_ssh(self, port: int, protocol_label: str) -> None:
         if not self.username:
             raise AuthenticationError("Username required for Extron authentication")
         if self.password is None:
@@ -192,7 +247,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.ssh_client.connect(
                 hostname=self.ip_address,
-                port=self.port,
+                port=port,
                 username=self.username,
                 password=self.password,
                 timeout=self.timeout,
@@ -201,9 +256,15 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             )
             self.ssh_channel = self.ssh_client.invoke_shell()
             self.ssh_channel.settimeout(self.timeout)
-            self.connection_protocol = 'SSH'
+            self.connection_protocol = protocol_label
             time.sleep(1.0)
             self._last_prompt = self._read_until_patterns([b'>', b']', b'#'], timeout=1.5)
+            self._emit_log(f"[connect] SSH session established on port {port}")
+            if self._last_prompt:
+                self._emit_log(f"[recv] {self._format_bytes(self._last_prompt)}")
+            lowered_prompt = self._last_prompt.lower()
+            if b'this service allows sftp connections only' in lowered_prompt:
+                raise ConnectionError("SSH service is SFTP-only and does not provide CLI access")
         except paramiko.AuthenticationException as e:
             raise AuthenticationError(f"SSH authentication failed: {e}")
         except paramiko.SSHException as e:
@@ -224,6 +285,8 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             timeout=self.timeout
         )
         print(f"Login prompt received: {login_prompt[:200]}...")
+        if login_prompt:
+            self._emit_log(f"[recv] {self._format_bytes(login_prompt)}")
         lowered_login_prompt = login_prompt.lower()
 
         if self._is_ssh_banner(login_prompt):
@@ -231,6 +294,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
         if b'password:' in lowered_login_prompt and b'login as:' not in lowered_login_prompt:
             print("Password prompt arrived before login prompt, sending username first")
+            self._emit_log(f"[send] {self.username}")
             self._send_bytes((self.username + '\r\n').encode())
             password_prompt = self._read_until_patterns(
                 [b'password:', b'login incorrect', b'login as:', b'>', b']'],
@@ -245,8 +309,11 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 )
                 login_prompt += extra_prompt
                 lowered_login_prompt = login_prompt.lower()
+                if extra_prompt:
+                    self._emit_log(f"[recv] {self._format_bytes(extra_prompt)}")
 
             print(f"Sending username: {self.username}")
+            self._emit_log(f"[send] {self.username}")
             self._send_bytes((self.username + '\r\n').encode())
             password_prompt = self._read_until_patterns(
                 [b'Password:', b'Login incorrect', b'login as:', b'>', b']'],
@@ -254,6 +321,8 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             )
 
         print(f"Response after username: {password_prompt[:200]}...")
+        if password_prompt:
+            self._emit_log(f"[recv] {self._format_bytes(password_prompt)}")
         lowered_password_prompt = password_prompt.lower()
         if b'login incorrect' in lowered_password_prompt:
             raise AuthenticationError("Invalid username")
@@ -261,6 +330,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             raise AuthenticationError("Device did not request password")
 
         print("Sending password...")
+        self._emit_log("[send] <password>")
         self._send_bytes((self.password + '\r\n').encode())
 
         final_response = self._read_until_patterns(
@@ -268,6 +338,8 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             timeout=self.timeout
         )
         print(f"Response after password: {final_response[:200]}...")
+        if final_response:
+            self._emit_log(f"[recv] {self._format_bytes(final_response)}")
         lowered_final_response = final_response.lower()
 
         if b'login incorrect' in lowered_final_response:
@@ -301,11 +373,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 command += '\r'
 
             print(f"Sending command: {command.strip()}")
+            self._emit_log(f"[send] {command.strip()}")
             self._send_bytes(command.encode())
             time.sleep(0.5)
 
             response_bytes = self._read_response()
             print(f"Received response bytes: {response_bytes[:100]}...")
+            if response_bytes:
+                self._emit_log(f"[recv] {self._format_bytes(response_bytes)}")
 
             lowered_response = response_bytes.lower()
             if b'password:' in lowered_response or b'login as:' in lowered_response:
@@ -319,6 +394,8 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 response_text = response_bytes.decode('utf-8', errors='ignore').strip()
             except:
                 response_text = str(response_bytes)
+
+            response_text = self._strip_command_echo(command, response_text)
 
             return {
                 'success': True,
@@ -423,3 +500,34 @@ class BaseExtronMatrixHandler(ProtocolHandler):
     @staticmethod
     def _is_ssh_banner(response: bytes) -> bool:
         return b'ssh-' in response.lower()
+
+    def _emit_log(self, message: str) -> None:
+        if self.log_callback:
+            try:
+                self.log_callback(message)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _format_bytes(payload: bytes) -> str:
+        return payload.decode('utf-8', errors='ignore').replace('\r', '\\r').replace('\n', '\\n')
+
+    @staticmethod
+    def _strip_command_echo(command: str, response_text: str) -> str:
+        if not response_text:
+            return response_text
+
+        normalized_command = command.strip()
+        if not normalized_command:
+            return response_text.strip()
+
+        lines = [line.strip() for line in response_text.splitlines()]
+        while lines and not lines[0]:
+            lines.pop(0)
+
+        if lines and lines[0] == normalized_command:
+            lines.pop(0)
+            while lines and not lines[0]:
+                lines.pop(0)
+
+        return '\n'.join(lines).strip()
