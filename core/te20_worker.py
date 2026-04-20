@@ -88,9 +88,17 @@ class HuaweiTE20Worker(QRunnable):
                     )
                     current_handler.disconnect()
                 except AuthenticationError as e:
-                    auth_error = e
                     current_handler.disconnect()
                     print(f"[TE20] Ошибка аутентификации через {profile['label']}: {e}")
+
+                    if not profile["use_ssl"]:
+                        last_connection_error = (
+                            f"{profile['label']}: {e}. "
+                            "Пробую HTTPS fallback, так как HTTP может быть отключен на устройстве."
+                        )
+                        continue
+
+                    auth_error = e
                     break
                 except Exception as e:
                     last_connection_error = f"{profile['label']}: {e}"

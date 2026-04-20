@@ -35,7 +35,11 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         self.base_url = f"{protocol}://{ip_address}:{port}"
 
     def _init_http_session(self) -> None:
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.session = requests.Session()
+        self.session.verify = self.verify_ssl
         auth_username = self.credentials.get('username', 'api')
         auth_password = self.credentials.get('password', '')
         self.session.auth = (auth_username, auth_password)
@@ -179,13 +183,18 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 print("[WARN] Продолжаем работу без CSRF токена")
                 self.csrf_token = None
             
-            # Считаем подключение успешным, даже если токены не получены
-            # Так как устройство может работать и без них
+            if not self.session_id and not self.csrf_token:
+                self._connected = False
+                print("[WARN] Устройство ответило, но не выдало ни Session ID, ни CSRF token")
+                return False
+
             self._connected = True
-            if self.session_id:
-                print("[OK] Подключение к устройству установлено")
+            if self.session_id and self.csrf_token:
+                print("[OK] Подключение к устройству установлено, Session ID и CSRF token получены")
+            elif self.csrf_token:
+                print("[OK] Подключение к устройству установлено по CSRF token")
             else:
-                print("[WARN] Session ID не получен, но подключение сохранено для fallback-сценария TE-20")
+                print("[OK] Подключение к устройству установлено по Session ID")
             return True
             
         except AuthenticationError:
