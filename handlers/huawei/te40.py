@@ -48,6 +48,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             urllib.request.HTTPSHandler(context=self.context),
             urllib.request.HTTPCookieProcessor()
         )
+
+    def _log_command(self, message: str) -> None:
+        logger = getattr(self, 'command_logger', None)
+        if callable(logger):
+            logger(message)
     
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE-40"""
@@ -57,10 +62,12 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             # 1. Получаем Session ID
             session_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestSessionIDAPI"
             session_request = urllib.request.Request(session_url, method='POST')
+            self._log_command(f"[request] POST {session_url}")
             
             try:
                 session_response = self.opener.open(session_request, timeout=10)
                 session_response_text = session_response.read().decode('utf-8')
+                self._log_command(f"[response] 200 {session_response_text}")
                 print(f"Ответ Session ID: {session_response_text}")
                 
                 result = json.loads(session_response_text)
@@ -101,6 +108,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 "user": self.credentials.get('username', 'api'),
                 "password": self.credentials.get('password', '')
             }).encode('utf-8')
+            self._log_command(f"[request] POST {token_url}")
+            self._log_command(f"[payload] {data.decode('utf-8', errors='ignore')}")
             
             token_request = urllib.request.Request(
                 token_url,
@@ -116,6 +125,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             try:
                 token_response = self.opener.open(token_request, timeout=10)
                 token_response_text = token_response.read().decode('utf-8')
+                self._log_command(f"[response] 200 {token_response_text}")
                 print(f"Ответ CSRF Token: {token_response_text}")
                 
                 token_result = json.loads(token_response_text)
@@ -196,6 +206,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 'get_sip_status': 'WEB_GetLineStateInfoAPI',
                 'get_audio_status': 'WEB_InitAudioCtrlParamsAPI',
                 'get_presentation': 'WEB_IsSendAuxStreamAPI',
+                'get_system_sleep': 'WEB_IsSystemSleepAPI',
                 'get_camera_status': 'WEB_GetLocalCameraList',
                 'get_mac': 'WEB_GetSystemMacAddrAPI',
                 'get_system_info': 'WEB_GetSystemInfoAPI',
@@ -223,6 +234,9 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             request_data = data or {}
             if self.csrf_token and 'acCSRFToken' not in request_data:
                 request_data['acCSRFToken'] = self.csrf_token
+            self._log_command(f"[request] {'POST' if request_data else 'GET'} {url}")
+            if request_data:
+                self._log_command(f"[payload] {json.dumps(request_data, ensure_ascii=False)}")
             
             # Отправляем запрос
             if request_data:
@@ -242,6 +256,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             
             response = self.opener.open(request, timeout=10)
             response_text = response.read().decode('utf-8')
+            self._log_command(f"[response] 200 {response_text}")
             print(f"Ответ {command}: {response_text[:200]}...")
             
             try:
@@ -252,6 +267,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 return {}
             
         except Exception as e:
+            self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
             print(f"Ошибка выполнения команды {command}: {e}")
             return {}
 
@@ -604,6 +620,50 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def get_volume_range(self):
         return 0, 21
 
+    def get_sleep_mode(self) -> str:
+        """Получить режим сна."""
+        result = self.send_command('get_system_sleep')
+        if not result or result.get('success') != 1:
+            return 'Off'
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return 'Off'
+
+        if not isinstance(data, dict):
+            return 'Off'
+
+        return 'On' if data.get('isSystemSleep') == 'sleep' else 'Off'
+
+    def wake_up(self) -> bool:
+        """Разбудить устройство из режима сна."""
+        payload = {
+            "acCSRFToken": self.csrf_token or "",
+        }
+        result = self.send_command('WEB_SystemWakeUpAPI', payload)
+        return bool(result and result.get('success') == 1)
+
+    def get_presentation_status(self) -> str:
+        """Получить текущий статус презентации."""
+        result = self.send_command('get_presentation')
+        if not result or result.get('success') != 1:
+            return 'Stop'
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return 'Stop'
+
+        if not isinstance(data, dict):
+            return 'Stop'
+
+        return 'Start' if data.get('isSendAux') == 'auxOpen' else 'Stop'
+
     def set_presentation(self, value: str) -> bool:
         command_map = {
             'Start': 'WEB_StartSendAuxStreamAPI',
@@ -617,7 +677,12 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             "acCSRFToken": self.csrf_token or "",
         }
         result = self.send_command(command, payload)
-        return bool(result and result.get('success') == 1)
+        if result and result.get('success') == 1:
+            return True
+
+        # Некоторые TE40 меняют статус, но не возвращают success=1 на set-команду.
+        time.sleep(0.5)
+        return self.get_presentation_status() == value
 
     def set_speaker_volume(self, value: int) -> bool:
         min_value, max_value = self.get_volume_range()

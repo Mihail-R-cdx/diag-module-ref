@@ -61,8 +61,10 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             # 1. Получение SessionID
             try:
                 session_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestSessionIDAPI"
+                self._log_command(f"[request] POST {session_url}")
                 session_response = self.session.post(session_url, data="", timeout=10)
                 session_response_text = session_response.text
+                self._log_command(f"[response] {session_response.status_code} {session_response_text}")
                 print(f"Ответ Session ID: {session_response_text}")
                 
                 # Проверяем HTTP статус код
@@ -133,8 +135,11 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 print("Получаю CSRF Token...")
                 token_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestCertificateAPI"
                 token_data = {"user": auth_username, "password": auth_password}
+                self._log_command(f"[request] POST {token_url}")
+                self._log_command(f"[payload] {json.dumps(token_data, ensure_ascii=False)}")
                 
                 token_response = self.session.post(token_url, json=token_data, timeout=10)
+                self._log_command(f"[response] {token_response.status_code} {token_response.text}")
                 
                 # Проверяем HTTP статус код
                 if token_response.status_code == 401 or token_response.status_code == 403:
@@ -242,6 +247,11 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         cleaned = ' '.join(cleaned.split())
         return cleaned.strip()
 
+    def _log_command(self, message: str) -> None:
+        logger = getattr(self, 'command_logger', None)
+        if callable(logger):
+            logger(message)
+
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
         """Отправить команду устройству"""
@@ -277,12 +287,15 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             url = f"{self.base_url}/action.cgi?ActionID={action}"
             
             print(f"Отправка команды {command} на {url}")
+            self._log_command(f"[request] POST {url}")
             
             # Подготавливаем данные
             request_data = data or {}
             # Добавляем CSRF токен только если он есть
             if hasattr(self, 'csrf_token') and self.csrf_token and 'acCSRFToken' not in request_data:
                 request_data['acCSRFToken'] = self.csrf_token
+            if request_data:
+                self._log_command(f"[payload] {json.dumps(request_data, ensure_ascii=False)}")
             
             # Отправляем запрос
             try:
@@ -297,6 +310,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     raise AuthenticationError(f"HTTP {response.status_code}: Ошибка аутентификации при выполнении команды {command}")
                 
                 response_text = response.text
+                self._log_command(f"[response] {response.status_code} {response_text}")
                 print(f"Ответ {command}: {response_text[:200]}...")
                 
                 try:
@@ -334,6 +348,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code in (401, 403):
                     raise AuthenticationError(f"HTTP {e.response.status_code}: Ошибка аутентификации при выполнении команды {command}")
+                self._log_command(f"[error] HTTPError {command}: {str(e)}")
                 print(f"[WARN] Ошибка HTTP запроса для команды {command}: {type(e).__name__}: {str(e)}")
                 return {'success': 0, 'error': str(e), 'data': {}}
             except Exception as e:
@@ -341,6 +356,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 error_str = str(e).lower()
                 if "authentication" in error_str or "401" in str(e) or "403" in str(e):
                     raise AuthenticationError(f"Ошибка аутентификации при выполнении команды {command}: {str(e)}")
+                self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
                 print(f"[WARN] Ошибка выполнения команды {command}: {type(e).__name__}: {str(e)}")
                 return {'success': 0, 'error': str(e), 'data': {}}
             
@@ -710,6 +726,50 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
     def get_volume_range(self):
         return 0, 21
 
+    def get_sleep_mode(self) -> str:
+        """Получить режим сна."""
+        result = self.send_command('get_system_sleep')
+        if not result or result.get('success') != 1:
+            return 'Off'
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return 'Off'
+
+        if not isinstance(data, dict):
+            return 'Off'
+
+        return 'On' if data.get('isSystemSleep') == 'sleep' else 'Off'
+
+    def wake_up(self) -> bool:
+        """Разбудить устройство из режима сна."""
+        payload = {
+            "acCSRFToken": self.csrf_token or "",
+        }
+        result = self.send_command('WEB_SystemWakeUpAPI', payload)
+        return bool(result and result.get('success') == 1)
+
+    def get_presentation_status(self) -> str:
+        """Получить текущий статус локальной презентации."""
+        result = self.send_command('get_presentation_local')
+        if not result or result.get('success') != 1:
+            return 'Stopped'
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return 'Stopped'
+
+        if not isinstance(data, dict):
+            return 'Stopped'
+
+        return 'Started' if data.get('isSendAux') == 'auxOpen' else 'Stopped'
+
     def set_presentation(self, value: str) -> bool:
         command_map = {
             'Start': 'WEB_StartSendAuxStreamAPI',
@@ -723,7 +783,13 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             "acCSRFToken": self.csrf_token or "",
         }
         result = self.send_command(command, payload)
-        return bool(result and result.get('success') == 1)
+        if result and result.get('success') == 1:
+            return True
+
+        # Некоторые TE20 не выставляют success=1 для команды, но меняют состояние.
+        time.sleep(0.5)
+        expected_state = 'Started' if value == 'Start' else 'Stopped'
+        return self.get_presentation_status() == expected_state
 
     def set_speaker_volume(self, value: int) -> bool:
         min_value, max_value = self.get_volume_range()

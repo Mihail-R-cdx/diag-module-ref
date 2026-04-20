@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QVBoxLayout, QScrollArea, QGridLayout, QFrame, QLabel, QWidget, QPushButton, QMessageBox
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import QVBoxLayout, QScrollArea, QGridLayout, QFrame, QLabel, QWidget, QPushButton, QMessageBox, QProgressDialog
+from PyQt5.QtCore import Qt, QTimer, QEventLoop
 from .base_screen import BaseScreen
 
 
@@ -589,6 +589,7 @@ class CodecScreen(BaseScreen):
             print(f"Неизвестное направление управления презентацией: {direction}")
             return
 
+        self._show_presentation_terminal(device_name, ip_address, command)
         print(f"Отправка команды управления презентацией на {device_name} ({ip_address}): {command}")
 
         current_idx = self.parent.current_credential_index.get(device_name, 0)
@@ -600,6 +601,9 @@ class CodecScreen(BaseScreen):
             return
 
         creds = creds_list[current_idx]
+        self._append_presentation_terminal_log(
+            f"[session] credential {current_idx + 1}/{len(creds_list)} user={creds['username']}"
+        )
 
         try:
             handler = self._get_or_create_volume_handler(
@@ -607,25 +611,33 @@ class CodecScreen(BaseScreen):
                 device_name=device_name,
                 username=creds['username'],
                 password=creds['password'],
+                command_logger=self._append_presentation_terminal_log,
             )
 
             if handler is None:
                 print("Не удалось подключиться к устройству для управления презентацией")
+                self._finish_presentation_terminal("connection failed")
                 QMessageBox.warning(self, "Ошибка", "Не удалось подключиться к устройству для управления презентацией")
                 return
 
             if not hasattr(handler, 'set_presentation'):
                 print(f"Устройство {device_name} пока не поддерживает управление презентацией")
+                self._finish_presentation_terminal("presentation control is not supported")
                 QMessageBox.information(self, "Информация", f"Устройство {device_name} пока не поддерживает управление презентацией")
+                return
+
+            if command == "Start" and not self._prepare_sleeping_device_for_presentation(handler):
                 return
 
             success = handler.set_presentation(command)
             if success:
                 print(f"Команда презентации {command} успешно отправлена")
+                self._finish_presentation_terminal(f"completed successfully: {command}")
                 self.update_presentation_display(command)
                 self.schedule_volume_refresh()
             else:
                 print(f"Устройство не подтвердило команду презентации {command}")
+                self._finish_presentation_terminal(f"device did not confirm command: {command}")
                 QMessageBox.warning(self, "Ошибка", f"Устройство не подтвердило команду презентации: {command}")
 
         except Exception as e:
@@ -635,7 +647,107 @@ class CodecScreen(BaseScreen):
             self.reset_volume_session()
             for name in self.presentation_buttons:
                 self.set_presentation_buttons_enabled(name, True)
+            self._finish_presentation_terminal(f"failed: {type(e).__name__}: {str(e)}")
             QMessageBox.critical(self, "Ошибка", f"Не удалось выполнить команду презентации:\n{str(e)}")
+
+    def _show_presentation_terminal(self, device_name, ip_address, command):
+        if self.parent and hasattr(self.parent, 'show_codec_terminal'):
+            self.parent.show_codec_terminal(device_name, ip_address, command, reset=True)
+
+    def _append_presentation_terminal_log(self, message):
+        if self.parent and hasattr(self.parent, 'append_codec_terminal_line'):
+            self.parent.append_codec_terminal_line(message)
+
+    def _finish_presentation_terminal(self, message):
+        if self.parent and hasattr(self.parent, 'finish_codec_terminal'):
+            self.parent.finish_codec_terminal(message)
+
+    def _prepare_sleeping_device_for_presentation(self, handler):
+        get_sleep_mode = getattr(handler, 'get_sleep_mode', None)
+        if not callable(get_sleep_mode):
+            return True
+
+        try:
+            sleep_mode = get_sleep_mode()
+        except Exception as e:
+            self._append_presentation_terminal_log(
+                f"[sleep] failed to read sleep mode: {type(e).__name__}: {str(e)}"
+            )
+            return True
+
+        self._append_presentation_terminal_log(f"[sleep] current mode: {sleep_mode}")
+        if sleep_mode != 'On':
+            return True
+
+        reply = QMessageBox.question(
+            self,
+            "Режим сна",
+            "Устройство в состоянии сна, разбудить его ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if reply != QMessageBox.Yes:
+            self._finish_presentation_terminal("cancelled by user while device was sleeping")
+            return False
+
+        wake_up = getattr(handler, 'wake_up', None)
+        if callable(wake_up):
+            wake_success = wake_up()
+            self._append_presentation_terminal_log(f"[sleep] wake command result: {wake_success}")
+            if not wake_success:
+                self._finish_presentation_terminal("wake command failed")
+                QMessageBox.warning(self, "Ошибка", "Не удалось разбудить устройство")
+                return False
+
+        self._run_presentation_countdown(5)
+        return True
+
+    def _run_presentation_countdown(self, seconds):
+        dialog = QProgressDialog(self)
+        dialog.setWindowTitle("Пробуждение устройства")
+        dialog.setCancelButton(None)
+        dialog.setMinimum(0)
+        dialog.setMaximum(seconds)
+        dialog.setValue(0)
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(True)
+        dialog.setStyleSheet(f"""
+            QProgressDialog {{
+                background-color: {self.colors['surface']};
+                color: {self.colors['text_primary']};
+            }}
+            QLabel {{
+                color: {self.colors['text_primary']};
+                font-size: 11pt;
+            }}
+        """)
+
+        remaining = {'value': seconds}
+        loop = QEventLoop(self)
+        timer = QTimer(dialog)
+        timer.setInterval(1000)
+
+        def update_label():
+            dialog.setLabelText(f"Включение презентации через {remaining['value']} сек.")
+
+        def tick():
+            remaining['value'] -= 1
+            dialog.setValue(seconds - remaining['value'])
+            if remaining['value'] <= 0:
+                timer.stop()
+                dialog.close()
+                loop.quit()
+            else:
+                update_label()
+
+        update_label()
+        self._append_presentation_terminal_log(f"[sleep] countdown started: {seconds} sec")
+        dialog.show()
+        timer.timeout.connect(tick)
+        timer.start()
+        loop.exec_()
+        self._append_presentation_terminal_log("[sleep] countdown completed")
 
     def set_presentation_buttons_enabled(self, param_name, enabled):
         """Включить или выключить кнопки управления презентацией."""
@@ -792,7 +904,7 @@ class CodecScreen(BaseScreen):
         self.volume_session_handler = None
         self.volume_session_key = None
 
-    def _get_or_create_volume_handler(self, ip_address, device_name, username, password):
+    def _get_or_create_volume_handler(self, ip_address, device_name, username, password, command_logger=None):
         """Возвращает существующую сессию громкости или создаёт новую."""
         handler_class = None
         handler_kwargs = {
@@ -823,11 +935,13 @@ class CodecScreen(BaseScreen):
 
         session_key = (device_name, ip_address, username, password)
         if self.volume_session_handler is not None and self.volume_session_key == session_key:
+            self.volume_session_handler.command_logger = command_logger
             return self.volume_session_handler
 
         self.reset_volume_session()
 
         handler = handler_class(**handler_kwargs)
+        handler.command_logger = command_logger
 
         if handler.connect():
             self.volume_session_handler = handler

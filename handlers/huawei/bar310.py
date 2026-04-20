@@ -5,6 +5,7 @@
 
 import requests
 import json
+import time
 import urllib3
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
@@ -57,6 +58,11 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         self.session = requests.Session()
         self.session.auth = HTTPBasicAuth(username, password)
         self.session.verify = False  # Отключаем проверку SSL
+
+    def _log_command(self, message: str) -> None:
+        logger = getattr(self, 'command_logger', None)
+        if callable(logger):
+            logger(message)
         
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei CloudLink Bar 310"""
@@ -65,6 +71,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             
             # 1. Получаем Session ID
             endpoint = "action.cgi?ActionID=WEB_RequestSessionIDAPI"
+            self._log_command(f"[request] POST {self.base_url}/{endpoint}")
             result = self._make_request(endpoint)
             
             if result and result.get('success') == 1:
@@ -86,6 +93,8 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 "user": self.username,
                 "password": self.password
             }
+            self._log_command(f"[request] POST {self.base_url}/{endpoint}")
+            self._log_command(f"[payload] {json.dumps(data, ensure_ascii=False)}")
             
             print(f"🔐 Попытка аутентификации с логином: {self.username}")
             result = self._make_request(endpoint, data=data)
@@ -200,6 +209,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         
         try:
             print(f"  -> Запрос: {method} {url}")
+            self._log_command(f"[request] {method} {url}")
             
             # ВЫВОД ССЫЛКИ ДЛЯ БРАУЗЕРА (только для GET запросов)
             if method == 'GET':
@@ -207,6 +217,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             
             if request_data:
                 print(f"  -> Данные: {request_data}")
+                self._log_command(f"[payload] {request_data}")
             
             response = self.session.request(
                 method=method,
@@ -215,6 +226,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 headers=headers,
                 timeout=5
             )
+            self._log_command(f"[response] {response.status_code} {response.text}")
             
             # ВЫВОД СЫРОГО ОТВЕТА
             print(f"  ! Сырой ответ (статус {response.status_code}):")
@@ -251,6 +263,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 }
                 
         except requests.exceptions.RequestException as e:
+            self._log_command(f"[error] RequestException: {str(e)}")
             print(f"  ! Ошибка запроса: {e}")
             return {
                 'success': 0,
@@ -574,6 +587,14 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 return 'On' if is_sleep == 'sleep' else 'Off'
         return 'Off'
 
+    def wake_up(self) -> bool:
+        """Разбудить устройство из режима сна."""
+        payload = {
+            "acCSRFToken": self.acCSRFToken or "",
+        }
+        result = self.send_command('action.cgi?ActionID=WEB_SystemWakeUpAPI', payload)
+        return bool(result and result.get('success') == 1)
+
     def get_volume_range(self):
         return 0, 15
 
@@ -590,7 +611,12 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             "acCSRFToken": self.acCSRFToken or "",
         }
         result = self.send_command(command, payload)
-        return bool(result and result.get('success') == 1)
+        if result and result.get('success') == 1:
+            return True
+
+        # У Bar310 ответ set-команды бывает без явного success, поэтому сверяем статус.
+        time.sleep(0.5)
+        return self.get_presentation_status() == value
 
     def set_speaker_volume(self, value: int) -> bool:
         min_value, max_value = self.get_volume_range()

@@ -58,6 +58,11 @@ class PolycomRPG310Handler:
             'camera_tracking': re.compile(r'camera near tracking\s+(on|off|Voice|GroupFrame|FrameGroup)'),
             'uptime': re.compile(r'(\d+)\s+Days?,?\s*(\d+)\s+Hours?'),
         }
+
+    def _log_command(self, message: str) -> None:
+        logger = getattr(self, 'command_logger', None)
+        if callable(logger):
+            logger(message)
         
     def connect(self) -> bool:
         """
@@ -72,6 +77,7 @@ class PolycomRPG310Handler:
         """
         try:
             print(f"PolycomRPG310Handler: Подключение к {self.ip_address}:{self.port}")
+            self._log_command(f"[connect] ssh://{self.ip_address}:{self.port}")
             
             # Создаем SSH клиент
             self.client = paramiko.SSHClient()
@@ -156,6 +162,7 @@ class PolycomRPG310Handler:
             
             # Отправляем команду
             print(f"PolycomRPG310Handler: Отправка команды: {command.strip()}")
+            self._log_command(f"[request] SSH {command.strip()}")
             self.channel.send(command + '\r')
             time.sleep(wait_time)
             
@@ -166,10 +173,12 @@ class PolycomRPG310Handler:
             lines = output.split('\n')
             if lines and command.strip() in lines[0]:
                 output = '\n'.join(lines[1:])
+            self._log_command(f"[response] {output.strip()}")
             
             return output.strip()
             
         except Exception as e:
+            self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
             raise CommandError(f"Ошибка выполнения команды '{command}': {str(e)}")
     
     

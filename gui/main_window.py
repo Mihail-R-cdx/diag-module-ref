@@ -2209,6 +2209,30 @@ class VCSDiagnosticApp(QMainWindow):
         if hasattr(self, 'matrix_terminal_dialog') and self.matrix_terminal_dialog:
             self.matrix_terminal_dialog.append_line(f"[session] {message}")
 
+    def show_codec_terminal(self, device_name: str, ip_address: str, action: str, reset: bool = True):
+        if not hasattr(self, 'codec_terminal_dialog') or self.codec_terminal_dialog is None:
+            self.codec_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+
+        title = f"Терминал управления презентацией - {device_name} - {ip_address}"
+        if reset:
+            self.codec_terminal_dialog.reset_session(title)
+            self.codec_terminal_dialog.append_line(f"[session] start {ip_address}")
+            self.codec_terminal_dialog.append_line(f"[session] action presentation {action}")
+        else:
+            self.codec_terminal_dialog.setWindowTitle(title)
+
+        self.codec_terminal_dialog.show()
+        self.codec_terminal_dialog.raise_()
+        self.codec_terminal_dialog.activateWindow()
+
+    def append_codec_terminal_line(self, message: str):
+        if hasattr(self, 'codec_terminal_dialog') and self.codec_terminal_dialog:
+            self.codec_terminal_dialog.append_line(message)
+
+    def finish_codec_terminal(self, message: str):
+        if hasattr(self, 'codec_terminal_dialog') and self.codec_terminal_dialog:
+            self.codec_terminal_dialog.append_line(f"[session] {message}")
+
     def closeEvent(self, event):
         self.disconnect_matrix_persistent_handler()
         super().closeEvent(event)
