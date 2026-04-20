@@ -750,10 +750,26 @@ class VCSDiagnosticApp(QMainWindow):
         if not creds_list:
             return None
 
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, self.ip_entry.text().strip())
         if current_idx >= len(creds_list):
             current_idx = 0
         return creds_list[current_idx]
+
+    def get_credential_key(self, device_name: str, ip_address: str = None):
+        if ip_address:
+            return f"{device_name}|{ip_address}"
+        return device_name
+
+    def get_current_credential_index(self, device_name: str, ip_address: str = None):
+        key = self.get_credential_key(device_name, ip_address)
+        if key in self.current_credential_index:
+            return self.current_credential_index[key]
+        return self.current_credential_index.get(device_name, 0)
+
+    def set_current_credential_index(self, device_name: str, index: int, ip_address: str = None):
+        self.current_credential_index[device_name] = index
+        if ip_address:
+            self.current_credential_index[self.get_credential_key(device_name, ip_address)] = index
 
     def ensure_matrix_persistent_handler(self, ip_address=None, username=None, password=None, force_reconnect=False):
         from handlers.extron.in1804 import ExtronIN1804Handler
@@ -878,6 +894,10 @@ class VCSDiagnosticApp(QMainWindow):
         if not self.validate_ip_address(ip_address):
             QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
             return
+
+        self.set_current_credential_index(device_name, 0, ip_address)
+        if device_name == "Extron IN1804":
+            self.disconnect_matrix_persistent_handler()
         
         device_type = self.device_to_screen.get(device_name, "codec")
         
@@ -941,7 +961,7 @@ class VCSDiagnosticApp(QMainWindow):
         ])
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, ip_address)
         creds = creds_list[current_idx]
         
         
@@ -1429,7 +1449,7 @@ class VCSDiagnosticApp(QMainWindow):
             device_name = getattr(self.current_worker, 'device_name', None)
             current_idx = getattr(self.current_worker, 'current_idx', 0)
             if device_name:
-                self.current_credential_index[device_name] = current_idx
+                self.set_current_credential_index(device_name, current_idx, data.get('ip_address', self.ip_entry.text()))
                 print(f"Запомнен успешный credentials #{current_idx + 1} для {device_name}")
                 if device_name == "Extron IN1804":
                     creds_list = getattr(self.current_worker, 'creds_list', [])
@@ -1501,7 +1521,7 @@ class VCSDiagnosticApp(QMainWindow):
                 
                 # Переходим к следующему credentials
                 next_idx = current_idx + 1
-                self.current_credential_index[device_name] = next_idx
+                self.set_current_credential_index(device_name, next_idx, getattr(self.current_worker, 'ip_address', None))
                 
                 print(f"Ошибка аутентификации. Пробуем следующие credentials ({next_idx + 1}/{len(creds_list)})...")
                 
@@ -1878,7 +1898,7 @@ class VCSDiagnosticApp(QMainWindow):
                 f"Логин и пароль будут использованы при следующем подключении"
             )
 
-        self.current_credential_index[device_name] = 0
+        self.set_current_credential_index(device_name, 0, self.ip_entry.text().strip())
         QMessageBox.information(self, message_title, message_text)
         print(f"Сохранены credentials для {device_name}: {username}:***")
 

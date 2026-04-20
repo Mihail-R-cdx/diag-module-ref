@@ -378,7 +378,7 @@ class MatrixScreen(BaseScreen):
             print("No credentials found")
             return
         
-        current_idx = self.main_window.current_credential_index.get(device_name, 0)
+        current_idx = self.main_window.get_current_credential_index(device_name, ip_address)
         if current_idx >= len(creds_list):
             current_idx = 0
         creds = creds_list[current_idx]
@@ -462,7 +462,7 @@ class MatrixScreen(BaseScreen):
         if not creds_list:
             return
         
-        current_idx = self.main_window.current_credential_index.get(device_name, 0)
+        current_idx = self.main_window.get_current_credential_index(device_name, ip_address)
         if current_idx >= len(creds_list):
             current_idx = 0
         creds = creds_list[current_idx]
