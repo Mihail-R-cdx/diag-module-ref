@@ -44,6 +44,15 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         auth_password = self.credentials.get('password', '')
         self.session.auth = (auth_username, auth_password)
         self.session.headers.update({"Content-Type": "application/json"})
+
+    @staticmethod
+    def _decode_response_text(response: requests.Response) -> str:
+        """Decode TE20 responses as UTF-8 because the device often omits charset metadata."""
+        return response.content.decode('utf-8', errors='replace')
+
+    def _parse_json_response(self, response: requests.Response) -> Dict[str, Any]:
+        """Parse JSON from raw response bytes to avoid requests charset guesswork."""
+        return json.loads(self._decode_response_text(response))
     
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE-20"""
@@ -63,7 +72,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 session_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestSessionIDAPI"
                 self._log_command(f"[request] POST {session_url}")
                 session_response = self.session.post(session_url, data="", timeout=10)
-                session_response_text = session_response.text
+                session_response_text = self._decode_response_text(session_response)
                 self._log_command(f"[response] {session_response.status_code} {session_response_text}")
                 print(f"Ответ Session ID: {session_response_text}")
                 
@@ -71,7 +80,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 if session_response.status_code == 401 or session_response.status_code == 403:
                     raise AuthenticationError(f"HTTP {session_response.status_code}: Ошибка аутентификации при получении Session ID")
                 
-                result = session_response.json()
+                result = self._parse_json_response(session_response)
                 
                 # Проверяем наличие поля data
                 if 'data' in result and result['data']:
@@ -139,16 +148,16 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 self._log_command(f"[payload] {json.dumps(token_data, ensure_ascii=False)}")
                 
                 token_response = self.session.post(token_url, json=token_data, timeout=10)
-                self._log_command(f"[response] {token_response.status_code} {token_response.text}")
+                token_response_text = self._decode_response_text(token_response)
+                self._log_command(f"[response] {token_response.status_code} {token_response_text}")
                 
                 # Проверяем HTTP статус код
                 if token_response.status_code == 401 or token_response.status_code == 403:
                     raise AuthenticationError(f"HTTP {token_response.status_code}: Ошибка аутентификации при получении CSRF токена")
                 
-                token_response_text = token_response.text
                 print(f"Ответ CSRF Token: {token_response_text}")
                 
-                token_result = token_response.json()
+                token_result = self._parse_json_response(token_response)
                 
                 # Проверяем успешность запроса
                 if token_result.get('success') == 1:
@@ -309,12 +318,12 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     # Это ошибка аутентификации
                     raise AuthenticationError(f"HTTP {response.status_code}: Ошибка аутентификации при выполнении команды {command}")
                 
-                response_text = response.text
+                response_text = self._decode_response_text(response)
                 self._log_command(f"[response] {response.status_code} {response_text}")
                 print(f"Ответ {command}: {response_text[:200]}...")
                 
                 try:
-                    result = response.json()
+                    result = self._parse_json_response(response)
                     
                     # Проверяем успешность запроса
                     if result.get('success') == 1:

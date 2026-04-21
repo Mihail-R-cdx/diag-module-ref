@@ -1033,6 +1033,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем прогресс
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
+        self.show_te20_terminal(ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
         
         try:
             from core.te20_worker import HuaweiTE20Worker
@@ -1054,6 +1055,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.signals.error.connect(self.on_device_error)
             self.current_worker.signals.progress.connect(self.on_progress_update)
             self.current_worker.signals.status.connect(self.on_status_update)
+            self.current_worker.signals.terminal_log.connect(self.on_te20_terminal_log)
             self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
@@ -1430,6 +1432,8 @@ class VCSDiagnosticApp(QMainWindow):
         self.hide_progress_dialog()
         if self.device_combo.currentText() == "Extron IN1804":
             self.finish_matrix_terminal("Опрос завершён успешно")
+        elif self.device_combo.currentText() == "Huawei TE-20":
+            self.finish_te20_terminal("Опрос завершён успешно")
 
         meaningful_keys = [
             key for key, value in data.items()
@@ -1508,6 +1512,8 @@ class VCSDiagnosticApp(QMainWindow):
         error_type, error, traceback_text = error_info
         if hasattr(self, 'current_worker') and getattr(self.current_worker, 'device_name', None) == "Extron IN1804":
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
+        elif hasattr(self, 'current_worker') and getattr(self.current_worker, 'device_name', None) == "Huawei TE-20":
+            self.finish_te20_terminal(f"Опрос завершён с ошибкой: {error}")
         
         # Проверяем, есть ли текущий worker и нужно ли пробовать другие credentials
         if hasattr(self, 'current_worker') and self.current_worker:
@@ -2208,6 +2214,30 @@ class VCSDiagnosticApp(QMainWindow):
     def finish_matrix_terminal(self, message: str):
         if hasattr(self, 'matrix_terminal_dialog') and self.matrix_terminal_dialog:
             self.matrix_terminal_dialog.append_line(f"[session] {message}")
+
+    def show_te20_terminal(self, ip_address: str, attempt_no: int, total_attempts: int, reset: bool = True):
+        if not hasattr(self, 'te20_terminal_dialog') or self.te20_terminal_dialog is None:
+            self.te20_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+
+        title = f"Терминал Huawei TE-20 - {ip_address}"
+        if reset:
+            self.te20_terminal_dialog.reset_session(title)
+            self.te20_terminal_dialog.append_line(f"[session] start {ip_address}")
+        else:
+            self.te20_terminal_dialog.setWindowTitle(title)
+        self.te20_terminal_dialog.append_line(f"[session] attempt {attempt_no}/{total_attempts}")
+        self.te20_terminal_dialog.show()
+        self.te20_terminal_dialog.raise_()
+        self.te20_terminal_dialog.activateWindow()
+
+    @pyqtSlot(str)
+    def on_te20_terminal_log(self, message: str):
+        if hasattr(self, 'te20_terminal_dialog') and self.te20_terminal_dialog:
+            self.te20_terminal_dialog.append_line(message)
+
+    def finish_te20_terminal(self, message: str):
+        if hasattr(self, 'te20_terminal_dialog') and self.te20_terminal_dialog:
+            self.te20_terminal_dialog.append_line(f"[session] {message}")
 
     def show_codec_terminal(self, device_name: str, ip_address: str, action: str, reset: bool = True):
         if not hasattr(self, 'codec_terminal_dialog') or self.codec_terminal_dialog is None:

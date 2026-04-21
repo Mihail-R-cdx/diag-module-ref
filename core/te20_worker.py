@@ -15,6 +15,7 @@ class WorkerSignals(QObject):
     result = pyqtSignal(dict)
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
+    terminal_log = pyqtSignal(str)
     connected = pyqtSignal()
     disconnected = pyqtSignal()
 
@@ -31,11 +32,16 @@ class HuaweiTE20Worker(QRunnable):
         self.signals = WorkerSignals()
         self.is_running = True
 
+    def _log(self, message: str) -> None:
+        self.signals.terminal_log.emit(message)
+
     @pyqtSlot()
     def run(self):
         handler = None
 
         try:
+            self._log(f"[session] start {self.ip_address}")
+            self._log(f"[auth] username={self.username}")
             self.signals.status.emit("Начинаю подключение к TE-20...")
             self.signals.progress.emit(10)
 
@@ -63,6 +69,7 @@ class HuaweiTE20Worker(QRunnable):
                     f"Подключаюсь к устройству ({profile['label']}, {index}/{len(unique_profiles)})..."
                 )
                 self.signals.progress.emit(20 + index * 10)
+                self._log(f"[connect] attempt {index}/{len(unique_profiles)} via {profile['label']}")
 
                 print(
                     f"[TE20] Пробую подключение через {profile['label']} "
@@ -76,26 +83,31 @@ class HuaweiTE20Worker(QRunnable):
                     password=self.password,
                     use_ssl=profile["use_ssl"],
                 )
+                current_handler.command_logger = self._log
 
                 try:
                     if current_handler.connect():
                         handler = current_handler
                         print(f"[TE20] Подключение успешно через {profile['label']}")
+                        self._log(f"[connect] success via {profile['label']}")
                         break
 
                     last_connection_error = (
                         f"Устройство не приняло подключение через {profile['label']}"
                     )
+                    self._log(f"[connect] rejected via {profile['label']}")
                     current_handler.disconnect()
                 except AuthenticationError as e:
                     current_handler.disconnect()
                     print(f"[TE20] Ошибка аутентификации через {profile['label']}: {e}")
+                    self._log(f"[auth] {profile['label']}: {e}")
 
                     if not profile["use_ssl"]:
                         last_connection_error = (
                             f"{profile['label']}: {e}. "
                             "Пробую HTTPS fallback, так как HTTP может быть отключен на устройстве."
                         )
+                        self._log("[connect] switching to HTTPS fallback")
                         continue
 
                     auth_error = e
@@ -104,6 +116,7 @@ class HuaweiTE20Worker(QRunnable):
                     last_connection_error = f"{profile['label']}: {e}"
                     current_handler.disconnect()
                     print(f"[TE20] Ошибка подключения через {profile['label']}: {e}")
+                    self._log(f"[error] {profile['label']}: {type(e).__name__}: {e}")
 
             if auth_error is not None:
                 raise auth_error
@@ -116,10 +129,12 @@ class HuaweiTE20Worker(QRunnable):
             self.signals.connected.emit()
             self.signals.status.emit("Получаю данные...")
             self.signals.progress.emit(50)
+            self._log("[status] collecting device status")
 
             print("Вызываю handler.get_status()...")
             raw_data = handler.get_status()
             print(f"get_status() вернул: {raw_data}")
+            self._log(f"[status] raw keys: {', '.join(sorted(raw_data.keys())) if raw_data else 'none'}")
 
             self.signals.status.emit("Обрабатываю данные...")
             self.signals.progress.emit(70)
@@ -127,12 +142,14 @@ class HuaweiTE20Worker(QRunnable):
             print("Парсинг данных...")
             parsed_data = HuaweiTE20DataParser.parse_raw_data(raw_data)
             print(f"Парсинг завершен: {parsed_data}")
+            self._log(f"[status] parsed keys: {', '.join(sorted(parsed_data.keys())) if parsed_data else 'none'}")
 
             parsed_data["ip_address"] = self.ip_address
 
             self.signals.progress.emit(90)
             print("Отправка результата...")
             self.signals.result.emit(parsed_data)
+            self._log("[session] completed successfully")
 
             print("Отключение...")
             handler.disconnect()
@@ -141,10 +158,12 @@ class HuaweiTE20Worker(QRunnable):
 
         except AuthenticationError as e:
             print(f"!!! Ошибка аутентификации в HuaweiTE20Worker: {str(e)}")
+            self._log(f"[session] failed authentication: {e}")
             self.signals.error.emit(("authentication_error", str(e), traceback.format_exc()))
         except Exception as e:
             print(f"!!! Ошибка в HuaweiTE20Worker: {type(e).__name__}: {str(e)}")
             traceback.print_exc()
+            self._log(f"[session] failed: {type(e).__name__}: {e}")
             self.signals.error.emit(("connection_error", str(e), traceback.format_exc()))
         finally:
             if handler is not None:
