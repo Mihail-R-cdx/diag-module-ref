@@ -47,6 +47,8 @@ class CodecScreen(BaseScreen):
         # Если есть таблицы - очищаем их
         if hasattr(self, 'table'):
             self.table.clearContents()
+
+        self.volume_values.clear()
         
         # Если есть метки с данными - очищаем их
         for widget in self.findChildren(QLabel):
@@ -794,31 +796,10 @@ class CodecScreen(BaseScreen):
 
     def adjust_volume(self, param_name, direction):
         """Изменение громкости на 1 единицу"""
-        # Получаем текущее значение громкости из данных
-        current_volume = None
-        if param_name in self.volume_values:
-            current_volume = self.volume_values[param_name]
-        else:
-            # Пытаемся получить текущее значение из базы данных
-            if self.parent and hasattr(self.parent, 'codec_data'):
-                device_name = self.parent.device_combo.currentText()
-                if device_name in self.parent.codec_data:
-                    data = self.parent.codec_data[device_name]
-                    if param_name == "Громкость динамиков" and 'Громкость динамиков' in data:
-                        try:
-                            current_volume = int(data['Громкость динамиков'].rstrip('%'))
-                        except (ValueError, AttributeError):
-                            current_volume = 10  # Значение по умолчанию
-                    elif param_name == "Громкость микрофона" and 'Громкость микрофона' in data:
-                        try:
-                            current_volume = int(data['Громкость микрофона'].rstrip('%'))
-                        except (ValueError, AttributeError):
-                            current_volume = 10  # Значение по умолчанию
-        # Если значение не найдено, используем значение по умолчанию
-        if current_volume is None:
-            current_volume = 10
-        
         min_volume, max_volume = self._get_volume_range()
+        current_volume = self._get_current_volume_value(param_name)
+        if current_volume is None:
+            current_volume = min_volume
 
         # Вычисляем новое значение
         if direction == "up":
@@ -864,7 +845,7 @@ class CodecScreen(BaseScreen):
                     success = handler.set_speaker_volume(value)
                     if success:
                         print(f"Громкость успешно изменена на {value}")
-                        self.update_volume_display(value)
+                        self.update_volume_display(value, param_name="Громкость динамиков")
                         self.schedule_volume_refresh()
                     else:
                         print("Ошибка изменения громкости: устройство не подтвердило команду")
@@ -907,7 +888,7 @@ class CodecScreen(BaseScreen):
                     volume = handler.get_speaker_volume()
                     if volume is not None:
                         print(f"Текущая громкость с устройства: {volume}")
-                        self.update_volume_display(volume)
+                        self.update_volume_display(volume, param_name="Громкость динамиков")
                     else:
                         print("Ошибка получения громкости: устройство не вернуло значение")
                 else:
@@ -1006,26 +987,48 @@ class CodecScreen(BaseScreen):
         }
         return ranges.get(device_name, (0, 21))
 
-    def update_volume_display(self, volume):
+    def _get_current_volume_value(self, param_name):
+        """Возвращает текущее значение громкости из кеша или из отображаемой строки."""
+        cached_value = self.volume_values.get(param_name)
+        if isinstance(cached_value, int):
+            return cached_value
+
+        for name_label, value_label in self.param_widgets:
+            if name_label == param_name:
+                numeric_value = self._extract_numeric_value(value_label.text())
+                if numeric_value is not None:
+                    self.volume_values[param_name] = numeric_value
+                    return numeric_value
+                break
+
+        if self.parent and hasattr(self.parent, 'codec_data'):
+            device_name = self.parent.device_combo.currentText()
+            if device_name in self.parent.codec_data:
+                data = self.parent.codec_data[device_name]
+                numeric_value = self._extract_numeric_value(data.get(param_name))
+                if numeric_value is not None:
+                    self.volume_values[param_name] = numeric_value
+                    return numeric_value
+
+        return None
+
+    def update_volume_display(self, volume, param_name="Громкость динамиков"):
         """Обновление отображения громкости в GUI"""
-        # Обновляем значение для каждого параметра громкости
-        for param_name in ["Громкость динамиков", "Громкость микрофона"]:
-            if param_name in self.volume_values:
-                self.volume_values[param_name] = volume
-            
-            # Находим метку с этим параметром и обновляем её
-            for name_label, value_label in self.param_widgets:
-                if name_label == param_name:
-                    # Обновляем текст метки
-                    new_value = str(volume) if isinstance(volume, int) else volume
-                    value_label.setText(new_value)
-                    # Обновляем стили
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['text_primary']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                    """)
-                    print(f"Обновлено отображение {param_name}: {new_value}")
+        numeric_value = self._extract_numeric_value(volume)
+        if numeric_value is not None:
+            self.volume_values[param_name] = numeric_value
+
+        for name_label, value_label in self.param_widgets:
+            if name_label == param_name:
+                new_value = str(volume) if isinstance(volume, int) else volume
+                value_label.setText(new_value)
+                value_label.setStyleSheet(f"""
+                    color: {self.colors['text_primary']};
+                    font-size: 11pt;
+                    padding: 8px 0;
+                """)
+                print(f"Обновлено отображение {param_name}: {new_value}")
+                break
     def update_presentation_display(self, presentation_state):
         """Обновление отображения статуса презентации в GUI."""
         presentation_map = {
