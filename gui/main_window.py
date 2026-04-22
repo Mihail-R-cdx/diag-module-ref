@@ -140,7 +140,8 @@ class VCSDiagnosticApp(QMainWindow):
             ],
             "Huawei TE-20": [
                 {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},
-                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},               
+                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},
+                {'username': 'api', 'password': 'p@ss123456'}               
             ],
             "CloudLink Box 300": [
                 {'username': 'admin', 'password': ''},
@@ -1020,6 +1021,19 @@ class VCSDiagnosticApp(QMainWindow):
         # Получаем список credentials для TE-20
         device_name = self.device_combo.currentText()
         creds_list = self.device_credentials.get(device_name, [{'username': 'api', 'password': '***REMOVED_CREDENTIAL***'}])
+
+        from utils.te20_stack import inspect_te20_https_stack
+        stack_info = inspect_te20_https_stack()
+        if not stack_info["ready"]:
+            warning_text = (
+                "Неподходящий HTTPS стек для Huawei TE-20.\n\n"
+                f"Транспорт: {stack_info['transport']}\n"
+                f"Детали: {stack_info['details']}\n\n"
+                f"{stack_info['warning']}\n\n"
+                "Подключение не будет запущено, чтобы не дёргать неподходящие инструменты."
+            )
+            QMessageBox.warning(self, "TE-20 HTTPS стек", warning_text)
+            return
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -1521,9 +1535,18 @@ class VCSDiagnosticApp(QMainWindow):
             creds_list = getattr(self.current_worker, 'creds_list', [])
             current_idx = getattr(self.current_worker, 'current_idx', 0)
             
+            error_message = str(error)
+            is_auth_error = (
+                error_type == "authentication_error"
+                or "authentication" in error_message.lower()
+                or "401" in error_message
+                or "403" in error_message
+                or "16781315" in error_message
+                or "100666780" in error_message
+            )
+
             # Если это ошибка аутентификации и есть еще credentials для проверки
-            if ("authentication" in str(error).lower() or "401" in str(error) or 
-                "403" in str(error)) and creds_list and current_idx < len(creds_list) - 1:
+            if is_auth_error and creds_list and current_idx < len(creds_list) - 1:
                 
                 # Переходим к следующему credentials
                 next_idx = current_idx + 1

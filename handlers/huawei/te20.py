@@ -4,14 +4,62 @@ import re
 import time
 import sys
 import io
+import os
+import ssl
+import tempfile
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
+
+try:
+    import pycurl
+except ImportError:
+    pycurl = None
 
 # Настройка вывода для Windows консоли
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 class HuaweiTE20Handler(BaseHuaweiCodecHandler):
+    @staticmethod
+    def inspect_https_stack() -> Dict[str, Any]:
+        """Return TE20 HTTPS transport diagnostics before any network activity starts."""
+        result = {
+            "ready": False,
+            "transport": "requests/OpenSSL",
+            "details": ssl.OPENSSL_VERSION,
+            "warning": "",
+        }
+
+        if pycurl is None:
+            result["warning"] = (
+                "Для TE20 по HTTPS требуется pycurl с backend Schannel. "
+                "В текущем Python модуль pycurl не найден."
+            )
+            return result
+
+        pycurl_version = pycurl.version
+        result["details"] = pycurl_version
+
+        if os.name == "nt":
+            if "Schannel" in pycurl_version:
+                result["ready"] = True
+                result["transport"] = "pycurl/Schannel"
+                return result
+
+            result["transport"] = "pycurl"
+            result["warning"] = (
+                "Для TE20 по HTTPS на Windows требуется pycurl, собранный с Schannel. "
+                f"Текущий backend: {pycurl_version}"
+            )
+            return result
+
+        result["transport"] = "pycurl"
+        result["warning"] = (
+            "Текущий HTTPS transport для TE20 проверен только на Windows с pycurl/Schannel. "
+            f"Текущий backend: {pycurl_version}"
+        )
+        return result
     """Обработчик для Huawei TE-20 с рабочей реализацией подключения"""
     
     def __init__(self, ip_address: str, port: int = 80,
@@ -22,6 +70,8 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         self.session_id = None
         self.csrf_token = None
         self.session = None
+        self._cookie_jar_path = None
+        self._use_pycurl_transport = bool(self.use_ssl and pycurl is not None)
         
         # В базовом классе credentials хранятся в self.credentials
         # а username/password как отдельные атрибуты не сохраняются!
@@ -40,10 +90,10 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.session = requests.Session()
         self.session.verify = self.verify_ssl
-        auth_username = self.credentials.get('username', 'api')
-        auth_password = self.credentials.get('password', '')
-        self.session.auth = (auth_username, auth_password)
         self.session.headers.update({"Content-Type": "application/json"})
+        if self.use_ssl:
+            legacy_context = create_legacy_ssl_context(verify_ssl=self.verify_ssl)
+            self.session.mount("https://", SSLAdapter(ssl_context=legacy_context))
 
     @staticmethod
     def _decode_response_text(response: requests.Response) -> str:
@@ -53,10 +103,212 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
     def _parse_json_response(self, response: requests.Response) -> Dict[str, Any]:
         """Parse JSON from raw response bytes to avoid requests charset guesswork."""
         return json.loads(self._decode_response_text(response))
+
+    def _ensure_cookie_jar(self) -> str:
+        if self._cookie_jar_path and os.path.exists(self._cookie_jar_path):
+            return self._cookie_jar_path
+
+        fd, cookie_jar_path = tempfile.mkstemp(prefix="te20_cookie_", suffix=".txt")
+        os.close(fd)
+        self._cookie_jar_path = cookie_jar_path
+        return cookie_jar_path
+
+    def _pycurl_request(
+        self,
+        url: str,
+        *,
+        data: str = "",
+        headers: Optional[list[str]] = None,
+    ) -> Dict[str, Any]:
+        if pycurl is None:
+            raise ConnectionError("pycurl недоступен для HTTPS транспорта TE20")
+
+        body = io.BytesIO()
+        response_headers = io.BytesIO()
+        curl = pycurl.Curl()
+        cookie_jar_path = self._ensure_cookie_jar()
+
+        curl.setopt(pycurl.URL, url)
+        curl.setopt(pycurl.POST, 1)
+        curl.setopt(pycurl.POSTFIELDS, data)
+        curl.setopt(pycurl.SSL_VERIFYPEER, 1 if self.verify_ssl else 0)
+        curl.setopt(pycurl.SSL_VERIFYHOST, 2 if self.verify_ssl else 0)
+        curl.setopt(pycurl.CONNECTTIMEOUT, 10)
+        curl.setopt(pycurl.TIMEOUT, 20)
+        curl.setopt(pycurl.HEADERFUNCTION, response_headers.write)
+        curl.setopt(pycurl.WRITEFUNCTION, body.write)
+        curl.setopt(pycurl.COOKIEFILE, cookie_jar_path)
+        curl.setopt(pycurl.COOKIEJAR, cookie_jar_path)
+        curl.setopt(pycurl.FOLLOWLOCATION, 0)
+        curl.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_1)
+        curl.setopt(pycurl.USERAGENT, "TE20Diag/1.0")
+
+        if headers:
+            curl.setopt(pycurl.HTTPHEADER, headers)
+
+        try:
+            curl.perform()
+            return {
+                "status_code": curl.getinfo(pycurl.RESPONSE_CODE),
+                "text": body.getvalue().decode("utf-8", errors="replace"),
+                "headers": response_headers.getvalue().decode("utf-8", errors="replace"),
+            }
+        except pycurl.error as e:
+            raise ConnectionError(str(e)) from e
+        finally:
+            curl.close()
+
+    def _parse_json_text(self, response_text: str) -> Dict[str, Any]:
+        return json.loads(response_text)
+
+    def _get_session_cookie(self) -> str:
+        if not self.session:
+            return ""
+        return self.session.cookies.get("SessionID", "")
+
+    def _get_session_cookie_from_jar(self) -> str:
+        cookie_jar_path = self._cookie_jar_path
+        if not cookie_jar_path or not os.path.exists(cookie_jar_path):
+            return ""
+
+        try:
+            with open(cookie_jar_path, "r", encoding="utf-8", errors="replace") as cookie_file:
+                for line in cookie_file:
+                    if line.startswith("#") or not line.strip():
+                        continue
+                    parts = line.strip().split("\t")
+                    if len(parts) >= 7 and parts[-2] == "SessionID":
+                        return parts[-1]
+        except OSError:
+            return ""
+
+        return ""
+
+    def _refresh_session_id_from_cookie(self) -> None:
+        cookie_session_id = self._get_session_cookie()
+        if cookie_session_id:
+            self.session_id = cookie_session_id
+
+    def _refresh_session_id(self) -> None:
+        if self._use_pycurl_transport:
+            cookie_session_id = self._get_session_cookie_from_jar()
+            if cookie_session_id:
+                self.session_id = cookie_session_id
+            return
+        self._refresh_session_id_from_cookie()
+
+    def _change_session_id(self) -> bool:
+        action_id = "WEB_ChangeSessionID" if self._use_pycurl_transport else "WEB_ChangeSessionIDAPI"
+        change_url = f"{self.base_url}/action.cgi?ActionID={action_id}"
+        self._log_command(f"[request] POST {change_url}")
+
+        if self._use_pycurl_transport:
+            response = self._pycurl_request(change_url, headers=self._build_web_headers())
+            status_code = response["status_code"]
+            response_text = response["text"]
+            result = self._parse_json_text(response_text)
+        else:
+            response_raw = self.session.post(change_url, data="", timeout=10)
+            status_code = response_raw.status_code
+            response_text = self._decode_response_text(response_raw)
+            result = self._parse_json_response(response_raw)
+
+        self._log_command(f"[response] {status_code} {response_text}")
+
+        if status_code in (401, 403):
+            raise AuthenticationError(
+                f"HTTP {status_code}: Ошибка аутентификации при смене Session ID"
+            )
+
+        if result.get("success") != 1:
+            error_info = result.get("error", result.get("exception", "Unknown error"))
+            self._log_command(f"[warn] Session ID rotation failed: {error_info}")
+            return False
+
+        previous_session_id = self.session_id
+        self._refresh_session_id()
+        if self.session_id and self.session_id != previous_session_id:
+            self._log_command("[state] Session ID cookie rotated successfully")
+        return bool(self.session_id)
+
+    def _build_web_headers(self, *, include_json: bool = False) -> list[str]:
+        headers = [
+            "Accept: */*",
+            "X-Requested-With: XMLHttpRequest",
+            "userType: web",
+            f"Origin: {self.base_url}",
+            f"Referer: {self.base_url}/login.html",
+        ]
+        if include_json:
+            headers.append("Content-Type: application/json")
+        return headers
+
+    def _connect_https_pycurl(self) -> bool:
+        auth_username = self.credentials.get('username', 'api')
+        auth_password = self.credentials.get('password', '')
+
+        session_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestSessionID"
+        self._log_command(f"[request] POST {session_url}")
+        try:
+            session_response = self._pycurl_request(session_url, headers=self._build_web_headers())
+            self._log_command(f"[response] {session_response['status_code']} {session_response['text']}")
+            result = self._parse_json_text(session_response["text"])
+            self._refresh_session_id()
+            if result.get("success") != 1:
+                self._log_command(f"[warn] Session ID request returned unsuccessful result: {result.get('error', result.get('exception', result))}")
+            if self.session_id:
+                self._log_command("[state] Session ID cookie was received")
+            else:
+                self._log_command("[state] Session ID cookie was not received")
+        except Exception as e:
+            self._log_command(f"[error] {type(e).__name__} while requesting Session ID: {e}")
+            self.session_id = ""
+
+        token_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestCertificate"
+        token_data = {"user": auth_username, "password": auth_password}
+        self._log_command(f"[request] POST {token_url}")
+        self._log_command(f"[payload] {json.dumps(token_data, ensure_ascii=False)}")
+        try:
+            token_response = self._pycurl_request(
+                token_url,
+                data=json.dumps(token_data, ensure_ascii=False),
+                headers=self._build_web_headers(include_json=True),
+            )
+            self._log_command(f"[response] {token_response['status_code']} {token_response['text']}")
+            token_result = self._parse_json_text(token_response["text"])
+            if token_result.get("success") == 1 and token_result.get("data"):
+                token_data_parsed = json.loads(token_result["data"])
+                self.csrf_token = token_data_parsed.get("acCSRFToken")
+            else:
+                self.csrf_token = None
+                self._log_command(
+                    f"[warn] CSRF request returned unsuccessful result: {token_result.get('error', token_result.get('exception', token_result))}"
+                )
+        except Exception as e:
+            self._log_command(f"[error] {type(e).__name__} while requesting CSRF token: {e}")
+            self.csrf_token = None
+
+        if self.csrf_token:
+            try:
+                if not self._change_session_id():
+                    self._log_command("[warn] Session ID change did not return a new cookie")
+            except Exception as e:
+                self._log_command(f"[warn] Session ID change failed: {type(e).__name__}: {e}")
+
+        if not self.session_id and not self.csrf_token:
+            self._connected = False
+            self._log_command("[connect] device responded but returned neither SessionID cookie nor CSRF token")
+            return False
+
+        self._connected = True
+        return True
     
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE-20"""
         try:
+            if self._use_pycurl_transport:
+                return self._connect_https_pycurl()
+
             if self.session is None:
                 self._init_http_session()
             print(f"Подключаюсь к {self.base_url}/")
@@ -82,17 +334,19 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 
                 result = self._parse_json_response(session_response)
                 
+                self._refresh_session_id()
+
                 # Проверяем наличие поля data
                 if 'data' in result and result['data']:
                     try:
                         data = json.loads(result['data'])
-                        self.session_id = data.get("acSessionId", "")
+                        self.session_id = self.session_id or data.get("acSessionId", "")
                     except json.JSONDecodeError:
                         print("[WARN] Не удалось распарсить Session ID data как JSON")
-                        self.session_id = ""
+                        self._refresh_session_id()
                 else:
                     print("[WARN] Поле data отсутствует или пустое в ответе Session ID")
-                    self.session_id = ""
+                    self._refresh_session_id()
                 
                 # Проверяем наличие ошибки в ответе
                 if 'code' in result:
@@ -120,26 +374,25 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 
                 if self.session_id:
                     print(f"[OK] SessionID получен: {self.session_id}")
+                    self._log_command("[state] Session ID cookie was received")
+                else:
+                    self._log_command("[state] Session ID cookie was not received")
                 
             except requests.exceptions.HTTPError as e:
+                self._log_command(f"[error] HTTPError while requesting Session ID: {e}")
                 if e.response.status_code in (401, 403):
                     raise AuthenticationError(f"HTTP {e.response.status_code}: Ошибка аутентификации при получении Session ID")
                 raise ConnectionError(f"HTTP ошибка при получении Session ID: {e}")
             except Exception as e:
+                self._log_command(f"[error] {type(e).__name__} while requesting Session ID: {e}")
                 # Проверяем, не ошибка ли это аутентификации по тексту ошибки
                 error_str = str(e).lower()
                 if "authentication" in error_str or "401" in error_str or "403" in error_str:
                     raise AuthenticationError(f"Ошибка аутентификации при получении Session ID: {str(e)}")
                 print(f"[WARN] Ошибка получения Session ID (не критично): {type(e).__name__}: {str(e)}")
-                self.session_id = ""
+                self._refresh_session_id()
             
-            # 2. Установка SessionID в заголовок (даже если пустой)
-            if self.session_id:
-                self.session.headers.update({"Sessionid": self.session_id})
-            else:
-                print("[WARN] Работаем без Session ID")
-            
-            # 3. Получение CSRF токена
+            # 2. Получение CSRF токена
             try:
                 print("Получаю CSRF Token...")
                 token_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestCertificateAPI"
@@ -184,11 +437,13 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     self.csrf_token = None
                     
             except requests.exceptions.HTTPError as e:
+                self._log_command(f"[error] HTTPError while requesting CSRF token: {e}")
                 if e.response.status_code in (401, 403):
                     raise AuthenticationError(f"HTTP {e.response.status_code}: Ошибка аутентификации при получении CSRF токена")
                 print(f"[WARN] HTTP ошибка при получении CSRF токена: {e}")
                 self.csrf_token = None
             except Exception as e:
+                self._log_command(f"[error] {type(e).__name__} while requesting CSRF token: {e}")
                 # Проверяем, не ошибка ли это аутентификации
                 error_str = str(e).lower()
                 if "authentication" in error_str or "401" in error_str or "403" in error_str:
@@ -196,7 +451,17 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 print(f"[WARN] Ошибка получения CSRF токена (не критично): {type(e).__name__}: {str(e)}")
                 print("[WARN] Продолжаем работу без CSRF токена")
                 self.csrf_token = None
-            
+
+            # 3. Ротация Session ID после успешной аутентификации
+            if self.csrf_token:
+                try:
+                    if not self._change_session_id():
+                        self._log_command("[warn] Session ID change did not return a new cookie")
+                except AuthenticationError:
+                    raise
+                except Exception as e:
+                    self._log_command(f"[warn] Session ID change failed: {type(e).__name__}: {e}")
+
             if not self.session_id and not self.csrf_token:
                 self._connected = False
                 print("[WARN] Устройство ответило, но не выдало ни Session ID, ни CSRF token")
@@ -222,15 +487,26 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
 
     def disconnect(self) -> None:
         """Разорвать соединение"""
+        if self._use_pycurl_transport:
+            self._connected = False
+            self.session_id = None
+            self.csrf_token = None
+            if self._cookie_jar_path:
+                try:
+                    os.remove(self._cookie_jar_path)
+                except OSError:
+                    pass
+                self._cookie_jar_path = None
+            return
+
         # Отправляем запрос на выход из сессии
         if self._connected and self.session_id:
             try:
                 print("Выхожу из сессии...")
                 logout_url = f"{self.base_url}/action.cgi?ActionID=WEB_LogoutAPI"
-                logout_data = {"acSessionId": self.session_id}
                 
                 # Отправляем запрос без обработки ошибок, так как это финальный вызов
-                self.session.post(logout_url, json=logout_data, timeout=5)
+                self.session.post(logout_url, timeout=5)
                 print("[OK] Выход из сессии выполнен")
             except Exception as e:
                 print(f"[WARN] Ошибка при выходе из сессии: {type(e).__name__}: {str(e)}")
@@ -238,11 +514,15 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         self._connected = False
         self.session_id = None
         self.csrf_token = None
-        if self.session and 'Sessionid' in self.session.headers:
-            del self.session.headers['Sessionid']
         if self.session:
             self.session.close()
             self.session = None
+        if self._cookie_jar_path:
+            try:
+                os.remove(self._cookie_jar_path)
+            except OSError:
+                pass
+            self._cookie_jar_path = None
     
     def _clean_version_string(self, version_string: str) -> str:
         """Очистка строки версии от служебных символов"""
@@ -308,6 +588,43 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             
             # Отправляем запрос
             try:
+                if self._use_pycurl_transport:
+                    request_data = data or {}
+                    if hasattr(self, 'csrf_token') and self.csrf_token and 'acCSRFToken' not in request_data:
+                        request_data['acCSRFToken'] = self.csrf_token
+                    payload = json.dumps(request_data, ensure_ascii=False) if request_data else ""
+                    if request_data:
+                        self._log_command(f"[payload] {payload}")
+                    response = self._pycurl_request(
+                        url,
+                        data=payload,
+                        headers=self._build_web_headers(include_json=bool(request_data)),
+                    )
+                    status_code = response["status_code"]
+                    response_text = response["text"]
+                    if status_code in (401, 403):
+                        raise AuthenticationError(f"HTTP {status_code}: Ошибка аутентификации при выполнении команды {command}")
+                    self._log_command(f"[response] {status_code} {response_text}")
+                    print(f"Ответ {command}: {response_text[:200]}...")
+                    result = self._parse_json_text(response_text)
+                    if result.get('success') == 1:
+                        if 'data' in result and isinstance(result['data'], str):
+                            try:
+                                parsed_data = json.loads(result['data'])
+                                return {'success': 1, 'data': parsed_data}
+                            except json.JSONDecodeError:
+                                return result
+                        if 'data' in result:
+                            return result
+                        return result
+
+                    error_info = result.get('error', result.get('exception', ''))
+                    error_str = str(error_info).lower()
+                    if "authentication" in error_str or "auth" in error_str:
+                        raise AuthenticationError(f"Ошибка аутентификации: {error_info}")
+                    print(f"[WARN] Команда {command} вернула success=0")
+                    return result
+
                 if request_data:
                     response = self.session.post(url, json=request_data, timeout=10)
                 else:
@@ -811,7 +1128,11 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             "acCSRFToken": self.csrf_token or "",
         }
         result = self.send_command('WEB_SetSpeakVolumeAPI', payload)
-        return bool(result and result.get('success') == 1)
+        if result and result.get('success') == 1:
+            return True
+
+        time.sleep(0.5)
+        return self.get_speaker_volume() == int(value)
 
     def get_speaker_volume(self) -> Optional[int]:
         result = self.send_command('get_audio_status')
