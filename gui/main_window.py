@@ -751,6 +751,8 @@ class VCSDiagnosticApp(QMainWindow):
         codec_screen = self.screens.get("codec") if hasattr(self, 'screens') else None
         if codec_screen and hasattr(codec_screen, 'reset_volume_session'):
             codec_screen.reset_volume_session()
+        if codec_screen and hasattr(codec_screen, 'stop_te20_monitor_audio_polling'):
+            codec_screen.stop_te20_monitor_audio_polling()
         if device_name != "Extron IN1804":
             self.disconnect_matrix_persistent_handler()
 

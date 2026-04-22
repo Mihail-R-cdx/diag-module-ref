@@ -187,9 +187,11 @@ class HuaweiTE20DataParser:
             parsed['speaker_volume'] = raw_data['speaker_volume']
         
         # Громкость микрофона (отдельное поле)
+        if 'mic_volume' in raw_data:
+            parsed['Громкость микрофона'] = str(raw_data['mic_volume'])
+
+        # Для обратной совместимости
         if 'mic_mute' in raw_data:
-            parsed['Громкость микрофона'] = raw_data['mic_mute']
-            # Для обратной совместимости
             parsed['mic_mute'] = raw_data['mic_mute']
         
         # Статус микрофона
@@ -226,6 +228,14 @@ class HuaweiTE20DataParser:
         
         if 'power_status' in raw_data:
             parsed['Статус питания'] = raw_data['power_status']
+
+        if 'monitor_mic_value' in raw_data and raw_data['monitor_mic_value'] is not None:
+            parsed['Звук в помещении (микрофон)'] = str(raw_data['monitor_mic_value'])
+            parsed['monitor_mic_value'] = raw_data['monitor_mic_value']
+
+        if 'monitor_speaker_value' in raw_data and raw_data['monitor_speaker_value'] is not None:
+            parsed['Звук из динамиков (выход кодека)'] = str(raw_data['monitor_speaker_value'])
+            parsed['monitor_speaker_value'] = raw_data['monitor_speaker_value']
         
         if 'hard_version' in raw_data:
             parsed['Аппаратная версия'] = raw_data['hard_version']

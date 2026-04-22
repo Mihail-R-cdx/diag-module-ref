@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QVBoxLayout, QScrollArea, QGridLayout, QFrame, QLabel, QWidget, QPushButton, QMessageBox, QProgressDialog
+from PyQt5.QtWidgets import QVBoxLayout, QScrollArea, QGridLayout, QFrame, QLabel, QWidget, QPushButton, QMessageBox, QProgressDialog, QSizePolicy
 from PyQt5.QtCore import Qt, QTimer, QEventLoop
 from .base_screen import BaseScreen
 
@@ -13,10 +13,21 @@ class CodecScreen(BaseScreen):
         self.volume_values = {}  # Храним текущие значения громкости для каждого параметра
         self.volume_session_handler = None
         self.volume_session_key = None
+        self._show_te20_monitor_audio_fields = False
+        self.wake_buttons = {}
+        self.wake_countdown_labels = {}
+        self._te20_is_sleeping = False
+        self._te20_wake_countdown_remaining = 0
         super().__init__(parent)
         self.volume_refresh_timer = QTimer(self)
         self.volume_refresh_timer.setSingleShot(True)
         self.volume_refresh_timer.timeout.connect(self.refresh)
+        self.monitor_audio_timer = QTimer(self)
+        self.monitor_audio_timer.setInterval(3000)
+        self.monitor_audio_timer.timeout.connect(self.poll_te20_monitor_audio)
+        self.wake_countdown_timer = QTimer(self)
+        self.wake_countdown_timer.setInterval(1000)
+        self.wake_countdown_timer.timeout.connect(self._tick_te20_wake_countdown)
         self.colors.setdefault('warning', '#FFA500')
 
     def _get_current_device_credentials(self, device_name, ip_address):
@@ -49,6 +60,9 @@ class CodecScreen(BaseScreen):
             self.table.clearContents()
 
         self.volume_values.clear()
+        self.stop_te20_monitor_audio_polling()
+        self._stop_te20_wake_countdown()
+        self._te20_is_sleeping = False
         
         # Если есть метки с данными - очищаем их
         for widget in self.findChildren(QLabel):
@@ -146,6 +160,14 @@ class CodecScreen(BaseScreen):
         ]
         
         # Генерируем дополнительные параметры если нужно
+        show_te20_monitor_audio_fields = self._should_show_te20_monitor_audio_fields()
+        if show_te20_monitor_audio_fields:
+            block3_params.extend([
+                "Звук в помещении (микрофон)",
+                "Звук из динамиков (выход кодека)",
+            ])
+        self._show_te20_monitor_audio_fields = show_te20_monitor_audio_fields
+
         all_params = block1_params + block2_params + block3_params
         if self.param_count > len(all_params):
             for i in range(len(all_params), self.param_count):
@@ -442,6 +464,44 @@ class CodecScreen(BaseScreen):
                 block_layout.addWidget(volume_down_btn, i, 2)
                 block_layout.addWidget(volume_up_btn, i, 3)
                 self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
+            elif param_name == "Звук в помещении (микрофон)":
+                wake_btn = QPushButton("Разбудить")
+                wake_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {self.colors['surface']};
+                        color: white;
+                        border: 1px solid white;
+                        border-radius: 4px;
+                        padding: 6px 12px;
+                        font-size: 10pt;
+                        font-weight: bold;
+                        min-height: 15px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {self.lighten_color(self.colors['surface'], 20)};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {self.colors['surface']};
+                    }}
+                """)
+                wake_btn.clicked.connect(self.on_wake_te20_clicked)
+                wake_btn.setVisible(False)
+                wake_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                block_layout.addWidget(wake_btn, i, 2, 1, 2)
+                self.wake_buttons[param_name] = wake_btn
+
+                countdown_label = QLabel("")
+                countdown_label.setAlignment(Qt.AlignCenter)
+                countdown_label.setVisible(False)
+                countdown_label.setStyleSheet(f"""
+                    color: {self.colors['warning']};
+                    font-size: 11pt;
+                    padding: 8px 0;
+                    font-weight: bold;
+                """)
+                countdown_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                block_layout.addWidget(countdown_label, i, 2, 1, 2)
+                self.wake_countdown_labels[param_name] = countdown_label
             else:
                 # Для остальных параметров добавляем пустой виджет для выравнивания
                 spacer = QWidget()
@@ -472,14 +532,27 @@ class CodecScreen(BaseScreen):
         """Обновление данных на экране"""
         
         # Преобразуем данные из парсера в формат GUI
+        show_te20_monitor_audio_fields = self._should_show_te20_monitor_audio_fields()
+        if show_te20_monitor_audio_fields != self._show_te20_monitor_audio_fields:
+            self.update_parameters_display()
+
         display_data = self._convert_parser_data_to_gui(data)
+        self._sync_te20_monitor_audio_polling()
         
         # Для отладки
         print("Данные из парсера:", data)
         print("Данные для GUI:", display_data)
+        self._set_te20_monitor_audio_sleep_state(
+            self._should_show_te20_monitor_audio_fields() and data.get('power_status') == 'Sleep'
+        )
         
         for param_name, value_label in self.param_widgets:
             if param_name in display_data:
+                if self._te20_is_sleeping and param_name in (
+                    "Звук в помещении (микрофон)",
+                    "Звук из динамиков (выход кодека)",
+                ):
+                    continue
                 value = display_data[param_name]
                 value_label.setText(str(value))
                 if param_name in ("Громкость динамиков", "Громкость микрофона"):
@@ -531,6 +604,11 @@ class CodecScreen(BaseScreen):
                         padding: 8px 0;
                     """)
             else:
+                if self._te20_is_sleeping and param_name in (
+                    "Звук в помещении (микрофон)",
+                    "Звук из динамиков (выход кодека)",
+                ):
+                    continue
                 value_label.setText("Не доступно")
                 value_label.setStyleSheet(f"""
                     color: {self.colors['text_secondary']};
@@ -907,6 +985,7 @@ class CodecScreen(BaseScreen):
 
     def reset_volume_session(self):
         """Сбрасывает долгоживущую сессию управления громкостью."""
+        self.stop_te20_monitor_audio_polling()
         if self.volume_session_handler is not None:
             try:
                 self.volume_session_handler.disconnect()
@@ -1012,6 +1091,235 @@ class CodecScreen(BaseScreen):
 
         return None
 
+    def _should_show_te20_monitor_audio_fields(self):
+        if self.parent and hasattr(self.parent, 'device_combo'):
+            return self.parent.device_combo.currentText() == "Huawei TE-20"
+        return False
+
+    def _is_codec_screen_active(self):
+        if not self.parent:
+            return False
+        if getattr(self.parent, 'current_screen_type', None) != "codec":
+            return False
+        if hasattr(self.parent, 'screen_container'):
+            return self.parent.screen_container.currentWidget() is self
+        return self.isVisible()
+
+    def _sync_te20_monitor_audio_polling(self):
+        if self._should_show_te20_monitor_audio_fields() and self._is_codec_screen_active():
+            self.start_te20_monitor_audio_polling()
+        else:
+            self.stop_te20_monitor_audio_polling()
+
+    def start_te20_monitor_audio_polling(self):
+        if not self.monitor_audio_timer.isActive():
+            self.monitor_audio_timer.start()
+
+    def stop_te20_monitor_audio_polling(self):
+        if self.monitor_audio_timer.isActive():
+            self.monitor_audio_timer.stop()
+
+    def _set_te20_wake_countdown_visible(self, visible):
+        countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
+        wake_btn = self.wake_buttons.get("Звук в помещении (микрофон)")
+
+        if countdown_label is not None:
+            countdown_label.setVisible(visible)
+
+        if wake_btn is not None:
+            wake_btn.setVisible(self._te20_is_sleeping and not visible)
+
+    def _stop_te20_wake_countdown(self):
+        if self.wake_countdown_timer.isActive():
+            self.wake_countdown_timer.stop()
+        self._te20_wake_countdown_remaining = 0
+        countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
+        if countdown_label is not None:
+            countdown_label.setText("")
+        self._set_te20_wake_countdown_visible(False)
+
+    def _start_te20_wake_countdown(self, seconds):
+        self.stop_te20_monitor_audio_polling()
+        self._te20_wake_countdown_remaining = seconds
+        countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
+        if countdown_label is not None:
+            countdown_label.setText(str(seconds))
+        self._set_te20_wake_countdown_visible(True)
+        if self.parent and hasattr(self.parent, 'append_codec_terminal_line'):
+            self._append_te20_monitor_audio_terminal_log(f"[sleep] wake countdown started: {seconds} sec")
+        self.wake_countdown_timer.start()
+
+    def _tick_te20_wake_countdown(self):
+        if self._te20_wake_countdown_remaining <= 1:
+            self._stop_te20_wake_countdown()
+            self._append_te20_monitor_audio_terminal_log("[sleep] wake countdown completed")
+            if self.parent and hasattr(self.parent, 'refresh_data'):
+                self.parent.refresh_data()
+            return
+
+        self._te20_wake_countdown_remaining -= 1
+        countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
+        if countdown_label is not None:
+            countdown_label.setText(str(self._te20_wake_countdown_remaining))
+
+    def _update_monitor_audio_display(self, mic_value=None, speaker_value=None):
+        field_values = {
+            "Громкость микрофона": mic_value,
+            "Звук в помещении (микрофон)": mic_value,
+            "Громкость динамиков": speaker_value,
+            "Звук из динамиков (выход кодека)": speaker_value,
+        }
+        for param_name, value in field_values.items():
+            if value is None:
+                continue
+            if param_name in ("Громкость микрофона", "Громкость динамиков"):
+                self.volume_values[param_name] = value
+            for name_label, value_label in self.param_widgets:
+                if name_label == param_name:
+                    value_label.setText(str(value))
+                    value_label.setStyleSheet(f"""
+                        color: {self.colors['text_primary']};
+                        font-size: 11pt;
+                        padding: 8px 0;
+                    """)
+                    break
+
+    def _set_te20_monitor_audio_sleep_state(self, is_sleeping):
+        self._te20_is_sleeping = bool(is_sleeping)
+        sleep_text = "недоступно в режиме Сна"
+
+        for param_name, value_label in self.param_widgets:
+            if param_name not in (
+                "Звук в помещении (микрофон)",
+                "Звук из динамиков (выход кодека)",
+            ):
+                continue
+
+            if self._te20_is_sleeping:
+                value_label.setText(sleep_text)
+                value_label.setStyleSheet(f"""
+                    color: {self.colors['warning']};
+                    font-size: 11pt;
+                    padding: 8px 0;
+                """)
+
+        wake_btn = self.wake_buttons.get("Звук в помещении (микрофон)")
+        if wake_btn is not None and not self.wake_countdown_timer.isActive():
+            wake_btn.setVisible(self._te20_is_sleeping)
+
+    def on_wake_te20_clicked(self):
+        if not self.parent:
+            return
+
+        ip_address = self.parent.ip_entry.text().strip()
+        device_name = self.parent.device_combo.currentText()
+        if not ip_address or device_name != "Huawei TE-20":
+            return
+
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
+        if creds is None:
+            return
+
+        self._append_te20_monitor_audio_terminal_log("[sleep] wake requested from monitor audio row")
+
+        try:
+            handler = self._get_or_create_volume_handler(
+                ip_address=ip_address,
+                device_name=device_name,
+                username=creds['username'],
+                password=creds['password'],
+                command_logger=self._append_te20_monitor_audio_terminal_log,
+            )
+            if not handler:
+                self._append_te20_monitor_audio_terminal_log("[sleep] wake failed: handler unavailable")
+                return
+
+            wake_up = getattr(handler, 'wake_up', None)
+            if not callable(wake_up):
+                self._append_te20_monitor_audio_terminal_log("[sleep] wake failed: command is not supported")
+                return
+
+            wake_success = wake_up()
+            self._append_te20_monitor_audio_terminal_log(f"[sleep] wake command result: {wake_success}")
+            if wake_success:
+                self._set_te20_monitor_audio_sleep_state(False)
+                self._start_te20_wake_countdown(7)
+        except Exception as e:
+            self._append_te20_monitor_audio_terminal_log(
+                f"[sleep] wake exception: {type(e).__name__}: {str(e)}"
+            )
+
+    def _append_te20_monitor_audio_terminal_log(self, message):
+        if not self.parent:
+            return
+
+        if hasattr(self.parent, 'te20_terminal_dialog') and self.parent.te20_terminal_dialog:
+            self.parent.te20_terminal_dialog.append_line(message)
+            return
+
+        if hasattr(self.parent, 'append_codec_terminal_line'):
+            self.parent.append_codec_terminal_line(message)
+
+    def poll_te20_monitor_audio(self):
+        if not self._should_show_te20_monitor_audio_fields() or not self._is_codec_screen_active():
+            self.stop_te20_monitor_audio_polling()
+            return
+
+        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
+        device_name = self.parent.device_combo.currentText() if self.parent else None
+        if not ip_address or device_name != "Huawei TE-20":
+            self.stop_te20_monitor_audio_polling()
+            return
+
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
+        if creds is None:
+            return
+
+        try:
+            self._append_te20_monitor_audio_terminal_log("[poll] monitor audio tick")
+            handler = self._get_or_create_volume_handler(
+                ip_address=ip_address,
+                device_name=device_name,
+                username=creds['username'],
+                password=creds['password'],
+                command_logger=self._append_te20_monitor_audio_terminal_log,
+            )
+            if not handler:
+                self._append_te20_monitor_audio_terminal_log("[poll] monitor audio handler is unavailable")
+                return
+
+            get_sleep_mode = getattr(handler, 'get_sleep_mode', None)
+            if callable(get_sleep_mode):
+                sleep_mode = get_sleep_mode()
+                self._append_te20_monitor_audio_terminal_log(f"[sleep] current mode: {sleep_mode}")
+                if sleep_mode == 'On':
+                    self._set_te20_monitor_audio_sleep_state(True)
+                    return
+
+            self._set_te20_monitor_audio_sleep_state(False)
+            result = handler.send_command('get_monitor_audio_params')
+            if not result or result.get('success') != 1:
+                self._append_te20_monitor_audio_terminal_log(f"[poll] monitor audio failed: {result}")
+                return
+
+            data = result.get('data', {})
+            if not isinstance(data, dict):
+                self._append_te20_monitor_audio_terminal_log("[poll] monitor audio returned non-dict data")
+                return
+
+            self._update_monitor_audio_display(
+                mic_value=data.get('MicValueIndex'),
+                speaker_value=data.get('SpeakerValueIndex'),
+            )
+            self._append_te20_monitor_audio_terminal_log(
+                f"[poll] monitor audio values mic={data.get('MicValueIndex')} speaker={data.get('SpeakerValueIndex')}"
+            )
+        except Exception as e:
+            self._append_te20_monitor_audio_terminal_log(
+                f"[poll] monitor audio exception: {type(e).__name__}: {str(e)}"
+            )
+            print(f"Ошибка при опросе monitor audio TE-20: {type(e).__name__}: {str(e)}")
+
     def update_volume_display(self, volume, param_name="Громкость динамиков"):
         """Обновление отображения громкости в GUI"""
         numeric_value = self._extract_numeric_value(volume)
@@ -1094,6 +1402,8 @@ class CodecScreen(BaseScreen):
             'Громкость микрофона': 'Громкость микрофона',
             'Статус микрофона': 'Статус микрофона',
             'Статус камеры': 'Статус камеры',
+            'Звук в помещении (микрофон)': 'Звук в помещении (микрофон)',
+            'Звук из динамиков (выход кодека)': 'Звук из динамиков (выход кодека)',
         }
         
         result = {}

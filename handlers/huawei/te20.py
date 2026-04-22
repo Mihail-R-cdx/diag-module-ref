@@ -563,6 +563,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 'get_call_status': 'WEB_GetMailboxDataAPI',
                 'get_sip_status': 'WEB_GetLineStateInfoAPI',
                 'get_audio_status': 'WEB_InitAudioCtrlParamsAPI',
+                'get_monitor_audio_params': 'WEB_GetMonitorAudioParam',
                 'get_presentation_local': 'WEB_IsSendAuxStreamAPI',
                 'get_presentation_remote': 'WEB_IsReceiveRemAuxStrmAPI',
                 'get_camera_mute': 'WEB_IsSendBlueScreen',
@@ -865,6 +866,29 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     status['microphones'] = mic_status
                     
                     print(f"Аудио статус получен")
+
+            print("Запрос monitor audio params...")
+            monitor_audio_result = self.send_command('get_monitor_audio_params')
+            if monitor_audio_result and monitor_audio_result.get('success') == 1:
+                monitor_audio_data = monitor_audio_result.get('data', {})
+                if isinstance(monitor_audio_data, str):
+                    try:
+                        monitor_audio_data = json.loads(monitor_audio_data)
+                    except json.JSONDecodeError:
+                        print("[WARN] Не удалось распарсить monitor audio data как JSON")
+                        monitor_audio_data = {}
+                elif not isinstance(monitor_audio_data, dict):
+                    monitor_audio_data = {}
+
+                if monitor_audio_data:
+                    status['mic_volume'] = monitor_audio_data.get('MicValueIndex')
+                    status['monitor_mic_value'] = monitor_audio_data.get('MicValueIndex')
+                    status['monitor_speaker_value'] = monitor_audio_data.get('SpeakerValueIndex')
+                    print(
+                        "Monitor audio params: "
+                        f"mic={status.get('monitor_mic_value')}, "
+                        f"speaker={status.get('monitor_speaker_value')}"
+                    )
             
             # 6. Получаем статус презентации (локальной)
             print("Запрос локальной презентации...")
