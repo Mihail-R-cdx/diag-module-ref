@@ -53,6 +53,7 @@ class HuaweiTE40Worker(QRunnable):
                 username=self.username,
                 password=self.password
             )
+            handler.command_logger = self.signals.terminal_log.emit
             
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)
@@ -235,6 +236,7 @@ class HuaweiBar310Worker(QRunnable):
                     username=creds['username'],
                     password=creds['password']
                 )
+                handler.command_logger = self.signals.terminal_log.emit
                 
                 self.signals.status.emit("Подключаюсь к устройству...")
                 self.signals.progress.emit(30)
@@ -336,6 +338,7 @@ class PolycomRPG310Worker(QRunnable):
                 username=self.username,
                 password=self.password
             )
+            handler.command_logger = self.signals.terminal_log.emit
             
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)

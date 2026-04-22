@@ -493,12 +493,35 @@ class VCSDiagnosticApp(QMainWindow):
             }}
         """)
         self.refresh_btn.clicked.connect(self.refresh_data)
+
+        self.debug_btn = QPushButton("Отладка")
+        self.debug_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['background']};
+                color: {self.colors['text_primary']};
+                border: 1px solid {self.colors['divider']};
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 8pt;
+                min-height: 25px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.colors['background']};
+                border: 1px solid {self.colors['primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {self.colors['divider']};
+            }}
+        """)
+        self.debug_btn.clicked.connect(self.show_debug_window)
         
         layout.addWidget(self.device_combo)
         layout.addWidget(ip_label)
         layout.addWidget(self.ip_entry)
         layout.addWidget(self.password_btn)
         layout.addWidget(self.refresh_btn)
+        layout.addWidget(self.debug_btn)
         layout.addStretch()
         
         group_box.setLayout(layout)
@@ -973,6 +996,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем прогресс
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
+        self.show_codec_poll_terminal(device_name, ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
         
         try:
             from core.worker import HuaweiBar310Worker
@@ -995,6 +1019,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.signals.error.connect(self.on_device_error)
             self.current_worker.signals.progress.connect(self.on_progress_update)
             self.current_worker.signals.status.connect(self.on_status_update)
+            self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
             self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
@@ -1109,6 +1134,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем прогресс
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
+        self.show_codec_poll_terminal(device_name, ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
         
         try:
             from core.worker import HuaweiTE40Worker
@@ -1130,6 +1156,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.signals.error.connect(self.on_device_error)
             self.current_worker.signals.progress.connect(self.on_progress_update)
             self.current_worker.signals.status.connect(self.on_status_update)
+            self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
             self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
@@ -1173,6 +1200,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем прогресс
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
+        self.show_codec_poll_terminal(device_name, ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
         
         try:
             from core.worker import PolycomRPG310Worker
@@ -1194,6 +1222,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.signals.error.connect(self.on_device_error)
             self.current_worker.signals.progress.connect(self.on_progress_update)
             self.current_worker.signals.status.connect(self.on_status_update)
+            self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
             self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
@@ -2225,9 +2254,6 @@ class VCSDiagnosticApp(QMainWindow):
         else:
             self.matrix_terminal_dialog.setWindowTitle(title)
         self.matrix_terminal_dialog.append_line(f"[session] attempt {attempt_no}/{total_attempts}")
-        self.matrix_terminal_dialog.show()
-        self.matrix_terminal_dialog.raise_()
-        self.matrix_terminal_dialog.activateWindow()
 
     @pyqtSlot(str)
     def on_terminal_log(self, message: str):
@@ -2249,9 +2275,6 @@ class VCSDiagnosticApp(QMainWindow):
         else:
             self.te20_terminal_dialog.setWindowTitle(title)
         self.te20_terminal_dialog.append_line(f"[session] attempt {attempt_no}/{total_attempts}")
-        self.te20_terminal_dialog.show()
-        self.te20_terminal_dialog.raise_()
-        self.te20_terminal_dialog.activateWindow()
 
     @pyqtSlot(str)
     def on_te20_terminal_log(self, message: str):
@@ -2261,6 +2284,23 @@ class VCSDiagnosticApp(QMainWindow):
     def finish_te20_terminal(self, message: str):
         if hasattr(self, 'te20_terminal_dialog') and self.te20_terminal_dialog:
             self.te20_terminal_dialog.append_line(f"[session] {message}")
+
+    def show_codec_poll_terminal(self, device_name: str, ip_address: str, attempt_no: int, total_attempts: int, reset: bool = True):
+        if not hasattr(self, 'codec_terminal_dialog') or self.codec_terminal_dialog is None:
+            self.codec_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+
+        title = f"Терминал {device_name} - {ip_address}"
+        if reset:
+            self.codec_terminal_dialog.reset_session(title)
+            self.codec_terminal_dialog.append_line(f"[session] start {ip_address}")
+        else:
+            self.codec_terminal_dialog.setWindowTitle(title)
+        self.codec_terminal_dialog.append_line(f"[session] attempt {attempt_no}/{total_attempts}")
+
+    @pyqtSlot(str)
+    def on_codec_poll_terminal_log(self, message: str):
+        if hasattr(self, 'codec_terminal_dialog') and self.codec_terminal_dialog:
+            self.codec_terminal_dialog.append_line(message)
 
     def show_codec_terminal(self, device_name: str, ip_address: str, action: str, reset: bool = True):
         if not hasattr(self, 'codec_terminal_dialog') or self.codec_terminal_dialog is None:
@@ -2274,10 +2314,6 @@ class VCSDiagnosticApp(QMainWindow):
         else:
             self.codec_terminal_dialog.setWindowTitle(title)
 
-        self.codec_terminal_dialog.show()
-        self.codec_terminal_dialog.raise_()
-        self.codec_terminal_dialog.activateWindow()
-
     def append_codec_terminal_line(self, message: str):
         if hasattr(self, 'codec_terminal_dialog') and self.codec_terminal_dialog:
             self.codec_terminal_dialog.append_line(message)
@@ -2285,6 +2321,32 @@ class VCSDiagnosticApp(QMainWindow):
     def finish_codec_terminal(self, message: str):
         if hasattr(self, 'codec_terminal_dialog') and self.codec_terminal_dialog:
             self.codec_terminal_dialog.append_line(f"[session] {message}")
+
+    def show_debug_window(self):
+        device_name = self.device_combo.currentText()
+        ip_address = self.ip_entry.text().strip()
+
+        if device_name == "Huawei TE-20":
+            if not hasattr(self, 'te20_terminal_dialog') or self.te20_terminal_dialog is None:
+                self.te20_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+                self.te20_terminal_dialog.setWindowTitle(f"Терминал Huawei TE-20 - {ip_address}")
+            dialog = self.te20_terminal_dialog
+        elif device_name == "Extron IN1804":
+            if not hasattr(self, 'matrix_terminal_dialog') or self.matrix_terminal_dialog is None:
+                self.matrix_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+                self.matrix_terminal_dialog.setWindowTitle(f"Терминал Extron IN1804 - {ip_address}")
+            dialog = self.matrix_terminal_dialog
+        else:
+            if not hasattr(self, 'codec_terminal_dialog') or self.codec_terminal_dialog is None:
+                self.codec_terminal_dialog = MatrixTerminalDialog(self.colors, self)
+                self.codec_terminal_dialog.setWindowTitle(
+                    f"Терминал управления устройством - {device_name} - {ip_address}"
+                )
+            dialog = self.codec_terminal_dialog
+
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def closeEvent(self, event):
         self.disconnect_matrix_persistent_handler()
