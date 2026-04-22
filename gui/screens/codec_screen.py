@@ -17,6 +17,26 @@ class CodecScreen(BaseScreen):
         self.volume_refresh_timer = QTimer(self)
         self.volume_refresh_timer.setSingleShot(True)
         self.volume_refresh_timer.timeout.connect(self.refresh)
+        self.colors.setdefault('warning', '#FFA500')
+
+    def _get_current_device_credentials(self, device_name, ip_address):
+        """Возвращает актуальные credentials с учётом IP-специфичного индекса."""
+        if not self.parent:
+            return None, 0, []
+
+        creds_list = self.parent.device_credentials.get(device_name, [])
+        if not creds_list:
+            return None, 0, []
+
+        if hasattr(self.parent, 'get_current_credential_index'):
+            current_idx = self.parent.get_current_credential_index(device_name, ip_address)
+        else:
+            current_idx = self.parent.current_credential_index.get(device_name, 0)
+
+        if current_idx >= len(creds_list):
+            current_idx = 0
+
+        return creds_list[current_idx], current_idx, creds_list
         # Добавьте цвет для предупреждений, если его нет в родительском словаре
         if hasattr(self, 'colors') and 'warning' not in self.colors:
             self.colors['warning'] = '#FFA500'
@@ -460,6 +480,10 @@ class CodecScreen(BaseScreen):
             if param_name in display_data:
                 value = display_data[param_name]
                 value_label.setText(str(value))
+                if param_name in ("Громкость динамиков", "Громкость микрофона"):
+                    numeric_value = self._extract_numeric_value(value)
+                    if numeric_value is not None:
+                        self.volume_values[param_name] = numeric_value
                 
                 if param_name == "SIP регистрация" and value == "Не зарегистрирован":
                     value_label.setStyleSheet(f"""
@@ -517,6 +541,18 @@ class CodecScreen(BaseScreen):
                         btn.setVisible(False)
                         break
 
+
+    def _extract_numeric_value(self, value):
+        """Преобразует строку вида '12' или '12%' в число."""
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            cleaned = value.strip().rstrip('%')
+            try:
+                return int(cleaned)
+            except ValueError:
+                return None
+        return None
 
     def on_fix_sip_clicked(self):
         """Обработчик нажатия кнопки "Исправить" для SIP регистрации"""
@@ -592,15 +628,13 @@ class CodecScreen(BaseScreen):
         self._show_presentation_terminal(device_name, ip_address, command)
         print(f"Отправка команды управления презентацией на {device_name} ({ip_address}): {command}")
 
-        current_idx = self.parent.current_credential_index.get(device_name, 0)
-        creds_list = self.parent.device_credentials.get(device_name, [])
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
 
-        if current_idx >= len(creds_list):
+        if creds is None:
             print(f"Не найдены credentials для {device_name}")
             QMessageBox.warning(self, "Ошибка", f"Не найдены credentials для {device_name}")
             return
 
-        creds = creds_list[current_idx]
         self._append_presentation_terminal_log(
             f"[session] credential {current_idx + 1}/{len(creds_list)} user={creds['username']}"
         )
@@ -813,11 +847,9 @@ class CodecScreen(BaseScreen):
         print(f"Отправка команды изменения громкости на {device_name} ({ip_address}): {value}")
         
         # Получаем текущие credentials
-        current_idx = self.parent.current_credential_index.get(device_name, 0)
-        creds_list = self.parent.device_credentials.get(device_name, [])
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
         
-        if current_idx < len(creds_list):
-            creds = creds_list[current_idx]
+        if creds is not None:
             
             # Создаем обработчик для отправки команды
             try:
@@ -858,11 +890,9 @@ class CodecScreen(BaseScreen):
         print(f"Запрос текущей громкости с устройства {device_name} ({ip_address})...")
         
         # Получаем текущие credentials
-        current_idx = self.parent.current_credential_index.get(device_name, 0)
-        creds_list = self.parent.device_credentials.get(device_name, [])
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
         
-        if current_idx < len(creds_list):
-            creds = creds_list[current_idx]
+        if creds is not None:
             
             # Создаем обработчик для запроса данных
             try:
@@ -907,28 +937,32 @@ class CodecScreen(BaseScreen):
     def _get_or_create_volume_handler(self, ip_address, device_name, username, password, command_logger=None):
         """Возвращает существующую сессию громкости или создаёт новую."""
         handler_class = None
-        handler_kwargs = {
+        base_handler_kwargs = {
             "ip_address": ip_address,
             "username": username,
             "password": password,
         }
+        connection_profiles = []
 
         if device_name == "Huawei TE-20":
             from handlers.huawei.te20 import HuaweiTE20Handler
             handler_class = HuaweiTE20Handler
-            handler_kwargs.update({"port": 80, "use_ssl": False})
+            connection_profiles = [
+                {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
+                {"port": 80, "use_ssl": False, "label": "HTTP:80"},
+            ]
         elif device_name == "Huawei TE-40":
             from handlers.huawei.te40 import HuaweiTE40Handler
             handler_class = HuaweiTE40Handler
-            handler_kwargs.update({"port": 443, "use_ssl": True})
+            connection_profiles = [{"port": 443, "use_ssl": True, "label": "HTTPS:443"}]
         elif device_name == "CloudLink Bar 310":
             from handlers.huawei.bar310 import CloudLinkBar310Handler
             handler_class = CloudLinkBar310Handler
-            handler_kwargs.update({"port": 443, "use_ssl": True})
+            connection_profiles = [{"port": 443, "use_ssl": True, "label": "HTTPS:443"}]
         elif device_name == "Polycom RPG 310":
             from handlers.polycom.rpg310 import PolycomRPG310Handler
             handler_class = PolycomRPG310Handler
-            handler_kwargs.update({"port": 22})
+            connection_profiles = [{"port": 22, "label": "SSH:22"}]
         else:
             self.reset_volume_session()
             return None
@@ -940,13 +974,25 @@ class CodecScreen(BaseScreen):
 
         self.reset_volume_session()
 
-        handler = handler_class(**handler_kwargs)
-        handler.command_logger = command_logger
+        for profile in connection_profiles:
+            handler_kwargs = dict(base_handler_kwargs)
+            handler_kwargs.update({k: v for k, v in profile.items() if k in {"port", "use_ssl"}})
 
-        if handler.connect():
-            self.volume_session_handler = handler
-            self.volume_session_key = session_key
-            return handler
+            handler = handler_class(**handler_kwargs)
+            handler.command_logger = command_logger
+
+            if callable(command_logger):
+                command_logger(f"[connect] control via {profile['label']}")
+
+            if handler.connect():
+                self.volume_session_handler = handler
+                self.volume_session_key = session_key
+                return handler
+
+            try:
+                handler.disconnect()
+            except Exception:
+                pass
 
         return None
 
