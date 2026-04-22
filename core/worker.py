@@ -77,6 +77,11 @@ class HuaweiTE40Worker(QRunnable):
             print(f"Парсинг завершен: {parsed_data}")
             
             parsed_data['ip_address'] = self.ip_address
+            parsed_data['connection_profile'] = {
+                'port': handler.port,
+                'use_ssl': bool(getattr(handler, 'use_ssl', True)),
+                'label': f"{'HTTPS' if getattr(handler, 'use_ssl', True) else 'HTTP'}:{handler.port}",
+            }
             
             self.signals.progress.emit(90)
             print("Отправка результата...")
@@ -258,6 +263,11 @@ class HuaweiBar310Worker(QRunnable):
                 print(f"Парсинг завершен: {parsed_data}")
                 
                 parsed_data['ip_address'] = self.ip_address
+                parsed_data['connection_profile'] = {
+                    'port': handler.port,
+                    'use_ssl': bool(getattr(handler, 'use_ssl', True)),
+                    'label': f"{'HTTPS' if getattr(handler, 'use_ssl', True) else 'HTTP'}:{handler.port}",
+                }
                 
                 self.signals.progress.emit(90)
                 print("Отправка результата...")
@@ -373,6 +383,11 @@ class PolycomRPG310Worker(QRunnable):
                 parsed_data['Модель'] = 'Polycom RealPresence Group 310'
             
             parsed_data['ip_address'] = self.ip_address
+            parsed_data['connection_profile'] = {
+                'port': handler.port,
+                'use_ssl': False,
+                'label': f"SSH:{handler.port}",
+            }
             
             self.signals.progress.emit(90)
             print("Отправка результата в GUI...")

@@ -21,7 +21,10 @@ class CodecScreen(BaseScreen):
         super().__init__(parent)
         self.volume_refresh_timer = QTimer(self)
         self.volume_refresh_timer.setSingleShot(True)
-        self.volume_refresh_timer.timeout.connect(self.refresh)
+        self.volume_refresh_timer.timeout.connect(self.get_speaker_volume)
+        self.presentation_refresh_timer = QTimer(self)
+        self.presentation_refresh_timer.setSingleShot(True)
+        self.presentation_refresh_timer.timeout.connect(self.refresh_presentation_status)
         self.monitor_audio_timer = QTimer(self)
         self.monitor_audio_timer.setInterval(3000)
         self.monitor_audio_timer.timeout.connect(self.poll_te20_monitor_audio)
@@ -748,7 +751,7 @@ class CodecScreen(BaseScreen):
                 print(f"Команда презентации {command} успешно отправлена")
                 self._finish_presentation_terminal(f"completed successfully: {command}")
                 self.update_presentation_display(command)
-                self.schedule_volume_refresh()
+                self.schedule_presentation_refresh()
             else:
                 print(f"Устройство не подтвердило команду презентации {command}")
                 self._finish_presentation_terminal(f"device did not confirm command: {command}")
@@ -981,7 +984,45 @@ class CodecScreen(BaseScreen):
     def schedule_volume_refresh(self):
         if self.parent:
             self.parent.suppress_success_message_once = True
+            self.parent.suppress_progress_dialog_once = True
         self.volume_refresh_timer.start(1500)
+
+    def schedule_presentation_refresh(self):
+        self.presentation_refresh_timer.start(1500)
+
+    def refresh_presentation_status(self):
+        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
+        device_name = self.parent.device_combo.currentText() if self.parent else None
+
+        if not ip_address or not device_name:
+            return
+
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
+        if creds is None:
+            return
+
+        try:
+            handler = self._get_or_create_volume_handler(
+                ip_address=ip_address,
+                device_name=device_name,
+                username=creds['username'],
+                password=creds['password'],
+                command_logger=self._append_presentation_terminal_log,
+            )
+            if not handler:
+                return
+
+            get_presentation_status = getattr(handler, 'get_presentation_status', None)
+            if not callable(get_presentation_status):
+                return
+
+            presentation_state = get_presentation_status()
+            if presentation_state is not None:
+                self.update_presentation_display(presentation_state)
+        except Exception as e:
+            self._append_presentation_terminal_log(
+                f"[presentation] refresh failed: {type(e).__name__}: {str(e)}"
+            )
 
     def reset_volume_session(self):
         """Сбрасывает долгоживущую сессию управления громкостью."""
@@ -1027,7 +1068,38 @@ class CodecScreen(BaseScreen):
             self.reset_volume_session()
             return None
 
-        session_key = (device_name, ip_address, username, password)
+        preferred_profile = None
+        if self.parent and hasattr(self.parent, 'get_device_connection_profile'):
+            preferred_profile = self.parent.get_device_connection_profile(device_name, ip_address)
+        if isinstance(preferred_profile, dict) and preferred_profile:
+            preferred_port = preferred_profile.get("port")
+            preferred_use_ssl = preferred_profile.get("use_ssl")
+            prioritized_profiles = []
+            if preferred_port is not None:
+                prioritized_profiles.append({
+                    "port": preferred_port,
+                    "use_ssl": preferred_use_ssl,
+                    "label": preferred_profile.get(
+                        "label",
+                        f"{'HTTPS' if preferred_use_ssl else 'HTTP'}:{preferred_port}"
+                    ),
+                })
+            prioritized_profiles.extend(connection_profiles)
+
+            seen_profiles = set()
+            connection_profiles = []
+            for profile in prioritized_profiles:
+                key = (profile.get("port"), profile.get("use_ssl"))
+                if key in seen_profiles:
+                    continue
+                seen_profiles.add(key)
+                connection_profiles.append(profile)
+
+        profile_signature = tuple(
+            (profile.get("port"), profile.get("use_ssl"))
+            for profile in connection_profiles
+        )
+        session_key = (device_name, ip_address, username, password, profile_signature)
         if self.volume_session_handler is not None and self.volume_session_key == session_key:
             self.volume_session_handler.command_logger = command_logger
             return self.volume_session_handler
@@ -1164,16 +1236,12 @@ class CodecScreen(BaseScreen):
 
     def _update_monitor_audio_display(self, mic_value=None, speaker_value=None):
         field_values = {
-            "Громкость микрофона": mic_value,
             "Звук в помещении (микрофон)": mic_value,
-            "Громкость динамиков": speaker_value,
             "Звук из динамиков (выход кодека)": speaker_value,
         }
         for param_name, value in field_values.items():
             if value is None:
                 continue
-            if param_name in ("Громкость микрофона", "Громкость динамиков"):
-                self.volume_values[param_name] = value
             for name_label, value_label in self.param_widgets:
                 if name_label == param_name:
                     value_label.setText(str(value))

@@ -178,6 +178,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.current_credential_index = {}
         for device in self.device_credentials:
             self.current_credential_index[device] = 0
+        self.device_connection_profiles = {}
         
         
         self.progress_dialog = None
@@ -796,6 +797,16 @@ class VCSDiagnosticApp(QMainWindow):
         self.current_credential_index[device_name] = index
         if ip_address:
             self.current_credential_index[self.get_credential_key(device_name, ip_address)] = index
+
+    def get_device_connection_profile(self, device_name: str, ip_address: str = None):
+        if ip_address:
+            return self.device_connection_profiles.get((device_name, ip_address))
+        return self.device_connection_profiles.get(device_name)
+
+    def set_device_connection_profile(self, device_name: str, profile: dict, ip_address: str = None):
+        self.device_connection_profiles[device_name] = profile
+        if ip_address:
+            self.device_connection_profiles[(device_name, ip_address)] = profile
 
     def ensure_matrix_persistent_handler(self, ip_address=None, username=None, password=None, force_reconnect=False):
         from handlers.extron.in1804 import ExtronIN1804Handler
@@ -1499,6 +1510,13 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = getattr(self.current_worker, 'current_idx', 0)
             if device_name:
                 self.set_current_credential_index(device_name, current_idx, data.get('ip_address', self.ip_entry.text()))
+                connection_profile = data.get('connection_profile')
+                if isinstance(connection_profile, dict) and connection_profile:
+                    self.set_device_connection_profile(
+                        device_name,
+                        connection_profile,
+                        data.get('ip_address', self.ip_entry.text())
+                    )
                 print(f"Запомнен успешный credentials #{current_idx + 1} для {device_name}")
                 if device_name == "Extron IN1804":
                     creds_list = getattr(self.current_worker, 'creds_list', [])
@@ -2221,6 +2239,10 @@ class VCSDiagnosticApp(QMainWindow):
     def show_progress_dialog(self, message: str):
         """Показать диалог прогресса"""
         from PyQt5.QtWidgets import QProgressDialog
+
+        if getattr(self, 'suppress_progress_dialog_once', False):
+            self.suppress_progress_dialog_once = False
+            return
         
         self.progress_dialog = QProgressDialog(message, "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Выполнение операции")

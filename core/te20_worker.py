@@ -171,6 +171,11 @@ class HuaweiTE20Worker(QRunnable):
             self._log(f"[status] parsed keys: {', '.join(sorted(parsed_data.keys())) if parsed_data else 'none'}")
 
             parsed_data["ip_address"] = self.ip_address
+            parsed_data["connection_profile"] = {
+                "port": handler.port,
+                "use_ssl": bool(handler.use_ssl),
+                "label": f"{'HTTPS' if handler.use_ssl else 'HTTP'}:{handler.port}",
+            }
 
             self.signals.progress.emit(90)
             print("Отправка результата...")

@@ -46,8 +46,10 @@ class HuaweiTE40DataParser:
         parsed['Статус динамика'] = HuaweiTE40DataParser._map_speaker_status(
             raw_data.get('speaker_mute', 'Off')
         )
-        parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume', 0))
-        parsed['Громкость микрофона'] = str(raw_data.get('mic_volume', 0))
+        if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
+            parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
+        if 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
+            parsed['Громкость микрофона'] = str(raw_data.get('mic_volume'))
         # Камера
         parsed['Статус камеры'] = HuaweiTE40DataParser._map_camera_status(
             raw_data.get('camera_status', 'OffOff')
@@ -331,12 +333,14 @@ class HuaweiBar310DataParser:
         parsed['Статус микрофона'] = HuaweiBar310DataParser._map_mic_status(
             raw_data.get('mic_mute', 'Off')
         )
-        parsed['Громкость микрофона'] = str(raw_data.get('mic_volume', 0))
+        if 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
+            parsed['Громкость микрофона'] = str(raw_data.get('mic_volume'))
         
         parsed['Статус динамика'] = HuaweiBar310DataParser._map_speaker_status(
             raw_data.get('speaker_mute', 'Off')
         )
-        parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume', 0))
+        if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
+            parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
         
         
         camera_status = raw_data.get('camera_status', 'Off')
