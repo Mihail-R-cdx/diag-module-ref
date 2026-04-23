@@ -33,6 +33,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         self.acCSRFToken = None
         self.session_cookie = None
         self._connected = False
+        self.last_presentation_error_message = None
         
         # Маппинг команд на ActionID для Bar 310
         self.command_map = {
@@ -574,8 +575,21 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def get_presentation_status(self) -> str:
         """Получить статус презентации"""
-        status = self.get_status()
-        return status.get('presentation', 'Stop')
+        result = self.send_command('get_presentation')
+        if not result or result.get('success') != 1:
+            return 'Stop'
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return 'Stop'
+
+        if not isinstance(data, dict):
+            return 'Stop'
+
+        return 'Start' if data.get('isSendAux') == 'auxOpen' else 'Stop'
     
     def get_sleep_mode(self) -> str:
         """Получить режим сна"""
@@ -599,6 +613,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         return 0, 15
 
     def set_presentation(self, value: str) -> bool:
+        self.last_presentation_error_message = None
         command_map = {
             'Start': 'action.cgi?ActionID=WEB_StartSendAuxStreamAPI',
             'Stop': 'action.cgi?ActionID=WEB_StopSendAuxStreamAPI',
@@ -614,7 +629,24 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         if result and result.get('success') == 1:
             return True
 
+        error_info = result.get('error') if isinstance(result, dict) else None
+        if value == 'Start' and isinstance(error_info, dict):
+            if error_info.get('id') == 100666941 and error_info.get('code') == 100687877:
+                self.last_presentation_error_message = (
+                    "К видеовходу не подключён источник. Старт презентации невозможен"
+                )
+
         # У Bar310 ответ set-команды бывает без явного success, поэтому сверяем статус.
+        retries = 2 if value == 'Start' else 0
+        for _ in range(retries):
+            time.sleep(1.5)
+            result = self.send_command(command, payload)
+            if result and result.get('success') == 1:
+                return True
+
+            if self.get_presentation_status() == value:
+                return True
+
         time.sleep(0.5)
         return self.get_presentation_status() == value
 
@@ -628,8 +660,14 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             "speakerValue": int(value),
             "acCSRFToken": self.acCSRFToken or "",
         }
-        result = self.send_command('WEB_SetSpeakVolumeAPI', payload)
-        return bool(result and result.get('success') == 1)
+        # Для set-команды нужен полный action.cgi endpoint, иначе запрос уходит
+        # на несуществующий URL вида /WEB_SetSpeakVolumeAPI.
+        result = self.send_command('action.cgi?ActionID=WEB_SetSpeakVolumeAPI', payload)
+        if result and result.get('success') == 1:
+            return True
+
+        time.sleep(0.5)
+        return self.get_speaker_volume() == int(value)
 
     def get_speaker_volume(self) -> Optional[int]:
         result = self.send_command('get_audio_status')

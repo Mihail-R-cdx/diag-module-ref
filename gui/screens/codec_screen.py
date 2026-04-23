@@ -755,6 +755,10 @@ class CodecScreen(BaseScreen):
             else:
                 print(f"Устройство не подтвердило команду презентации {command}")
                 self._finish_presentation_terminal(f"device did not confirm command: {command}")
+                detailed_error = getattr(handler, 'last_presentation_error_message', None)
+                if detailed_error:
+                    QMessageBox.warning(self, "Ошибка", detailed_error)
+                    return
                 QMessageBox.warning(self, "Ошибка", f"Устройство не подтвердило команду презентации: {command}")
 
         except Exception as e:
@@ -816,8 +820,41 @@ class CodecScreen(BaseScreen):
                 QMessageBox.warning(self, "Ошибка", "Не удалось разбудить устройство")
                 return False
 
-        self._run_presentation_countdown(5)
+        if not self._wait_until_device_wakes(handler):
+            self._finish_presentation_terminal("device did not leave sleep mode after wake")
+            QMessageBox.warning(self, "РћС€РёР±РєР°", "РЈСЃС‚СЂРѕР№СЃС‚РІРѕ РЅРµ РІС‹С€Р»Рѕ РёР· СЂРµР¶РёРјР° СЃРЅР° РїРѕСЃР»Рµ РєРѕРјР°РЅРґС‹ РїСЂРѕР±СѓР¶РґРµРЅРёСЏ")
+            return False
+
+        self._run_presentation_countdown(2)
+        self._resume_te20_monitor_audio_after_wake()
         return True
+
+    def _wait_until_device_wakes(self, handler, timeout_seconds=15):
+        get_sleep_mode = getattr(handler, 'get_sleep_mode', None)
+        if not callable(get_sleep_mode):
+            return True
+
+        for second in range(timeout_seconds):
+            try:
+                sleep_mode = get_sleep_mode()
+            except Exception as e:
+                self._append_presentation_terminal_log(
+                    f"[sleep] wake poll failed: {type(e).__name__}: {str(e)}"
+                )
+                return False
+
+            self._append_presentation_terminal_log(
+                f"[sleep] wake poll {second + 1}/{timeout_seconds}: {sleep_mode}"
+            )
+            if sleep_mode != 'On':
+                self._append_presentation_terminal_log("[sleep] device is awake")
+                return True
+
+            loop = QEventLoop(self)
+            QTimer.singleShot(1000, loop.quit)
+            loop.exec_()
+
+        return False
 
     def _run_presentation_countdown(self, seconds):
         dialog = QProgressDialog(self)
@@ -1225,8 +1262,7 @@ class CodecScreen(BaseScreen):
         if self._te20_wake_countdown_remaining <= 1:
             self._stop_te20_wake_countdown()
             self._append_te20_monitor_audio_terminal_log("[sleep] wake countdown completed")
-            if self.parent and hasattr(self.parent, 'refresh_data'):
-                self.parent.refresh_data()
+            self._resume_te20_monitor_audio_after_wake()
             return
 
         self._te20_wake_countdown_remaining -= 1
@@ -1251,6 +1287,12 @@ class CodecScreen(BaseScreen):
                         padding: 8px 0;
                     """)
                     break
+
+    def _resume_te20_monitor_audio_after_wake(self):
+        self._set_te20_monitor_audio_sleep_state(False)
+        self.poll_te20_monitor_audio()
+        if self._should_show_te20_monitor_audio_fields() and self._is_codec_screen_active():
+            self.start_te20_monitor_audio_polling()
 
     def _set_te20_monitor_audio_sleep_state(self, is_sleeping):
         self._te20_is_sleeping = bool(is_sleeping)
