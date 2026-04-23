@@ -39,8 +39,8 @@ class HuaweiTE20Worker(QRunnable):
 
     def _build_unique_profiles(self) -> list[dict]:
         connection_profiles = [
-            {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
             {"port": self.port, "use_ssl": False, "label": "HTTP:80"},
+            {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
         ]
 
         seen_profiles = set()

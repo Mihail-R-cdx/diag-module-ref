@@ -1,0 +1,225 @@
+"C:\root folder\temp\diag module agent mode\diagnostic\tools\te20_ssh_help\collect_te20_ssh_help.py"
+
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe "C:\root folder\temp\diag module agent mode\diagnostic\tools\te20_ssh_help\collect_te20_ssh_help.py" --host 192.168.1.100 --username admin
+
+
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe "C:\root folder\temp\diag module agent mode\diagnostic\tools\te20_ssh_help\collect_te20_ssh_help.py" --host 192.168.1.100 --username admin
+
+
+
+
+
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe "C:\root folder\temp\diag module agent mode\diagnostic\tools\te20_ssh_help\collect_te20_ssh_help_plink.py" --plink-path "C:\Users\Mih\Downloads\putty-0.73-ru-17\PuTTY\plink.exe" --host 192.168.1.100 --username admin
+
+
+
+
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe "C:\root folder\temp\diag module agent mode\diagnostic\tools\te20_ssh_help\collect_te20_ssh_help_plink.py" --plink-path "C:\Users\Mih\Downloads\putty-0.73-ru-17\PuTTY\plink.exe" --host 192.168.1.100 --username admin --command-timeout 8
+
+
+
+Главный вывод:
+
+другой TLS stack проблему 443 действительно решает
+теперь блокер уже не transport, а авторизация/формат логина на втором шаге
+
+подробнее про Schannel
+
+
+Да. Под твою задачу я бы учился не “вообще кибербезопасности”, а по 4 конкретным слоям:
+
+как устроен TLS handshake
+чем отличаются OpenSSL, Schannel, libcurl, pycurl
+как смотреть это в Wireshark
+как это связано с реальными HTTP/API-клиентами
+YouTube
+Начни с этих роликов в таком порядке:
+
+TLS Handshake Explained - Computerphile
+https://www.youtube.com/watch?v=86cQJ0MMses
+Лучший короткий вход в сам handshake. После него будет проще понимать, почему TE20 роняет соединение до API.
+
+SSL TLS Handshake Explained in 12 minutes | Lets Do Coding
+https://www.youtube.com/watch?v=kyuxlV99418
+Хорошее второе объяснение, уже более прикладное. Полезно, чтобы закрепить ClientHello / ServerHello / key exchange.
+
+Analyzing TLS session setup using Wireshark
+https://www.youtube.com/watch?v=MQg48n9lV0s
+Это уже прямо в твою практику: смотреть, где именно умирает handshake, и чем это видно на захвате.
+
+Intro to Wireshark: Basics + Packet Analysis!
+https://www.youtube.com/watch?v=jvuiI1Leg6w
+Чтобы уверенно работать с захватами, фильтрами и понимать, где смотреть TLS, HTTP и cookies.
+
+Официальные тексты
+Их я бы держал рядом как справочник:
+
+Что такое Schannel в Windows:
+https://learn.microsoft.com/en-us/windows-server/security/tls/tls-ssl-schannel-ssp-overview
+
+Какие версии TLS поддерживает Schannel:
+https://learn.microsoft.com/en-us/windows/win32/secauthn/protocols-in-tls-ssl--schannel-ssp-
+
+Как libcurl работает с разными TLS backend’ами:
+https://curl.se/libcurl/c/tls-options.html
+
+Как в libcurl вообще выбираются SSL backend’ы:
+https://curl.se/libcurl/c/curl_global_sslset.html
+
+Что такое pycurl и что он оборачивает:
+https://github.com/pycurl/pycurl
+
+Почему у pycurl важен backend libcurl:
+https://pycurl.io/docs/7.21.5/install.html
+
+Как разбирать TLS и дешифровать его в Wireshark:
+https://wiki.wireshark.org/TLS?action=login
+
+Книги
+Я бы взял две основные и одну дополнительную:
+
+Practical Packet Analysis, 3rd Edition — Chris Sanders
+https://nostarch.com/packetanalysis3
+Самая полезная для твоего кейса книга. Она лучше всего прокачает именно сетевую диагностику и Wireshark.
+
+Real-World Cryptography — David Wong
+https://www.manning.com/books/real-world-cryptography
+Хорошо объясняет прикладную криптографию без лишней математики. Отлично ложится на темы TLS, ключей, сертификатов, handshake.
+
+HTTP: The Definitive Guide
+https://www.oreilly.com/library/view/http-the-definitive/1565925092/index.html
+Книга старая, но для понимания HTTP, cookies, headers, auth flow всё ещё полезна.
+
+Как бы я учился на твоём месте
+
+Посмотреть Computerphile про TLS.
+Посмотреть ролик про TLS в Wireshark.
+Прочитать страницы Microsoft про Schannel.
+Прочитать доки libcurl про SSL backends.
+Параллельно открыть Practical Packet Analysis.
+После этого уже вернуться к своему кейсу и снять один handshake в Wireshark для requests/OpenSSL и один для pycurl/Schannel.
+Если хочешь, я могу следующим сообщением сделать тебе персональный мини-план на 7 дней именно под твой кейс с TE20: что смотреть, что читать и какой маленький практический эксперимент делать каждый день.
+
+--------------------------------------------------------------------
+План на 7 дней
+
+День 1
+Посмотри TLS Handshake Explained - Computerphile
+https://www.youtube.com/watch?v=86cQJ0MMses
+
+Задача на день:
+
+понять ClientHello, ServerHello, сертификат, key exchange
+своими словами ответить на вопрос: в какой точке TE20 может оборвать соединение до HTTP
+Практика:
+
+запиши коротко, чем отличается “TLS не поднялся” от “HTTP API вернул ошибку”
+День 2
+Посмотри второе объяснение TLS:
+https://www.youtube.com/watch?v=kyuxlV99418
+
+Почитай:
+
+Schannel SSP overview
+https://learn.microsoft.com/en-us/windows-server/security/tls/tls-ssl-schannel-ssp-overview
+Задача на день:
+
+понять, что Schannel — это системный TLS stack Windows
+понять, почему requests/OpenSSL и pycurl/Schannel могут по-разному вести себя с одним и тем же устройством
+Практика:
+
+выпиши цепочку:
+requests -> Python _ssl -> OpenSSL
+pycurl -> libcurl -> Schannel
+День 3
+Почитай:
+
+libcurl TLS options
+https://curl.se/libcurl/c/tls-options.html
+curl_global_sslset
+https://curl.se/libcurl/c/curl_global_sslset.html
+Задача на день:
+
+понять, что такое TLS backend у libcurl
+понять, почему один и тот же pycurl может быть собран по-разному
+Практика:
+
+на своей машине выпиши:
+версия ssl.OPENSSL_VERSION
+строка pycurl.version
+своими словами объясни, почему TE20 заработал через pycurl
+День 4
+Посмотри ролик по Wireshark/TLS:
+https://www.youtube.com/watch?v=MQg48n9lV0s
+
+Или общий ролик по Wireshark:
+https://www.youtube.com/watch?v=jvuiI1Leg6w
+
+Задача на день:
+
+научиться фильтровать трафик по IP и порту
+видеть разницу между TCP, TLS и HTTP уровнями
+Практика:
+
+снять 2 коротких захвата:
+попытка TE20 через requests
+попытка TE20 через pycurl
+сравнить, на каком слое ломается первый и до какого слоя доходит второй
+День 5
+Почитай про TLS в Wireshark:
+https://wiki.wireshark.org/TLS?action=login
+
+Задача на день:
+
+научиться читать handshake без полной дешифровки
+видеть Client Hello, Alert, Application Data
+Практика:
+
+ответить себе на 3 вопроса:
+был ли ServerHello
+пришёл ли Alert
+дошло ли до HTTP POST /action.cgi
+День 6
+Начни книгу:
+
+Practical Packet Analysis, 3rd Edition
+https://nostarch.com/packetanalysis3
+Или, если хочется больше про криптографию:
+
+Real-World Cryptography
+https://www.manning.com/books/real-world-cryptography
+Задача на день:
+
+укрепить понимание сетевой диагностики на реальных кейсах
+перестать смотреть на TLS как на “чёрный ящик”
+Практика:
+
+оформить свой кейс с TE20 в виде заметки:
+симптом
+гипотеза
+эксперимент
+результат
+вывод
+День 7
+Вернись к своему кейсу целиком.
+
+Собери финальную картину:
+
+почему Python/OpenSSL не подошёл
+почему pycurl/Schannel подошёл
+почему browser-flow оказался рабочим
+где была проблема credentials
+где была проблема перебора credentials в коде
+Практика:
+
+напиши для себя одну страницу “разбор инцидента TE20”
+если сможешь объяснить это без лога и без кода, значит тема начала по-настоящему укладываться
+Самое полезное упражнение за всю неделю
+Сравнить 3 цепочки:
+
+Chrome -> Windows TLS
+requests -> OpenSSL
+pycurl -> libcurl -> Schannel
+Если хочешь, я могу следующим сообщением сделать тебе ещё более прикладную версию:
+
+“7-дневный план с командами и Wireshark-фильтрами”, чтобы можно было прямо повторять шаги на своей машине.

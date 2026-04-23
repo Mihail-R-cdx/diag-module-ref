@@ -1086,8 +1086,8 @@ class CodecScreen(BaseScreen):
             from handlers.huawei.te20 import HuaweiTE20Handler
             handler_class = HuaweiTE20Handler
             connection_profiles = [
-                {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
                 {"port": 80, "use_ssl": False, "label": "HTTP:80"},
+                {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
             ]
         elif device_name == "Huawei TE-40":
             from handlers.huawei.te40 import HuaweiTE40Handler
@@ -1108,6 +1108,8 @@ class CodecScreen(BaseScreen):
         preferred_profile = None
         if self.parent and hasattr(self.parent, 'get_device_connection_profile'):
             preferred_profile = self.parent.get_device_connection_profile(device_name, ip_address)
+        if device_name == "Huawei TE-20":
+            preferred_profile = None
         if isinstance(preferred_profile, dict) and preferred_profile:
             preferred_port = preferred_profile.get("port")
             preferred_use_ssl = preferred_profile.get("use_ssl")
