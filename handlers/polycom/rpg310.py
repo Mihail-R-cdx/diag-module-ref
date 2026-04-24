@@ -357,7 +357,8 @@ class PolycomRPG310Handler:
 
     def set_presentation(self, value: str) -> bool:
         command_map = {
-            'Start': 'vcbutton play 2',
+            # Для Group 310 используем default content source через plain `vcbutton play`.
+            'Start': 'vcbutton play',
             'Stop': 'vcbutton stop',
         }
         command = command_map.get(value)
@@ -371,7 +372,21 @@ class PolycomRPG310Handler:
         response_lower = response.lower()
         if 'invalid' in response_lower or 'error' in response_lower:
             return False
-        return True
+        time.sleep(0.5)
+        return self.get_presentation_status() == value
+
+    def get_presentation_status(self) -> Optional[str]:
+        if not self.is_connected():
+            self.connect()
+
+        response = self.send_command('vcbutton get', wait_time=2.0)
+        response_lower = response.lower()
+
+        if 'vcbutton play' in response_lower:
+            return 'Start'
+        if 'vcbutton stop' in response_lower:
+            return 'Stop'
+        return None
 
     def set_speaker_volume(self, value: int) -> bool:
         min_value, max_value = self.get_volume_range()
