@@ -766,7 +766,6 @@ class VCSDiagnosticApp(QMainWindow):
         self.screen_container.setCurrentWidget(self.placeholder_widget)
         
         # Обновляем IP адрес
-        self.update_ip_for_device(device_name)
         
         # Обновляем заголовок окна
         self.setWindowTitle(f"Диагностический модуль ММК - {device_name}")
