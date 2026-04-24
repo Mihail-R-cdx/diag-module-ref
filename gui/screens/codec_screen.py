@@ -10,7 +10,9 @@ class CodecScreen(BaseScreen):
         self.presentation_buttons = {}
         self.sip_fix_buttons = []  # Храним кнопки для каждого блока
         self.volume_buttons = {}  # Храним кнопки для изменения громкости
+        self.mute_buttons = {}
         self.volume_values = {}  # Храним текущие значения громкости для каждого параметра
+        self.last_unmuted_volume = {}
         self.volume_session_handler = None
         self.volume_session_key = None
         self._show_te20_monitor_audio_fields = False
@@ -64,9 +66,13 @@ class CodecScreen(BaseScreen):
             self.table.clearContents()
 
         self.volume_values.clear()
+        self.last_unmuted_volume.clear()
         self.stop_te20_monitor_audio_polling()
         self._stop_te20_wake_countdown()
         self._te20_is_sleeping = False
+
+        for button in self.mute_buttons.values():
+            button.setText("—")
         
         # Если есть метки с данными - очищаем их
         for widget in self.findChildren(QLabel):
@@ -77,6 +83,30 @@ class CodecScreen(BaseScreen):
         # Показываем статус загрузки
         if hasattr(self, 'status_label'):
             self.status_label.setText("Загрузка данных...")
+
+    def _build_control_button(self, text, min_width=48, max_width=48):
+        button = QPushButton(text)
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self.colors['surface']};
+                color: white;
+                border: 1px solid white;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 10pt;
+                font-weight: bold;
+                min-width: {min_width}px;
+                max-width: {max_width}px;
+                min-height: 15px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.lighten_color(self.colors['surface'], 20)};
+            }}
+            QPushButton:pressed {{
+                background-color: {self.colors['surface']};
+            }}
+        """)
+        return button
 
 
     def init_ui(self):
@@ -157,7 +187,7 @@ class CodecScreen(BaseScreen):
         block3_params = [
             "Статус звонка",
             "Статус презентации",
-            ###"Громкость микрофона",
+            "Громкость микрофона",
             "Громкость динамиков",
             "Статус камеры",
             "Статус микрофона"
@@ -368,105 +398,35 @@ class CodecScreen(BaseScreen):
                 self.presentation_buttons[param_name] = {"on": presentation_on_btn, "off": presentation_off_btn}
             # Если это параметр "Громкость динамиков", добавляем кнопки
             elif param_name == "Громкость динамиков":
-                volume_down_btn = QPushButton("-")
-                volume_down_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                mute_btn = self._build_control_button("—", min_width=86, max_width=86)
+                mute_btn.clicked.connect(lambda checked, name=param_name: self.on_mute_button_clicked(name))
+
+                volume_down_btn = self._build_control_button("-")
                 volume_down_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "down"))
                 
-                volume_up_btn = QPushButton("+")
-                volume_up_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                volume_up_btn = self._build_control_button("+")
                 volume_up_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "up"))
                 
-                block_layout.addWidget(volume_down_btn, i, 2)
-                block_layout.addWidget(volume_up_btn, i, 3)
+                block_layout.addWidget(mute_btn, i, 2)
+                block_layout.addWidget(volume_down_btn, i, 3)
+                block_layout.addWidget(volume_up_btn, i, 4)
+                self.mute_buttons[param_name] = mute_btn
                 self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
             # Если это параметр "Громкость микрофона", добавляем кнопки
             elif param_name == "Громкость микрофона":
-                volume_down_btn = QPushButton("-")
-                volume_down_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                mute_btn = self._build_control_button("—", min_width=86, max_width=86)
+                mute_btn.clicked.connect(lambda checked, name=param_name: self.on_mute_button_clicked(name))
+
+                volume_down_btn = self._build_control_button("-")
                 volume_down_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "down"))
                 
-                volume_up_btn = QPushButton("+")
-                volume_up_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                volume_up_btn = self._build_control_button("+")
                 volume_up_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "up"))
                 
-                block_layout.addWidget(volume_down_btn, i, 2)
-                block_layout.addWidget(volume_up_btn, i, 3)
+                block_layout.addWidget(mute_btn, i, 2)
+                block_layout.addWidget(volume_down_btn, i, 3)
+                block_layout.addWidget(volume_up_btn, i, 4)
+                self.mute_buttons[param_name] = mute_btn
                 self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
             elif param_name == "Звук в помещении (микрофон)":
                 wake_btn = QPushButton("Разбудить")
@@ -563,6 +523,7 @@ class CodecScreen(BaseScreen):
                     numeric_value = self._extract_numeric_value(value)
                     if numeric_value is not None:
                         self.volume_values[param_name] = numeric_value
+                        self._remember_unmuted_volume(param_name, numeric_value)
                 
                 if param_name == "SIP регистрация" and value == "Не зарегистрирован":
                     value_label.setStyleSheet(f"""
@@ -625,6 +586,8 @@ class CodecScreen(BaseScreen):
                         btn.setVisible(False)
                         break
 
+        self.refresh_all_mute_buttons()
+
 
     def _extract_numeric_value(self, value):
         """Преобразует строку вида '12' или '12%' в число."""
@@ -673,6 +636,92 @@ class CodecScreen(BaseScreen):
             
             # Управляем громкостью через API
             self.adjust_volume(param_name, direction)
+
+    def _get_param_label_widget(self, param_name):
+        for name_label, value_label in self.param_widgets:
+            if name_label == param_name:
+                return value_label
+        return None
+
+    def _get_microphone_status_text(self):
+        label = self._get_param_label_widget("Статус микрофона")
+        return label.text().strip() if label else ""
+
+    def _is_param_muted(self, param_name):
+        if param_name == "Громкость динамиков":
+            value = self._get_current_volume_value(param_name)
+            return value == 0 if value is not None else None
+
+        if param_name == "Громкость микрофона":
+            status_text = self._get_microphone_status_text().lower()
+            if status_text in {"выключен", "закрыто", "muted", "off"}:
+                return True
+            if status_text in {"включен", "открыто", "unmuted", "on"}:
+                return False
+            value = self._get_current_volume_value(param_name)
+            return value == 0 if value is not None else None
+
+        return None
+
+    def _remember_unmuted_volume(self, param_name, value):
+        if value is None:
+            return
+        if value > 0:
+            self.last_unmuted_volume[param_name] = int(value)
+
+    def _get_restore_volume(self, param_name):
+        remembered = self.last_unmuted_volume.get(param_name)
+        if isinstance(remembered, int) and remembered > 0:
+            return remembered
+
+        min_volume, max_volume = self._get_volume_range(param_name)
+        preferred = 1 if min_volume <= 1 <= max_volume else max(min_volume, 0)
+        if preferred == 0 and max_volume > 0:
+            preferred = min(max_volume, 1)
+        return preferred
+
+    def update_mute_button_state(self, param_name, muted=None):
+        button = self.mute_buttons.get(param_name)
+        if not button:
+            return
+
+        if muted is None:
+            muted = self._is_param_muted(param_name)
+
+        if muted is True:
+            button.setText("Muted")
+        elif muted is False:
+            button.setText("Unmuted")
+        else:
+            button.setText("—")
+
+    def refresh_all_mute_buttons(self):
+        self.update_mute_button_state("Громкость динамиков")
+        self.update_mute_button_state("Громкость микрофона")
+
+    def on_mute_button_clicked(self, param_name):
+        print(f"Нажата кнопка mute для {param_name}")
+
+        button = self.mute_buttons.get(param_name)
+        if button is not None:
+            original_style = button.styleSheet()
+            button.setStyleSheet(original_style.replace(
+                f"background-color: {self.colors['surface']}",
+                f"background-color: {self.lighten_color(self.colors['surface'], 30)}"
+            ))
+            QTimer.singleShot(100, lambda: button.setStyleSheet(original_style))
+
+        muted = self._is_param_muted(param_name)
+        if muted is None:
+            return
+
+        current_value = self._get_current_volume_value(param_name)
+        if muted:
+            restore_value = self._get_restore_volume(param_name)
+            self.set_volume_value(param_name, restore_value)
+        else:
+            self._remember_unmuted_volume(param_name, current_value)
+            self.set_volume_value(param_name, 0)
 
     def on_presentation_button_clicked(self, param_name, direction):
         """Обработчик нажатия кнопок управления презентацией"""
@@ -1557,6 +1606,7 @@ class CodecScreen(BaseScreen):
         numeric_value = self._extract_numeric_value(volume)
         if numeric_value is not None:
             self.volume_values[param_name] = numeric_value
+            self._remember_unmuted_volume(param_name, numeric_value)
 
         for name_label, value_label in self.param_widgets:
             if name_label == param_name:
@@ -1569,6 +1619,10 @@ class CodecScreen(BaseScreen):
                 """)
                 print(f"Обновлено отображение {param_name}: {new_value}")
                 break
+        if numeric_value is not None and param_name in ("Громкость динамиков", "Громкость микрофона"):
+            self.update_mute_button_state(param_name, muted=(numeric_value == 0))
+        else:
+            self.update_mute_button_state(param_name)
     def update_presentation_display(self, presentation_state):
         """Обновление отображения статуса презентации в GUI."""
         presentation_map = {
