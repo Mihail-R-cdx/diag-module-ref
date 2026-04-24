@@ -266,6 +266,14 @@ class PolycomRPG310Handler:
             except Exception as e:
                 print(f"Ошибка получения статуса SIP: {e}")
                 status['sip_status'] = 'N/A'
+
+            try:
+                sip_server = self.verify_sip_server()
+                if sip_server:
+                    status['sip_server'] = sip_server
+                    print(f"SIP сервер: {sip_server}")
+            except Exception as e:
+                print(f"Ошибка получения адреса SIP сервера: {e}")
             
             # Получаем информацию о вызове (опционально)
             try:
@@ -388,6 +396,34 @@ class PolycomRPG310Handler:
         if not volume_match:
             return None
         return int(volume_match.group(1))
+
+    def verify_sip_server(self) -> Optional[str]:
+        """Получить адрес SIP registrar server."""
+        if not self.is_connected():
+            self.connect()
+
+        response = self.send_command('systemsetting get sipregistrarserver', wait_time=2.0)
+        match = re.search(r'systemsetting\s+sipregistrarserver\s+(.+)', response, re.IGNORECASE)
+        if not match:
+            return None
+
+        value = match.group(1).strip()
+        if not value or value.lower() in {'get', 'off', 'none'}:
+            return None
+        return value
+
+    def set_sip_server(self, sip_address: str = "vcs-core-a.sber.ru") -> bool:
+        """Установить адрес SIP registrar server."""
+        if not self.is_connected():
+            self.connect()
+
+        response = self.send_command(f'systemsetting sipregistrarserver {sip_address}', wait_time=2.0)
+        response_lower = response.lower()
+        if 'invalid' in response_lower or 'error' in response_lower:
+            return False
+
+        time.sleep(0.5)
+        return self.verify_sip_server() == sip_address
 
 
 # Алиас для обратной совместимости

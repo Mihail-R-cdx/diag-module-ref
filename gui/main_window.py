@@ -6,7 +6,7 @@ import datetime
 import random
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen
-from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker
+from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker
 from core.exceptions import AuthenticationError, ConnectionError
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
@@ -2236,6 +2236,134 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.critical(self, "Ошибка", message)    
             
             
+    @pyqtSlot(dict)
+    def on_sip_fix_result(self, result):
+        """Обработка результата установки SIP сервера."""
+        self.hide_progress_dialog()
+
+        if result.get('action') == 'set_sip_server':
+            if result.get('success'):
+                QMessageBox.information(
+                    self,
+                    "Успех",
+                    result.get('message', 'SIP сервер успешно установлен')
+                )
+                self.refresh_data()
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Ошибка",
+                    result.get('message', 'Не удалось установить SIP сервер')
+                )
+
+    @pyqtSlot(tuple)
+    def on_sip_fix_error(self, error_info):
+        """Обработка ошибки установки SIP сервера."""
+        self.hide_progress_dialog()
+        error_type, error, traceback_text = error_info
+
+        QMessageBox.critical(
+            self,
+            "Ошибка",
+            f"Не удалось установить SIP сервер:\n{str(error)}"
+        )
+
+    def on_fix_sip_registration(self, ip_address: str, device_name: str):
+        """Обработчик нажатия кнопки 'Исправить' для SIP регистрации."""
+        print(f"=== Нажата кнопка Исправить для {device_name} ({ip_address}) ===")
+
+        sip_server = "vcs-core-a.sber.ru"
+        reply = QMessageBox.question(
+            self,
+            "Подтверждение",
+            f"Вы действительно хотите установить SIP сервер\n"
+            f"{sip_server}\n\n"
+            f"на устройстве {device_name}?\nIP: {ip_address}\n\n"
+            f"Это действие может занять несколько секунд.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        if device_name == "Huawei TE-40":
+            self.fix_sip_huawei_te40(ip_address)
+        elif device_name == "CloudLink Bar 310":
+            self.fix_sip_huawei_bar310(ip_address)
+        elif device_name == "Huawei TE-20":
+            QMessageBox.information(self, "Информация", "Поддержка TE-20 будет добавлена позже")
+        elif device_name == "Polycom RPG 310":
+            self.fix_sip_polycom_rpg310(ip_address)
+        else:
+            QMessageBox.information(
+                self,
+                "Информация",
+                f"Исправление SIP регистрации для {device_name} будет добавлено позже"
+            )
+
+    def _get_sip_fix_connection_params(self, device_name: str, ip_address: str):
+        """Подготовить параметры подключения для SIP fix."""
+        if device_name == "Huawei TE-40":
+            port = self.huawei_settings.get('port', 443)
+            fallback = {'username': 'api', 'password': ''}
+        elif device_name == "CloudLink Bar 310":
+            port = self.huawei_settings.get('port', 443)
+            fallback = {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'}
+        elif device_name == "Polycom RPG 310":
+            port = 22
+            fallback = {'username': 'admin', 'password': ''}
+        else:
+            raise ValueError(f"SIP fix не поддерживается для {device_name}")
+
+        creds_list = self.device_credentials.get(device_name, [])
+        current_idx = self.get_current_credential_index(device_name, ip_address)
+        if creds_list and 0 <= current_idx < len(creds_list):
+            creds = creds_list[current_idx]
+        elif creds_list:
+            current_idx = 0
+            creds = creds_list[0]
+        else:
+            current_idx = 0
+            creds = fallback
+
+        return port, current_idx, creds
+
+    def _start_sip_fix(self, device_name: str, ip_address: str):
+        """Запустить установку SIP сервера в фоновом потоке."""
+        sip_server = "vcs-core-a.sber.ru"
+        port, current_idx, creds = self._get_sip_fix_connection_params(device_name, ip_address)
+
+        self.show_progress_dialog(f"Установка SIP сервера {sip_server}...")
+        self.show_codec_poll_terminal(device_name, ip_address, current_idx + 1, 1, reset=True)
+
+        self.fix_worker = CodecSipFixWorker(
+            device_name=device_name,
+            ip_address=ip_address,
+            port=port,
+            username=creds['username'],
+            password=creds['password'],
+            sip_server=sip_server,
+        )
+        self.fix_worker.signals.result.connect(self.on_sip_fix_result)
+        self.fix_worker.signals.error.connect(self.on_sip_fix_error)
+        self.fix_worker.signals.status.connect(self.on_status_update)
+        self.fix_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
+        self.fix_worker.signals.finished.connect(self.on_worker_finished)
+        QThreadPool.globalInstance().start(self.fix_worker)
+
+    def fix_sip_huawei_te40(self, ip_address: str):
+        """Исправление SIP регистрации для Huawei TE-40."""
+        self._start_sip_fix("Huawei TE-40", ip_address)
+
+    def fix_sip_huawei_bar310(self, ip_address: str):
+        """Исправление SIP регистрации для CloudLink Bar 310."""
+        self._start_sip_fix("CloudLink Bar 310", ip_address)
+
+    def fix_sip_polycom_rpg310(self, ip_address: str):
+        """Исправление SIP регистрации для Polycom RPG 310."""
+        self._start_sip_fix("Polycom RPG 310", ip_address)
+
     def show_progress_dialog(self, message: str):
         """Показать диалог прогресса"""
         from PyQt5.QtWidgets import QProgressDialog

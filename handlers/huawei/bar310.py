@@ -690,3 +690,45 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         except (TypeError, ValueError):
             return None
 
+    def set_sip_server(self, sip_address: str = "vcs-core-a.sber.ru") -> bool:
+        """Установить SIP-сервер через тот же API, что и в референсном драйвере."""
+        payload = {
+            "CfgItemInt": [],
+            "CfgItemString": [
+                {
+                    "CfgItemID": "sipserv_addr",
+                    "CfgItemInfo": sip_address,
+                }
+            ],
+            "acCSRFToken": self.acCSRFToken or "",
+        }
+        result = self.send_command('action.cgi?ActionID=WEB_SaveCfgParamAPI', payload)
+        if result and result.get('success') == 1:
+            return True
+
+        time.sleep(0.5)
+        return self.verify_sip_server() == sip_address
+
+    def verify_sip_server(self) -> Optional[str]:
+        """Прочитать текущий SIP-сервер из конфигурации."""
+        payload = {
+            "CfgIDString": ["sipserv_addr"],
+            "acCSRFToken": self.acCSRFToken or "",
+        }
+        result = self.send_command('action.cgi?ActionID=WEB_GetCfgParamAPI', payload)
+        if not result or result.get('success') != 1:
+            return None
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return data or None
+
+        if not isinstance(data, dict):
+            return None
+
+        value = data.get('sipserv_addr')
+        return str(value) if value is not None else None
+
