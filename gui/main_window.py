@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent
 from PyQt5.QtGui import QPalette, QColor
 import datetime
 import random
@@ -425,6 +425,7 @@ class VCSDiagnosticApp(QMainWindow):
         """)
         
         self.device_combo.currentTextChanged.connect(self.on_device_change)
+        self.device_combo.installEventFilter(self)
         
         # Метка и поле для IP-адреса
         ip_label = QLabel("IP адрес:")
@@ -448,6 +449,7 @@ class VCSDiagnosticApp(QMainWindow):
             }}
         """)
         self.ip_entry.setText("192.168.1.100")
+        self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         
         # Кнопка для ввода пароля
         self.password_btn = QPushButton("Пароль")
@@ -769,6 +771,19 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Обновляем заголовок окна
         self.setWindowTitle(f"Диагностический модуль ММК - {device_name}")
+
+    def eventFilter(self, obj, event):
+        """Запускать обновление по Enter на списке устройств."""
+        if obj is getattr(self, 'device_combo', None) and event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self.trigger_refresh_from_input()
+                return True
+        return super().eventFilter(obj, event)
+
+    def trigger_refresh_from_input(self):
+        """Унифицированный запуск обновления из полей ввода."""
+        if hasattr(self, 'refresh_btn') and self.refresh_btn.isEnabled():
+            self.refresh_btn.click()
 
     def get_current_matrix_credentials(self):
         device_name = "Extron IN1804"
