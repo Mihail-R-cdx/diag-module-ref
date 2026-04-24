@@ -1053,6 +1053,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             'mute': status.get('mic_mute', 'Off'),
             'speaker_volume': status.get('speaker_volume', 0),
             'speaker_mute': status.get('speaker_mute', 'Off'),
+            'microphone_volume': status.get('mic_volume'),
             'microphones': status.get('microphones', [])
         }
     
@@ -1174,6 +1175,18 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             return None
 
         volume = data.get('speakerValue')
+        try:
+            return int(volume)
+        except (TypeError, ValueError):
+            return None
+
+    def set_microphone_volume(self, value: int) -> bool:
+        # В референсном драйвере отдельной set-команды для mic volume не найдено.
+        return False
+
+    def get_microphone_volume(self) -> Optional[int]:
+        audio_status = self.get_audio_status()
+        volume = audio_status.get('microphone_volume')
         try:
             return int(volume)
         except (TypeError, ValueError):

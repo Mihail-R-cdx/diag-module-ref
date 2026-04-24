@@ -400,7 +400,8 @@ class PolycomRPG310Handler:
         response_lower = response.lower()
         if 'invalid' in response_lower or 'error' in response_lower:
             return False
-        return True
+        time.sleep(0.5)
+        return self.get_speaker_volume() == int(value)
 
     def get_speaker_volume(self) -> Optional[int]:
         if not self.is_connected():
@@ -411,6 +412,30 @@ class PolycomRPG310Handler:
         if not volume_match:
             return None
         return int(volume_match.group(1))
+
+    def set_microphone_volume(self, value: int) -> bool:
+        if not -20 <= value <= 30:
+            raise ValueError("Microphone volume must be in range -20..30")
+
+        if not self.is_connected():
+            self.connect()
+
+        response = self.send_command(f'audiotransmitlevel set {int(value)}', wait_time=2.0)
+        response_lower = response.lower()
+        if 'invalid' in response_lower or 'error' in response_lower:
+            return False
+        time.sleep(0.5)
+        return self.get_microphone_volume() == int(value)
+
+    def get_microphone_volume(self) -> Optional[int]:
+        if not self.is_connected():
+            self.connect()
+
+        response = self.send_command('audiotransmitlevel get', wait_time=2.0)
+        level_match = self.regex_patterns['transmit_level'].search(response)
+        if not level_match:
+            return None
+        return int(level_match.group(1))
 
     def verify_sip_server(self) -> Optional[str]:
         """Получить адрес SIP registrar server."""

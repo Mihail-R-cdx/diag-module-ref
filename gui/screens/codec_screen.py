@@ -21,7 +21,8 @@ class CodecScreen(BaseScreen):
         super().__init__(parent)
         self.volume_refresh_timer = QTimer(self)
         self.volume_refresh_timer.setSingleShot(True)
-        self.volume_refresh_timer.timeout.connect(self.get_speaker_volume)
+        self._pending_volume_refresh_param = "Громкость динамиков"
+        self.volume_refresh_timer.timeout.connect(self.refresh_pending_volume_status)
         self.presentation_refresh_timer = QTimer(self)
         self.presentation_refresh_timer.setSingleShot(True)
         self.presentation_refresh_timer.timeout.connect(self.refresh_presentation_status)
@@ -914,7 +915,7 @@ class CodecScreen(BaseScreen):
 
     def adjust_volume(self, param_name, direction):
         """Изменение громкости на 1 единицу"""
-        min_volume, max_volume = self._get_volume_range()
+        min_volume, max_volume = self._get_volume_range(param_name)
         current_volume = self._get_current_volume_value(param_name)
         if current_volume is None:
             current_volume = min_volume
@@ -927,11 +928,23 @@ class CodecScreen(BaseScreen):
         
         print(f"Текущая громкость: {current_volume}, Новое значение: {new_volume}")
         
-        # Обновляем сохраненное значение
-        self.volume_values[param_name] = new_volume
-        
         # Отправляем команду на устройство через API
-        self.set_speaker_volume(new_volume)
+        self.set_volume_value(param_name, new_volume)
+    
+    def _get_volume_control_kind(self, param_name):
+        if param_name == "Громкость динамиков":
+            return "speaker"
+        if param_name == "Громкость микрофона":
+            return "microphone"
+        return None
+
+    def set_volume_value(self, param_name, value):
+        control_kind = self._get_volume_control_kind(param_name)
+        if control_kind == "speaker":
+            return self.set_speaker_volume(value)
+        if control_kind == "microphone":
+            return self.set_microphone_volume(value)
+        return False
     
     def set_speaker_volume(self, value):
         """Отправка команды изменения громкости на устройство через API"""
@@ -964,9 +977,10 @@ class CodecScreen(BaseScreen):
                     if success:
                         print(f"Громкость успешно изменена на {value}")
                         self.update_volume_display(value, param_name="Громкость динамиков")
-                        self.schedule_volume_refresh()
+                        self.schedule_volume_refresh("Громкость динамиков")
                     else:
                         print("Ошибка изменения громкости: устройство не подтвердило команду")
+                        self.refresh_volume_status("Громкость динамиков")
                 else:
                     print("Не удалось подключиться к устройству для изменения громкости")
                     
@@ -975,6 +989,48 @@ class CodecScreen(BaseScreen):
                 import traceback
                 traceback.print_exc()
                 self.reset_volume_session()
+
+    def set_microphone_volume(self, value):
+        """Отправка команды изменения громкости микрофона на устройство через API."""
+        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
+        device_name = self.parent.device_combo.currentText() if self.parent else None
+
+        if not ip_address or not device_name:
+            print("Не удалось получить IP адрес или имя устройства для изменения громкости микрофона")
+            return False
+
+        print(f"Отправка команды изменения громкости микрофона на {device_name} ({ip_address}): {value}")
+
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
+
+        if creds is not None:
+            try:
+                handler = self._get_or_create_volume_handler(
+                    ip_address=ip_address,
+                    device_name=device_name,
+                    username=creds['username'],
+                    password=creds['password'],
+                )
+
+                if handler:
+                    success = handler.set_microphone_volume(value)
+                    if success:
+                        print(f"Громкость микрофона успешно изменена на {value}")
+                        self.update_volume_display(value, param_name="Громкость микрофона")
+                        self.schedule_volume_refresh("Громкость микрофона")
+                    else:
+                        print("Изменение громкости микрофона не подтверждено или не поддерживается этим кодеком")
+                        self.refresh_volume_status("Громкость микрофона")
+                    return success
+
+                print("Не удалось подключиться к устройству для изменения громкости микрофона")
+            except Exception as e:
+                print(f"Ошибка при изменении громкости микрофона: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                self.reset_volume_session()
+
+        return False
 
     def get_speaker_volume(self):
         """Получение текущей громкости с устройства через API"""
@@ -1009,6 +1065,7 @@ class CodecScreen(BaseScreen):
                         self.update_volume_display(volume, param_name="Громкость динамиков")
                     else:
                         print("Ошибка получения громкости: устройство не вернуло значение")
+                    return volume
                 else:
                     print("Не удалось подключиться к устройству для получения громкости")
                     
@@ -1018,10 +1075,64 @@ class CodecScreen(BaseScreen):
                 traceback.print_exc()
                 self.reset_volume_session()
 
-    def schedule_volume_refresh(self):
+        return None
+
+    def get_microphone_volume(self):
+        """Получение текущей громкости микрофона с устройства через API."""
+        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
+        device_name = self.parent.device_combo.currentText() if self.parent else None
+
+        if not ip_address or not device_name:
+            print("Не удалось получить IP адрес или имя устройства для получения громкости микрофона")
+            return None
+
+        print(f"Запрос текущей громкости микрофона с устройства {device_name} ({ip_address})...")
+
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
+
+        if creds is not None:
+            try:
+                handler = self._get_or_create_volume_handler(
+                    ip_address=ip_address,
+                    device_name=device_name,
+                    username=creds['username'],
+                    password=creds['password'],
+                )
+
+                if handler:
+                    volume = handler.get_microphone_volume()
+                    if volume is not None:
+                        print(f"Текущая громкость микрофона с устройства: {volume}")
+                        self.update_volume_display(volume, param_name="Громкость микрофона")
+                    else:
+                        print("Ошибка получения громкости микрофона: устройство не вернуло значение")
+                    return volume
+
+                print("Не удалось подключиться к устройству для получения громкости микрофона")
+            except Exception as e:
+                print(f"Ошибка при получении громкости микрофона: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                self.reset_volume_session()
+
+        return None
+
+    def refresh_pending_volume_status(self):
+        self.refresh_volume_status(self._pending_volume_refresh_param)
+
+    def refresh_volume_status(self, param_name):
+        control_kind = self._get_volume_control_kind(param_name)
+        if control_kind == "speaker":
+            return self.get_speaker_volume()
+        if control_kind == "microphone":
+            return self.get_microphone_volume()
+        return None
+
+    def schedule_volume_refresh(self, param_name="Громкость динамиков"):
         if self.parent:
             self.parent.suppress_success_message_once = True
             self.parent.suppress_progress_dialog_once = True
+        self._pending_volume_refresh_param = param_name
         self.volume_refresh_timer.start(1500)
 
     def schedule_presentation_refresh(self):
@@ -1167,15 +1278,24 @@ class CodecScreen(BaseScreen):
 
         return None
 
-    def _get_volume_range(self):
+    def _get_volume_range(self, param_name="Громкость динамиков"):
         device_name = self.parent.device_combo.currentText() if self.parent else None
+        control_kind = self._get_volume_control_kind(param_name)
         ranges = {
-            "Huawei TE-20": (0, 21),
-            "Huawei TE-40": (0, 21),
-            "CloudLink Bar 310": (0, 15),
-            "Polycom RPG 310": (0, 50),
+            "speaker": {
+                "Huawei TE-20": (0, 21),
+                "Huawei TE-40": (0, 21),
+                "CloudLink Bar 310": (0, 15),
+                "Polycom RPG 310": (0, 50),
+            },
+            "microphone": {
+                "Huawei TE-20": (0, 21),
+                "Huawei TE-40": (0, 21),
+                "CloudLink Bar 310": (0, 15),
+                "Polycom RPG 310": (-20, 30),
+            },
         }
-        return ranges.get(device_name, (0, 21))
+        return ranges.get(control_kind, {}).get(device_name, (0, 21))
 
     def _get_current_volume_value(self, param_name):
         """Возвращает текущее значение громкости из кеша или из отображаемой строки."""
@@ -1543,6 +1663,10 @@ class CodecScreen(BaseScreen):
         if 'speaker_volume' in data:
             print(f"  Спецслучай speaker_volume: {data['speaker_volume']}")
             result['Громкость динамиков'] = str(data['speaker_volume'])
+
+        if 'mic_volume' in data:
+            print(f"  Спецслучай mic_volume: {data['mic_volume']}")
+            result['Громкость микрофона'] = str(data['mic_volume'])
         
         if 'call_status' in data:
             print(f"  Спецслучай call_status: {data['call_status']}")

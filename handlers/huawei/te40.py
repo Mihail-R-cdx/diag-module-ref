@@ -357,6 +357,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         status['mic_mute'] = 'On' if audio_data.get('MicSwitch', 0) == 0 else 'Off'
                         status['speaker_mute'] = 'On' if audio_data.get('SpeakerSwitch', 0) == 1 else 'Off'
                         status['speaker_volume'] = audio_data.get('speakerValue', 0)
+                        if 'micValue' in audio_data:
+                            status['mic_volume'] = audio_data.get('micValue')
                         print(f"Аудио статус получен")
             except Exception as e:
                 print(f"Ошибка получения аудио статуса: {e}")
@@ -462,7 +464,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             'volume': 0,
             'mute': status.get('mic_mute', 'Off'),
             'speaker_volume': status.get('speaker_volume', 0),
-            'speaker_mute': status.get('speaker_mute', 'Off')
+            'speaker_mute': status.get('speaker_mute', 'Off'),
+            'microphone_volume': status.get('mic_volume')
         }
     
     def get_video_status(self) -> Dict[str, Any]:
@@ -695,7 +698,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             "acCSRFToken": self.csrf_token or "",
         }
         result = self.send_command('WEB_SetSpeakVolumeAPI', payload)
-        return bool(result and result.get('success') == 1)
+        if result and result.get('success') == 1:
+            return True
+
+        time.sleep(0.5)
+        return self.get_speaker_volume() == int(value)
 
     def get_speaker_volume(self) -> Optional[int]:
         result = self.send_command('get_audio_status')
@@ -704,6 +711,18 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
 
         data = self._parse_json_data(result.get('data', {}))
         volume = data.get('speakerValue')
+        try:
+            return int(volume)
+        except (TypeError, ValueError):
+            return None
+
+    def set_microphone_volume(self, value: int) -> bool:
+        # В референсном драйвере отдельной set-команды для mic volume не найдено.
+        return False
+
+    def get_microphone_volume(self) -> Optional[int]:
+        audio_status = self.get_audio_status()
+        volume = audio_status.get('microphone_volume')
         try:
             return int(volume)
         except (TypeError, ValueError):
