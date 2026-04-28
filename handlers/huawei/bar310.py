@@ -299,6 +299,37 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         else:
             return {'success': False, 'error': 'No response'}
 
+    def _get_mic_devices_data(self) -> Dict[str, Any]:
+        result = self._make_request('v1/mediacontrol/mic/devices', method='GET')
+        if not result or result.get('success') != 1:
+            return {}
+
+        data = result.get('data', {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return {}
+
+        return data if isinstance(data, dict) else {}
+
+    def _get_hd_ai_microphones(self) -> list:
+        data = self._get_mic_devices_data()
+        device_list = data.get('deviceList', [])
+        if not isinstance(device_list, list):
+            return []
+
+        return [
+            device for device in device_list
+            if isinstance(device, dict) and device.get('groupName') == 'HD-AI'
+        ]
+
+    def _get_controllable_hd_ai_microphones(self) -> list:
+        hd_ai_mics = self._get_hd_ai_microphones()
+        controllable = [mic for mic in hd_ai_mics if str(mic.get('enablePlug')) == '1']
+        selected = controllable or hd_ai_mics
+        return sorted(selected, key=lambda mic: mic.get('deviceId', 0))[:3]
+
 
     def get_status(self) -> Dict[str, Any]:
         """Получение полного статуса устройства"""
@@ -396,10 +427,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                                         if 'sip_status' not in status:
                                             status['sip_status'] = 'On' if sip_value == 1 else 'Off'
                                         
-                                        # Громкость микрофона из micValue
-                                        mic_value = state.get('micValue', 0)
-                                        status['mic_volume'] = mic_value
-                                        print(f"      Громкость микрофона: {mic_value}")
+                                        print(f"      micValue из статуса звонка: {state.get('micValue', 0)}")
                                         
                                         print(f"      Статус звонка: {status['call_status']}")    
                                 elif cmd == 'get_camera_status':
@@ -465,6 +493,26 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                         print(f"    ! Ошибка: {error_text}")
                 else:
                     print(f"    ✗ Нет ответа")
+
+            print("\n  Запрос статуса микрофонов HD-AI...")
+            status['mic_volume'] = 'Микрофон не подключён'
+            status['mic_connection_status'] = 'Микрофон не подключён'
+            hd_ai_mics = self._get_hd_ai_microphones()
+            if hd_ai_mics:
+                first_hd_ai_mic = hd_ai_mics[0]
+                plug_status = first_hd_ai_mic.get('plugStatus')
+                if str(plug_status) == '0':
+                    status['mic_volume'] = 'Микрофон не подключён'
+                    status['mic_connection_status'] = 'Микрофон не подключён'
+                else:
+                    status['mic_volume'] = first_hd_ai_mic.get('gainVolume', 0)
+                    status['mic_connection_status'] = 'Подключён'
+                print(
+                    f"    HD-AI микрофон: plugStatus={plug_status}, "
+                    f"gainVolume={first_hd_ai_mic.get('gainVolume')}, "
+                    f"GUI value={status['mic_volume']}, "
+                    f"GUI status={status['mic_connection_status']}"
+                )
             
             # Формируем итоговый статус
             final_status = {
@@ -474,6 +522,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 'mac_address': status.get('mac_address', 'N/A'),
                 'mic_version': status.get('mic_version', 'N/A'),
                 'mic_mute': status.get('mic_mute', 'Off'),
+                'mic_connection_status': status.get('mic_connection_status'),
                 'mic_volume': status.get('mic_volume', 0),
                 'speaker_mute': status.get('speaker_mute', 'Off'),
                 'speaker_volume': status.get('speaker_volume', 0),
@@ -696,12 +745,49 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             return None
 
     def set_microphone_volume(self, value: int) -> bool:
-        # В референсном драйвере отдельной set-команды для mic volume не найдено.
-        return False
+        min_value, max_value = self.get_volume_range()
+        if not min_value <= int(value) <= max_value:
+            raise ValueError(f"Microphone volume must be in range {min_value}..{max_value}")
+
+        if not self.is_connected() or not self.acCSRFToken:
+            if not self.connect():
+                return False
+
+        microphones = self._get_controllable_hd_ai_microphones()
+        if not microphones:
+            microphones = [{"deviceId": device_id, "ctrlStatus": 1} for device_id in (4, 5, 6)]
+
+        payload = {
+            "setMicInfoList": [
+                {
+                    "deviceId": mic.get("deviceId"),
+                    "ctrlStatus": mic.get("ctrlStatus", 1),
+                    "gainVolume": int(value),
+                }
+                for mic in microphones
+                if mic.get("deviceId") is not None
+            ]
+        }
+        if not payload["setMicInfoList"]:
+            return False
+
+        result = self._make_request('v1/mediacontrol/mic/devices', method='PUT', data=payload)
+        if result and result.get('success') == 1:
+            return True
+
+        result = self._make_request('v1/mediacontrol/mic/devices', method='POST', data=payload)
+        return bool(result and result.get('success') == 1)
 
     def get_microphone_volume(self) -> Optional[int]:
-        audio_status = self.get_audio_status()
-        volume = audio_status.get('microphone_volume')
+        hd_ai_mics = self._get_hd_ai_microphones()
+        if not hd_ai_mics:
+            return None
+
+        first_hd_ai_mic = hd_ai_mics[0]
+        if str(first_hd_ai_mic.get('plugStatus')) == '0':
+            return None
+
+        volume = first_hd_ai_mic.get('gainVolume')
         try:
             return int(volume)
         except (TypeError, ValueError):

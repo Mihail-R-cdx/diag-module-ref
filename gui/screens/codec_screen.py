@@ -531,6 +531,10 @@ class CodecScreen(BaseScreen):
                     if numeric_value is not None:
                         self.volume_values[param_name] = numeric_value
                         self._remember_unmuted_volume(param_name, numeric_value)
+                    if param_name == "Громкость микрофона":
+                        self._set_microphone_volume_controls_visible(
+                            not self._is_microphone_disconnected_value(value)
+                        )
                 
                 if param_name == "SIP регистрация" and value == "Не зарегистрирован":
                     value_label.setStyleSheet(f"""
@@ -604,6 +608,17 @@ class CodecScreen(BaseScreen):
             except ValueError:
                 return None
         return None
+
+    def _set_microphone_volume_controls_visible(self, visible):
+        mute_button = self.mute_buttons.get("Громкость микрофона")
+        if mute_button is not None:
+            mute_button.setVisible(visible)
+
+        for button in self.volume_buttons.get("Громкость микрофона", {}).values():
+            button.setVisible(visible)
+
+    def _is_microphone_disconnected_value(self, value):
+        return str(value).strip().lower() == "микрофон не подключён"
 
     def on_fix_sip_clicked(self):
         """Обработчик нажатия кнопки "Исправить" для SIP регистрации"""
@@ -1495,12 +1510,7 @@ class CodecScreen(BaseScreen):
                     padding: 8px 0;
                 """)
 
-        mic_volume_controls_visible = not self._te20_is_sleeping
-        mic_mute_btn = self.mute_buttons.get("Громкость микрофона")
-        if mic_mute_btn is not None:
-            mic_mute_btn.setVisible(mic_volume_controls_visible)
-        for button in self.volume_buttons.get("Громкость микрофона", {}).values():
-            button.setVisible(mic_volume_controls_visible)
+        self._set_microphone_volume_controls_visible(not self._te20_is_sleeping)
 
         wake_btn = self.wake_buttons.get("Звук в помещении (микрофон)")
         if wake_btn is not None and not self.wake_countdown_timer.isActive():
@@ -1628,6 +1638,10 @@ class CodecScreen(BaseScreen):
         if numeric_value is not None:
             self.volume_values[param_name] = numeric_value
             self._remember_unmuted_volume(param_name, numeric_value)
+        if param_name == "Громкость микрофона":
+            self._set_microphone_volume_controls_visible(
+                not self._is_microphone_disconnected_value(volume)
+            )
 
         for name_label, value_label in self.param_widgets:
             if name_label == param_name:

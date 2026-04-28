@@ -330,9 +330,12 @@ class HuaweiBar310DataParser:
         )
         
         # Аудио статусы
-        parsed['Статус микрофона'] = HuaweiBar310DataParser._map_mic_status(
-            raw_data.get('mic_mute', 'Off')
-        )
+        if raw_data.get('mic_connection_status'):
+            parsed['Статус микрофона'] = raw_data.get('mic_connection_status')
+        else:
+            parsed['Статус микрофона'] = HuaweiBar310DataParser._map_mic_status(
+                raw_data.get('mic_mute', 'Off')
+            )
         if 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
             parsed['Громкость микрофона'] = str(raw_data.get('mic_volume'))
         
