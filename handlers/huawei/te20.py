@@ -197,6 +197,12 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             return
         self._refresh_session_id_from_cookie()
 
+    def _build_session_headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.session_id:
+            headers["Sessionid"] = self.session_id
+        return headers
+
     def _change_session_id(self) -> bool:
         action_id = "WEB_ChangeSessionID" if self._use_pycurl_transport else "WEB_ChangeSessionIDAPI"
         change_url = f"{self.base_url}/action.cgi?ActionID={action_id}"
@@ -208,7 +214,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             response_text = response["text"]
             result = self._parse_json_text(response_text)
         else:
-            response_raw = self.session.post(change_url, data="", timeout=10)
+            response_raw = self.session.post(change_url, data="", headers=self._build_session_headers(), timeout=10)
             status_code = response_raw.status_code
             response_text = self._decode_response_text(response_raw)
             result = self._parse_json_response(response_raw)
@@ -400,7 +406,12 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 self._log_command(f"[request] POST {token_url}")
                 self._log_command(f"[payload] {json.dumps(token_data, ensure_ascii=False)}")
                 
-                token_response = self.session.post(token_url, json=token_data, timeout=10)
+                token_response = self.session.post(
+                    token_url,
+                    json=token_data,
+                    headers=self._build_session_headers(),
+                    timeout=10,
+                )
                 token_response_text = self._decode_response_text(token_response)
                 self._log_command(f"[response] {token_response.status_code} {token_response_text}")
                 
@@ -430,10 +441,17 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     # Запрос не успешен - проверяем, не ошибка ли это аутентификации
                     error_info = token_result.get('error', token_result.get('exception', 'Unknown error'))
                     error_str = str(error_info).lower()
-                    if "authentication" in error_str or "auth" in error_str or "401" in error_str:
+                    error_code = error_info.get('code') if isinstance(error_info, dict) else None
+                    error_id = error_info.get('id') if isinstance(error_info, dict) else None
+                    if (
+                        "authentication" in error_str
+                        or "auth" in error_str
+                        or "401" in error_str
+                        or error_code == 16781315
+                        or error_id == 100666780
+                    ):
                         raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {error_info}")
                     print(f"[WARN] CSRF Token запрос не успешен: {error_info}")
-                    print("[WARN] Продолжаем работу без CSRF токена")
                     self.csrf_token = None
                     
             except requests.exceptions.HTTPError as e:
@@ -448,12 +466,12 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 error_str = str(e).lower()
                 if "authentication" in error_str or "401" in error_str or "403" in error_str:
                     raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {str(e)}")
-                print(f"[WARN] Ошибка получения CSRF токена (не критично): {type(e).__name__}: {str(e)}")
-                print("[WARN] Продолжаем работу без CSRF токена")
+                print(f"[WARN] Ошибка получения CSRF токена: {type(e).__name__}: {str(e)}")
                 self.csrf_token = None
 
-            # 3. Ротация Session ID после успешной аутентификации
-            if self.csrf_token:
+            # HTTPS web transport needs session rotation; HTTP:80 follows the reference driver
+            # and keeps using the Sessionid returned by WEB_RequestSessionIDAPI.
+            if self.csrf_token and self._use_pycurl_transport:
                 try:
                     if not self._change_session_id():
                         self._log_command("[warn] Session ID change did not return a new cookie")
@@ -462,9 +480,9 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 except Exception as e:
                     self._log_command(f"[warn] Session ID change failed: {type(e).__name__}: {e}")
 
-            if not self.session_id and not self.csrf_token:
+            if not self.csrf_token:
                 self._connected = False
-                print("[WARN] Устройство ответило, но не выдало ни Session ID, ни CSRF token")
+                print("[WARN] Устройство ответило, но не выдало CSRF token")
                 return False
 
             self._connected = True
@@ -506,7 +524,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 logout_url = f"{self.base_url}/action.cgi?ActionID=WEB_LogoutAPI"
                 
                 # Отправляем запрос без обработки ошибок, так как это финальный вызов
-                self.session.post(logout_url, timeout=5)
+                self.session.post(logout_url, headers=self._build_session_headers(), timeout=5)
                 print("[OK] Выход из сессии выполнен")
             except Exception as e:
                 print(f"[WARN] Ошибка при выходе из сессии: {type(e).__name__}: {str(e)}")
@@ -627,9 +645,14 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     return result
 
                 if request_data:
-                    response = self.session.post(url, json=request_data, timeout=10)
+                    response = self.session.post(
+                        url,
+                        json=request_data,
+                        headers=self._build_session_headers(),
+                        timeout=10,
+                    )
                 else:
-                    response = self.session.post(url, timeout=10)
+                    response = self.session.post(url, headers=self._build_session_headers(), timeout=10)
                 
                 # Проверяем HTTP статус код
                 if response.status_code == 401 or response.status_code == 403:
@@ -1180,9 +1203,28 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         except (TypeError, ValueError):
             return None
 
+    def set_microphone_mute(self, muted: bool) -> bool:
+        action = 'WEB_CloseMicAPI' if muted else 'WEB_OpenMicAPI'
+        payload = {
+            "audioinall": 1,
+            "MicSwitch": 1 if muted else 0,
+            "acCSRFToken": self.csrf_token or "",
+        }
+        result = self.send_command(action, payload)
+        if result and result.get('success') == 1:
+            return True
+
+        time.sleep(0.5)
+        audio_status = self.get_audio_status()
+        mic_mute = str(audio_status.get('mute', '')).lower()
+        if muted:
+            return mic_mute.startswith('on') or 'выключ' in mic_mute or 'muted' in mic_mute
+        return mic_mute.startswith('off') or 'включ' in mic_mute or 'unmuted' in mic_mute
+
     def set_microphone_volume(self, value: int) -> bool:
-        # В референсном драйвере отдельной set-команды для mic volume не найдено.
-        return False
+        # TE20 web API exposes microphone mute, not a separate microphone gain command.
+        # The UI uses value 0 as muted and any positive value as unmuted.
+        return self.set_microphone_mute(int(value) <= 0)
 
     def get_microphone_volume(self) -> Optional[int]:
         audio_status = self.get_audio_status()

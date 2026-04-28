@@ -1074,19 +1074,6 @@ class VCSDiagnosticApp(QMainWindow):
         device_name = self.device_combo.currentText()
         creds_list = self.device_credentials.get(device_name, [{'username': 'api', 'password': '***REMOVED_CREDENTIAL***'}])
 
-        from utils.te20_stack import inspect_te20_https_stack
-        stack_info = inspect_te20_https_stack()
-        if not stack_info["ready"]:
-            warning_text = (
-                "Неподходящий HTTPS стек для Huawei TE-20.\n\n"
-                f"Транспорт: {stack_info['transport']}\n"
-                f"Детали: {stack_info['details']}\n\n"
-                f"{stack_info['warning']}\n\n"
-                "Подключение не будет запущено, чтобы не дёргать неподходящие инструменты."
-            )
-            QMessageBox.warning(self, "TE-20 HTTPS стек", warning_text)
-            return
-        
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
         creds = creds_list[current_idx]

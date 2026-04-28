@@ -5,6 +5,7 @@ import traceback
 from core.exceptions import AuthenticationError, ConnectionError
 from core.parser import HuaweiTE20DataParser
 from handlers.huawei.te20 import HuaweiTE20Handler
+from utils.te20_stack import inspect_te20_https_stack
 
 
 class WorkerSignals(QObject):
@@ -40,8 +41,15 @@ class HuaweiTE20Worker(QRunnable):
     def _build_unique_profiles(self) -> list[dict]:
         connection_profiles = [
             {"port": self.port, "use_ssl": False, "label": "HTTP:80"},
-            {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
         ]
+        https_stack_info = inspect_te20_https_stack()
+        if https_stack_info["ready"]:
+            connection_profiles.append({"port": 443, "use_ssl": True, "label": "HTTPS:443"})
+        else:
+            self._log(
+                "[connect] HTTPS:443 fallback skipped: "
+                f"{https_stack_info['transport']} is not ready. {https_stack_info['warning']}"
+            )
 
         seen_profiles = set()
         unique_profiles = []

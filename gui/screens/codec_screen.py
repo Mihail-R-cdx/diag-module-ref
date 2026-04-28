@@ -4,6 +4,12 @@ from .base_screen import BaseScreen
 
 
 class CodecScreen(BaseScreen):
+    TE20_SLEEP_UNAVAILABLE_FIELDS = (
+        "Звук в помещении (микрофон)",
+        "Звук из динамиков (выход кодека)",
+        "Громкость микрофона",
+    )
+
     def __init__(self, parent=None):
         self.param_count = 15
         self.param_widgets = []
@@ -73,6 +79,10 @@ class CodecScreen(BaseScreen):
 
         for button in self.mute_buttons.values():
             button.setText("—")
+            button.setVisible(True)
+        for buttons in self.volume_buttons.values():
+            for button in buttons.values():
+                button.setVisible(True)
         
         # Если есть метки с данными - очищаем их
         for widget in self.findChildren(QLabel):
@@ -512,10 +522,7 @@ class CodecScreen(BaseScreen):
         
         for param_name, value_label in self.param_widgets:
             if param_name in display_data:
-                if self._te20_is_sleeping and param_name in (
-                    "Звук в помещении (микрофон)",
-                    "Звук из динамиков (выход кодека)",
-                ):
+                if self._te20_is_sleeping and param_name in self.TE20_SLEEP_UNAVAILABLE_FIELDS:
                     continue
                 value = display_data[param_name]
                 value_label.setText(str(value))
@@ -569,10 +576,7 @@ class CodecScreen(BaseScreen):
                         padding: 8px 0;
                     """)
             else:
-                if self._te20_is_sleeping and param_name in (
-                    "Звук в помещении (микрофон)",
-                    "Звук из динамиков (выход кодека)",
-                ):
+                if self._te20_is_sleeping and param_name in self.TE20_SLEEP_UNAVAILABLE_FIELDS:
                     continue
                 value_label.setText("Не доступно")
                 value_label.setStyleSheet(f"""
@@ -988,6 +992,9 @@ class CodecScreen(BaseScreen):
         return None
 
     def set_volume_value(self, param_name, value):
+        if self._te20_is_sleeping and param_name == "Громкость микрофона":
+            return False
+
         control_kind = self._get_volume_control_kind(param_name)
         if control_kind == "speaker":
             return self.set_speaker_volume(value)
@@ -1445,10 +1452,15 @@ class CodecScreen(BaseScreen):
         field_values = {
             "Звук в помещении (микрофон)": mic_value,
             "Звук из динамиков (выход кодека)": speaker_value,
+            "Громкость микрофона": mic_value,
         }
         for param_name, value in field_values.items():
             if value is None:
                 continue
+            numeric_value = self._extract_numeric_value(value)
+            if numeric_value is not None and param_name == "Громкость микрофона":
+                self.volume_values[param_name] = numeric_value
+                self._remember_unmuted_volume(param_name, numeric_value)
             for name_label, value_label in self.param_widgets:
                 if name_label == param_name:
                     value_label.setText(str(value))
@@ -1458,6 +1470,8 @@ class CodecScreen(BaseScreen):
                         padding: 8px 0;
                     """)
                     break
+            if numeric_value is not None and param_name == "Громкость микрофона":
+                self.update_mute_button_state(param_name, muted=(numeric_value == 0))
 
     def _resume_te20_monitor_audio_after_wake(self):
         self._set_te20_monitor_audio_sleep_state(False)
@@ -1470,10 +1484,7 @@ class CodecScreen(BaseScreen):
         sleep_text = "недоступно в режиме Сна"
 
         for param_name, value_label in self.param_widgets:
-            if param_name not in (
-                "Звук в помещении (микрофон)",
-                "Звук из динамиков (выход кодека)",
-            ):
+            if param_name not in self.TE20_SLEEP_UNAVAILABLE_FIELDS:
                 continue
 
             if self._te20_is_sleeping:
@@ -1483,6 +1494,13 @@ class CodecScreen(BaseScreen):
                     font-size: 11pt;
                     padding: 8px 0;
                 """)
+
+        mic_volume_controls_visible = not self._te20_is_sleeping
+        mic_mute_btn = self.mute_buttons.get("Громкость микрофона")
+        if mic_mute_btn is not None:
+            mic_mute_btn.setVisible(mic_volume_controls_visible)
+        for button in self.volume_buttons.get("Громкость микрофона", {}).values():
+            button.setVisible(mic_volume_controls_visible)
 
         wake_btn = self.wake_buttons.get("Звук в помещении (микрофон)")
         if wake_btn is not None and not self.wake_countdown_timer.isActive():
@@ -1603,6 +1621,9 @@ class CodecScreen(BaseScreen):
 
     def update_volume_display(self, volume, param_name="Громкость динамиков"):
         """Обновление отображения громкости в GUI"""
+        if self._te20_is_sleeping and param_name == "Громкость микрофона":
+            return
+
         numeric_value = self._extract_numeric_value(volume)
         if numeric_value is not None:
             self.volume_values[param_name] = numeric_value
