@@ -1,5 +1,9 @@
 from PyQt5.QtWidgets import QVBoxLayout, QScrollArea, QGridLayout, QFrame, QLabel, QWidget, QPushButton, QMessageBox, QProgressDialog, QSizePolicy
 from PyQt5.QtCore import Qt, QTimer, QEventLoop
+try:
+    from PyQt5 import sip
+except ImportError:
+    sip = None
 from .base_screen import BaseScreen
 
 
@@ -64,6 +68,25 @@ class CodecScreen(BaseScreen):
         if hasattr(self, 'colors') and 'warning' not in self.colors:
             self.colors['warning'] = '#FFA500'
 
+    def _is_deleted_widget(self, widget):
+        if widget is None:
+            return True
+        if sip is not None and sip.isdeleted(widget):
+            return True
+        try:
+            widget.parent()
+        except RuntimeError:
+            return True
+        return False
+
+    def _reset_param_widget_refs(self):
+        self.param_widgets = []
+        self.presentation_buttons = {}
+        self.sip_fix_buttons = []
+        self.volume_buttons = {}
+        self.mute_buttons = {}
+        self.wake_buttons = {}
+        self.wake_countdown_labels = {}
 
     def clear_data(self):
         """Очистка данных перед новой загрузкой"""
@@ -78,10 +101,14 @@ class CodecScreen(BaseScreen):
         self._te20_is_sleeping = False
 
         for button in self.mute_buttons.values():
+            if self._is_deleted_widget(button):
+                continue
             button.setText("—")
             button.setVisible(True)
         for buttons in self.volume_buttons.values():
             for button in buttons.values():
+                if self._is_deleted_widget(button):
+                    continue
                 button.setVisible(True)
         
         # Если есть метки с данными - очищаем их
@@ -177,7 +204,7 @@ class CodecScreen(BaseScreen):
             if child.widget():
                 child.widget().deleteLater()
         
-        self.param_widgets = []
+        self._reset_param_widget_refs()
         
         # Определяем блоки параметров
         block1_params = [
@@ -1425,10 +1452,10 @@ class CodecScreen(BaseScreen):
         countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
         wake_btn = self.wake_buttons.get("Звук в помещении (микрофон)")
 
-        if countdown_label is not None:
+        if not self._is_deleted_widget(countdown_label):
             countdown_label.setVisible(visible)
 
-        if wake_btn is not None:
+        if not self._is_deleted_widget(wake_btn):
             wake_btn.setVisible(self._te20_is_sleeping and not visible)
 
     def _stop_te20_wake_countdown(self):
@@ -1436,7 +1463,7 @@ class CodecScreen(BaseScreen):
             self.wake_countdown_timer.stop()
         self._te20_wake_countdown_remaining = 0
         countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
-        if countdown_label is not None:
+        if not self._is_deleted_widget(countdown_label):
             countdown_label.setText("")
         self._set_te20_wake_countdown_visible(False)
 
@@ -1444,7 +1471,7 @@ class CodecScreen(BaseScreen):
         self.stop_te20_monitor_audio_polling()
         self._te20_wake_countdown_remaining = seconds
         countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
-        if countdown_label is not None:
+        if not self._is_deleted_widget(countdown_label):
             countdown_label.setText(str(seconds))
         self._set_te20_wake_countdown_visible(True)
         if self.parent and hasattr(self.parent, 'append_codec_terminal_line'):
@@ -1460,7 +1487,7 @@ class CodecScreen(BaseScreen):
 
         self._te20_wake_countdown_remaining -= 1
         countdown_label = self.wake_countdown_labels.get("Звук в помещении (микрофон)")
-        if countdown_label is not None:
+        if not self._is_deleted_widget(countdown_label):
             countdown_label.setText(str(self._te20_wake_countdown_remaining))
 
     def _update_monitor_audio_display(self, mic_value=None, speaker_value=None):
@@ -1513,7 +1540,7 @@ class CodecScreen(BaseScreen):
         self._set_microphone_volume_controls_visible(not self._te20_is_sleeping)
 
         wake_btn = self.wake_buttons.get("Звук в помещении (микрофон)")
-        if wake_btn is not None and not self.wake_countdown_timer.isActive():
+        if not self._is_deleted_widget(wake_btn) and not self.wake_countdown_timer.isActive():
             wake_btn.setVisible(self._te20_is_sleeping)
 
     def on_wake_te20_clicked(self):

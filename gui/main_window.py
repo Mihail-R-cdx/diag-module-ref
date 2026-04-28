@@ -1075,7 +1075,7 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name, [{'username': 'api', 'password': '***REMOVED_CREDENTIAL***'}])
 
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, ip_address)
         creds = creds_list[current_idx]
         
         

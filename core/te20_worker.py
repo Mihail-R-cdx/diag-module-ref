@@ -35,8 +35,15 @@ class HuaweiTE20Worker(QRunnable):
         self.creds_list = []
         self.current_idx = 0
 
+    def _emit(self, signal, *args) -> bool:
+        try:
+            signal.emit(*args)
+            return True
+        except RuntimeError:
+            return False
+
     def _log(self, message: str) -> None:
-        self.signals.terminal_log.emit(message)
+        self._emit(self.signals.terminal_log, message)
 
     def _build_unique_profiles(self) -> list[dict]:
         connection_profiles = [
@@ -73,8 +80,8 @@ class HuaweiTE20Worker(QRunnable):
 
         try:
             self._log(f"[session] start {self.ip_address}")
-            self.signals.status.emit("Начинаю подключение к TE-20...")
-            self.signals.progress.emit(10)
+            self._emit(self.signals.status, "Начинаю подключение к TE-20...")
+            self._emit(self.signals.progress, 10)
 
             print(f"=== HuaweiTE20Worker.run() для {self.ip_address} ===")
 
@@ -101,10 +108,11 @@ class HuaweiTE20Worker(QRunnable):
                 credential_auth_error = None
 
                 for index, profile in enumerate(unique_profiles, start=1):
-                    self.signals.status.emit(
+                    self._emit(
+                        self.signals.status,
                         f"Подключаюсь к устройству ({profile['label']}, {index}/{len(unique_profiles)})..."
                     )
-                    self.signals.progress.emit(20 + index * 10)
+                    self._emit(self.signals.progress, 20 + index * 10)
                     self._log(f"[connect] attempt {index}/{len(unique_profiles)} via {profile['label']}")
 
                     print(
@@ -160,9 +168,9 @@ class HuaweiTE20Worker(QRunnable):
                     or "Не удалось подключиться к TE-20 ни по HTTP:80, ни по HTTPS:443"
                 )
 
-            self.signals.connected.emit()
-            self.signals.status.emit("Получаю данные...")
-            self.signals.progress.emit(50)
+            self._emit(self.signals.connected)
+            self._emit(self.signals.status, "Получаю данные...")
+            self._emit(self.signals.progress, 50)
             self._log("[status] collecting device status")
 
             print("Вызываю handler.get_status()...")
@@ -170,8 +178,8 @@ class HuaweiTE20Worker(QRunnable):
             print(f"get_status() вернул: {raw_data}")
             self._log(f"[status] raw keys: {', '.join(sorted(raw_data.keys())) if raw_data else 'none'}")
 
-            self.signals.status.emit("Обрабатываю данные...")
-            self.signals.progress.emit(70)
+            self._emit(self.signals.status, "Обрабатываю данные...")
+            self._emit(self.signals.progress, 70)
 
             print("Парсинг данных...")
             parsed_data = HuaweiTE20DataParser.parse_raw_data(raw_data)
@@ -185,32 +193,35 @@ class HuaweiTE20Worker(QRunnable):
                 "label": f"{'HTTPS' if handler.use_ssl else 'HTTP'}:{handler.port}",
             }
 
-            self.signals.progress.emit(90)
+            self._emit(self.signals.progress, 90)
             print("Отправка результата...")
-            self.signals.result.emit(parsed_data)
+            self._emit(self.signals.result, parsed_data)
             self._log("[session] completed successfully")
 
             print("Отключение...")
             handler.disconnect()
             handler = None
-            self.signals.disconnected.emit()
+            self._emit(self.signals.disconnected)
 
         except AuthenticationError as e:
             print(f"!!! Ошибка аутентификации в HuaweiTE20Worker: {str(e)}")
             self._log(f"[session] failed authentication: {e}")
-            self.signals.error.emit(("authentication_error", str(e), traceback.format_exc()))
+            self._emit(self.signals.error, ("authentication_error", str(e), traceback.format_exc()))
         except Exception as e:
             print(f"!!! Ошибка в HuaweiTE20Worker: {type(e).__name__}: {str(e)}")
-            traceback.print_exc()
+            try:
+                print(traceback.format_exc())
+            except OSError:
+                pass
             self._log(f"[session] failed: {type(e).__name__}: {e}")
-            self.signals.error.emit(("connection_error", str(e), traceback.format_exc()))
+            self._emit(self.signals.error, ("connection_error", str(e), traceback.format_exc()))
         finally:
             if handler is not None:
                 try:
                     handler.disconnect()
                 except Exception:
                     pass
-            self.signals.finished.emit()
+            self._emit(self.signals.finished)
 
     def stop(self):
         self.is_running = False
