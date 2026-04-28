@@ -343,11 +343,7 @@ class HuaweiBar310DataParser:
             parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
         
         
-        camera_status = raw_data.get('camera_status', 'Off')
-        if camera_status == 'On':
-            parsed['Статус камеры'] = 'Подключена'
-        else:
-            parsed['Статус камеры'] = 'Не подключена'
+        parsed['Статус камеры'] = 'Подключена'
         
         # WAN IP
         if 'wan_ip' in raw_data:

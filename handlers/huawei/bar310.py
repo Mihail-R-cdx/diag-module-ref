@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 
 # Отключаем предупреждения о самоподписанных сертификатах
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -58,7 +59,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         # Создаем сессию с HTTP Basic аутентификацией
         self.session = requests.Session()
         self.session.auth = HTTPBasicAuth(username, password)
-        self.session.verify = False  # Отключаем проверку SSL
+        self.session.verify = self.verify_ssl
+        if self.use_ssl:
+            legacy_context = create_legacy_ssl_context(verify_ssl=self.verify_ssl)
+            self.session.mount("https://", SSLAdapter(ssl_context=legacy_context))
 
     def _log_command(self, message: str) -> None:
         logger = getattr(self, 'command_logger', None)
