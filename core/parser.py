@@ -40,15 +40,20 @@ class HuaweiTE40DataParser:
         )
         
         # Аудио статусы
-        parsed['Статус микрофона'] = HuaweiTE40DataParser._map_mic_status(
-            raw_data.get('mic_mute', 'Off')
-        )
+        if raw_data.get('mic_connection_status'):
+            parsed['Статус микрофона'] = raw_data.get('mic_connection_status')
+        else:
+            parsed['Статус микрофона'] = HuaweiTE40DataParser._map_mic_status(
+                raw_data.get('mic_mute', 'Off')
+            )
         parsed['Статус динамика'] = HuaweiTE40DataParser._map_speaker_status(
             raw_data.get('speaker_mute', 'Off')
         )
         if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
             parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
-        if 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
+        if raw_data.get('mic_connection_status') == 'Микрофон не подключён':
+            parsed['Громкость микрофона'] = 'Микрофон не подключён'
+        elif 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
             parsed['Громкость микрофона'] = str(raw_data.get('mic_volume'))
         # Камера
         parsed['Статус камеры'] = HuaweiTE40DataParser._map_camera_status(
@@ -188,35 +193,25 @@ class HuaweiTE20DataParser:
             parsed['Громкость динамика'] = str(raw_data['speaker_volume'])
             parsed['speaker_volume'] = raw_data['speaker_volume']
         
-        # Громкость микрофона (отдельное поле)
-        if 'mic_volume' in raw_data:
-            parsed['Громкость микрофона'] = str(raw_data['mic_volume'])
-
         # Для обратной совместимости
         if 'mic_mute' in raw_data:
             parsed['mic_mute'] = raw_data['mic_mute']
+            parsed['Mute микрофона'] = HuaweiTE20DataParser._map_mic_mute_status(raw_data['mic_mute'])
         
         # Статус микрофона
-        if 'mic_mute' in raw_data:
+        if 'mic_version' in raw_data:
+            parsed['Статус микрофона'] = (
+                'Не подключён'
+                if raw_data.get('mic_version') in (None, [], '', 'N/A')
+                else 'Подключён'
+            )
+            parsed['mic_connection_status'] = parsed['Статус микрофона']
+        elif 'mic_mute' in raw_data:
             parsed['Статус микрофона'] = raw_data['mic_mute']
         
-        # Статус камеры
-        camera_parts = []
-        if 'camera_connected' in raw_data:
-            if raw_data['camera_connected']:
-                camera_parts.append('On')
-            else:
-                camera_parts.append('Off')
-        if 'camera_mute' in raw_data:
-            if 'Off' in raw_data['camera_mute']:
-                camera_parts.append('On')
-            else:
-                camera_parts.append('Off')
-        
-        if camera_parts:
-            camera_status = ''.join(camera_parts[:2])  # Берем первые два статуса
-            parsed['camera_status'] = camera_status
-            parsed['Статус камеры'] = camera_status
+        # Для TE-20 камера в интерфейсе всегда считается подключенной.
+        parsed['camera_status'] = 'Подключена'
+        parsed['Статус камеры'] = 'Подключена'
         
         # 3. Дополнительные поля для информации
         if 'wan_ipv4' in raw_data and raw_data['wan_ipv4']:
@@ -276,6 +271,16 @@ class HuaweiTE20DataParser:
             return 'Зарегистрирован'
         else:
             return status
+
+    @staticmethod
+    def _map_mic_mute_status(status: str) -> str:
+        """Преобразование состояния mute микрофона TE-20 для отображения."""
+        status_text = str(status).strip().lower()
+        if status_text.startswith('off') or 'включ' in status_text or 'unmuted' in status_text:
+            return 'Unmuted'
+        if status_text.startswith('on') or 'выключ' in status_text or 'muted' in status_text:
+            return 'Muted'
+        return status
         
         
 

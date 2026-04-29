@@ -290,6 +290,15 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     status['version'] = soft_version
                     status['model'] = processed_data.get('model', 'Huawei TE-40')
                     status['serial_number'] = processed_data.get('lisence', 'Unknown')
+                    mic_version = processed_data.get('micVersion')
+                    status['mic_version'] = mic_version
+                    status['mic_connection_status'] = (
+                        'Микрофон не подключён'
+                        if mic_version in (None, [], '', 'N/A')
+                        else 'Подключён'
+                    )
+                    if status['mic_connection_status'] == 'Микрофон не подключён':
+                        status['mic_volume'] = 'Микрофон не подключён'
                     print(f"Версия: {soft_version}")
             
             # 2. Получаем MAC адрес
@@ -357,7 +366,10 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         status['mic_mute'] = 'On' if audio_data.get('MicSwitch', 0) == 0 else 'Off'
                         status['speaker_mute'] = 'On' if audio_data.get('SpeakerSwitch', 0) == 1 else 'Off'
                         status['speaker_volume'] = audio_data.get('speakerValue', 0)
-                        if 'micValue' in audio_data:
+                        if (
+                            status.get('mic_connection_status') != 'Микрофон не подключён'
+                            and 'micValue' in audio_data
+                        ):
                             status['mic_volume'] = audio_data.get('micValue')
                         print(f"Аудио статус получен")
             except Exception as e:

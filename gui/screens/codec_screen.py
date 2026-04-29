@@ -12,6 +12,7 @@ class CodecScreen(BaseScreen):
         "Звук в помещении (микрофон)",
         "Звук из динамиков (выход кодека)",
         "Громкость микрофона",
+        "Mute микрофона",
     )
 
     def __init__(self, parent=None):
@@ -23,6 +24,7 @@ class CodecScreen(BaseScreen):
         self.mute_buttons = {}
         self.volume_values = {}  # Храним текущие значения громкости для каждого параметра
         self.last_unmuted_volume = {}
+        self.microphone_mute_state = None
         self.volume_session_handler = None
         self.volume_session_key = None
         self._show_te20_monitor_audio_fields = False
@@ -79,6 +81,27 @@ class CodecScreen(BaseScreen):
             return True
         return False
 
+    def _is_te20_device(self):
+        return bool(
+            self.parent
+            and hasattr(self.parent, 'device_combo')
+            and self.parent.device_combo.currentText() == "Huawei TE-20"
+        )
+
+    def _microphone_param_name(self):
+        return "Mute микрофона" if self._is_te20_device() else "Громкость микрофона"
+
+    def _microphone_param_names(self):
+        return ("Громкость микрофона", "Mute микрофона")
+
+    def _format_microphone_mute_state(self, mute_state):
+        text = str(mute_state).strip().lower()
+        if text.startswith("off") or "включ" in text or "unmuted" in text:
+            return "Unmuted"
+        if text.startswith("on") or "выключ" in text or "muted" in text:
+            return "Muted"
+        return str(mute_state)
+
     def _reset_param_widget_refs(self):
         self.param_widgets = []
         self.presentation_buttons = {}
@@ -96,6 +119,7 @@ class CodecScreen(BaseScreen):
 
         self.volume_values.clear()
         self.last_unmuted_volume.clear()
+        self.microphone_mute_state = None
         self.stop_te20_monitor_audio_polling()
         self._stop_te20_wake_countdown()
         self._te20_is_sleeping = False
@@ -224,7 +248,7 @@ class CodecScreen(BaseScreen):
         block3_params = [
             "Статус звонка",
             "Статус презентации",
-            "Громкость микрофона",
+            self._microphone_param_name(),
             "Громкость динамиков",
             "Статус камеры",
             "Статус микрофона"
@@ -449,22 +473,25 @@ class CodecScreen(BaseScreen):
                 block_layout.addWidget(volume_up_btn, i, 4)
                 self.mute_buttons[param_name] = mute_btn
                 self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
-            # Если это параметр "Громкость микрофона", добавляем кнопки
-            elif param_name == "Громкость микрофона":
+            # Если это параметр микрофона, добавляем mute-кнопку. Для TE-20 усиление микрофона не управляется.
+            elif param_name in self._microphone_param_names():
                 mute_btn = self._build_control_button("—", min_width=86, max_width=86)
                 mute_btn.clicked.connect(lambda checked, name=param_name: self.on_mute_button_clicked(name))
-
-                volume_down_btn = self._build_control_button("-")
-                volume_down_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "down"))
-                
-                volume_up_btn = self._build_control_button("+")
-                volume_up_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "up"))
                 
                 block_layout.addWidget(mute_btn, i, 2)
-                block_layout.addWidget(volume_down_btn, i, 3)
-                block_layout.addWidget(volume_up_btn, i, 4)
                 self.mute_buttons[param_name] = mute_btn
-                self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
+                if param_name == "Громкость микрофона":
+                    volume_down_btn = self._build_control_button("-")
+                    volume_down_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "down"))
+
+                    volume_up_btn = self._build_control_button("+")
+                    volume_up_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "up"))
+
+                    block_layout.addWidget(volume_down_btn, i, 3)
+                    block_layout.addWidget(volume_up_btn, i, 4)
+                    self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
+                else:
+                    self.volume_buttons[param_name] = {}
             elif param_name == "Звук в помещении (микрофон)":
                 wake_btn = QPushButton("Разбудить")
                 wake_btn.setStyleSheet(f"""
@@ -546,6 +573,7 @@ class CodecScreen(BaseScreen):
         self._set_te20_monitor_audio_sleep_state(
             self._should_show_te20_monitor_audio_fields() and data.get('power_status') == 'Sleep'
         )
+        self.microphone_mute_state = data.get('mic_mute')
         
         for param_name, value_label in self.param_widgets:
             if param_name in display_data:
@@ -553,12 +581,12 @@ class CodecScreen(BaseScreen):
                     continue
                 value = display_data[param_name]
                 value_label.setText(str(value))
-                if param_name in ("Громкость динамиков", "Громкость микрофона"):
+                if param_name == "Громкость динамиков" or param_name in self._microphone_param_names():
                     numeric_value = self._extract_numeric_value(value)
                     if numeric_value is not None:
                         self.volume_values[param_name] = numeric_value
                         self._remember_unmuted_volume(param_name, numeric_value)
-                    if param_name == "Громкость микрофона":
+                    if param_name in self._microphone_param_names():
                         self._set_microphone_volume_controls_visible(
                             not self._is_microphone_disconnected_value(value)
                         )
@@ -637,12 +665,13 @@ class CodecScreen(BaseScreen):
         return None
 
     def _set_microphone_volume_controls_visible(self, visible):
-        mute_button = self.mute_buttons.get("Громкость микрофона")
-        if mute_button is not None:
-            mute_button.setVisible(visible)
+        for param_name in self._microphone_param_names():
+            mute_button = self.mute_buttons.get(param_name)
+            if mute_button is not None:
+                mute_button.setVisible(visible)
 
-        for button in self.volume_buttons.get("Громкость микрофона", {}).values():
-            button.setVisible(visible)
+            for button in self.volume_buttons.get(param_name, {}).values():
+                button.setVisible(visible)
 
     def _is_microphone_disconnected_value(self, value):
         return str(value).strip().lower() == "микрофон не подключён"
@@ -698,7 +727,21 @@ class CodecScreen(BaseScreen):
             value = self._get_current_volume_value(param_name)
             return value == 0 if value is not None else None
 
-        if param_name == "Громкость микрофона":
+        if param_name in self._microphone_param_names():
+            mute_state = str(self.microphone_mute_state or "").strip().lower()
+            if mute_state:
+                if (
+                    mute_state.startswith("off")
+                    or "включ" in mute_state
+                    or "unmuted" in mute_state
+                ):
+                    return False
+                if (
+                    mute_state.startswith("on")
+                    or "выключ" in mute_state
+                    or "muted" in mute_state
+                ):
+                    return True
             status_text = self._get_microphone_status_text().lower()
             if status_text in {"выключен", "закрыто", "muted", "off"}:
                 return True
@@ -743,7 +786,7 @@ class CodecScreen(BaseScreen):
 
     def refresh_all_mute_buttons(self):
         self.update_mute_button_state("Громкость динамиков")
-        self.update_mute_button_state("Громкость микрофона")
+        self.update_mute_button_state(self._microphone_param_name())
 
     def on_mute_button_clicked(self, param_name):
         print(f"Нажата кнопка mute для {param_name}")
@@ -1029,12 +1072,12 @@ class CodecScreen(BaseScreen):
     def _get_volume_control_kind(self, param_name):
         if param_name == "Громкость динамиков":
             return "speaker"
-        if param_name == "Громкость микрофона":
+        if param_name in self._microphone_param_names():
             return "microphone"
         return None
 
     def set_volume_value(self, param_name, value):
-        if self._te20_is_sleeping and param_name == "Громкость микрофона":
+        if self._te20_is_sleeping and param_name in self._microphone_param_names():
             return False
 
         control_kind = self._get_volume_control_kind(param_name)
@@ -1113,12 +1156,15 @@ class CodecScreen(BaseScreen):
                 if handler:
                     success = handler.set_microphone_volume(value)
                     if success:
-                        print(f"Громкость микрофона успешно изменена на {value}")
-                        self.update_volume_display(value, param_name="Громкость микрофона")
-                        self.schedule_volume_refresh("Громкость микрофона")
+                        print(f"Состояние микрофона успешно изменено на {value}")
+                        display_value = "Muted" if self._is_te20_device() and int(value) <= 0 else (
+                            "Unmuted" if self._is_te20_device() else value
+                        )
+                        self.update_volume_display(display_value, param_name=self._microphone_param_name())
+                        self.schedule_volume_refresh(self._microphone_param_name())
                     else:
                         print("Изменение громкости микрофона не подтверждено или не поддерживается этим кодеком")
-                        self.refresh_volume_status("Громкость микрофона")
+                        self.refresh_volume_status(self._microphone_param_name())
                     return success
 
                 print("Не удалось подключиться к устройству для изменения громкости микрофона")
@@ -1198,10 +1244,23 @@ class CodecScreen(BaseScreen):
                 )
 
                 if handler:
-                    volume = handler.get_microphone_volume()
+                    volume = None
+                    get_audio_status = getattr(handler, 'get_audio_status', None)
+                    if callable(get_audio_status):
+                        audio_status = get_audio_status()
+                        if isinstance(audio_status, dict):
+                            if audio_status.get('mute') is not None:
+                                self.microphone_mute_state = audio_status.get('mute')
+                                if self._is_te20_device():
+                                    volume = self._format_microphone_mute_state(self.microphone_mute_state)
+                            if not self._is_te20_device():
+                                volume = audio_status.get('microphone_volume')
+
+                    if volume is None:
+                        volume = handler.get_microphone_volume()
                     if volume is not None:
                         print(f"Текущая громкость микрофона с устройства: {volume}")
-                        self.update_volume_display(volume, param_name="Громкость микрофона")
+                        self.update_volume_display(volume, param_name=self._microphone_param_name())
                     else:
                         print("Ошибка получения громкости микрофона: устройство не вернуло значение")
                     return volume
@@ -1512,6 +1571,8 @@ class CodecScreen(BaseScreen):
     def _resume_te20_monitor_audio_after_wake(self):
         self._set_te20_monitor_audio_sleep_state(False)
         self.poll_te20_monitor_audio()
+        self._append_te20_monitor_audio_terminal_log("[sleep] refreshing microphone volume after wake")
+        self.refresh_volume_status(self._microphone_param_name())
         if self._should_show_te20_monitor_audio_fields() and self._is_codec_screen_active():
             self.start_te20_monitor_audio_polling()
 
@@ -1652,14 +1713,14 @@ class CodecScreen(BaseScreen):
 
     def update_volume_display(self, volume, param_name="Громкость динамиков"):
         """Обновление отображения громкости в GUI"""
-        if self._te20_is_sleeping and param_name == "Громкость микрофона":
+        if self._te20_is_sleeping and param_name in self._microphone_param_names():
             return
 
         numeric_value = self._extract_numeric_value(volume)
         if numeric_value is not None:
             self.volume_values[param_name] = numeric_value
             self._remember_unmuted_volume(param_name, numeric_value)
-        if param_name == "Громкость микрофона":
+        if param_name in self._microphone_param_names():
             self._set_microphone_volume_controls_visible(
                 not self._is_microphone_disconnected_value(volume)
             )
@@ -1675,7 +1736,7 @@ class CodecScreen(BaseScreen):
                 """)
                 print(f"Обновлено отображение {param_name}: {new_value}")
                 break
-        if numeric_value is not None and param_name in ("Громкость динамиков", "Громкость микрофона"):
+        if numeric_value is not None and (param_name == "Громкость динамиков" or param_name in self._microphone_param_names()):
             self.update_mute_button_state(param_name, muted=(numeric_value == 0))
         else:
             self.update_mute_button_state(param_name)
@@ -1742,6 +1803,7 @@ class CodecScreen(BaseScreen):
             'Громкость динамика': 'Громкость динамиков',
             'Громкость динамиков': 'Громкость динамиков',
             'Громкость микрофона': 'Громкость микрофона',
+            'Mute микрофона': 'Mute микрофона',
             'Статус микрофона': 'Статус микрофона',
             'Статус камеры': 'Статус камеры',
             'Звук в помещении (микрофон)': 'Звук в помещении (микрофон)',
@@ -1763,7 +1825,7 @@ class CodecScreen(BaseScreen):
                 print(f"  ❌ Ключ '{parser_key}' отсутствует в данных")
         
         # Специальные случаи
-        if 'mic_mute' in data:
+        if 'mic_mute' in data and 'Статус микрофона' not in result:
             print(f"  Спецслучай mic_mute: {data['mic_mute']}")
             if data['mic_mute'] == 'On':
                 result['Статус микрофона'] = 'Выключен'
@@ -1776,7 +1838,9 @@ class CodecScreen(BaseScreen):
 
         if 'mic_volume' in data:
             print(f"  Спецслучай mic_volume: {data['mic_volume']}")
-            result['Громкость микрофона'] = str(data['mic_volume'])
+            microphone_param_name = self._microphone_param_name()
+            if microphone_param_name not in result:
+                result[microphone_param_name] = str(data['mic_volume'])
         
         if 'call_status' in data:
             print(f"  Спецслучай call_status: {data['call_status']}")
