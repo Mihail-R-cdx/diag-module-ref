@@ -133,6 +133,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.device_credentials = {
             "Huawei TE-40": [
                 {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},        # По умолчанию
+                {'username': 'admin', 'password': '***REMOVED_CREDENTIAL***'},        # По умолчанию                
                 {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},          # Альтернатива 1
             ],
             "CloudLink Bar 310": [                          # Добавлено для Bar 310
