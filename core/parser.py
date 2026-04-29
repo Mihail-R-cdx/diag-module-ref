@@ -524,7 +524,24 @@ class PolycomDataParser:
         # Статус микрофона
         mic_mute = raw_data.get('mic_mute')
         if mic_mute:
-            parsed['Статус микрофона'] = PolycomDataParser._map_mic_status(mic_mute)
+            parsed['mic_mute'] = mic_mute
+            parsed['Статус микрофона'] = 'Подключён'
+            parsed['Mute микрофона'] = PolycomDataParser._map_mic_status(mic_mute)
+        else:
+            parsed['Статус микрофона'] = 'Подключён'
+
+        # Статус презентации
+        presentation = raw_data.get('presentation')
+        if presentation:
+            parsed['Режим презентации'] = PolycomDataParser._map_presentation(presentation)
+
+        # Статус камеры
+        camera_source = raw_data.get('camera_source')
+        camera_status = raw_data.get('camera_status')
+        if camera_source == -1:
+            parsed['Статус камеры'] = 'Не подключена'
+        elif camera_status:
+            parsed['Статус камеры'] = PolycomDataParser._map_camera_status(camera_status)
         
         print("=" * 50)
         print("PolycomDataParser вернул для GUI:", parsed)
@@ -549,10 +566,21 @@ class PolycomDataParser:
     def _map_mic_status(status: str) -> str:
         """Преобразование статуса микрофона"""
         mapping = {
-            'on': 'Выключен (Mute)',
-            'off': 'Включен'
+            'on': 'Muted',
+            'off': 'Unmuted'
         }
         return mapping.get(status.lower(), status)
+
+    @staticmethod
+    def _map_presentation(status: str) -> str:
+        """Преобразование статуса презентации"""
+        mapping = {
+            'Start': 'Демонстрируется',
+            'Stop': 'Не демонстрируется',
+            'Started': 'Демонстрируется',
+            'Stopped': 'Не демонстрируется'
+        }
+        return mapping.get(status, status)
     
     @staticmethod
     def _map_camera_status(status: str) -> str:

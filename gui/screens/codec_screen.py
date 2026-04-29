@@ -92,7 +92,7 @@ class CodecScreen(BaseScreen):
         return bool(
             self.parent
             and hasattr(self.parent, 'device_combo')
-            and self.parent.device_combo.currentText() in {"Huawei TE-20", "Huawei TE-40"}
+            and self.parent.device_combo.currentText() in {"Huawei TE-20", "Huawei TE-40", "Polycom RPG 310"}
         )
 
     def _microphone_param_name(self):
@@ -1727,6 +1727,10 @@ class CodecScreen(BaseScreen):
             return
 
         numeric_value = self._extract_numeric_value(volume)
+        if param_name in self._microphone_param_names():
+            text_value = str(volume).strip().lower()
+            if text_value in {"muted", "unmuted"}:
+                self.microphone_mute_state = volume
         if numeric_value is not None:
             self.volume_values[param_name] = numeric_value
             self._remember_unmuted_volume(param_name, numeric_value)

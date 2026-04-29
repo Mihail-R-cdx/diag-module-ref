@@ -235,6 +235,35 @@ class PolycomRPG310Handler:
             mic_match = self.regex_patterns['mic_mute'].search(response)
             if mic_match:
                 status['mic_mute'] = mic_match.group(1)
+
+            # Получаем статус презентации
+            try:
+                presentation_status = self.get_presentation_status()
+                if presentation_status:
+                    status['presentation'] = presentation_status
+                    print(f"Статус презентации: {presentation_status}")
+            except Exception as e:
+                print(f"Ошибка получения статуса презентации: {e}")
+
+            # Получаем статус камеры
+            try:
+                response = self.send_command('camera near source', wait_time=2.0)
+                source_match = self.regex_patterns['camera_source'].search(response)
+                if source_match:
+                    status['camera_source'] = int(source_match.group(1))
+
+                response = self.send_command('videomute near get', wait_time=2.0)
+                camera_match = self.regex_patterns['camera_mute'].search(response)
+                if camera_match:
+                    status['camera_status'] = camera_match.group(1)
+
+                print(
+                    "Статус камеры: "
+                    f"source={status.get('camera_source', 'N/A')}, "
+                    f"mute={status.get('camera_status', 'N/A')}"
+                )
+            except Exception as e:
+                print(f"Ошибка получения статуса камеры: {e}")
             
             # Получаем время работы
             try:
@@ -413,29 +442,44 @@ class PolycomRPG310Handler:
             return None
         return int(volume_match.group(1))
 
-    def set_microphone_volume(self, value: int) -> bool:
-        if not -20 <= value <= 30:
-            raise ValueError("Microphone volume must be in range -20..30")
-
+    def set_microphone_mute(self, muted: bool) -> bool:
         if not self.is_connected():
             self.connect()
 
-        response = self.send_command(f'audiotransmitlevel set {int(value)}', wait_time=2.0)
+        state = 'on' if muted else 'off'
+        response = self.send_command(f'mute near {state}', wait_time=2.0)
         response_lower = response.lower()
         if 'invalid' in response_lower or 'error' in response_lower:
             return False
         time.sleep(0.5)
-        return self.get_microphone_volume() == int(value)
+        current_state = self.get_microphone_mute()
+        return current_state == ('Muted' if muted else 'Unmuted')
 
-    def get_microphone_volume(self) -> Optional[int]:
+    def get_microphone_mute(self) -> Optional[str]:
         if not self.is_connected():
             self.connect()
 
-        response = self.send_command('audiotransmitlevel get', wait_time=2.0)
-        level_match = self.regex_patterns['transmit_level'].search(response)
-        if not level_match:
+        response = self.send_command('mute near get', wait_time=2.0)
+        mic_match = self.regex_patterns['mic_mute'].search(response)
+        if not mic_match:
             return None
-        return int(level_match.group(1))
+        return 'Muted' if mic_match.group(1).lower() == 'on' else 'Unmuted'
+
+    def set_microphone_volume(self, value: int) -> bool:
+        # Polycom Group exposes microphone mute for the UI control.
+        # The UI uses value 0 as muted and any positive value as unmuted.
+        return self.set_microphone_mute(int(value) <= 0)
+
+    def get_audio_status(self) -> Dict[str, Any]:
+        return {
+            'mute': self.get_microphone_mute(),
+        }
+
+    def get_microphone_volume(self) -> Optional[str]:
+        if not self.is_connected():
+            self.connect()
+
+        return self.get_microphone_mute()
 
     def verify_sip_server(self) -> Optional[str]:
         """Получить адрес SIP registrar server."""
