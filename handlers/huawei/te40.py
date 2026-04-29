@@ -53,6 +53,25 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         logger = getattr(self, 'command_logger', None)
         if callable(logger):
             logger(message)
+
+    def _is_authentication_response(self, result: Dict[str, Any]) -> bool:
+        if not isinstance(result, dict):
+            return False
+
+        auth_codes = {401, 403, 100666780, 16781315}
+        auth_code_strings = {str(code) for code in auth_codes}
+        values = [result.get('error'), result.get('code'), result.get('id')]
+
+        for key in ('error', 'exception'):
+            details = result.get(key)
+            if isinstance(details, dict):
+                values.extend([details.get('id'), details.get('code')])
+
+        if any(value in auth_codes or str(value) in auth_code_strings for value in values):
+            return True
+
+        result_text = str(result).lower()
+        return "authentication" in result_text or "auth" in result_text
     
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE-40"""
@@ -87,7 +106,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 else:
                     print(f"✗ Session ID не получен: {result}")
                     # Проверяем, не ошибка ли это аутентификации
-                    if result.get('error') == 401 or "authentication" in str(result).lower():
+                    if self._is_authentication_response(result):
                         raise AuthenticationError(f"Ошибка аутентификации: {result.get('message', 'Неверные учетные данные')}")
                     return False
                     
@@ -154,7 +173,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 else:
                     print(f"✗ CSRF Token запрос неуспешен: {token_result}")
                     # Проверяем, не ошибка ли это аутентификации
-                    if token_result.get('error') == 401 or "authentication" in str(token_result).lower():
+                    if self._is_authentication_response(token_result):
                         raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена")
                     self.csrf_token = None
                     
@@ -728,9 +747,26 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         except (TypeError, ValueError):
             return None
 
+    def set_microphone_mute(self, muted: bool) -> bool:
+        action = 'WEB_CloseMicAPI' if muted else 'WEB_OpenMicAPI'
+        payload = {
+            "acCSRFToken": self.csrf_token or "",
+        }
+        result = self.send_command(action, payload)
+        if result and result.get('success') == 1:
+            return True
+
+        time.sleep(0.5)
+        audio_status = self.get_audio_status()
+        mic_mute = str(audio_status.get('mute', '')).lower()
+        if muted:
+            return mic_mute.startswith('on') or 'выключ' in mic_mute or 'muted' in mic_mute
+        return mic_mute.startswith('off') or 'включ' in mic_mute or 'unmuted' in mic_mute
+
     def set_microphone_volume(self, value: int) -> bool:
-        # В референсном драйвере отдельной set-команды для mic volume не найдено.
-        return False
+        # TE40 web API exposes microphone mute, not a separate microphone gain command.
+        # The UI uses value 0 as muted and any positive value as unmuted.
+        return self.set_microphone_mute(int(value) <= 0)
 
     def get_microphone_volume(self) -> Optional[int]:
         audio_status = self.get_audio_status()

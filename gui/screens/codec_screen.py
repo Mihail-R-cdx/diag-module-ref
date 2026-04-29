@@ -88,8 +88,15 @@ class CodecScreen(BaseScreen):
             and self.parent.device_combo.currentText() == "Huawei TE-20"
         )
 
+    def _uses_microphone_mute_control(self):
+        return bool(
+            self.parent
+            and hasattr(self.parent, 'device_combo')
+            and self.parent.device_combo.currentText() in {"Huawei TE-20", "Huawei TE-40"}
+        )
+
     def _microphone_param_name(self):
-        return "Mute микрофона" if self._is_te20_device() else "Громкость микрофона"
+        return "Mute микрофона" if self._uses_microphone_mute_control() else "Громкость микрофона"
 
     def _microphone_param_names(self):
         return ("Громкость микрофона", "Mute микрофона")
@@ -1157,8 +1164,8 @@ class CodecScreen(BaseScreen):
                     success = handler.set_microphone_volume(value)
                     if success:
                         print(f"Состояние микрофона успешно изменено на {value}")
-                        display_value = "Muted" if self._is_te20_device() and int(value) <= 0 else (
-                            "Unmuted" if self._is_te20_device() else value
+                        display_value = "Muted" if self._uses_microphone_mute_control() and int(value) <= 0 else (
+                            "Unmuted" if self._uses_microphone_mute_control() else value
                         )
                         self.update_volume_display(display_value, param_name=self._microphone_param_name())
                         self.schedule_volume_refresh(self._microphone_param_name())
@@ -1251,9 +1258,9 @@ class CodecScreen(BaseScreen):
                         if isinstance(audio_status, dict):
                             if audio_status.get('mute') is not None:
                                 self.microphone_mute_state = audio_status.get('mute')
-                                if self._is_te20_device():
+                                if self._uses_microphone_mute_control():
                                     volume = self._format_microphone_mute_state(self.microphone_mute_state)
-                            if not self._is_te20_device():
+                            if not self._uses_microphone_mute_control():
                                 volume = audio_status.get('microphone_volume')
 
                     if volume is None:
@@ -1360,7 +1367,10 @@ class CodecScreen(BaseScreen):
         elif device_name == "Huawei TE-40":
             from handlers.huawei.te40 import HuaweiTE40Handler
             handler_class = HuaweiTE40Handler
-            connection_profiles = [{"port": 443, "use_ssl": True, "label": "HTTPS:443"}]
+            connection_profiles = [
+                {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
+                {"port": 80, "use_ssl": False, "label": "HTTP:80"},
+            ]
         elif device_name == "CloudLink Bar 310":
             from handlers.huawei.bar310 import CloudLinkBar310Handler
             handler_class = CloudLinkBar310Handler
@@ -1376,7 +1386,7 @@ class CodecScreen(BaseScreen):
         preferred_profile = None
         if self.parent and hasattr(self.parent, 'get_device_connection_profile'):
             preferred_profile = self.parent.get_device_connection_profile(device_name, ip_address)
-        if device_name == "Huawei TE-20":
+        if device_name in {"Huawei TE-20", "Huawei TE-40"}:
             preferred_profile = None
         if isinstance(preferred_profile, dict) and preferred_profile:
             preferred_port = preferred_profile.get("port")

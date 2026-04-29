@@ -36,7 +36,6 @@ class HuaweiTE40Worker(QRunnable):
         self.password = password
         self.signals = WorkerSignals()
 
-
     @pyqtSlot()
     def run(self):
         try:
@@ -51,15 +50,42 @@ class HuaweiTE40Worker(QRunnable):
                 ip_address=self.ip_address,
                 port=self.port,
                 username=self.username,
-                password=self.password
+                password=self.password,
+                use_ssl=True
             )
             handler.command_logger = self.signals.terminal_log.emit
             
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)
             
-            # connect() already raises AuthenticationError on failure
-            handler.connect()
+            # Try TE40 over HTTPS first, then fall back to HTTP.
+            self.signals.terminal_log.emit(f"[connect] attempt 1/2 via HTTPS:{self.port}")
+            try:
+                if not handler.connect():
+                    raise ConnectionError(f"HTTPS:{self.port} did not return a valid TE40 session")
+                self.signals.terminal_log.emit(f"[connect] success via HTTPS:{self.port}")
+            except Exception as first_error:
+                first_auth_error = first_error if isinstance(first_error, AuthenticationError) else None
+                handler.disconnect()
+                self.signals.terminal_log.emit(f"[connect] HTTPS:{self.port} failed: {type(first_error).__name__}: {first_error}")
+
+                handler = HuaweiTE40Handler(
+                    ip_address=self.ip_address,
+                    port=80,
+                    username=self.username,
+                    password=self.password,
+                    use_ssl=False
+                )
+                handler.command_logger = self.signals.terminal_log.emit
+                self.signals.terminal_log.emit("[connect] attempt 2/2 via HTTP:80")
+                try:
+                    if not handler.connect():
+                        raise ConnectionError("HTTP:80 did not return a valid TE40 session")
+                    self.signals.terminal_log.emit("[connect] success via HTTP:80")
+                except Exception:
+                    if first_auth_error is not None:
+                        raise first_auth_error
+                    raise
             
             self.signals.connected.emit()
             self.signals.status.emit("Получаю данные...")

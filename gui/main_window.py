@@ -763,6 +763,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.disconnect_matrix_persistent_handler()
 
         screen_type = self.device_to_screen.get(device_name, "codec")
+        if screen_type == "codec" and codec_screen and hasattr(codec_screen, 'update_parameters_display'):
+            codec_screen.update_parameters_display()
         
         # Сохраняем тип экрана, который должен отображаться после обновления
         self.current_screen_type = screen_type
@@ -1022,6 +1024,8 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем экран
         self.screen_container.setCurrentWidget(target_screen)
+        if device_type == "codec" and hasattr(target_screen, 'update_parameters_display'):
+            target_screen.update_parameters_display()
         
         # Если есть метод очистки данных у экрана, вызываем его
         if hasattr(target_screen, 'clear_data'):
@@ -1195,7 +1199,7 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name, [{'username': 'api', 'password': ''}])
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, ip_address)
         creds = creds_list[current_idx]
         
         

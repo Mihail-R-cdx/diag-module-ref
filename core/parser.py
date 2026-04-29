@@ -52,9 +52,12 @@ class HuaweiTE40DataParser:
         if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
             parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
         if raw_data.get('mic_connection_status') == 'Микрофон не подключён':
-            parsed['Громкость микрофона'] = 'Микрофон не подключён'
-        elif 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
-            parsed['Громкость микрофона'] = str(raw_data.get('mic_volume'))
+            parsed['Mute микрофона'] = 'Микрофон не подключён'
+        elif 'mic_mute' in raw_data:
+            parsed['mic_mute'] = raw_data.get('mic_mute')
+            parsed['Mute микрофона'] = HuaweiTE40DataParser._map_microphone_mute_status(
+                raw_data.get('mic_mute')
+            )
         # Камера
         parsed['Статус камеры'] = HuaweiTE40DataParser._map_camera_status(
             raw_data.get('camera_status', 'OffOff')
@@ -118,6 +121,15 @@ class HuaweiTE40DataParser:
             'Off': 'Включен'
         }
         return mapping.get(mic_status, mic_status)
+
+    @staticmethod
+    def _map_microphone_mute_status(status: str) -> str:
+        text = str(status).strip().lower()
+        if text.startswith('off') or 'включ' in text or 'unmuted' in text:
+            return 'Unmuted'
+        if text.startswith('on') or 'выключ' in text or 'muted' in text:
+            return 'Muted'
+        return str(status)
     
     @staticmethod
     def _map_speaker_status(speaker_status: str) -> str:
