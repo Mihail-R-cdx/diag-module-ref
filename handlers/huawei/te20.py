@@ -286,10 +286,22 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 token_data_parsed = json.loads(token_result["data"])
                 self.csrf_token = token_data_parsed.get("acCSRFToken")
             else:
+                error_info = token_result.get("error", token_result.get("exception", token_result))
+                error_str = str(error_info).lower()
+                error_code = error_info.get("code") if isinstance(error_info, dict) else None
+                error_id = error_info.get("id") if isinstance(error_info, dict) else None
+                if (
+                    "authentication" in error_str
+                    or "auth" in error_str
+                    or "401" in error_str
+                    or error_code == 16781315
+                    or error_id == 100666780
+                ):
+                    raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {error_info}")
                 self.csrf_token = None
-                self._log_command(
-                    f"[warn] CSRF request returned unsuccessful result: {token_result.get('error', token_result.get('exception', token_result))}"
-                )
+                self._log_command(f"[warn] CSRF request returned unsuccessful result: {error_info}")
+        except AuthenticationError:
+            raise
         except Exception as e:
             self._log_command(f"[error] {type(e).__name__} while requesting CSRF token: {e}")
             self.csrf_token = None

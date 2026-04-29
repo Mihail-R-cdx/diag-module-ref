@@ -37,13 +37,31 @@ class AtenPDUHandler(ProtocolHandler):
             # Пробуем получить статус устройства для проверки подключения
             resp = self._api_request("GET", "/api/device/relay")
             
-            if resp and resp.status_code == 200:
+            if resp is None:
+                self.connected = False
+                return False
+
+            if resp.status_code in (401, 403):
+                raise AuthenticationError("Авторизация неуспешна")
+
+            response_text = resp.text.lower() if resp.text else ""
+            is_login_page = any(
+                marker in response_text
+                for marker in ("login", "authentication", "session expired")
+            )
+
+            if resp.status_code == 200 and not is_login_page:
                 self.connected = True
                 return True
+            if resp.status_code == 200 and is_login_page:
+                raise AuthenticationError("Авторизация неуспешна")
             else:
                 self.connected = False
                 return False
                 
+        except AuthenticationError:
+            self.connected = False
+            raise
         except Exception as e:
             self.connected = False
             raise ConnectionError(f"Ошибка подключения к PDU: {str(e)}")

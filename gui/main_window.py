@@ -4,6 +4,8 @@ from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTim
 from PyQt5.QtGui import QPalette, QColor
 import datetime
 import random
+import platform
+import subprocess
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker
@@ -909,7 +911,7 @@ class VCSDiagnosticApp(QMainWindow):
     def update_ip_for_device(self, device_name):
         """Обновление IP адреса для выбранного устройства"""
         ip_mapping = {
-            "Huawei TE-20": "192.168.1.100",
+            "Huawei TE-20": "192.168.1.101",
             "Huawei TE-40": "192.168.1.101",
             "CloudLink Bar 310": "192.168.1.104",  # Добавлено новое устройство
             "CloudLink Box 300": "192.168.1.102",
@@ -933,6 +935,58 @@ class VCSDiagnosticApp(QMainWindow):
         
         return True
 
+    def ping_device(self, ip_address: str) -> bool:
+        if platform.system().lower() == "windows":
+            command = ["ping", "-n", "1", "-w", "1000", ip_address]
+        else:
+            command = ["ping", "-c", "1", "-W", "1", ip_address]
+
+        try:
+            startupinfo = None
+            if platform.system().lower() == "windows":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+            result = subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                startupinfo=startupinfo,
+                timeout=2,
+                check=False
+            )
+            return result.returncode == 0
+        except Exception as e:
+            print(f"Ping check failed for {ip_address}: {e}")
+            return False
+
+    def ensure_ping_success(self, ip_address: str) -> bool:
+        if self.ping_device(ip_address):
+            return True
+
+        QMessageBox.warning(self, "Внимание", "Ping неуспешен")
+        if hasattr(self, 'refresh_btn'):
+            self.refresh_btn.setEnabled(True)
+            self.refresh_btn.setText("Обновить данные")
+        return False
+
+    def is_vcs_codec_device(self, device_name: str) -> bool:
+        return self.device_to_screen.get(device_name) == "codec"
+
+    def is_authentication_error(self, error_type: str, error_message: str) -> bool:
+        message = str(error_message).lower()
+        return (
+            error_type == "authentication_error"
+            or "authentication" in message
+            or "аутентификац" in message
+            or "авторизац" in message
+            or "auth" in message
+            or "401" in message
+            or "403" in message
+            or "16781315" in message
+            or "100666780" in message
+        )
+
     def refresh_data(self):
         """Обновление данных в зависимости от устройства"""
         ip_address = self.ip_entry.text().strip()
@@ -944,6 +998,9 @@ class VCSDiagnosticApp(QMainWindow):
         
         if not self.validate_ip_address(ip_address):
             QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
+            return
+
+        if not self.ensure_ping_success(ip_address):
             return
 
         self.set_current_credential_index(device_name, 0, ip_address)
@@ -1586,14 +1643,7 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = getattr(self.current_worker, 'current_idx', 0)
             
             error_message = str(error)
-            is_auth_error = (
-                error_type == "authentication_error"
-                or "authentication" in error_message.lower()
-                or "401" in error_message
-                or "403" in error_message
-                or "16781315" in error_message
-                or "100666780" in error_message
-            )
+            is_auth_error = self.is_authentication_error(error_type, error_message)
 
             # Если это ошибка аутентификации и есть еще credentials для проверки
             if is_auth_error and creds_list and current_idx < len(creds_list) - 1:
@@ -1625,20 +1675,32 @@ class VCSDiagnosticApp(QMainWindow):
         self.hide_progress_dialog()
         
         error_message = str(error)
-        if "Connection refused" in error_message or "timed out" in error_message:
+        is_auth_error = self.is_authentication_error(error_type, error_message)
+        device_name = getattr(self.current_worker, 'device_name', self.device_combo.currentText())
+
+        if is_auth_error and self.is_vcs_codec_device(device_name):
+            user_message = "Авторизация неуспешна"
+        elif "Connection refused" in error_message or "timed out" in error_message:
             user_message = "Не удалось подключиться к устройству.\nПроверьте:\n1. IP адрес\n2. Сетевое подключение\n3. Порт устройства"
-        elif "authentication" in error_message.lower() or "401" in error_message:
-            user_message = "Ошибка аутентификации.\nПроверьте логин и пароль в настройках.\n\nБыли проверены все доступные варианты credentials."
+        elif is_auth_error:
+            user_message = "Авторизация неуспешна"
         elif "SSL" in error_message:
             user_message = "Ошибка SSL соединения.\nПопробуйте отключить проверку SSL сертификата."
         else:
             user_message = f"Ошибка: {error_message}"
         
-        QMessageBox.critical(
-            self,
-            "Ошибка подключения",
-            user_message
-        )
+        if is_auth_error:
+            QMessageBox.warning(
+                self,
+                "Авторизация",
+                user_message
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "Ошибка подключения",
+                user_message
+            )
         
         # Включаем кнопку обратно
         if hasattr(self, 'refresh_btn'):
