@@ -139,9 +139,9 @@ class VCSDiagnosticApp(QMainWindow):
                 {'username': 'user', 'password': '***REMOVED_CREDENTIAL***'},      # Альтернатива 2
             ],
             "Huawei TE-20": [
+                {'username': 'admin', 'password': '***REMOVED_CREDENTIAL***'},
                 {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},
-                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},
-                {'username': 'api', 'password': 'p@ss123456'}               
+                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'}              
             ],
             "CloudLink Box 300": [
                 {'username': 'admin', 'password': ''},
