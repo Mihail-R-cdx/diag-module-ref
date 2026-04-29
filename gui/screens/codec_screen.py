@@ -1393,14 +1393,16 @@ class CodecScreen(BaseScreen):
             preferred_use_ssl = preferred_profile.get("use_ssl")
             prioritized_profiles = []
             if preferred_port is not None:
-                prioritized_profiles.append({
+                preferred_entry = {
                     "port": preferred_port,
-                    "use_ssl": preferred_use_ssl,
                     "label": preferred_profile.get(
                         "label",
                         f"{'HTTPS' if preferred_use_ssl else 'HTTP'}:{preferred_port}"
                     ),
-                })
+                }
+                if device_name != "Polycom RPG 310":
+                    preferred_entry["use_ssl"] = preferred_use_ssl
+                prioritized_profiles.append(preferred_entry)
             prioritized_profiles.extend(connection_profiles)
 
             seen_profiles = set()
@@ -1425,7 +1427,8 @@ class CodecScreen(BaseScreen):
 
         for profile in connection_profiles:
             handler_kwargs = dict(base_handler_kwargs)
-            handler_kwargs.update({k: v for k, v in profile.items() if k in {"port", "use_ssl"}})
+            allowed_profile_keys = {"port"} if device_name == "Polycom RPG 310" else {"port", "use_ssl"}
+            handler_kwargs.update({k: v for k, v in profile.items() if k in allowed_profile_keys})
 
             handler = handler_class(**handler_kwargs)
             handler.command_logger = command_logger
