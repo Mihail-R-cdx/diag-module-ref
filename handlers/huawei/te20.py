@@ -881,11 +881,17 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     # Детальная информация по микрофонам
                     mic_status = []
                     for i in range(1, 4):
+                        try:
+                            mic_gain = int(audio_data.get(f'mic{i}Value', 12)) - 12
+                        except (TypeError, ValueError):
+                            mic_gain = None
                         mic_status.append({
                             "mic": f"Mic {i}",
                             "mute_status": mic_mute_map.get(audio_data.get(f'mic{i}', 0), "Unknown"),
-                            "gain": int(audio_data.get(f'mic{i}Value', 12)) - 12
+                            "gain": mic_gain
                         })
+                        if i == 1 and mic_gain is not None:
+                            status['mic_volume'] = mic_gain
                     status['microphones'] = mic_status
                     
                     print(f"Аудио статус получен")
@@ -904,7 +910,6 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     monitor_audio_data = {}
 
                 if monitor_audio_data:
-                    status['mic_volume'] = monitor_audio_data.get('MicValueIndex')
                     status['monitor_mic_value'] = monitor_audio_data.get('MicValueIndex')
                     status['monitor_speaker_value'] = monitor_audio_data.get('SpeakerValueIndex')
                     print(

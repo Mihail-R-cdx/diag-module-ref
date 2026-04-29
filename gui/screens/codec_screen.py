@@ -1494,15 +1494,11 @@ class CodecScreen(BaseScreen):
         field_values = {
             "Звук в помещении (микрофон)": mic_value,
             "Звук из динамиков (выход кодека)": speaker_value,
-            "Громкость микрофона": mic_value,
         }
         for param_name, value in field_values.items():
             if value is None:
                 continue
             numeric_value = self._extract_numeric_value(value)
-            if numeric_value is not None and param_name == "Громкость микрофона":
-                self.volume_values[param_name] = numeric_value
-                self._remember_unmuted_volume(param_name, numeric_value)
             for name_label, value_label in self.param_widgets:
                 if name_label == param_name:
                     value_label.setText(str(value))
@@ -1512,8 +1508,6 @@ class CodecScreen(BaseScreen):
                         padding: 8px 0;
                     """)
                     break
-            if numeric_value is not None and param_name == "Громкость микрофона":
-                self.update_mute_button_state(param_name, muted=(numeric_value == 0))
 
     def _resume_te20_monitor_audio_after_wake(self):
         self._set_te20_monitor_audio_sleep_state(False)
