@@ -1,6 +1,7 @@
 import requests
 import json
 import ssl
+import http.cookiejar
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -22,6 +23,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self.session_id = None
         self.csrf_token = None
         self.opener = None
+        self.cookie_jar = http.cookiejar.CookieJar()
+        self.uses_cookie_session = False
         self._connected = False
         
         # Настройка SSL контекста
@@ -46,7 +49,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPBasicAuthHandler(password_mgr),
             urllib.request.HTTPSHandler(context=self.context),
-            urllib.request.HTTPCookieProcessor()
+            urllib.request.HTTPCookieProcessor(self.cookie_jar)
         )
 
     def _log_command(self, message: str) -> None:
@@ -54,11 +57,94 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         if callable(logger):
             logger(message)
 
+    def _get_session_cookie(self) -> Optional[str]:
+        for cookie in self.cookie_jar:
+            if cookie.name.lower() == 'sessionid' and cookie.value:
+                return cookie.value
+        return None
+
+    def _browser_headers(self, json_payload: bool = False) -> Dict[str, str]:
+        headers = {
+            'Accept': '*/*',
+            'Origin': self.base_url,
+            'Referer': f"{self.base_url}/login.html",
+            'User-Agent': 'Mozilla/5.0',
+            'X-Requested-With': 'XMLHttpRequest',
+            'userType': 'web',
+        }
+        if json_payload:
+            headers['Content-Type'] = 'application/json'
+        return headers
+
+    def _open_json_request(self, url: str, data: Optional[bytes], headers: Dict[str, str], method: str = 'POST') -> Dict[str, Any]:
+        self._log_command(f"[request] {method} {url}")
+        if data:
+            self._log_command(f"[payload] {data.decode('utf-8', errors='ignore')}")
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        response = self.opener.open(request, timeout=10)
+        response_text = response.read().decode('utf-8')
+        self._log_command(f"[response] 200 {response_text}")
+        return json.loads(response_text)
+
+    def _connect_browser_login(self) -> bool:
+        """Fallback login flow used by TE40 web UI on some firmware versions."""
+        print("Пробую браузерный flow подключения TE40...")
+
+        session_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestSessionID&rmd={random.random()}"
+        session_result = self._open_json_request(
+            session_url,
+            data=None,
+            headers=self._browser_headers(),
+            method='POST'
+        )
+        if session_result.get('success') != 1:
+            if self._is_authentication_response(session_result):
+                raise AuthenticationError("Ошибка аутентификации при Web_RequestSessionID")
+            return False
+
+        self.session_id = self._get_session_cookie() or self.session_id
+
+        token_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestCertificate&rmd={random.random()}"
+        token_data = json.dumps({
+            "password": self.credentials.get('password', ''),
+            "user": self.credentials.get('username', 'api'),
+        }).encode('utf-8')
+        token_result = self._open_json_request(
+            token_url,
+            data=token_data,
+            headers=self._browser_headers(json_payload=True),
+            method='POST'
+        )
+        if token_result.get('success') != 1:
+            if self._is_authentication_response(token_result):
+                raise AuthenticationError("Ошибка аутентификации при Web_RequestCertificate")
+            return False
+
+        token_payload = self._parse_json_data(token_result.get('data', {}))
+        self.csrf_token = token_payload.get('acCSRFToken') or self.csrf_token
+        self.session_id = self._get_session_cookie() or self.session_id
+
+        change_url = f"{self.base_url}/action.cgi?ActionID=WEB_ChangeSessionID&rmd={random.random()}"
+        change_result = self._open_json_request(
+            change_url,
+            data=None,
+            headers=self._browser_headers(),
+            method='POST'
+        )
+        if change_result.get('success') != 1:
+            return False
+
+        self.session_id = self._get_session_cookie() or self.session_id
+        self.uses_cookie_session = True
+        self._connected = True
+        print("✓ Браузерный flow подключения TE40 успешен")
+        return True
+
     def _is_authentication_response(self, result: Dict[str, Any]) -> bool:
         if not isinstance(result, dict):
             return False
 
-        auth_codes = {401, 403, 100666780, 16781315}
+        auth_codes = {401, 403}
         auth_code_strings = {str(code) for code in auth_codes}
         values = [result.get('error'), result.get('code'), result.get('id')]
 
@@ -108,12 +194,14 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     # Проверяем, не ошибка ли это аутентификации
                     if self._is_authentication_response(result):
                         raise AuthenticationError(f"Ошибка аутентификации: {result.get('message', 'Неверные учетные данные')}")
-                    return False
+                    return self._connect_browser_login()
                     
             except urllib.error.HTTPError as e:
                 if e.code == 401 or e.code == 403:
                     raise AuthenticationError(f"HTTP {e.code}: Ошибка аутентификации")
                 raise ConnectionError(f"HTTP ошибка: {e.code}")
+            except AuthenticationError:
+                raise
             except Exception as e:
                 if "authentication" in str(e).lower() or "401" in str(e):
                     raise AuthenticationError(f"Ошибка аутентификации: {str(e)}")
@@ -122,6 +210,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             # 2. Получаем CSRF Token
             print("Получаю CSRF Token...")
             token_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestCertificateAPI"
+            certificate_ok = False
             
             data = json.dumps({
                 "user": self.credentials.get('username', 'api'),
@@ -150,6 +239,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 token_result = json.loads(token_response_text)
                 
                 if token_result.get('success') == 1:
+                    certificate_ok = True
                     token_data = token_result.get('data', '')
                     
                     if isinstance(token_data, str):
@@ -181,6 +271,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 if e.code == 401 or e.code == 403:
                     raise AuthenticationError(f"HTTP {e.code}: Ошибка аутентификации при получении CSRF токена")
                 raise ConnectionError(f"HTTP ошибка при получении CSRF токена: {e.code}")
+            except AuthenticationError:
+                raise
             except Exception as e:
                 if "authentication" in str(e).lower() or "401" in str(e):
                     raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {str(e)}")
@@ -188,11 +280,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 self.csrf_token = None
             
             # 3. Проверяем подключение
-            if self.session_id:
+            if self.session_id and certificate_ok:
                 self._connected = True
                 print("✓ Подключение установлено")
                 return True
             else:
+                if self._connect_browser_login():
+                    return True
                 print("✗ Не удалось установить подключение")
                 return False
                 
@@ -210,10 +304,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self._connected = False
         self.session_id = None
         self.csrf_token = None
+        self.uses_cookie_session = False
     
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
         """Отправить команду устройству"""
-        if not self.is_connected() or not self.session_id:
+        if not self.is_connected() or (not self.session_id and not self.uses_cookie_session):
             if not self.connect():
                 return {'success': False, 'error': 'Not connected'}
         
@@ -246,8 +341,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             headers = {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'Sessionid': self.session_id
             }
+            if self.session_id:
+                headers['Sessionid'] = self.session_id
+            if self.uses_cookie_session:
+                headers.update(self._browser_headers(json_payload=bool(data)))
             
             # Подготавливаем данные
             request_data = data or {}
