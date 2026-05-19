@@ -17,6 +17,7 @@ class CallLogWindow(QDialog):
         "Номер комнаты",
         "Дата и время начала звонка",
         "Продолжительность звонка",
+        "Скорость",
     )
 
     def __init__(self, parent=None, colors=None):
@@ -36,6 +37,7 @@ class CallLogWindow(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -79,10 +81,11 @@ class CallLogWindow(QDialog):
         self.table.setRowCount(len(visible_records))
 
         for row, record in enumerate(visible_records):
-            room_number, start_time, duration = self.normalize_record(record, row)
+            room_number, start_time, duration, speed = self.normalize_record(record, row)
             self._set_cell(row, 0, room_number, Qt.AlignCenter)
             self._set_cell(row, 1, start_time, Qt.AlignCenter)
             self._set_cell(row, 2, duration, Qt.AlignCenter)
+            self._set_cell(row, 3, speed, Qt.AlignCenter)
 
         if visible_records:
             self.status_label.setText(f"Показаны последние {len(visible_records)} звонков.")
@@ -104,16 +107,18 @@ class CallLogWindow(QDialog):
             room_number = record.get("room_number", record.get("call_number", ""))
             start_time = record.get("start_time", "")
             duration = record.get("duration", "")
-            return room_number, start_time, duration
+            speed = record.get("speed", "")
+            return room_number, start_time, duration, speed
 
         if isinstance(record, (list, tuple)):
             values = list(record)
             room_number = values[0] if len(values) > 0 else ""
             start_time = values[1] if len(values) > 1 else ""
             duration = values[2] if len(values) > 2 else ""
-            return room_number, start_time, duration
+            speed = values[3] if len(values) > 3 else ""
+            return room_number, start_time, duration, speed
 
-        return "", "", ""
+        return "", "", "", ""
 
     def _set_cell(self, row, column, value, alignment):
         item = QTableWidgetItem(str(value))
