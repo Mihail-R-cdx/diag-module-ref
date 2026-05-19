@@ -7,6 +7,7 @@ import requests
 import json
 import time
 import urllib3
+from datetime import datetime
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from core.base_handler import BaseHuaweiCodecHandler
@@ -329,6 +330,106 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         controllable = [mic for mic in hd_ai_mics if str(mic.get('enablePlug')) == '1']
         selected = controllable or hd_ai_mics
         return sorted(selected, key=lambda mic: mic.get('deviceId', 0))[:3]
+
+    @staticmethod
+    def _format_call_start_time(raw_value: str) -> str:
+        if not raw_value:
+            return ""
+        try:
+            parsed = datetime.strptime(str(raw_value), "%d/%m/%Y %H:%M:%S")
+            return parsed.strftime("%d.%m.%Y %H:%M:%S")
+        except ValueError:
+            return str(raw_value)
+
+    @staticmethod
+    def _format_call_duration(start_value: str, end_value: str) -> str:
+        if not start_value or not end_value:
+            return ""
+        try:
+            started_at = datetime.strptime(str(start_value), "%d/%m/%Y %H:%M:%S")
+            ended_at = datetime.strptime(str(end_value), "%d/%m/%Y %H:%M:%S")
+        except ValueError:
+            return ""
+
+        total_seconds = max(0, int((ended_at - started_at).total_seconds()))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    @staticmethod
+    def _format_call_rate(rate_value) -> str:
+        try:
+            rate_key = int(rate_value)
+        except (TypeError, ValueError):
+            return str(rate_value or "")
+        return f"{rate_key} kbps"
+
+    def _parse_call_records(self, data) -> list[Dict[str, str]]:
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(data, dict):
+            return []
+
+        records = []
+        for item in data.get("callRecordList", [])[:10]:
+            if not isinstance(item, dict):
+                continue
+            start_time = item.get("startTime", "")
+            end_time = item.get("endTime", "")
+            records.append({
+                "room_number": item.get("callNumber") or item.get("callName") or "",
+                "start_time": self._format_call_start_time(start_time),
+                "duration": self._format_call_duration(start_time, end_time),
+                "speed": self._format_call_rate(item.get("rate")),
+            })
+        return records
+
+    def get_call_records(self) -> list[Dict[str, str]]:
+        """Download and parse the latest CloudLink Bar 310 call records."""
+        if not self.is_connected() or not self.acCSRFToken:
+            if not self.connect():
+                raise ConnectionError("Не удалось подключиться к CloudLink Bar 310 для получения журнала звонков")
+
+        url = f"{self.base_url}/v1/meeting/calls/history"
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Cache-Control": "no-cache",
+            "ClientType": "browser",
+            "Content-Type": "application/json",
+            "Pragma": "no-cache",
+            "Referer": f"{self.base_url}/",
+            "X-Access-Token": self.acCSRFToken or "",
+            "X-Requested-With": "XMLHttpRequest",
+            "userType": "web",
+        }
+        self._log_command(f"[request] GET {url}")
+
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            self._log_command(f"[response] {response.status_code} {response.text[:500]}")
+        except requests.exceptions.RequestException as e:
+            self._log_command(f"[error] RequestException: {str(e)}")
+            raise ConnectionError(f"Ошибка запроса журнала звонков Bar 310: {str(e)}") from e
+
+        if response.status_code in (401, 403):
+            raise AuthenticationError(
+                f"HTTP {response.status_code}: ошибка аутентификации при получении журнала звонков Bar 310"
+            )
+        if response.status_code >= 400:
+            raise ConnectionError(
+                f"HTTP {response.status_code}: ошибка получения журнала звонков Bar 310"
+            )
+
+        result = self._parse_response(response.text)
+        if not result or result.get("success") != 1:
+            raise ConnectionError(
+                f"Кодек не вернул журнал звонков: {result.get('message', result) if isinstance(result, dict) else result}"
+            )
+
+        return self._parse_call_records(result.get("data", {}))
 
 
     def get_status(self) -> Dict[str, Any]:

@@ -12,7 +12,7 @@ class ProtocolFactory:
         'huawei_te20': ('handlers.huawei.te20', 'HuaweiTE20Handler'),
         'huawei_te40': ('handlers.huawei.te40', 'HuaweiTE40Handler'),
         'huawei_box300': ('handlers.huawei.box300', 'CloudLinkBox300Handler'),
-        'huawei_bar310': ('handlers.huawei.bar310', 'HuaweiBar310Handler'), 
+        'huawei_bar310': ('handlers.huawei.bar310', 'CloudLinkBar310Handler'), 
         'polycom_rpg310': ('handlers.polycom.rpg310', 'PolycomRPG310Handler'),
         'extron_in1804': ('handlers.extron.in1804', 'ExtronIN1804Handler'),
     }

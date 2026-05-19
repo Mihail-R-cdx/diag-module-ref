@@ -591,7 +591,7 @@ class CodecScreen(BaseScreen):
         device_name = self.parent.device_combo.currentText() if self.parent else ""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
 
-        if device_name not in {"Huawei TE-20", "Huawei TE-40"}:
+        if device_name not in {"Huawei TE-20", "Huawei TE-40", "CloudLink Bar 310"}:
             self.call_log_window.status_label.setText("Получение журнала звонков для этого устройства будет добавлено позже.")
             return
 
@@ -616,7 +616,7 @@ class CodecScreen(BaseScreen):
             records = handler.get_call_records()
             self.call_log_window.set_call_records(records)
         except Exception as e:
-            self.call_log_window.status_label.setText("Не удалось загрузить журнал звонков.")
+            self.call_log_window.status_label.setText(f"Не удалось загрузить журнал звонков: {str(e)}")
             QMessageBox.critical(self, "Ошибка", f"Не удалось получить журнал звонков:\n{str(e)}")
 
 
