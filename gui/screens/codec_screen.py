@@ -591,7 +591,7 @@ class CodecScreen(BaseScreen):
         device_name = self.parent.device_combo.currentText() if self.parent else ""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
 
-        if device_name != "Huawei TE-20":
+        if device_name not in {"Huawei TE-20", "Huawei TE-40"}:
             self.call_log_window.status_label.setText("Получение журнала звонков для этого устройства будет добавлено позже.")
             return
 
@@ -609,7 +609,7 @@ class CodecScreen(BaseScreen):
                 password=creds['password'],
             )
             if handler is None:
-                QMessageBox.warning(self, "Ошибка", "Не удалось подключиться к TE-20 для получения журнала звонков")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось подключиться к {device_name} для получения журнала звонков")
                 self.call_log_window.status_label.setText("Не удалось загрузить журнал звонков.")
                 return
 

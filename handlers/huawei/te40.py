@@ -8,6 +8,7 @@ import urllib.parse
 import re
 import random
 import time
+from datetime import datetime
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
@@ -387,6 +388,73 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
             print(f"Ошибка выполнения команды {command}: {e}")
             return {}
+
+    @staticmethod
+    def _format_call_start_time(raw_value: str) -> str:
+        if not raw_value:
+            return ""
+        try:
+            parsed = datetime.strptime(raw_value, "%d/%m/%Y %H:%M:%S")
+            return parsed.strftime("%d.%m.%Y %H:%M:%S")
+        except ValueError:
+            return raw_value
+
+    @staticmethod
+    def _format_call_duration(start_value: str, end_value: str) -> str:
+        if not start_value or not end_value:
+            return ""
+        try:
+            started_at = datetime.strptime(start_value, "%d/%m/%Y %H:%M:%S")
+            ended_at = datetime.strptime(end_value, "%d/%m/%Y %H:%M:%S")
+        except ValueError:
+            return ""
+
+        total_seconds = max(0, int((ended_at - started_at).total_seconds()))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    @staticmethod
+    def _format_call_rate(rate_value) -> str:
+        rate_map = {
+            159: "1920 kbps",
+            160: "2048 kbps",
+        }
+        try:
+            rate_key = int(rate_value)
+        except (TypeError, ValueError):
+            return str(rate_value or "")
+        return rate_map.get(rate_key, f"{rate_key} kbps")
+
+    def _parse_p2p_call_records(self, data) -> list[Dict[str, str]]:
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not isinstance(data, dict):
+            return []
+
+        records = []
+        for item in data.get("CallList", [])[:10]:
+            if not isinstance(item, dict):
+                continue
+            start_time = item.get("StartTime", "")
+            stop_time = item.get("StopTime", "")
+            records.append({
+                "room_number": item.get("aucCallCode") or item.get("aucRcdName") or "",
+                "start_time": self._format_call_start_time(start_time),
+                "duration": self._format_call_duration(start_time, stop_time),
+                "speed": self._format_call_rate(item.get("uwCallRate")),
+            })
+        return records
+
+    def get_call_records(self) -> list[Dict[str, str]]:
+        """Получить последние записи журнала звонков TE-40."""
+        result = self.send_command(
+            "WEB_GetP2PCallRecordsAPI",
+            {"acCSRFToken": self.csrf_token or ""},
+        )
+        if not result or result.get("success") != 1:
+            raise ConnectionError(f"Кодек не вернул журнал звонков: {result.get('exception', result) if isinstance(result, dict) else result}")
+        return self._parse_p2p_call_records(result.get("data", {}))
 
     def get_status(self) -> Dict[str, Any]:
         """Получение полного статуса устройства"""
