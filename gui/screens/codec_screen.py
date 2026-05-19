@@ -4,10 +4,13 @@ try:
     from PyQt5 import sip
 except ImportError:
     sip = None
+from ..dialogs import CallLogWindow
 from .base_screen import BaseScreen
 
 
 class CodecScreen(BaseScreen):
+    CALL_LOG_PARAM = "Журнал звонков"
+
     TE20_SLEEP_UNAVAILABLE_FIELDS = (
         "Звук в помещении (микрофон)",
         "Звук из динамиков (выход кодека)",
@@ -269,6 +272,7 @@ class CodecScreen(BaseScreen):
                 "Звук из динамиков (выход кодека)",
             ])
         self._show_te20_monitor_audio_fields = show_te20_monitor_audio_fields
+        block3_params.append(self.CALL_LOG_PARAM)
 
         all_params = block1_params + block2_params + block3_params
         if self.param_count > len(all_params):
@@ -331,7 +335,33 @@ class CodecScreen(BaseScreen):
             block_layout.addWidget(value_label, i, 1)
             
             # Если это параметр "SIP регистрация", добавляем кнопку
-            if param_name == "SIP регистрация":
+            if param_name == self.CALL_LOG_PARAM:
+                value_label.setText("")
+                value_label.setVisible(False)
+                call_log_btn = QPushButton("Открыть")
+                call_log_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {self.colors['surface']};
+                        color: white;
+                        border: 1px solid white;
+                        border-radius: 4px;
+                        padding: 6px 12px;
+                        font-size: 10pt;
+                        font-weight: bold;
+                        min-width: 96px;
+                        max-width: 96px;
+                        min-height: 15px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {self.lighten_color(self.colors['surface'], 20)};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {self.colors['surface']};
+                    }}
+                """)
+                call_log_btn.clicked.connect(self.open_call_log_window)
+                block_layout.addWidget(call_log_btn, i, 2)
+            elif param_name == "SIP регистрация":
                 fix_btn = QPushButton("Исправить")
                 fix_btn.setVisible(False)  # Скрыта по умолчанию
                 fix_btn.setStyleSheet(f"""
@@ -543,9 +573,51 @@ class CodecScreen(BaseScreen):
                 spacer.setFixedWidth(80)
                 block_layout.addWidget(spacer, i, 2)
             
-            self.param_widgets.append((param_name, value_label))
+            if param_name != self.CALL_LOG_PARAM:
+                self.param_widgets.append((param_name, value_label))
         
         self.param_layout.addWidget(block_widget)
+
+
+    def open_call_log_window(self):
+        if not hasattr(self, 'call_log_window') or self._is_deleted_widget(self.call_log_window):
+            self.call_log_window = CallLogWindow(self, self.colors)
+
+        self.call_log_window.clear_records()
+        self.call_log_window.show()
+        self.call_log_window.raise_()
+        self.call_log_window.activateWindow()
+
+        device_name = self.parent.device_combo.currentText() if self.parent else ""
+        ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
+
+        if device_name != "Huawei TE-20":
+            self.call_log_window.status_label.setText("Получение журнала звонков для этого устройства будет добавлено позже.")
+            return
+
+        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
+        if creds is None:
+            QMessageBox.warning(self, "Ошибка", f"Не найдены credentials для {device_name}")
+            return
+
+        try:
+            self.call_log_window.status_label.setText("Загрузка журнала звонков...")
+            handler = self._get_or_create_volume_handler(
+                ip_address=ip_address,
+                device_name=device_name,
+                username=creds['username'],
+                password=creds['password'],
+            )
+            if handler is None:
+                QMessageBox.warning(self, "Ошибка", "Не удалось подключиться к TE-20 для получения журнала звонков")
+                self.call_log_window.status_label.setText("Не удалось загрузить журнал звонков.")
+                return
+
+            records = handler.get_call_records()
+            self.call_log_window.set_call_records(records)
+        except Exception as e:
+            self.call_log_window.status_label.setText("Не удалось загрузить журнал звонков.")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось получить журнал звонков:\n{str(e)}")
 
 
     def add_divider(self):

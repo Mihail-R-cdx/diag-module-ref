@@ -7,6 +7,7 @@ import io
 import os
 import ssl
 import tempfile
+from datetime import datetime
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
@@ -570,6 +571,108 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         logger = getattr(self, 'command_logger', None)
         if callable(logger):
             logger(message)
+
+    @staticmethod
+    def _format_call_start_time(raw_value: str) -> str:
+        if not raw_value:
+            return ""
+        try:
+            parsed = datetime.strptime(raw_value, "%d/%m/%Y %H:%M:%S")
+            return parsed.strftime("%d.%m.%Y %H:%M:%S")
+        except ValueError:
+            return raw_value
+
+    @staticmethod
+    def _format_call_duration(start_value: str, end_value: str) -> str:
+        if not start_value or not end_value:
+            return ""
+        try:
+            started_at = datetime.strptime(start_value, "%d/%m/%Y %H:%M:%S")
+            ended_at = datetime.strptime(end_value, "%d/%m/%Y %H:%M:%S")
+        except ValueError:
+            return ""
+
+        duration = ended_at - started_at
+        total_seconds = max(0, int(duration.total_seconds()))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    @staticmethod
+    def _format_call_rate(rate_value) -> str:
+        rate_map = {
+            159: "1920 kbps",
+            160: "2048 kbps",
+        }
+        try:
+            rate_key = int(rate_value)
+        except (TypeError, ValueError):
+            return str(rate_value or "")
+        return rate_map.get(rate_key, f"{rate_key} kbps")
+
+    def _parse_p2p_call_records(self, data) -> list[Dict[str, str]]:
+        if isinstance(data, str):
+            data = json.loads(data)
+        if not isinstance(data, dict):
+            return []
+
+        call_list = data.get("CallList", [])
+        records = []
+        for item in call_list[:10]:
+            if not isinstance(item, dict):
+                continue
+            start_time = item.get("StartTime", "")
+            stop_time = item.get("StopTime", "")
+            room_number = item.get("aucCallCode") or item.get("aucRcdName") or ""
+            records.append({
+                "room_number": room_number,
+                "start_time": self._format_call_start_time(start_time),
+                "duration": self._format_call_duration(start_time, stop_time),
+                "speed": self._format_call_rate(item.get("uwCallRate")),
+            })
+        return records
+
+    def get_call_records(self) -> list[Dict[str, str]]:
+        """Download and parse the latest TE20 call records."""
+        if not self._connected:
+            if not self.connect():
+                raise ConnectionError("Не удалось подключиться к TE-20 для получения журнала звонков")
+
+        rmd = f"{time.time() % 1:.16f}".rstrip("0")
+        url = f"{self.base_url}/action.cgi?ActionID=WEB_GetP2PCallRecordsAPI?rmd={rmd}"
+        payload = {"acCSRFToken": self.csrf_token or ""}
+        self._log_command(f"[request] POST {url}")
+        self._log_command(f"[payload] {json.dumps(payload, ensure_ascii=False)}")
+
+        if self._use_pycurl_transport:
+            response = self._pycurl_request(
+                url,
+                data=json.dumps(payload, ensure_ascii=False),
+                headers=self._build_web_headers(include_json=True),
+            )
+            status_code = response["status_code"]
+            response_text = response["text"]
+        else:
+            response = self.session.post(
+                url,
+                json=payload,
+                headers=self._build_session_headers(),
+                timeout=20,
+            )
+            status_code = response.status_code
+            response_text = self._decode_response_text(response)
+
+        self._log_command(f"[response] {status_code} {response_text[:500]}")
+        if status_code in (401, 403):
+            raise AuthenticationError(f"HTTP {status_code}: Ошибка аутентификации при получении журнала звонков")
+        if status_code >= 400:
+            raise ConnectionError(f"HTTP {status_code}: ошибка получения журнала звонков")
+
+        result = json.loads(response_text)
+        if result.get("success") != 1:
+            raise ConnectionError(f"Кодек не вернул журнал звонков: {result.get('exception', result)}")
+
+        return self._parse_p2p_call_records(result.get("data", {}))
 
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
