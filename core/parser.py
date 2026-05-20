@@ -490,6 +490,8 @@ class PolycomDataParser:
         parsed['Модель'] = raw_data.get('model', 'Polycom RealPresence Group 310')
         parsed['Версия ПО'] = raw_data.get('version', 'N/A')
         parsed['IP адрес'] = raw_data.get('ip_address', 'N/A')
+        if raw_data.get('mac_address'):
+            parsed['MAC адрес'] = raw_data.get('mac_address')
         
         # Серийный номер
         serial = raw_data.get('serial_number')

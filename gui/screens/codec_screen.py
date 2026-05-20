@@ -591,7 +591,7 @@ class CodecScreen(BaseScreen):
         device_name = self.parent.device_combo.currentText() if self.parent else ""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
 
-        if device_name not in {"Huawei TE-20", "Huawei TE-40", "CloudLink Bar 310"}:
+        if device_name not in {"Huawei TE-20", "Huawei TE-40", "CloudLink Bar 310", "Polycom RPG 310"}:
             self.call_log_window.status_label.setText("Получение журнала звонков для этого устройства будет добавлено позже.")
             return
 
@@ -1450,7 +1450,7 @@ class CodecScreen(BaseScreen):
         elif device_name == "Polycom RPG 310":
             from handlers.polycom.rpg310 import PolycomRPG310Handler
             handler_class = PolycomRPG310Handler
-            connection_profiles = [{"port": 22, "label": "SSH:22"}]
+            connection_profiles = [{"port": 443, "label": "HTTPS:443"}]
         else:
             self.reset_volume_session()
             return None
@@ -1528,7 +1528,7 @@ class CodecScreen(BaseScreen):
                 "Huawei TE-20": (0, 21),
                 "Huawei TE-40": (0, 21),
                 "CloudLink Bar 310": (0, 15),
-                "Polycom RPG 310": (0, 50),
+                "Polycom RPG 310": (0, 100),
             },
             "microphone": {
                 "Huawei TE-20": (0, 21),

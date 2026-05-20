@@ -152,6 +152,7 @@ class VCSDiagnosticApp(QMainWindow):
             ],
             "Polycom RPG 310": [
                 {'username': 'admin', 'password': '***REMOVED_CREDENTIAL***'},
+                {'username': 'admin', 'password': 'admin'},
                 {'username': 'polycom', 'password': 'polycom'},
             ],
             "Extron IN1804": [
@@ -1283,7 +1284,7 @@ class VCSDiagnosticApp(QMainWindow):
             
             self.current_worker = PolycomRPG310Worker(
                 ip_address=ip_address,
-                port=22,  # SSH порт
+                port=443,
                 username=creds['username'],
                 password=creds['password']
             )
@@ -1548,10 +1549,12 @@ class VCSDiagnosticApp(QMainWindow):
     @pyqtSlot(dict)
     def on_device_data_received(self, data):
         """Обработка полученных данных от устройства"""
-        self.hide_progress_dialog()
-        if self.device_combo.currentText() == "Extron IN1804":
+        partial_update = bool(data.pop('_partial_update', False))
+        if not partial_update:
+            self.hide_progress_dialog()
+        if not partial_update and self.device_combo.currentText() == "Extron IN1804":
             self.finish_matrix_terminal("Опрос завершён успешно")
-        elif self.device_combo.currentText() == "Huawei TE-20":
+        elif not partial_update and self.device_combo.currentText() == "Huawei TE-20":
             self.finish_te20_terminal("Опрос завершён успешно")
 
         meaningful_keys = [
@@ -1612,6 +1615,22 @@ class VCSDiagnosticApp(QMainWindow):
         self.last_update_time = QDateTime.currentDateTime()
         self.update_time_display()
         
+        if partial_update:
+            if (
+                getattr(self, 'current_worker', None)
+                and getattr(self.current_worker, 'device_name', None) == "Polycom RPG 310"
+            ):
+                if self.progress_dialog is None:
+                    self.show_progress_dialog("Подключение по SSH для дополнительных параметров...")
+                if self.progress_dialog is not None:
+                    self.progress_dialog.setRange(0, 100)
+                    self.progress_dialog.setValue(60)
+                    self.progress_dialog.setLabelText("Подключение по SSH для дополнительных параметров...")
+                    self.progress_dialog.show()
+                    self.progress_dialog.raise_()
+                    self.progress_dialog.activateWindow()
+            return
+
         if getattr(self, 'suppress_success_message_once', False):
             self.suppress_success_message_once = False
             return
@@ -1669,6 +1688,8 @@ class VCSDiagnosticApp(QMainWindow):
                     self.refresh_huawei_bar310(self.current_worker.ip_address)
                 elif device_name == "Huawei TE-20":
                     self.refresh_huawei_te20(self.current_worker.ip_address)
+                elif device_name == "Polycom RPG 310":
+                    self.refresh_polycom_rpg310(self.current_worker.ip_address)
                 elif device_name == "Extron IN1804":
                     self.refresh_extron_in1804(self.current_worker.ip_address)
                 elif device_name == "Aten PE8208AV":  # Добавить эту ветку
@@ -1717,6 +1738,8 @@ class VCSDiagnosticApp(QMainWindow):
         """Обработка обновления прогресса"""
         if self.progress_dialog is not None:
             try:
+                if self.progress_dialog.maximum() == 0:
+                    self.progress_dialog.setRange(0, 100)
                 self.progress_dialog.setValue(progress)
                 try:
                     if progress < 100:
@@ -1724,6 +1747,14 @@ class VCSDiagnosticApp(QMainWindow):
                 except AttributeError:
                     # setLabelText уже не работает, но setValue сработал
                     pass
+                if (
+                    progress >= 68
+                    and getattr(self, 'current_worker', None)
+                    and getattr(self.current_worker, 'device_name', None) == "Polycom RPG 310"
+                ):
+                    self.progress_dialog.show()
+                    self.progress_dialog.raise_()
+                    self.progress_dialog.activateWindow()
             except AttributeError:
                 # Диалог уже закрыт
                 self.progress_dialog = None                 
@@ -2440,10 +2471,13 @@ class VCSDiagnosticApp(QMainWindow):
             self.suppress_progress_dialog_once = False
             return
         
-        self.progress_dialog = QProgressDialog(message, "Отмена", 0, 0, self)
+        self.progress_dialog = QProgressDialog(message, "Отмена", 0, 100, self)
         self.progress_dialog.setWindowTitle("Выполнение операции")
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setAutoClose(False)
+        self.progress_dialog.setAutoReset(False)
+        self.progress_dialog.setValue(0)
         self.progress_dialog.setCancelButton(None)  # Отключаем кнопку отмены пока
         self.progress_dialog.setStyleSheet(f"""
             QProgressDialog {{
@@ -2456,6 +2490,8 @@ class VCSDiagnosticApp(QMainWindow):
             }}
         """)
         self.progress_dialog.show()
+        self.progress_dialog.raise_()
+        self.progress_dialog.activateWindow()
     
     def hide_progress_dialog(self):
         """Скрыть диалог прогресса"""

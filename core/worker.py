@@ -445,7 +445,7 @@ class HuaweiBar310Worker(QRunnable):
 class PolycomRPG310Worker(QRunnable):
     """Специализированный Worker для Polycom RealPresence Group 310"""
     
-    def __init__(self, ip_address: str, port: int = 22,
+    def __init__(self, ip_address: str, port: int = 443,
                  username: str = 'admin', password: str = ''):
         super().__init__()
         self.ip_address = ip_address
@@ -482,18 +482,42 @@ class PolycomRPG310Worker(QRunnable):
             handler.connect()
             
             self.signals.connected.emit()
-            self.signals.status.emit("Получаю данные...")
-            self.signals.progress.emit(50)
-            
-            print("Вызываю handler.get_status()...")
-            raw_data = handler.get_status()
-            print(f"get_status() вернул: {raw_data}")
-            
-            self.signals.status.emit("Обрабатываю данные...")
-            self.signals.progress.emit(70)
-            
-            print("Парсинг данных...")
             from core.parser import PolycomDataParser
+
+            self.signals.status.emit("Получаю данные по HTTPS...")
+            self.signals.progress.emit(45)
+
+            print("Вызываю handler.get_https_status()...")
+            raw_data = handler.get_https_status()
+            print(f"get_https_status() вернул: {raw_data}")
+
+            self.signals.status.emit("Отображаю данные HTTPS...")
+            self.signals.progress.emit(60)
+
+            parsed_data = PolycomDataParser.parse_raw_data(raw_data)
+            if 'Модель' not in parsed_data:
+                parsed_data['Модель'] = 'Polycom RealPresence Group 310'
+            parsed_data['ip_address'] = self.ip_address
+            parsed_data['connection_profile'] = {
+                'port': handler.port,
+                'use_ssl': True,
+                'label': f"HTTPS:{handler.port}",
+            }
+            parsed_data['_partial_update'] = True
+            self.signals.result.emit(parsed_data)
+
+            self.signals.status.emit("Подключение по SSH для дополнительных параметров...")
+            self.signals.progress.emit(68)
+            handler._populate_cli_status(
+                raw_data,
+                progress_callback=self.signals.progress.emit,
+                status_callback=self.signals.status.emit,
+            )
+
+            self.signals.status.emit("Обрабатываю данные SSH...")
+            self.signals.progress.emit(94)
+
+            print("Парсинг данных...")
             parsed_data = PolycomDataParser.parse_raw_data(raw_data)
             print(f"Парсинг завершен. Результат для GUI: {parsed_data}")
             
@@ -510,11 +534,11 @@ class PolycomRPG310Worker(QRunnable):
             parsed_data['ip_address'] = self.ip_address
             parsed_data['connection_profile'] = {
                 'port': handler.port,
-                'use_ssl': False,
-                'label': f"SSH:{handler.port}",
+                'use_ssl': True,
+                'label': f"HTTPS:{handler.port}",
             }
             
-            self.signals.progress.emit(90)
+            self.signals.progress.emit(100)
             print("Отправка результата в GUI...")
             self.signals.result.emit(parsed_data)
             
@@ -527,7 +551,6 @@ class PolycomRPG310Worker(QRunnable):
             self.signals.error.emit(('authentication_error', str(e), traceback.format_exc()))
         except Exception as e:
             print(f"!!! Ошибка в PolycomRPG310Worker: {type(e).__name__}: {str(e)}")
-            import traceback
             traceback.print_exc()
             
             error_data = {
