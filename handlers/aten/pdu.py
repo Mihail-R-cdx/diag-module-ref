@@ -3,6 +3,7 @@
 import requests
 import xml.etree.ElementTree as ET
 import warnings
+import time
 from typing import Optional, List, Dict, Any
 from core.base_handler import ProtocolHandler
 from core.exceptions import AuthenticationError, ConnectionError
@@ -24,12 +25,106 @@ class AtenPDUHandler(ProtocolHandler):
         self.base_url = f"https://{ip_address}" if use_ssl else f"http://{ip_address}"
         self.session = requests.Session()
         self.connected = False
+        self._outlet_names_loaded = False
         
         # Стандартные имена розеток (можно загружать из конфига)
         self.outlet_names = [
             "Контроллер", "Сенс. панель", "Кодек ВКС", "ТВ панели",
             "Видеоматрица", "Настольные устройства", "Аудиоматрица", "<пусто>"
         ]
+
+    @staticmethod
+    def _timestamp_ms() -> int:
+        return int(time.time() * 1000)
+
+    @staticmethod
+    def _xml_text(response_text: str, tag: str) -> str:
+        root = ET.fromstring(response_text)
+        node = root.find(tag)
+        return "" if node is None or node.text is None else node.text
+
+    def _fetch_outlet_names_https(self, expected_count: int = 0) -> List[str]:
+        """Read outlet names through the ATEN web HTTPS XML endpoints."""
+        sid = ""
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{self.base_url}/mainpage.html?time={self._timestamp_ms()}",
+        }
+        names_session = requests.Session()
+
+        try:
+            login = names_session.post(
+                f"{self.base_url}/xml/login_result.xml",
+                params={"timeStamp": self._timestamp_ms()},
+                data={"username": self.username, "password": self.password},
+                headers=headers,
+                verify=self.verify_ssl,
+                timeout=10,
+            )
+            login.raise_for_status()
+
+            login_validate = self._xml_text(login.text, "LoginValidate")
+            sid = self._xml_text(login.text, "SID")
+            outlet_auth = self._xml_text(login.text, "OutletAuth")
+            if login_validate != "0" or not sid:
+                raise AuthenticationError(
+                    f"ATEN HTTPS login failed: LoginValidate={login_validate!r}, SID={sid!r}"
+                )
+
+            outlet_count = expected_count or len([item for item in outlet_auth.split(";") if item != ""])
+            outlets = names_session.get(
+                f"{self.base_url}/xml/protected/connections_dynamic_outlet_name.xml",
+                params={"Name": self.username, "timeStamp": self._timestamp_ms()},
+                headers={
+                    **headers,
+                    "Authorization": sid,
+                    "Accept": "application/xml, text/xml, */*; q=0.01",
+                },
+                verify=self.verify_ssl,
+                timeout=10,
+            )
+            outlets.raise_for_status()
+
+            outlet_name_text = self._xml_text(outlets.text, "outletname")
+            names = outlet_name_text.split(";") if outlet_name_text else []
+            if outlet_count:
+                names = (names + [""] * outlet_count)[:outlet_count]
+            return names
+        finally:
+            if sid:
+                try:
+                    names_session.get(
+                        f"{self.base_url}/cgi/protected/logout.cgi",
+                        params={"Name": self.username, "timeStamp": self._timestamp_ms()},
+                        headers={"Authorization": sid},
+                        verify=self.verify_ssl,
+                        timeout=10,
+                    )
+                except requests.exceptions.RequestException:
+                    pass
+            names_session.close()
+
+    def _refresh_outlet_names_https(self, expected_count: int = 0) -> None:
+        if self._outlet_names_loaded:
+            return
+
+        try:
+            names = self._fetch_outlet_names_https(expected_count)
+        except Exception as e:
+            print(f"DEBUG: Failed to load outlet names over HTTPS: {e}")
+            return
+
+        if not names:
+            return
+
+        for idx, name in enumerate(names):
+            display_name = name.strip() if name else "<без названия>"
+            if idx >= len(self.outlet_names):
+                self.outlet_names.append(display_name)
+            else:
+                self.outlet_names[idx] = display_name
+        self._outlet_names_loaded = True
     
     def connect(self) -> bool:
         """Подключение к PDU (проверка доступности)"""
@@ -165,6 +260,8 @@ class AtenPDUHandler(ProtocolHandler):
             # Парсим XML ответ
             outlets = self._parse_relay_xml(resp.text)
             print(f"DEBUG: Parsed {len(outlets)} outlets")
+
+            self._refresh_outlet_names_https(len(outlets))
             
             # Добавляем имена розеток
             for i, outlet in enumerate(outlets):

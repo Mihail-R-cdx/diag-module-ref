@@ -319,6 +319,7 @@ class PDUScreen(BaseScreen):
             
             # Название розетки
             outlet_name = outlet.get('name', self.outlet_names[row] if row < len(self.outlet_names) else f"Розетка {row + 1}")
+            outlet_name = outlet_name.strip() if outlet_name else "<без названия>"
             name_item = QTableWidgetItem(outlet_name)
             name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.outlets_table.setItem(row, 2, name_item)
