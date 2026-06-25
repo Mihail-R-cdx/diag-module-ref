@@ -4,12 +4,21 @@ import traceback
 from core.parser import HuaweiTE40DataParser
 from core.parser import HuaweiBar310DataParser
 from core.parser import ExtronIN1804DataParser
+from core.parser import BiampTesiraForteCIDataParser
 from handlers.huawei.te40 import HuaweiTE40Handler
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 from core.te20_worker import HuaweiTE20Worker
 from handlers.extron.in1804 import ExtronIN1804Handler
 from .exceptions import AuthenticationError, ConnectionError
 import traceback
+
+
+def _mask_secret_text(text: str, secret_values=()):
+    masked = str(text)
+    for secret in secret_values:
+        if secret:
+            masked = masked.replace(str(secret), "***")
+    return masked
 
 
 class WorkerSignals(QObject):
@@ -563,6 +572,88 @@ class PolycomRPG310Worker(QRunnable):
         finally:
             self.signals.finished.emit()
             
+
+class BiampTesiraForteCIWorker(QRunnable):
+    """Read-only worker for Biamp Tesira Forte CI audio-DSP signal status."""
+
+    def __init__(self, ip_address: str, username: str = "default", password: str = ""):
+        super().__init__()
+        self.ip_address = ip_address
+        self.username = username
+        self.password = password
+        self.signals = WorkerSignals()
+        self.creds_list = []
+        self.current_idx = 0
+        self.device_name = "Biamp Tesira Forte CI"
+
+    @pyqtSlot()
+    def run(self):
+        creds_to_try = self.creds_list if self.creds_list else [
+            {"username": self.username, "password": self.password}
+        ]
+        total_creds = len(creds_to_try)
+        start_idx = self.current_idx if 0 <= self.current_idx < total_creds else 0
+        ordered_indices = list(range(start_idx, total_creds)) + list(range(0, start_idx))
+
+        from handlers.biamp.tesira_forte_ci import BiampTesiraForteCIHandler
+
+        try:
+            for attempt_no, actual_idx in enumerate(ordered_indices, start=1):
+                creds = creds_to_try[actual_idx]
+                self.current_idx = actual_idx
+                handler = None
+                try:
+                    self.signals.status.emit(
+                        f"Подключение к Biamp Tesira Forte CI (попытка {attempt_no}/{total_creds})..."
+                    )
+                    self.signals.progress.emit(15)
+                    self.signals.terminal_log.emit(
+                        f"[connect] Biamp Tesira Forte CI {self.ip_address} attempt {attempt_no}/{total_creds}"
+                    )
+
+                    handler = BiampTesiraForteCIHandler(
+                        ip_address=self.ip_address,
+                        username=creds.get("username", ""),
+                        password=creds.get("password", ""),
+                    )
+                    handler.connect()
+                    self.signals.connected.emit()
+
+                    self.signals.status.emit("Получение источников сигнала...")
+                    self.signals.progress.emit(55)
+                    raw_data = handler.get_status()
+
+                    self.signals.status.emit("Обработка данных Biamp...")
+                    self.signals.progress.emit(80)
+                    parsed_data = BiampTesiraForteCIDataParser.parse_raw_data(raw_data)
+                    parsed_data["ip_address"] = self.ip_address
+
+                    self.signals.progress.emit(100)
+                    self.signals.result.emit(parsed_data)
+                    self.signals.disconnected.emit()
+                    return
+                except AuthenticationError:
+                    if attempt_no < total_creds:
+                        continue
+                    raise
+                except Exception as exc:
+                    safe_error = _mask_secret_text(str(exc), (creds.get("password", ""),))
+                    if attempt_no < total_creds and "auth" in safe_error.lower():
+                        continue
+                    raise RuntimeError(safe_error) from None
+                finally:
+                    if handler:
+                        try:
+                            handler.disconnect()
+                        except Exception:
+                            pass
+        except AuthenticationError as exc:
+            self.signals.error.emit(("authentication_error", _mask_secret_text(str(exc), [self.password]), ""))
+        except Exception as exc:
+            self.signals.error.emit(("connection_error", _mask_secret_text(str(exc), [self.password]), traceback.format_exc()))
+        finally:
+            self.signals.finished.emit()
+
 
 class ExtronIN1804Worker(QRunnable):
     """Worker для опроса матрицы Extron IN1804"""

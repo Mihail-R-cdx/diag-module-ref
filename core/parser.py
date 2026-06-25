@@ -1,6 +1,100 @@
 import re
 import datetime
+from collections.abc import Mapping, Sequence
 from typing import Dict, Any
+
+
+class BiampTesiraForteCIDataParser:
+    """Parser for Biamp Tesira Forte CI read-only audio-DSP status."""
+
+    model = "Biamp Tesira Forte CI"
+    manufacturer = "Biamp"
+
+    @staticmethod
+    def parse_raw_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(raw_data, Mapping):
+            raise ValueError("Biamp payload must be a mapping")
+
+        raw_sources = raw_data.get("signal_sources")
+        if not isinstance(raw_sources, Sequence) or isinstance(raw_sources, (str, bytes, bytearray)):
+            raise ValueError("signal_sources must be a sequence")
+
+        device_info = raw_data.get("device_info") if isinstance(raw_data.get("device_info"), Mapping) else {}
+        ip_address = (
+            device_info.get("ip_address")
+            or raw_data.get("ip_address")
+            or raw_data.get("IPAddress")
+        )
+        signal_sources = []
+
+        for source_index, raw_source in enumerate(raw_sources, start=1):
+            if not isinstance(raw_source, Mapping):
+                continue
+            alias = raw_source.get("alias")
+            attribute = raw_source.get("subscription_attribute")
+            rows = raw_source.get("rows")
+            if not alias or attribute not in {"peaks", "levels"}:
+                continue
+            if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+                continue
+
+            normalized_rows = []
+            for row_index, raw_row in enumerate(rows, start=1):
+                if isinstance(raw_row, Mapping):
+                    value = raw_row.get("value")
+                    state = raw_row.get("state")
+                    channel_number = raw_row.get("channel_number", row_index)
+                else:
+                    value = raw_row
+                    state = None
+                    channel_number = row_index
+                normalized_rows.append(
+                    {
+                        "channel_number": channel_number,
+                        "value": value,
+                        "state": BiampTesiraForteCIDataParser._state_for_value(value, state),
+                    }
+                )
+
+            if normalized_rows:
+                signal_sources.append(
+                    {
+                        "alias": str(alias),
+                        "subscription_attribute": str(attribute),
+                        "update_interval_ms": int(raw_source.get("update_interval_ms") or 500),
+                        "rows": normalized_rows,
+                    }
+                )
+
+        if not signal_sources:
+            raise ValueError("Biamp payload did not contain useful signal source values")
+
+        parsed = {
+            "device_info": {
+                "model": BiampTesiraForteCIDataParser.model,
+                "manufacturer": BiampTesiraForteCIDataParser.manufacturer,
+                "ip_address": ip_address,
+            },
+            "signal_sources": signal_sources,
+            "ip_address": ip_address,
+            "model": BiampTesiraForteCIDataParser.model,
+            "manufacturer": BiampTesiraForteCIDataParser.manufacturer,
+            "type": "audio_dsp",
+        }
+        connection_profile = raw_data.get("connection_profile")
+        if isinstance(connection_profile, Mapping):
+            parsed["connection_profile"] = dict(connection_profile)
+        return parsed
+
+    @staticmethod
+    def _state_for_value(value, existing_state):
+        if existing_state in {"present", "absent", "unknown"}:
+            return existing_state
+        if isinstance(value, bool):
+            return "present" if value else "absent"
+        if value is None:
+            return "unknown"
+        return None
 
 
 class HuaweiTE40DataParser:
@@ -753,6 +847,7 @@ class ParserFactory:
         'huawei_te40': HuaweiTE40DataParser,
         'huawei_bar310': HuaweiBar310DataParser,
         'polycom': PolycomDataParser,
+        'biamp_tesira_forte_ci': BiampTesiraForteCIDataParser,
     }
     
     @classmethod

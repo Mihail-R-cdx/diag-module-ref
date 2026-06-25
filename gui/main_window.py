@@ -7,8 +7,8 @@ import random
 import platform
 import subprocess
 
-from .screens import CodecScreen, MatrixScreen, PDUScreen
-from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker
+from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
+from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
@@ -108,7 +108,8 @@ class VCSDiagnosticApp(QMainWindow):
             #"CloudLink Box 300": "codec",
             "Polycom RPG 310": "codec",
             "Extron IN1804": "matrix",
-            "Aten PE8208AV": "pdu"
+            "Aten PE8208AV": "pdu",
+            "Biamp Tesira Forte CI": "audio_dsp"
         }
         
         self.matrix_params = {
@@ -176,6 +177,10 @@ class VCSDiagnosticApp(QMainWindow):
                 {'username': 'admin', 'password': 'admin'},
                 {'username': 'administrator', 'password': 'administrator'},
             ],            
+            "Biamp Tesira Forte CI": [
+                {'username': 'default', 'password': ''},
+                {'username': 'admin', 'password': ''},
+            ],
         }
         
         # Текущий индекс credentials для каждого устройства
@@ -322,7 +327,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.device_combo = QComboBox()
         
         # Список заголовков
-        headers = ["Кодеки ВКС", "Коммутационное оборудование", "Управление питанием"]
+        headers = ["Кодеки ВКС", "Коммутационное оборудование", "Audio DSP", "Управление питанием"]
         
         # Список устройств с категориями
         devices = [
@@ -334,6 +339,8 @@ class VCSDiagnosticApp(QMainWindow):
             "Polycom RPG 310",
             "Коммутационное оборудование",
             "Extron IN1804",
+            "Audio DSP",
+            "Biamp Tesira Forte CI",
             "Управление питанием",
             "Aten PE8208AV"
         ]
@@ -695,7 +702,8 @@ class VCSDiagnosticApp(QMainWindow):
         self.screens = {
             "codec": CodecScreen(self),
             "matrix": MatrixScreen(self),
-            "pdu": PDUScreen(self)
+            "pdu": PDUScreen(self),
+            "audio_dsp": AudioDSPScreen(self)
         }
     
     def create_update_time_panel(self):
@@ -1020,6 +1028,8 @@ class VCSDiagnosticApp(QMainWindow):
             target_screen = self.screens["matrix"]
         elif device_type == "pdu":
             target_screen = self.screens["pdu"]
+        elif device_type == "audio_dsp":
+            target_screen = self.screens["audio_dsp"]
         else:
             target_screen = self.screens["codec"]
         
@@ -1048,6 +1058,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_polycom_rpg310(ip_address)
         elif device_name == "Extron IN1804":
             self.refresh_extron_in1804(ip_address)            
+        elif device_name == "Biamp Tesira Forte CI":
+            self.refresh_biamp_tesira_forte_ci(ip_address)
         elif device_type == "matrix":
             self.refresh_matrix_data(ip_address)
         else:
@@ -1056,6 +1068,55 @@ class VCSDiagnosticApp(QMainWindow):
                 "Информация",
                 f"Поддержка {device_name} будет добавлена позже"
             )
+
+
+    def refresh_biamp_tesira_forte_ci(self, ip_address: str):
+        """Refresh Biamp Tesira Forte CI read-only audio-DSP status."""
+        if not self.validate_ip_address(ip_address):
+            QMessageBox.warning(self, "Invalid IP", "Enter a valid IP address.")
+            return
+
+        device_name = self.device_combo.currentText()
+        creds_list = self.device_credentials.get(device_name, [
+            {'username': 'default', 'password': ''},
+            {'username': 'admin', 'password': ''},
+        ])
+        current_idx = self.get_current_credential_index(device_name, ip_address)
+        if current_idx >= len(creds_list):
+            current_idx = 0
+        creds = creds_list[current_idx]
+
+        if hasattr(self, 'refresh_btn'):
+            self.refresh_btn.setEnabled(False)
+            self.refresh_btn.setText("Connecting...")
+
+        self.show_progress_dialog(f"Connecting to {device_name} (attempt {current_idx + 1}/{len(creds_list)})...")
+        self.show_codec_poll_terminal(device_name, ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
+
+        try:
+            self.current_worker = BiampTesiraForteCIWorker(
+                ip_address=ip_address,
+                username=creds['username'],
+                password=creds['password']
+            )
+            self.current_worker.creds_list = creds_list
+            self.current_worker.current_idx = current_idx
+            self.current_worker.device_name = device_name
+
+            self.current_worker.signals.result.connect(self.on_device_data_received)
+            self.current_worker.signals.error.connect(self.on_device_error)
+            self.current_worker.signals.progress.connect(self.on_progress_update)
+            self.current_worker.signals.status.connect(self.on_status_update)
+            self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
+            self.current_worker.signals.finished.connect(self.on_worker_finished)
+
+            QThreadPool.globalInstance().start(self.current_worker)
+        except Exception as e:
+            self.hide_progress_dialog()
+            QMessageBox.critical(self, "Error", f"Could not create worker: {str(e)}")
+            if hasattr(self, 'refresh_btn'):
+                self.refresh_btn.setEnabled(True)
+                self.refresh_btn.setText("РћР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ")
 
 
     def refresh_huawei_bar310(self, ip_address: str):
@@ -1605,6 +1666,8 @@ class VCSDiagnosticApp(QMainWindow):
                 current_screen = self.screens["matrix"]
             elif self.current_screen_type == "pdu":
                 current_screen = self.screens["pdu"]
+            elif self.current_screen_type == "audio_dsp":
+                current_screen = self.screens["audio_dsp"]
             else:
                 current_screen = self.screens["codec"]
             
@@ -1693,7 +1756,9 @@ class VCSDiagnosticApp(QMainWindow):
                 elif device_name == "Extron IN1804":
                     self.refresh_extron_in1804(self.current_worker.ip_address)
                 elif device_name == "Aten PE8208AV":  # Добавить эту ветку
-                    self.refresh_aten_pdu(self.current_worker.ip_address)                    
+                    self.refresh_aten_pdu(self.current_worker.ip_address)
+                elif device_name == "Biamp Tesira Forte CI":
+                    self.refresh_biamp_tesira_forte_ci(self.current_worker.ip_address)
                 return
                       
         
