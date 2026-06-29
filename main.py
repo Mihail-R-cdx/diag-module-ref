@@ -7,6 +7,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from gui.main_window import VCSDiagnosticApp
+from gui.theme import apply_theme
 
 
 LOG_PATH = Path(__file__).with_name("app_crash.log")
@@ -61,6 +62,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    apply_theme(app)
 
     window = VCSDiagnosticApp()
     window.show()

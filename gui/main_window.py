@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent
-from PyQt5.QtGui import QPalette, QColor
+from PyQt5.QtGui import QColor
 import datetime
 import os
 import random
@@ -9,6 +9,7 @@ import platform
 import subprocess
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
+from .theme import apply_theme, legacy_colors
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
@@ -55,17 +56,7 @@ class MatrixTerminalDialog(QDialog):
         layout = QVBoxLayout(self)
         self.output = QPlainTextEdit(self)
         self.output.setReadOnly(True)
-        self.output.setStyleSheet(f"""
-            QPlainTextEdit {{
-                background-color: #0F1115;
-                color: #D7FBE8;
-                border: 1px solid {self.colors['divider']};
-                border-radius: 6px;
-                padding: 8px;
-                font-family: Consolas, 'Courier New', monospace;
-                font-size: 10pt;
-            }}
-        """)
+        self.output.setProperty("uiRole", "terminal")
         layout.addWidget(self.output)
 
     def reset_session(self, title: str):
@@ -81,17 +72,7 @@ class VCSDiagnosticApp(QMainWindow):
         super().__init__()
         
         # Цветовая схема
-        self.colors = {
-            'background': '#121212',
-            'surface': '#1E1E1E',
-            'primary': '#BB86FC',
-            'primary_variant': '#3700B3',
-            'secondary': '#03DAC6',
-            'error': '#CF6679',
-            'text_primary': '#FFFFFF',
-            'text_secondary': '#B3B3B3',
-            'divider': '#2D2D2D'
-        }
+        self.colors = legacy_colors()
         
         # Имитация данных
         self.codec_data = {
@@ -223,6 +204,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Создаем центральный виджет
         central_widget = QWidget()
+        central_widget.setObjectName("centralWidget")
         self.setCentralWidget(central_widget)
         
         # Основной вертикальный layout
@@ -270,12 +252,7 @@ class VCSDiagnosticApp(QMainWindow):
     def create_placeholder_widget(self):
         """Создание виджета-заглушки с надписью Обновите данные"""
         placeholder = QWidget()
-        placeholder.setStyleSheet(f"""
-            QWidget {{
-                background-color: {self.colors['surface']};
-                border-radius: 8px;
-            }}
-        """)
+        placeholder.setProperty("uiRole", "card")
         
         layout = QVBoxLayout(placeholder)
         layout.setAlignment(Qt.AlignCenter)
@@ -283,27 +260,12 @@ class VCSDiagnosticApp(QMainWindow):
         # Создаем метку с надписью
         label = QLabel("Обновите данные")
         label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet(f"""
-            QLabel {{
-                color: {self.colors['text_secondary']};
-                font-size: 18pt;
-                font-weight: bold;
-                background-color: transparent;
-                padding: 50px;
-            }}
-        """)
+        label.setProperty("uiRole", "emptyTitle")
         
         # Добавляем иконку или дополнительный текст
         hint_label = QLabel("Нажмите кнопку «Обновить данные» для получения информации об оборудовании")
         hint_label.setAlignment(Qt.AlignCenter)
-        hint_label.setStyleSheet(f"""
-            QLabel {{
-                color: {self.colors['text_secondary']};
-                font-size: 10pt;
-                background-color: transparent;
-                padding: 10px;
-            }}
-        """)
+        hint_label.setProperty("uiRole", "secondary")
         
         layout.addWidget(label)
         layout.addWidget(hint_label)
@@ -313,19 +275,7 @@ class VCSDiagnosticApp(QMainWindow):
     def create_top_panel(self):
         """Создание верхней панели с выпадающим списком и IP-адресом"""
         group_box = QGroupBox()
-        group_box.setStyleSheet(f"""
-            QGroupBox {{
-                border: none;
-                margin-top: 5px;
-                padding-top: 5px;
-                background-color: {self.colors['surface']};
-            }}
-            QGroupBox::title {{
-                height: 0px;
-                padding: 0px;
-                margin: 0px;
-            }}
-        """)
+        group_box.setProperty("uiRole", "toolbar")
         
         layout = QHBoxLayout()
         layout.setSpacing(15)
@@ -353,9 +303,6 @@ class VCSDiagnosticApp(QMainWindow):
             "Aten PE8208AV"
         ]
         
-        # Цвет для заголовков (спокойный зеленый)
-        header_color = "#4CAF50"
-        
         # Добавляем элементы в combo box
         for device in devices:
             self.device_combo.addItem(device)
@@ -371,171 +318,37 @@ class VCSDiagnosticApp(QMainWindow):
                 font.setBold(True)
                 self.device_combo.model().item(index).setFont(font)
                 # Устанавливаем цвет для заголовка
-                self.device_combo.model().item(index).setForeground(QColor(header_color))
+                self.device_combo.model().item(index).setForeground(QColor(self.colors["secondary"]))
         
         # Устанавливаем делегат для выравнивания заголовков по правому краю
         delegate = RightAlignHeaderDelegate(self.device_combo, headers)
         self.device_combo.setItemDelegate(delegate)
-        
-        self.device_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 12px;
-                font-size: 11pt;
-                min-height: 25px;
-                min-width: 250px;
-            }}
-            QComboBox:hover {{
-                border: 1px solid {self.colors['primary']};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 30px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid {self.colors['text_primary']};
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-                selection-background-color: {self.colors['primary']};
-                selection-color: black;
-                border: 1px solid {self.colors['divider']};
-                outline: none;
-            }}
-            /* Стиль для обычных элементов */
-            QComboBox QAbstractItemView::item {{
-                padding: 8px 12px;
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-            }}
-            /* Стиль для выбранного элемента */
-            QComboBox QAbstractItemView::item:selected {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-            /* Стиль для неактивных элементов (заголовков категорий) */
-            QComboBox QAbstractItemView::item:!enabled {{
-                color: {header_color};
-                background-color: {self.colors['surface']};
-                font-weight: bold;
-                font-size: 10pt;
-                padding: 10px 12px 6px 12px;
-                border-top: 1px solid {self.colors['divider']};
-                border-bottom: none;
-                margin-top: 6px;
-            }}
-            /* Убираем верхнюю границу у первого заголовка */
-            QComboBox QAbstractItemView::item:!enabled:first {{
-                border-top: none;
-                margin-top: 0px;
-            }}
-            /* Стиль для заголовков при наведении */
-            QComboBox QAbstractItemView::item:!enabled:hover {{
-                background-color: {self.colors['surface']};
-                color: {header_color};
-            }}
-        """)
         
         self.device_combo.currentTextChanged.connect(self.on_device_change)
         self.device_combo.installEventFilter(self)
         
         # Метка и поле для IP-адреса
         ip_label = QLabel("IP адрес:")
-        ip_label.setStyleSheet(f"color: {self.colors['text_primary']}; font-size: 11pt; font-weight: bold;")
+        ip_label.setProperty("uiRole", "fieldLabel")
         ip_label.setFixedWidth(80)
         
         self.ip_entry = QLineEdit()
-        self.ip_entry.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 12px;
-                font-size: 11pt;
-                min-height: 25px;
-                min-width: 200px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {self.colors['primary']};
-            }}
-        """)
+        self.ip_entry.setMinimumWidth(200)
         self.ip_entry.setText("192.168.1.100")
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         
         # Кнопка для ввода пароля
         self.password_btn = QPushButton("Пароль")
-        self.password_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 12px 20px;
-                font-weight: bold;
-                font-size: 11pt;
-                min-height: 25px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['divider']};
-                border: 1px solid {self.colors['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-        """)
+        self.password_btn.setProperty("uiRole", "secondary")
         self.password_btn.clicked.connect(self.show_password_dialog)
         
         # Кнопка обновления данных
         self.refresh_btn = QPushButton("Обновить данные")
-        self.refresh_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #026c64;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 14px 30px;
-                font-weight: bold;
-                font-size: 11pt;
-                min-height: 25px;
-            }}
-            QPushButton:hover {{
-                background-color: #02786f;
-            }}
-            QPushButton:pressed {{
-                background-color: #025c56;
-            }}
-        """)
+        self.refresh_btn.setProperty("uiRole", "primary")
         self.refresh_btn.clicked.connect(self.refresh_data)
 
         self.debug_btn = QPushButton("Отладка")
-        self.debug_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 8pt;
-                min-height: 25px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['background']};
-                border: 1px solid {self.colors['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['divider']};
-            }}
-        """)
+        self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
         
         layout.addWidget(self.device_combo)
@@ -549,159 +362,8 @@ class VCSDiagnosticApp(QMainWindow):
         group_box.setLayout(layout)
         return group_box
     def set_dark_theme(self):
-        """Установка темной темы"""
-        # Устанавливаем палитру для всего приложения
-        palette = QPalette()
-        
-        palette.setColor(QPalette.Window, QColor(self.colors['background']))
-        palette.setColor(QPalette.WindowText, QColor(self.colors['text_primary']))
-        palette.setColor(QPalette.Base, QColor(self.colors['surface']))
-        palette.setColor(QPalette.AlternateBase, QColor(self.colors['background']))
-        palette.setColor(QPalette.ToolTipBase, QColor(self.colors['surface']))
-        palette.setColor(QPalette.ToolTipText, QColor(self.colors['text_primary']))
-        palette.setColor(QPalette.Text, QColor(self.colors['text_primary']))
-        palette.setColor(QPalette.Button, QColor(self.colors['surface']))
-        palette.setColor(QPalette.ButtonText, QColor(self.colors['text_primary']))
-        palette.setColor(QPalette.BrightText, Qt.white)
-        palette.setColor(QPalette.Highlight, QColor(self.colors['primary']))
-        palette.setColor(QPalette.HighlightedText, Qt.black)
-        
-        self.setPalette(palette)
-        
-        # Дополнительные стили для всех виджетов
-        self.setStyleSheet(f"""
-            /* Основной фон главного окна */
-            QMainWindow {{
-                background-color: {self.colors['background']};
-            }}
-            
-            /* Фон для центрального виджета */
-            QWidget#centralWidget {{
-                background-color: {self.colors['background']};
-            }}
-            
-            /* Стили для всех QWidget (но осторожно, это может повлиять на все) */
-            QWidget {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-            }}
-            
-            /* Но оставляем кнопки и поля ввода с их цветами */
-            QPushButton, QLineEdit, QComboBox, QGroupBox {{
-                background-color: {self.colors['surface']};
-            }}
-            
-            /* Стили для скроллбаров */
-            QScrollBar:vertical {{
-                background-color: {self.colors['surface']};
-                width: 14px;
-                border-radius: 7px;
-            }}
-            
-            QScrollBar::handle:vertical {{
-                background-color: {self.colors['divider']};
-                min-height: 20px;
-                border-radius: 7px;
-            }}
-            
-            QScrollBar::handle:vertical:hover {{
-                background-color: {self.lighten_color(self.colors['divider'], 20)};
-            }}
-            
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                border: none;
-                background: none;
-            }}
-            
-            QScrollBar:horizontal {{
-                background-color: {self.colors['surface']};
-                height: 14px;
-                border-radius: 7px;
-            }}
-            
-            QScrollBar::handle:horizontal {{
-                background-color: {self.colors['divider']};
-                min-width: 20px;
-                border-radius: 7px;
-            }}
-            
-            QScrollBar::handle:horizontal:hover {{
-                background-color: {self.lighten_color(self.colors['divider'], 20)};
-            }}
-            
-            /* Стили для меню */
-            QMenuBar {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-                border-bottom: 1px solid {self.colors['divider']};
-            }}
-            
-            QMenuBar::item:selected {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-            
-            QMenu {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-            }}
-            
-            QMenu::item:selected {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-            
-            /* Стили для статусбара */
-            QStatusBar {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_secondary']};
-                border-top: 1px solid {self.colors['divider']};
-            }}
-            
-            /* Стили для табов, если они есть */
-            QTabWidget::pane {{
-                border: 1px solid {self.colors['divider']};
-                background-color: {self.colors['background']};
-            }}
-            
-            QTabBar::tab {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_secondary']};
-                padding: 8px 16px;
-                border: 1px solid {self.colors['divider']};
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }}
-            
-            QTabBar::tab:selected {{
-                background-color: {self.colors['background']};
-                color: {self.colors['primary']};
-                border-bottom: 2px solid {self.colors['primary']};
-            }}
-            
-            QTabBar::tab:hover {{
-                background-color: {self.lighten_color(self.colors['surface'], 10)};
-            }}
-            
-            /* Стили для групбоксов, которые могут быть проблемными */
-            QGroupBox {{
-                font-weight: bold;
-                border: 1px solid {self.colors['divider']};
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-                background-color: {self.colors['surface']};
-            }}
-            
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: {self.colors['text_primary']};
-            }}
-        """)
+        """Apply the centralized theme for direct window construction."""
+        apply_theme(self)
 
 
 
@@ -717,28 +379,18 @@ class VCSDiagnosticApp(QMainWindow):
     def create_update_time_panel(self):
         """Создание панели времени обновления"""
         panel = QWidget()
-        panel.setAutoFillBackground(True)
-        palette = panel.palette()
-        palette.setColor(panel.backgroundRole(), QColor(self.colors['background']))
-        panel.setPalette(palette)
+        panel.setProperty("uiRole", "statusBar")
         
         layout = QHBoxLayout(panel)
         layout.setSpacing(0)
         layout.setContentsMargins(0, 5, 20, 5)
         
         time_label = QLabel("Предыдущее обновление данных:")
-        time_label.setAutoFillBackground(False)
-        palette = time_label.palette()
-        palette.setColor(time_label.foregroundRole(), Qt.white)
-        time_label.setPalette(palette)
-        time_label.setStyleSheet("font-size: 8pt;")
+        time_label.setProperty("uiRole", "secondary")
         
         self.time_display = QLabel("Никогда")
-        self.time_display.setAutoFillBackground(False)
-        palette = self.time_display.palette()
-        palette.setColor(self.time_display.foregroundRole(), Qt.white)
-        self.time_display.setPalette(palette)
-        self.time_display.setStyleSheet("font-size: 8pt; padding: 4px; min-width: 10px;")
+        self.time_display.setProperty("uiRole", "secondary")
+        self.time_display.setMinimumWidth(10)
         self.time_display.setAlignment(Qt.AlignLeft)
         
         layout.addStretch(0)
@@ -1925,36 +1577,6 @@ class VCSDiagnosticApp(QMainWindow):
         msg_box.setWindowTitle("Данные обновлены")
         msg_box.setText(message)
         msg_box.setIcon(QMessageBox.Information)
-        
-        msg_box.setStyleSheet(f"""
-            QMessageBox {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-            }}
-            QLabel {{
-                color: {self.colors['text_primary']};
-                font-size: 11pt;
-            }}
-            QPushButton {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-size: 11pt;
-                font-weight: bold;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['divider']};
-                border: 1px solid {self.colors['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-        """)
-        
         msg_box.exec_()
 
     def generate_matrix_data(self):
@@ -2127,48 +1749,6 @@ class VCSDiagnosticApp(QMainWindow):
         layout.addWidget(info_label)
         layout.addLayout(form_layout)
         layout.addWidget(buttons)
-
-        dialog.setStyleSheet(f"""
-            QDialog {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-            }}
-            QLabel {{
-                color: {self.colors['text_primary']};
-                font-size: 11pt;
-            }}
-            QLineEdit {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 10px;
-                font-size: 11pt;
-                selection-background-color: {self.colors['primary']};
-                selection-color: black;
-            }}
-            QLineEdit:focus {{
-                border: 2px solid {self.colors['primary']};
-            }}
-            QPushButton {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-size: 11pt;
-                font-weight: bold;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['divider']};
-                border: 1px solid {self.colors['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-        """)
 
         dialog.resize(420, 220)
         if dialog.exec_() != QDialog.Accepted:
@@ -2610,16 +2190,6 @@ class VCSDiagnosticApp(QMainWindow):
         self.progress_dialog.setAutoReset(False)
         self.progress_dialog.setValue(0)
         self.progress_dialog.setCancelButton(None)  # Отключаем кнопку отмены пока
-        self.progress_dialog.setStyleSheet(f"""
-            QProgressDialog {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-            }}
-            QLabel {{
-                color: {self.colors['text_primary']};
-                font-size: 11pt;
-            }}
-        """)
         self.progress_dialog.show()
         self.progress_dialog.raise_()
         self.progress_dialog.activateWindow()
