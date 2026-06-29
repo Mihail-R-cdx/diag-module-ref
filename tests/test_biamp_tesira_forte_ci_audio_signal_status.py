@@ -9,10 +9,9 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt5.QtWidgets import QApplication, QGroupBox, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QTableWidget
 except ImportError:
     QApplication = None
-    QGroupBox = None
     QTableWidget = None
 
 
@@ -185,10 +184,15 @@ class BiampAudioDSPScreenTest(unittest.TestCase):
             }
         )
 
-        groups = [group.title() for group in self.screen.findChildren(QGroupBox)]
-        self.assertIn("AecInput1 (peaks)", groups)
+        from gui.components import SectionCard
+
+        cards = [
+            card.title_label.text()
+            for card in self.screen.findChildren(SectionCard)
+        ]
+        self.assertIn("AecInput1 · peaks", cards)
         table = self.screen.findChild(QTableWidget)
-        self.assertEqual(["Channel number", "Value"], [table.horizontalHeaderItem(i).text() for i in range(2)])
+        self.assertEqual(["Номер канала", "Значение"], [table.horizontalHeaderItem(i).text() for i in range(2)])
         self.assertEqual("1", table.item(0, 0).text())
         self.assertEqual("False", table.item(0, 1).text())
         self.assertEqual("True", table.item(1, 1).text())
