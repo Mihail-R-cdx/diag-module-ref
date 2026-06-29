@@ -87,6 +87,7 @@ class PDUScreen(BaseScreen):
         self.outlets_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.outlets_table.setSelectionMode(QTableWidget.NoSelection)
         self.outlets_table.setFocusPolicy(Qt.NoFocus)
+        self.outlets_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.outlets_table.setMinimumHeight(300)
 
         header = self.outlets_table.horizontalHeader()
@@ -239,8 +240,28 @@ class PDUScreen(BaseScreen):
 
     @pyqtSlot(int, str)
     def on_outlet_control(self, outlet_num, command):
-        if self.parent and hasattr(self.parent, "control_pdu_outlet"):
-            self.parent.control_pdu_outlet(outlet_num, command)
+        self.set_outlet_command_state(outlet_num, command, True)
+        try:
+            if self.parent and hasattr(self.parent, "control_pdu_outlet"):
+                self.parent.control_pdu_outlet(outlet_num, command)
+        finally:
+            self.set_outlet_command_state(outlet_num, command, False)
+
+    def set_outlet_command_state(self, outlet_num, command, busy):
+        """Disable only the controls for the outlet being changed."""
+        row = outlet_num - 1
+        command_columns = {"on": 3, "off": 4, "reboot": 5}
+        if not (0 <= row < self.outlets_table.rowCount()):
+            return
+        for column in command_columns.values():
+            button = self.outlets_table.cellWidget(row, column)
+            if not isinstance(button, SemanticButton):
+                continue
+            if busy and column == command_columns.get(command):
+                button.set_loading(True, "Выполнение…")
+            else:
+                button.set_loading(False)
+                button.setEnabled(not busy)
 
     def refresh(self):
         if self.parent and hasattr(self.parent, "refresh_data"):

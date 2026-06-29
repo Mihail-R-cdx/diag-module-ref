@@ -66,6 +66,7 @@ class MatrixScreen(BaseScreen):
         self.matrix_table.setSelectionMode(QTableWidget.NoSelection)
         self.matrix_table.setFocusPolicy(Qt.NoFocus)
         self.matrix_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.matrix_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.matrix_table.verticalHeader().setVisible(False)
         self.matrix_table.verticalHeader().setDefaultSectionSize(40)
         self.matrix_table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)

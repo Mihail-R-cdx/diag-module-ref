@@ -8,6 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import (
         QApplication,
         QComboBox,
@@ -242,8 +243,14 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         )
         QApplication.processEvents()
 
-        self.assertEqual(0, matrix.matrix_table.horizontalScrollBar().maximum())
-        self.assertEqual(0, pdu.outlets_table.horizontalScrollBar().maximum())
+        self.assertEqual(
+            Qt.ScrollBarAlwaysOff,
+            matrix.matrix_table.horizontalScrollBarPolicy(),
+        )
+        self.assertEqual(
+            Qt.ScrollBarAlwaysOff,
+            pdu.outlets_table.horizontalScrollBarPolicy(),
+        )
 
 
 if __name__ == "__main__":

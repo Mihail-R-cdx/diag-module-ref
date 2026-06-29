@@ -143,6 +143,15 @@ def build_stylesheet() -> str:
             background-color: {c["background"]};
             border-top: 1px solid {c["border"]};
         }}
+        QWidget[uiState="authentication_error"],
+        QWidget[uiState="request_error"],
+        QWidget[uiState="disconnected"] {{
+            border-color: {c["danger"]};
+        }}
+        QWidget[uiState="sleeping"],
+        QWidget[uiState="unavailable"] {{
+            border-color: {c["warning"]};
+        }}
         QStackedWidget#screenContainer {{
             background-color: transparent;
             border: none;

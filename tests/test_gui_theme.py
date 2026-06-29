@@ -118,7 +118,10 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.assertEqual("card", self.window.placeholder_widget.property("uiRole"))
         self.assertEqual("screenContainer", self.window.screen_container.objectName())
         self.assertEqual("inactive", self.window.connection_indicator.property("status"))
-        self.assertEqual("Соединение: не установлено", self.window.connection_status.text())
+        self.assertEqual(
+            "Данные для выбранного устройства ещё не запрашивались",
+            self.window.connection_status.text(),
+        )
         self.assertTrue(self.window.update_timer.isActive())
 
     def test_main_window_shell_status_can_show_success_and_error(self):

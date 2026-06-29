@@ -11,6 +11,7 @@ import subprocess
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
 from .theme import SPACING, apply_theme, legacy_colors
+from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
@@ -174,6 +175,9 @@ class VCSDiagnosticApp(QMainWindow):
         
         
         self.progress_dialog = None
+        self.ui_state = UIState.IDLE
+        self._request_serial = 0
+        self._active_request = None
         self.matrix_persistent_handler = None
         self.matrix_persistent_ip = None
         self.matrix_persistent_username = None
@@ -433,6 +437,85 @@ class VCSDiagnosticApp(QMainWindow):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
             widget.update()
+
+    def set_ui_state(self, state, text=None, screen=None):
+        """Set the persistent state summary and, when requested, a screen state."""
+        self.ui_state = coerce_ui_state(state)
+        spec = state_spec(self.ui_state)
+        self.setProperty("uiState", self.ui_state.value)
+        self.set_connection_status(
+            spec.indicator,
+            text or f"Состояние: {spec.default_text}",
+        )
+        if screen is not None and hasattr(screen, "set_ui_state"):
+            screen.set_ui_state(self.ui_state, text or spec.default_text)
+
+    def _begin_request(self, device_name, ip_address, screen):
+        self._request_serial += 1
+        self._active_request = {
+            "id": self._request_serial,
+            "device": device_name,
+            "ip": ip_address,
+            "screen": screen,
+        }
+        self.set_ui_state(
+            UIState.LOADING,
+            f"Подключение к {device_name} ({ip_address})…",
+            screen,
+        )
+        return self._active_request
+
+    def _request_is_current(self, request_id, worker=None):
+        request = self._active_request
+        if request is None or request_id != request["id"]:
+            return False
+        return worker is None or worker is getattr(self, "current_worker", None)
+
+    def _bind_worker(self, worker):
+        """Bind worker signals to the request that created it."""
+        if self._active_request is None:
+            screen_type = self.device_to_screen.get(
+                getattr(worker, "device_name", self.device_combo.currentText()),
+                "codec",
+            )
+            self._begin_request(
+                getattr(worker, "device_name", self.device_combo.currentText()),
+                getattr(worker, "ip_address", self.ip_entry.text().strip()),
+                self.screens.get(screen_type),
+            )
+        request_id = self._active_request["id"]
+        worker.signals.result.connect(
+            lambda data, w=worker, rid=request_id:
+            self.on_device_data_received(data, w, rid)
+        )
+        worker.signals.error.connect(
+            lambda error, w=worker, rid=request_id:
+            self.on_device_error(error, w, rid)
+        )
+        worker.signals.progress.connect(
+            lambda progress, w=worker, rid=request_id:
+            self.on_progress_update(progress, w, rid)
+        )
+        worker.signals.status.connect(
+            lambda status, w=worker, rid=request_id:
+            self.on_status_update(status, w, rid)
+        )
+        worker.signals.finished.connect(
+            lambda w=worker, rid=request_id:
+            self.on_worker_finished(w, rid)
+        )
+
+    def _fail_request_start(self, error):
+        """Leave loading deterministically when worker construction fails."""
+        self.hide_progress_dialog()
+        self.set_ui_state(
+            UIState.REQUEST_ERROR,
+            f"Не удалось запустить запрос: {error}",
+            (self._active_request or {}).get("screen"),
+        )
+        if hasattr(self, "refresh_btn"):
+            self.refresh_btn.setEnabled(True)
+            self.refresh_btn.setText("Обновить данные")
     
     def generate_fake_data(self, codec_name):
         """Генерация тестовых данных для кодеков"""
@@ -474,7 +557,8 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем заглушку вместо экрана
         self.screen_container.setCurrentWidget(self.placeholder_widget)
-        self.set_connection_status("inactive", "Соединение: не установлено")
+        self._active_request = None
+        self.set_ui_state(UIState.IDLE, "Данные для выбранного устройства ещё не запрашивались")
         
         # Обновляем IP адрес
         
@@ -729,6 +813,7 @@ class VCSDiagnosticApp(QMainWindow):
         if self.ping_device(ip_address):
             return True
 
+        self.set_ui_state(UIState.DISCONNECTED, f"Нет соединения с {ip_address}")
         QMessageBox.warning(self, "Внимание", "Ping неуспешен")
         if hasattr(self, 'refresh_btn'):
             self.refresh_btn.setEnabled(True)
@@ -758,17 +843,17 @@ class VCSDiagnosticApp(QMainWindow):
         device_name = self.device_combo.currentText()
         
         if not ip_address:
+            self.set_ui_state(UIState.REQUEST_ERROR, "Не указан IP-адрес устройства")
             QMessageBox.warning(self, "Внимание", "Введите IP-адрес устройства")
             return
         
         if not self.validate_ip_address(ip_address):
+            self.set_ui_state(UIState.REQUEST_ERROR, "Неверный формат IP-адреса")
             QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
             return
 
         if not self.ensure_ping_success(ip_address):
             return
-
-        self.set_connection_status("warning", f"Соединение: подключение к {ip_address}…")
 
         self.set_current_credential_index(device_name, 0, ip_address)
         if device_name == "Extron IN1804":
@@ -787,6 +872,8 @@ class VCSDiagnosticApp(QMainWindow):
             target_screen = self.screens["audio_dsp"]
         else:
             target_screen = self.screens["codec"]
+
+        self._begin_request(device_name, ip_address, target_screen)
         
         # Показываем экран
         self.screen_container.setCurrentWidget(target_screen)
@@ -799,6 +886,8 @@ class VCSDiagnosticApp(QMainWindow):
         elif hasattr(target_screen, 'update_data'):
             # Если нет clear_data, показываем индикатор загрузки через update_data
             target_screen.update_data({"status": "loading", "message": "Загрузка данных..."})
+        if hasattr(target_screen, "set_ui_state"):
+            target_screen.set_ui_state(UIState.LOADING, "Загрузка данных…")
         
         # Вызываем соответствующий метод обновления
         if device_name == "Aten PE8208AV":
@@ -858,16 +947,12 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.current_idx = current_idx
             self.current_worker.device_name = device_name
 
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
 
             QThreadPool.globalInstance().start(self.current_worker)
         except Exception as e:
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Error", f"Could not create worker: {str(e)}")
             if hasattr(self, 'refresh_btn'):
                 self.refresh_btn.setEnabled(True)
@@ -921,12 +1006,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
@@ -934,7 +1015,7 @@ class VCSDiagnosticApp(QMainWindow):
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Ошибка", f"Не удалось создать Worker: {str(e)}")
             
             if hasattr(self, 'refresh_btn'):
@@ -983,12 +1064,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_te20_terminal_log)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
@@ -996,7 +1073,7 @@ class VCSDiagnosticApp(QMainWindow):
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Ошибка", f"Не удалось создать Worker: {str(e)}")
             
             if hasattr(self, 'refresh_btn'):
@@ -1045,12 +1122,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
@@ -1058,7 +1131,7 @@ class VCSDiagnosticApp(QMainWindow):
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Ошибка", f"Не удалось создать Worker: {str(e)}")
             
             if hasattr(self, 'refresh_btn'):
@@ -1111,12 +1184,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
@@ -1124,7 +1193,7 @@ class VCSDiagnosticApp(QMainWindow):
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Ошибка", f"Не удалось создать Worker: {str(e)}")
             
             if hasattr(self, 'refresh_btn'):
@@ -1177,12 +1246,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_terminal_log)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
@@ -1190,7 +1255,7 @@ class VCSDiagnosticApp(QMainWindow):
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Ошибка", f"Не удалось создать Worker: {str(e)}")
             
             if hasattr(self, 'refresh_btn'):
@@ -1241,11 +1306,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self.current_worker.signals.result.connect(self.on_device_data_received)
-            self.current_worker.signals.error.connect(self.on_device_error)
-            self.current_worker.signals.progress.connect(self.on_progress_update)
-            self.current_worker.signals.status.connect(self.on_status_update)
-            self.current_worker.signals.finished.connect(self.on_worker_finished)
+            self._bind_worker(self.current_worker)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
@@ -1253,7 +1314,7 @@ class VCSDiagnosticApp(QMainWindow):
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
-            self.hide_progress_dialog()
+            self._fail_request_start(e)
             QMessageBox.critical(self, "Ошибка", f"Не удалось создать Worker: {str(e)}")
             
             if hasattr(self, 'refresh_btn'):
@@ -1267,6 +1328,11 @@ class VCSDiagnosticApp(QMainWindow):
         
         if device_name != "Aten PE8208AV":
             return
+
+        self.set_ui_state(
+            UIState.COMMAND,
+            f"Выполнение команды для розетки {outlet_num}…",
+        )
         
         print(f"Управление PDU: розетка {outlet_num}, команда {command}")
         
@@ -1299,6 +1365,10 @@ class VCSDiagnosticApp(QMainWindow):
                         success = False
                     
                     if success:
+                        self.set_ui_state(
+                            UIState.CONNECTED,
+                            f"Команда для розетки {outlet_num} выполнена",
+                        )
                         QMessageBox.information(
                             self,
                             "Успех",
@@ -1307,6 +1377,10 @@ class VCSDiagnosticApp(QMainWindow):
                         # Обновляем данные после выполнения команды
                         self.refresh_data()
                     else:
+                        self.set_ui_state(
+                            UIState.REQUEST_ERROR,
+                            f"Команда для розетки {outlet_num} не выполнена",
+                        )
                         QMessageBox.warning(
                             self,
                             "Ошибка",
@@ -1316,6 +1390,10 @@ class VCSDiagnosticApp(QMainWindow):
                     handler.disconnect()
                 
             except Exception as e:
+                self.set_ui_state(
+                    UIState.REQUEST_ERROR,
+                    f"Ошибка команды PDU: {e}",
+                )
                 QMessageBox.critical(
                     self,
                     "Ошибка",
@@ -1362,9 +1440,12 @@ class VCSDiagnosticApp(QMainWindow):
             self.time_display.setText("Никогда")
 
 
-    @pyqtSlot(dict)
-    def on_device_data_received(self, data):
+    def on_device_data_received(self, data, worker=None, request_id=None):
         """Обработка полученных данных от устройства"""
+        if request_id is not None and not self._request_is_current(request_id, worker):
+            return
+        worker = worker or getattr(self, "current_worker", None)
+        data = dict(data)
         partial_update = bool(data.pop('_partial_update', False))
         if not partial_update:
             self.hide_progress_dialog()
@@ -1378,6 +1459,12 @@ class VCSDiagnosticApp(QMainWindow):
             if key != 'ip_address' and value not in (None, '', {}, [], 'N/A', 'Не доступно')
         ]
         if not meaningful_keys:
+            screen = (self._active_request or {}).get("screen")
+            self.set_ui_state(
+                UIState.UNAVAILABLE,
+                "Устройство ответило, но доступных значений нет",
+                screen,
+            )
             QMessageBox.warning(
                 self,
                 "Нет данных",
@@ -1387,9 +1474,9 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Сбрасываем индекс на успешный credentials для этого устройства
-        if hasattr(self, 'current_worker') and self.current_worker:
-            device_name = getattr(self.current_worker, 'device_name', None)
-            current_idx = getattr(self.current_worker, 'current_idx', 0)
+        if worker:
+            device_name = getattr(worker, 'device_name', None)
+            current_idx = getattr(worker, 'current_idx', 0)
             if device_name:
                 self.set_current_credential_index(device_name, current_idx, data.get('ip_address', self.ip_entry.text()))
                 connection_profile = data.get('connection_profile')
@@ -1401,7 +1488,7 @@ class VCSDiagnosticApp(QMainWindow):
                     )
                 print(f"Запомнен успешный credentials #{current_idx + 1} для {device_name}")
                 if device_name == "Extron IN1804":
-                    creds_list = getattr(self.current_worker, 'creds_list', [])
+                    creds_list = getattr(worker, 'creds_list', [])
                     if creds_list and current_idx < len(creds_list):
                         creds = creds_list[current_idx]
                         try:
@@ -1414,30 +1501,23 @@ class VCSDiagnosticApp(QMainWindow):
                             print(f"Failed to establish persistent Extron handler: {e}")
         
         # Обновляем данные на текущем экране
-        if hasattr(self, 'current_screen_type'):
-            if self.current_screen_type == "codec":
-                current_screen = self.screens["codec"]
-            elif self.current_screen_type == "matrix":
-                current_screen = self.screens["matrix"]
-            elif self.current_screen_type == "pdu":
-                current_screen = self.screens["pdu"]
-            elif self.current_screen_type == "audio_dsp":
-                current_screen = self.screens["audio_dsp"]
-            else:
-                current_screen = self.screens["codec"]
-            
-            if current_screen:
-                current_screen.update_data(data)
+        current_screen = (self._active_request or {}).get("screen")
+        if current_screen is None and hasattr(self, 'current_screen_type'):
+            current_screen = self.screens.get(self.current_screen_type)
+        if current_screen:
+            current_screen.update_data(data)
         
         from PyQt5.QtCore import QDateTime
         self.last_update_time = QDateTime.currentDateTime()
         self.update_time_display()
-        self.set_connection_status("success", "Соединение: установлено")
-        
         if partial_update:
+            self.set_ui_state(
+                UIState.LOADING,
+                "Получены частичные данные; запрос продолжается…",
+            )
             if (
-                getattr(self, 'current_worker', None)
-                and getattr(self.current_worker, 'device_name', None) == "Polycom RPG 310"
+                worker
+                and getattr(worker, 'device_name', None) == "Polycom RPG 310"
             ):
                 if self.progress_dialog is None:
                     self.show_progress_dialog("Подключение по SSH для дополнительных параметров...")
@@ -1449,6 +1529,11 @@ class VCSDiagnosticApp(QMainWindow):
                     self.progress_dialog.raise_()
                     self.progress_dialog.activateWindow()
             return
+
+        self.set_ui_state(
+            UIState.CONNECTED,
+            "Соединение установлено; данные обновлены",
+        )
 
         if getattr(self, 'suppress_success_message_once', False):
             self.suppress_success_message_once = False
@@ -1470,20 +1555,22 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
    
-    @pyqtSlot(tuple)
-    def on_device_error(self, error_info):
+    def on_device_error(self, error_info, worker=None, request_id=None):
         """Обработка ошибок от устройства с автоматическим перебором credentials"""
+        if request_id is not None and not self._request_is_current(request_id, worker):
+            return
+        worker = worker or getattr(self, "current_worker", None)
         error_type, error, traceback_text = error_info
-        if hasattr(self, 'current_worker') and getattr(self.current_worker, 'device_name', None) == "Extron IN1804":
+        if worker and getattr(worker, 'device_name', None) == "Extron IN1804":
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
-        elif hasattr(self, 'current_worker') and getattr(self.current_worker, 'device_name', None) == "Huawei TE-20":
+        elif worker and getattr(worker, 'device_name', None) == "Huawei TE-20":
             self.finish_te20_terminal(f"Опрос завершён с ошибкой: {error}")
         
         # Проверяем, есть ли текущий worker и нужно ли пробовать другие credentials
-        if hasattr(self, 'current_worker') and self.current_worker:
-            device_name = getattr(self.current_worker, 'device_name', None)
-            creds_list = getattr(self.current_worker, 'creds_list', [])
-            current_idx = getattr(self.current_worker, 'current_idx', 0)
+        if worker:
+            device_name = getattr(worker, 'device_name', None)
+            creds_list = getattr(worker, 'creds_list', [])
+            current_idx = getattr(worker, 'current_idx', 0)
             
             error_message = str(error)
             is_auth_error = self.is_authentication_error(error_type, error_message)
@@ -1493,28 +1580,32 @@ class VCSDiagnosticApp(QMainWindow):
                 
                 # Переходим к следующему credentials
                 next_idx = current_idx + 1
-                self.set_current_credential_index(device_name, next_idx, getattr(self.current_worker, 'ip_address', None))
+                self.set_current_credential_index(device_name, next_idx, getattr(worker, 'ip_address', None))
                 
                 print(f"Ошибка аутентификации. Пробуем следующие credentials ({next_idx + 1}/{len(creds_list)})...")
                 
                 # Скрываем текущий прогресс диалог
                 self.hide_progress_dialog()
+                self.set_ui_state(
+                    UIState.LOADING,
+                    f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}…",
+                )
                 
                 # Повторяем попытку с новыми credentials
                 if device_name == "Huawei TE-40":
-                    self.refresh_huawei_te40(self.current_worker.ip_address)
+                    self.refresh_huawei_te40(worker.ip_address)
                 elif device_name == "CloudLink Bar 310":  # Добавлено новое условие
-                    self.refresh_huawei_bar310(self.current_worker.ip_address)
+                    self.refresh_huawei_bar310(worker.ip_address)
                 elif device_name == "Huawei TE-20":
-                    self.refresh_huawei_te20(self.current_worker.ip_address)
+                    self.refresh_huawei_te20(worker.ip_address)
                 elif device_name == "Polycom RPG 310":
-                    self.refresh_polycom_rpg310(self.current_worker.ip_address)
+                    self.refresh_polycom_rpg310(worker.ip_address)
                 elif device_name == "Extron IN1804":
-                    self.refresh_extron_in1804(self.current_worker.ip_address)
+                    self.refresh_extron_in1804(worker.ip_address)
                 elif device_name == "Aten PE8208AV":  # Добавить эту ветку
-                    self.refresh_aten_pdu(self.current_worker.ip_address)
+                    self.refresh_aten_pdu(worker.ip_address)
                 elif device_name == "Biamp Tesira Forte CI":
-                    self.refresh_biamp_tesira_forte_ci(self.current_worker.ip_address)
+                    self.refresh_biamp_tesira_forte_ci(worker.ip_address)
                 return
                       
         
@@ -1523,7 +1614,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         error_message = str(error)
         is_auth_error = self.is_authentication_error(error_type, error_message)
-        device_name = getattr(self.current_worker, 'device_name', self.device_combo.currentText())
+        device_name = getattr(worker, 'device_name', self.device_combo.currentText())
 
         if is_auth_error and self.is_vcs_codec_device(device_name):
             user_message = "Авторизация неуспешна"
@@ -1537,14 +1628,22 @@ class VCSDiagnosticApp(QMainWindow):
             user_message = f"Ошибка: {error_message}"
         
         if is_auth_error:
-            self.set_connection_status("danger", "Соединение: ошибка авторизации")
+            self.set_ui_state(
+                UIState.AUTH_ERROR,
+                "Ошибка авторизации: проверьте учётные данные",
+                (self._active_request or {}).get("screen"),
+            )
             QMessageBox.warning(
                 self,
                 "Авторизация",
                 user_message
             )
         else:
-            self.set_connection_status("danger", "Соединение: ошибка подключения")
+            self.set_ui_state(
+                UIState.REQUEST_ERROR,
+                f"Ошибка запроса: {error_message}",
+                (self._active_request or {}).get("screen"),
+            )
             QMessageBox.critical(
                 self,
                 "Ошибка подключения",
@@ -1556,9 +1655,10 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_btn.setEnabled(True)
             self.refresh_btn.setText("Обновить данные")
     
-    @pyqtSlot(int)
-    def on_progress_update(self, progress):
+    def on_progress_update(self, progress, worker=None, request_id=None):
         """Обработка обновления прогресса"""
+        if request_id is not None and not self._request_is_current(request_id, worker):
+            return
         if self.progress_dialog is not None:
             try:
                 if self.progress_dialog.maximum() == 0:
@@ -1572,8 +1672,8 @@ class VCSDiagnosticApp(QMainWindow):
                     pass
                 if (
                     progress >= 68
-                    and getattr(self, 'current_worker', None)
-                    and getattr(self.current_worker, 'device_name', None) == "Polycom RPG 310"
+                    and worker
+                    and getattr(worker, 'device_name', None) == "Polycom RPG 310"
                 ):
                     self.progress_dialog.show()
                     self.progress_dialog.raise_()
@@ -1582,18 +1682,21 @@ class VCSDiagnosticApp(QMainWindow):
                 # Диалог уже закрыт
                 self.progress_dialog = None                 
     
-    @pyqtSlot(str)
-    def on_status_update(self, status):
+    def on_status_update(self, status, worker=None, request_id=None):
         """Обработка обновления статуса"""
+        if request_id is not None and not self._request_is_current(request_id, worker):
+            return
         if hasattr(self, 'progress_dialog') and self.progress_dialog:
             self.progress_dialog.setLabelText(status)
+        if self.ui_state in {UIState.LOADING, UIState.COMMAND}:
+            self.set_connection_status("loading", status)
         print(f"Status: {status}")
     
-    @pyqtSlot()
-    def on_worker_finished(self):
+    def on_worker_finished(self, worker=None, request_id=None):
         """Обработка завершения работы Worker"""
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(100, self.hide_progress_dialog)
+        if request_id is not None and not self._request_is_current(request_id, worker):
+            return
+        self.hide_progress_dialog()
         
         if hasattr(self, 'refresh_btn'):
             self.refresh_btn.setEnabled(True)
@@ -2090,9 +2193,11 @@ class VCSDiagnosticApp(QMainWindow):
     def on_sip_fix_result(self, result):
         """Обработка результата установки SIP сервера."""
         self.hide_progress_dialog()
+        self._set_sip_fix_busy(False)
 
         if result.get('action') == 'set_sip_server':
             if result.get('success'):
+                self.set_ui_state(UIState.CONNECTED, "Команда SIP выполнена")
                 QMessageBox.information(
                     self,
                     "Успех",
@@ -2100,6 +2205,10 @@ class VCSDiagnosticApp(QMainWindow):
                 )
                 self.refresh_data()
             else:
+                self.set_ui_state(
+                    UIState.REQUEST_ERROR,
+                    result.get('message', 'Не удалось установить SIP сервер'),
+                )
                 QMessageBox.warning(
                     self,
                     "Ошибка",
@@ -2110,7 +2219,9 @@ class VCSDiagnosticApp(QMainWindow):
     def on_sip_fix_error(self, error_info):
         """Обработка ошибки установки SIP сервера."""
         self.hide_progress_dialog()
+        self._set_sip_fix_busy(False)
         error_type, error, traceback_text = error_info
+        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды SIP: {error}")
 
         QMessageBox.critical(
             self,
@@ -2184,6 +2295,8 @@ class VCSDiagnosticApp(QMainWindow):
         sip_server = "vcs-core-a.sber.ru"
         port, current_idx, creds = self._get_sip_fix_connection_params(device_name, ip_address)
 
+        self.set_ui_state(UIState.COMMAND, "Установка SIP-сервера…")
+        self._set_sip_fix_busy(True)
         self.show_progress_dialog(f"Установка SIP сервера {sip_server}...")
         self.show_codec_poll_terminal(device_name, ip_address, current_idx + 1, 1, reset=True)
 
@@ -2201,6 +2314,15 @@ class VCSDiagnosticApp(QMainWindow):
         self.fix_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
         self.fix_worker.signals.finished.connect(self.on_worker_finished)
         QThreadPool.globalInstance().start(self.fix_worker)
+
+    def _set_sip_fix_busy(self, busy: bool):
+        codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
+        for entry in getattr(codec_screen, "sip_fix_buttons", []):
+            button = entry[1] if isinstance(entry, tuple) else entry
+            if hasattr(button, "set_loading"):
+                button.set_loading(busy, "Выполнение…")
+            else:
+                button.setEnabled(not busy)
 
     def fix_sip_huawei_te40(self, ip_address: str):
         """Исправление SIP регистрации для Huawei TE-40."""
@@ -2224,7 +2346,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         self.progress_dialog = QProgressDialog(message, "Отмена", 0, 100, self)
         self.progress_dialog.setWindowTitle("Выполнение операции")
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setWindowModality(Qt.NonModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setAutoClose(False)
         self.progress_dialog.setAutoReset(False)
@@ -2347,6 +2469,9 @@ class VCSDiagnosticApp(QMainWindow):
 
     def closeEvent(self, event):
         self.disconnect_matrix_persistent_handler()
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
         super().closeEvent(event)
             
 

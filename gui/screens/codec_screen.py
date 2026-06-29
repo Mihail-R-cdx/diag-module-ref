@@ -22,6 +22,7 @@ from ..components import (
     configure_button,
 )
 from ..theme import SPACING
+from ..ui_states import UIState
 from .base_screen import BaseScreen
 
 
@@ -1420,6 +1421,20 @@ class CodecScreen(BaseScreen):
     def _set_te20_monitor_audio_sleep_state(self, is_sleeping):
         self._te20_is_sleeping = bool(is_sleeping)
         sleep_text = "недоступно в режиме Сна"
+
+        if self.parent and hasattr(self.parent, "set_ui_state") and self._is_te20_device():
+            if self._te20_is_sleeping:
+                self.parent.set_ui_state(
+                    UIState.SLEEPING,
+                    "Huawei TE-20 находится в спящем режиме",
+                    self,
+                )
+            elif getattr(self.parent, "ui_state", None) == UIState.SLEEPING:
+                self.parent.set_ui_state(
+                    UIState.CONNECTED,
+                    "Huawei TE-20 вышел из спящего режима",
+                    self,
+                )
 
         for param_name, value_label in self.param_widgets:
             if param_name not in self.TE20_SLEEP_UNAVAILABLE_FIELDS:
