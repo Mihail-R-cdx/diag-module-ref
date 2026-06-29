@@ -1,10 +1,27 @@
-from PyQt5.QtWidgets import QVBoxLayout, QScrollArea, QGridLayout, QFrame, QLabel, QWidget, QPushButton, QMessageBox, QProgressDialog, QSizePolicy
+from PyQt5.QtWidgets import (
+    QVBoxLayout,
+    QScrollArea,
+    QGridLayout,
+    QFrame,
+    QLabel,
+    QWidget,
+    QMessageBox,
+    QProgressDialog,
+)
 from PyQt5.QtCore import Qt, QTimer, QEventLoop
 try:
     from PyQt5 import sip
 except ImportError:
     sip = None
 from ..dialogs import CallLogWindow
+from ..components import (
+    ParameterRow,
+    SectionCard,
+    SemanticButton,
+    StatusIndicator,
+    configure_button,
+)
+from ..theme import SPACING
 from .base_screen import BaseScreen
 
 
@@ -33,6 +50,8 @@ class CodecScreen(BaseScreen):
         self._show_te20_monitor_audio_fields = False
         self.wake_buttons = {}
         self.wake_countdown_labels = {}
+        self.parameter_rows = {}
+        self.sip_status_indicators = {}
         self._te20_is_sleeping = False
         self._te20_wake_countdown_remaining = 0
         super().__init__(parent)
@@ -49,7 +68,6 @@ class CodecScreen(BaseScreen):
         self.wake_countdown_timer = QTimer(self)
         self.wake_countdown_timer.setInterval(1000)
         self.wake_countdown_timer.timeout.connect(self._tick_te20_wake_countdown)
-        self.colors.setdefault('warning', '#FFA500')
 
     def _get_current_device_credentials(self, device_name, ip_address):
         """Возвращает актуальные credentials с учётом IP-специфичного индекса."""
@@ -69,9 +87,6 @@ class CodecScreen(BaseScreen):
             current_idx = 0
 
         return creds_list[current_idx], current_idx, creds_list
-        # Добавьте цвет для предупреждений, если его нет в родительском словаре
-        if hasattr(self, 'colors') and 'warning' not in self.colors:
-            self.colors['warning'] = '#FFA500'
 
     def _is_deleted_widget(self, widget):
         if widget is None:
@@ -120,6 +135,8 @@ class CodecScreen(BaseScreen):
         self.mute_buttons = {}
         self.wake_buttons = {}
         self.wake_countdown_labels = {}
+        self.parameter_rows = {}
+        self.sip_status_indicators = {}
 
     def clear_data(self):
         """Очистка данных перед новой загрузкой"""
@@ -144,6 +161,11 @@ class CodecScreen(BaseScreen):
                 if self._is_deleted_widget(button):
                     continue
                 button.setVisible(True)
+
+        for _, value_widget in self.param_widgets:
+            if not self._is_deleted_widget(value_widget):
+                value_widget.setText("—")
+                self._set_widget_state(value_widget, "inactive")
         
         # Если есть метки с данными - очищаем их
         for widget in self.findChildren(QLabel):
@@ -156,27 +178,9 @@ class CodecScreen(BaseScreen):
             self.status_label.setText("Загрузка данных...")
 
     def _build_control_button(self, text, min_width=48, max_width=48):
-        button = QPushButton(text)
-        button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self.colors['surface']};
-                color: white;
-                border: 1px solid white;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 10pt;
-                font-weight: bold;
-                min-width: {min_width}px;
-                max-width: {max_width}px;
-                min-height: 15px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.lighten_color(self.colors['surface'], 20)};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['surface']};
-            }}
-        """)
+        button = SemanticButton(text, "secondary")
+        button.setMinimumWidth(min_width)
+        button.setMaximumWidth(max_width)
         return button
 
 
@@ -184,399 +188,197 @@ class CodecScreen(BaseScreen):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        
-        # Контейнер для параметров с прокруткой
-        container = QWidget()
-        container.setStyleSheet(f"background-color: {self.colors['surface']};")
-        
-        main_layout = QVBoxLayout(container)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Область с прокруткой
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet(f"""
-            QScrollArea {{
-                border: none;
-                background-color: {self.colors['surface']};
-            }}
-            QScrollBar:vertical {{
-                background-color: {self.colors['background']};
-                width: 12px;
-                border-radius: 6px;
-            }}
-            QScrollBar::handle:vertical {{
-                background-color: {self.colors['divider']};
-                border-radius: 6px;
-                min-height: 20px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background-color: {self.colors['text_secondary']};
-            }}
-        """)
-        
-        # Виджет для параметров
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setObjectName("codecScrollArea")
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
         self.param_widget = QWidget()
+        self.param_widget.setObjectName("codecContent")
         self.param_layout = QVBoxLayout(self.param_widget)
-        self.param_layout.setSpacing(0)
-        self.param_layout.setContentsMargins(30, 20, 30, 20)
-        
-        scroll_area.setWidget(self.param_widget)
-        main_layout.addWidget(scroll_area, 1)
-        
-        layout.addWidget(container)
-        
-        # Инициализируем параметры
+        self.param_layout.setSpacing(SPACING["md"])
+        self.param_layout.setContentsMargins(
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
+        )
+
+        self.scroll_area.setWidget(self.param_widget)
+        layout.addWidget(self.scroll_area)
         self.update_parameters_display()
 
 
     def update_parameters_display(self):
-        """Обновление отображения параметров"""
-        # Очищаем старые виджеты
+        """Перестраивает карточки, сохраняя публичные ссылки на controls."""
         while self.param_layout.count():
             child = self.param_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
-        
+
         self._reset_param_widget_refs()
-        
-        # Определяем блоки параметров
-        block1_params = [
+
+        primary_params = [
             "Версия прошивки",
             "Модель кодеков",
             "Серийный номер",
-            "MAC адрес"
+            "MAC адрес",
         ]
-        
-        block2_params = [
+        secondary_params = [
             "SIP регистрация",
+            "SIP адрес",
             "Время работы",
-            ###"Температура",
-            ###"Скорость сети"
         ]
-        
-        block3_params = [
+
+        control_params = [
             "Статус звонка",
             "Статус презентации",
             self._microphone_param_name(),
             "Громкость динамиков",
             "Статус камеры",
-            "Статус микрофона"
+            "Статус микрофона",
         ]
-        
-        # Генерируем дополнительные параметры если нужно
+
         show_te20_monitor_audio_fields = self._should_show_te20_monitor_audio_fields()
         if show_te20_monitor_audio_fields:
-            block3_params.extend([
+            control_params.extend([
                 "Звук в помещении (микрофон)",
                 "Звук из динамиков (выход кодека)",
             ])
         self._show_te20_monitor_audio_fields = show_te20_monitor_audio_fields
-        block3_params.append(self.CALL_LOG_PARAM)
+        control_params.append(self.CALL_LOG_PARAM)
 
-        all_params = block1_params + block2_params + block3_params
-        if self.param_count > len(all_params):
-            for i in range(len(all_params), self.param_count):
-                all_params.append(f"Доп. параметр {i+1}")
-        
-        # Отображаем только нужное количество параметров
-        display_params = all_params[:self.param_count]
-        
-        # Определяем, какие блоки отображать
-        block1_display = [p for p in block1_params if p in display_params]
-        block2_display = [p for p in block2_params if p in display_params]
-        block3_display = [p for p in block3_params if p in display_params]
-        
-        # Создаем и добавляем блоки с разделителями
-        if block1_display:
-            self.create_param_block(block1_display)
-            
-        if block2_display and (block1_display or block3_display):
-            self.add_divider()
-            self.create_param_block(block2_display)
-            
-        if block3_display and block2_display:
-            self.add_divider()
-            self.create_param_block(block3_display)
+        self.info_card = SectionCard("Основная информация", "▣", self.param_widget)
+        self.info_columns_widget = QWidget(self.info_card)
+        self.info_grid = QGridLayout(self.info_columns_widget)
+        self.info_grid.setContentsMargins(0, 0, 0, 0)
+        self.info_grid.setHorizontalSpacing(SPACING["md"])
+        self.info_grid.setVerticalSpacing(SPACING["md"])
+        self.info_left_column = self._create_param_column(primary_params)
+        self.info_right_column = self._create_param_column(secondary_params)
+        self.info_card.add_widget(self.info_columns_widget)
+
+        self.controls_card = SectionCard("Параметры и управление", "⚙", self.param_widget)
+        self.create_param_block(control_params, self.controls_card.body_layout)
+
+        self.param_layout.addWidget(self.info_card)
+        self.param_layout.addWidget(self.controls_card)
+        self.param_layout.addStretch(1)
+        self._apply_responsive_layout()
 
 
-    def create_param_block(self, params):
-        """Создание блока параметров"""
-        block_widget = QWidget()
-        block_layout = QGridLayout(block_widget)
-        block_layout.setSpacing(5)
-        block_layout.setContentsMargins(0, 10, 0, 10)
-        block_layout.setColumnStretch(0, 1)
-        block_layout.setColumnStretch(1, 1)
-        block_layout.setColumnStretch(2, 0)  # Добавляем колонку для кнопок
-        
-        for i, param_name in enumerate(params):
-            # Метка имени параметра
-            name_label = QLabel(f"{param_name}:")
-            name_label.setStyleSheet(f"""
-                color: {self.colors['text_primary']};
-                font-weight: bold;
-                font-size: 11pt;
-                padding: 8px 0;
-            """)
-            name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            
-            # Метка значения параметра
-            value_label = QLabel("Не доступно")
-            value_label.setStyleSheet(f"""
-                color: {self.colors['text_secondary']};
-                font-size: 11pt;
-                padding: 8px 0;
-            """)
-            value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            
-            # Добавляем в сетку
-            block_layout.addWidget(name_label, i, 0)
-            block_layout.addWidget(value_label, i, 1)
-            
-            # Если это параметр "SIP регистрация", добавляем кнопку
+    def _create_param_column(self, params):
+        column = QWidget(self.info_columns_widget)
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.setSpacing(0)
+        self.create_param_block(params, column_layout)
+        return column
+
+    def create_param_block(self, params, target_layout=None):
+        """Создаёт строки через общие компоненты этапа 4."""
+        target_layout = target_layout or self.param_layout
+
+        for param_name in params:
+            row = ParameterRow(param_name, "—", self.param_widget)
+            row.setObjectName("codecParameterRow")
+            row.value_display.setProperty("data_field", True)
+            row.value_display.setAccessibleName(param_name)
+            self.parameter_rows[param_name] = row
+            value_label = row.value_display
+
             if param_name == self.CALL_LOG_PARAM:
-                value_label.setText("")
                 value_label.setVisible(False)
-                call_log_btn = QPushButton("Открыть")
-                call_log_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 96px;
-                        max-width: 96px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                call_log_btn = SemanticButton("Открыть журнал", "primary", row)
                 call_log_btn.clicked.connect(self.open_call_log_window)
-                block_layout.addWidget(call_log_btn, i, 2)
+                row.add_action(call_log_btn)
             elif param_name == "SIP регистрация":
-                fix_btn = QPushButton("Исправить")
-                fix_btn.setVisible(False)  # Скрыта по умолчанию
-                fix_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['error']};
-                        color: white;
-                        border: none;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 80px;
-                        max-width: 80px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['error'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['error']};
-                    }}
-                """)
+                indicator = StatusIndicator("inactive", "", False, row)
+                indicator.setToolTip("Статус SIP-регистрации")
+                fix_btn = SemanticButton("Исправить", "danger", row)
+                fix_btn.setVisible(False)
                 fix_btn.clicked.connect(self.on_fix_sip_clicked)
-                block_layout.addWidget(fix_btn, i, 2)
+                row.add_action(indicator)
+                row.add_action(fix_btn)
+                self.sip_status_indicators[param_name] = indicator
                 self.sip_fix_buttons.append((value_label, fix_btn))
-            elif param_name == "\u0421\u0442\u0430\u0442\u0443\u0441 \u043f\u0440\u0435\u0437\u0435\u043d\u0442\u0430\u0446\u0438\u0438":
-                presentation_off_btn = QPushButton("\u0412\u044b\u043a\u043b")
-                presentation_off_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
-                presentation_off_btn.clicked.connect(
-                    lambda checked=False, name=param_name: self.on_presentation_button_clicked(name, "off")
-                )
-
-                presentation_on_btn = QPushButton("\u0412\u043a\u043b")
-                presentation_on_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
-                presentation_on_btn.clicked.connect(
-                    lambda checked=False, name=param_name: self.on_presentation_button_clicked(name, "on")
-                )
-
-                block_layout.addWidget(presentation_off_btn, i, 2)
-                block_layout.addWidget(presentation_on_btn, i, 3)
-                self.presentation_buttons[param_name] = {"on": presentation_on_btn, "off": presentation_off_btn}
             elif param_name == "Статус презентации":
-                presentation_off_btn = QPushButton("Выкл")
-                presentation_off_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                presentation_off_btn = SemanticButton("Выкл", "secondary", row)
+                presentation_off_btn.setCheckable(True)
                 presentation_off_btn.clicked.connect(
                     lambda checked=False, name=param_name: self.on_presentation_button_clicked(name, "off")
                 )
-
-                presentation_on_btn = QPushButton("Вкл")
-                presentation_on_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-width: 48px;
-                        max-width: 48px;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                presentation_on_btn = SemanticButton("Вкл", "secondary", row)
+                presentation_on_btn.setCheckable(True)
                 presentation_on_btn.clicked.connect(
                     lambda checked=False, name=param_name: self.on_presentation_button_clicked(name, "on")
                 )
-
-                block_layout.addWidget(presentation_off_btn, i, 2)
-                block_layout.addWidget(presentation_on_btn, i, 3)
+                row.add_action(presentation_on_btn)
+                row.add_action(presentation_off_btn)
                 self.presentation_buttons[param_name] = {"on": presentation_on_btn, "off": presentation_off_btn}
-            # Если это параметр "Громкость динамиков", добавляем кнопки
             elif param_name == "Громкость динамиков":
-                mute_btn = self._build_control_button("—", min_width=86, max_width=86)
+                mute_btn = self._build_control_button("Мьют", min_width=72, max_width=86)
+                mute_btn.setCheckable(True)
                 mute_btn.clicked.connect(lambda checked, name=param_name: self.on_mute_button_clicked(name))
-
                 volume_down_btn = self._build_control_button("-")
                 volume_down_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "down"))
-                
                 volume_up_btn = self._build_control_button("+")
                 volume_up_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "up"))
-                
-                block_layout.addWidget(mute_btn, i, 2)
-                block_layout.addWidget(volume_down_btn, i, 3)
-                block_layout.addWidget(volume_up_btn, i, 4)
+                row.add_action(mute_btn)
+                row.add_action(volume_down_btn)
+                row.add_action(volume_up_btn)
                 self.mute_buttons[param_name] = mute_btn
                 self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
-            # Если это параметр микрофона, добавляем mute-кнопку. Для TE-20 усиление микрофона не управляется.
             elif param_name in self._microphone_param_names():
-                mute_btn = self._build_control_button("—", min_width=86, max_width=86)
+                mute_btn = self._build_control_button("Мьют", min_width=72, max_width=86)
+                mute_btn.setCheckable(True)
                 mute_btn.clicked.connect(lambda checked, name=param_name: self.on_mute_button_clicked(name))
-                
-                block_layout.addWidget(mute_btn, i, 2)
+                row.add_action(mute_btn)
                 self.mute_buttons[param_name] = mute_btn
                 if param_name == "Громкость микрофона":
                     volume_down_btn = self._build_control_button("-")
                     volume_down_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "down"))
-
                     volume_up_btn = self._build_control_button("+")
                     volume_up_btn.clicked.connect(lambda checked, name=param_name: self.on_volume_button_clicked(name, "up"))
-
-                    block_layout.addWidget(volume_down_btn, i, 3)
-                    block_layout.addWidget(volume_up_btn, i, 4)
+                    row.add_action(volume_down_btn)
+                    row.add_action(volume_up_btn)
                     self.volume_buttons[param_name] = {"up": volume_up_btn, "down": volume_down_btn}
                 else:
                     self.volume_buttons[param_name] = {}
             elif param_name == "Звук в помещении (микрофон)":
-                wake_btn = QPushButton("Разбудить")
-                wake_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {self.colors['surface']};
-                        color: white;
-                        border: 1px solid white;
-                        border-radius: 4px;
-                        padding: 6px 12px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                        min-height: 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {self.lighten_color(self.colors['surface'], 20)};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {self.colors['surface']};
-                    }}
-                """)
+                wake_btn = SemanticButton("Разбудить", "primary", row)
                 wake_btn.clicked.connect(self.on_wake_te20_clicked)
                 wake_btn.setVisible(False)
-                wake_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-                block_layout.addWidget(wake_btn, i, 2, 1, 2)
+                row.add_action(wake_btn)
                 self.wake_buttons[param_name] = wake_btn
-
-                countdown_label = QLabel("")
+                countdown_label = StatusIndicator("warning", "", True, row)
                 countdown_label.setAlignment(Qt.AlignCenter)
                 countdown_label.setVisible(False)
-                countdown_label.setStyleSheet(f"""
-                    color: {self.colors['warning']};
-                    font-size: 11pt;
-                    padding: 8px 0;
-                    font-weight: bold;
-                """)
-                countdown_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-                block_layout.addWidget(countdown_label, i, 2, 1, 2)
+                row.add_action(countdown_label)
                 self.wake_countdown_labels[param_name] = countdown_label
-            else:
-                # Для остальных параметров добавляем пустой виджет для выравнивания
-                spacer = QWidget()
-                spacer.setFixedWidth(80)
-                block_layout.addWidget(spacer, i, 2)
-            
+
             if param_name != self.CALL_LOG_PARAM:
                 self.param_widgets.append((param_name, value_label))
-        
-        self.param_layout.addWidget(block_widget)
+            target_layout.addWidget(row)
+
+    def _apply_responsive_layout(self):
+        if not hasattr(self, "info_grid"):
+            return
+        available_width = self.scroll_area.viewport().width()
+        narrow = available_width < 720
+        positions = (
+            ((self.info_left_column, 0, 0), (self.info_right_column, 1, 0))
+            if narrow
+            else ((self.info_left_column, 0, 0), (self.info_right_column, 0, 1))
+        )
+        for widget, row, column in positions:
+            self.info_grid.removeWidget(widget)
+            self.info_grid.addWidget(widget, row, column)
+        self.info_grid.setColumnStretch(0, 1)
+        self.info_grid.setColumnStretch(1, 0 if narrow else 1)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_responsive_layout()
 
 
     def open_call_log_window(self):
@@ -621,18 +423,8 @@ class CodecScreen(BaseScreen):
 
 
     def add_divider(self):
-        """Добавление горизонтального разделителя"""
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet(f"background-color: {self.colors['divider']}; border: none; height: 1px;")
-        divider.setFixedHeight(1)
-        
-        divider_container = QWidget()
-        divider_layout = QVBoxLayout(divider_container)
-        divider_layout.setContentsMargins(0, 10, 0, 10)
-        divider_layout.addWidget(divider)
-        
-        self.param_layout.addWidget(divider_container)
+        """Совместимый helper: разделение теперь задаёт общая тема строк."""
+        return None
 
 
     def update_data(self, data):
@@ -660,6 +452,7 @@ class CodecScreen(BaseScreen):
                     continue
                 value = display_data[param_name]
                 value_label.setText(str(value))
+                self._set_widget_state(value_label, "normal")
                 if param_name == "Громкость динамиков" or param_name in self._microphone_param_names():
                     numeric_value = self._extract_numeric_value(value)
                     if numeric_value is not None:
@@ -671,64 +464,64 @@ class CodecScreen(BaseScreen):
                         )
                 
                 if param_name == "SIP регистрация" and value == "Не зарегистрирован":
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['error']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                        font-weight: bold;
-                    """)
-                    # Показываем кнопку "Исправить" для этого параметра
+                    self._set_widget_state(value_label, "error")
+                    self._set_sip_indicator("danger")
                     for val_label, btn in self.sip_fix_buttons:
                         if val_label is value_label:
                             btn.setVisible(True)
                             break
                 elif param_name == "SIP регистрация":
-                    # Если SIP зарегистрирован, скрываем кнопку
+                    self._set_widget_state(value_label, "success")
+                    self._set_sip_indicator("success")
                     for val_label, btn in self.sip_fix_buttons:
                         if val_label is value_label:
                             btn.setVisible(False)
                             break
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['secondary']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                        font-weight: bold;
-                    """)
                 elif param_name == "Статус звонка" and value == "В звонке":
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['secondary']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                        font-weight: bold;
-                    """)
+                    self._set_widget_state(value_label, "success")
                 elif param_name == "Статус микрофона" and value == "Выключен":
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['warning']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                    """)
-                else:
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['text_primary']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                    """)
+                    self._set_widget_state(value_label, "warning")
+                if param_name == "Статус презентации":
+                    self._sync_presentation_button_state(value)
             else:
                 if self._te20_is_sleeping and param_name in self.TE20_SLEEP_UNAVAILABLE_FIELDS:
                     continue
-                value_label.setText("Не доступно")
-                value_label.setStyleSheet(f"""
-                    color: {self.colors['text_secondary']};
-                    font-size: 11pt;
-                    padding: 8px 0;
-                """)
-                # Скрываем кнопку, если параметр не найден
+                value_label.setText("—")
+                self._set_widget_state(value_label, "inactive")
                 for val_label, btn in self.sip_fix_buttons:
                     if val_label is value_label:
                         btn.setVisible(False)
+                        self._set_sip_indicator("inactive")
                         break
 
         self.refresh_all_mute_buttons()
+
+    def _set_widget_state(self, widget, state):
+        if hasattr(widget, "set_state"):
+            widget.set_state(state)
+            return
+        widget.setProperty("uiState", state)
+        style = widget.style()
+        style.unpolish(widget)
+        style.polish(widget)
+        widget.update()
+
+    def _set_sip_indicator(self, status):
+        indicator = self.sip_status_indicators.get("SIP регистрация")
+        if not self._is_deleted_widget(indicator):
+            indicator.set_status(status)
+
+    def _sync_presentation_button_state(self, value):
+        normalized = str(value).strip().lower()
+        selected = None
+        if normalized in {"демонстрируется", "start", "started", "auxopen"}:
+            selected = "on"
+        elif normalized in {"не демонстрируется", "stop", "stopped", "auxclose"}:
+            selected = "off"
+        for direction, button in self.presentation_buttons.get("Статус презентации", {}).items():
+            checked = direction == selected
+            button.setChecked(checked)
+            button.set_role("active" if checked else "secondary")
 
 
     def _extract_numeric_value(self, value):
@@ -775,20 +568,8 @@ class CodecScreen(BaseScreen):
     def on_volume_button_clicked(self, param_name, direction):
         """Обработчик нажатия кнопки изменения громкости"""
         print(f"Нажата кнопка {direction} для {param_name}")
-        
-        # Меняем цвет кнопки при нажатии (визуальный отклик)
+
         if param_name in self.volume_buttons:
-            btn = self.volume_buttons[param_name][direction]
-            original_style = btn.styleSheet()
-            btn.setStyleSheet(original_style.replace(
-                f"background-color: {self.colors['surface']}",
-                f"background-color: {self.lighten_color(self.colors['surface'], 30)}"
-            ))
-            
-            # Возвращаем цвет через короткое время
-            QTimer.singleShot(100, lambda: btn.setStyleSheet(original_style))
-            
-            # Управляем громкостью через API
             self.adjust_volume(param_name, direction)
 
     def _get_param_label_widget(self, param_name):
@@ -857,11 +638,17 @@ class CodecScreen(BaseScreen):
             muted = self._is_param_muted(param_name)
 
         if muted is True:
-            button.setText("Muted")
+            button.setText("Мьют")
+            button.setChecked(True)
+            configure_button(button, "active")
         elif muted is False:
-            button.setText("Unmuted")
+            button.setText("Мьют")
+            button.setChecked(False)
+            configure_button(button, "secondary")
         else:
             button.setText("—")
+            button.setChecked(False)
+            configure_button(button, "secondary")
 
     def refresh_all_mute_buttons(self):
         self.update_mute_button_state("Громкость динамиков")
@@ -869,15 +656,6 @@ class CodecScreen(BaseScreen):
 
     def on_mute_button_clicked(self, param_name):
         print(f"Нажата кнопка mute для {param_name}")
-
-        button = self.mute_buttons.get(param_name)
-        if button is not None:
-            original_style = button.styleSheet()
-            button.setStyleSheet(original_style.replace(
-                f"background-color: {self.colors['surface']}",
-                f"background-color: {self.lighten_color(self.colors['surface'], 30)}"
-            ))
-            QTimer.singleShot(100, lambda: button.setStyleSheet(original_style))
 
         muted = self._is_param_muted(param_name)
         if muted is None:
@@ -897,14 +675,6 @@ class CodecScreen(BaseScreen):
 
         if param_name in self.presentation_buttons:
             self.set_presentation_buttons_enabled(param_name, False)
-            btn = self.presentation_buttons[param_name][direction]
-            original_style = btn.styleSheet()
-            btn.setStyleSheet(original_style.replace(
-                f"background-color: {self.colors['surface']}",
-                f"background-color: {self.lighten_color(self.colors['surface'], 30)}"
-            ))
-
-            QTimer.singleShot(100, lambda: btn.setStyleSheet(original_style))
             QTimer.singleShot(1500, lambda name=param_name: self.set_presentation_buttons_enabled(name, True))
             self.set_presentation_state(direction)
 
@@ -1084,16 +854,6 @@ class CodecScreen(BaseScreen):
         dialog.setWindowModality(Qt.ApplicationModal)
         dialog.setMinimumDuration(0)
         dialog.setAutoClose(True)
-        dialog.setStyleSheet(f"""
-            QProgressDialog {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-            }}
-            QLabel {{
-                color: {self.colors['text_primary']};
-                font-size: 11pt;
-            }}
-        """)
 
         remaining = {'value': seconds}
         loop = QEventLoop(self)
@@ -1646,11 +1406,7 @@ class CodecScreen(BaseScreen):
             for name_label, value_label in self.param_widgets:
                 if name_label == param_name:
                     value_label.setText(str(value))
-                    value_label.setStyleSheet(f"""
-                        color: {self.colors['text_primary']};
-                        font-size: 11pt;
-                        padding: 8px 0;
-                    """)
+                    self._set_widget_state(value_label, "normal")
                     break
 
     def _resume_te20_monitor_audio_after_wake(self):
@@ -1671,11 +1427,7 @@ class CodecScreen(BaseScreen):
 
             if self._te20_is_sleeping:
                 value_label.setText(sleep_text)
-                value_label.setStyleSheet(f"""
-                    color: {self.colors['warning']};
-                    font-size: 11pt;
-                    padding: 8px 0;
-                """)
+                self._set_widget_state(value_label, "warning")
 
         self._set_microphone_volume_controls_visible(not self._te20_is_sleeping)
 
@@ -1816,13 +1568,9 @@ class CodecScreen(BaseScreen):
 
         for name_label, value_label in self.param_widgets:
             if name_label == param_name:
-                new_value = str(volume) if isinstance(volume, int) else volume
+                new_value = str(volume)
                 value_label.setText(new_value)
-                value_label.setStyleSheet(f"""
-                    color: {self.colors['text_primary']};
-                    font-size: 11pt;
-                    padding: 8px 0;
-                """)
+                self._set_widget_state(value_label, "normal")
                 print(f"Обновлено отображение {param_name}: {new_value}")
                 break
         if numeric_value is not None and (param_name == "Громкость динамиков" or param_name in self._microphone_param_names()):
@@ -1843,12 +1591,9 @@ class CodecScreen(BaseScreen):
 
         for name_label, value_label in self.param_widgets:
             if name_label == "Статус презентации":
-                value_label.setText(new_value)
-                value_label.setStyleSheet(f"""
-                    color: {self.colors['text_primary']};
-                    font-size: 11pt;
-                    padding: 8px 0;
-                """)
+                value_label.setText(str(new_value))
+                self._set_widget_state(value_label, "normal")
+                self._sync_presentation_button_state(new_value)
                 print(f"Обновлено отображение Статус презентации: {new_value}")
                 break
 
