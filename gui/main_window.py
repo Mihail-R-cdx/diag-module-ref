@@ -53,7 +53,7 @@ class MatrixTerminalDialog(QDialog):
         super().__init__(parent)
         self.colors = colors
         self.setWindowTitle("Терминал Extron IN1804")
-        self.resize(820, 420)
+        self.resize(760, 420)
 
         layout = QVBoxLayout(self)
         self.output = QPlainTextEdit(self)
@@ -205,6 +205,7 @@ class VCSDiagnosticApp(QMainWindow):
     def init_ui(self, params=None):
         """Инициализация интерфейса"""
         self.setWindowTitle("Диагностический модуль ММК")
+        self.setMinimumSize(800, 700)
         self.setGeometry(100, 100, 950, 950)
         
         # Установка темной темы
@@ -275,16 +276,23 @@ class VCSDiagnosticApp(QMainWindow):
         group_box.setProperty("uiRole", "toolbar")
         
         layout = QGridLayout()
-        layout.setHorizontalSpacing(SPACING["md"])
+        layout.setHorizontalSpacing(SPACING["sm"])
         layout.setVerticalSpacing(SPACING["xs"])
         layout.setContentsMargins(
-            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
+            SPACING["md"], SPACING["md"], SPACING["md"], SPACING["lg"]
         )
         
         # Выпадающий список устройств
         self.device_combo = QComboBox()
         self.device_combo.setObjectName("deviceCombo")
         self.device_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # The longest device name must not dictate the minimum width of the
+        # entire window.  The combo remains expandable, while its compact
+        # size hint keeps the 950 px baseline usable at scaled DPI.
+        self.device_combo.setMinimumContentsLength(8)
+        self.device_combo.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon
+        )
         
         # Список заголовков
         headers = ["Кодеки ВКС", "Коммутационное оборудование", "Audio DSP", "Управление питанием"]
@@ -359,6 +367,11 @@ class VCSDiagnosticApp(QMainWindow):
         self.debug_btn.setObjectName("debugButton")
         self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
+
+        self.setTabOrder(self.device_combo, self.ip_entry)
+        self.setTabOrder(self.ip_entry, self.password_btn)
+        self.setTabOrder(self.password_btn, self.refresh_btn)
+        self.setTabOrder(self.refresh_btn, self.debug_btn)
         
         layout.addWidget(device_label, 0, 0)
         layout.addWidget(ip_label, 0, 1)
@@ -558,7 +571,7 @@ class VCSDiagnosticApp(QMainWindow):
         # Показываем заглушку вместо экрана
         self.screen_container.setCurrentWidget(self.placeholder_widget)
         self._active_request = None
-        self.set_ui_state(UIState.IDLE, "Данные для выбранного устройства ещё не запрашивались")
+        self.set_ui_state(UIState.IDLE, "Данные ещё не запрашивались")
         
         # Обновляем IP адрес
         

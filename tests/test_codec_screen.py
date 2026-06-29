@@ -53,6 +53,7 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         self.parent_widget.close()
         self.screen.deleteLater()
         self.parent_widget.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         QApplication.processEvents()
 
     def _select_device(self, device_name):

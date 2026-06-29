@@ -1,10 +1,13 @@
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
+    QFrame,
     QHeaderView,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from ..components import ParameterRow, SectionCard
@@ -29,7 +32,18 @@ class MatrixScreen(BaseScreen):
         super().__init__(parent)
 
     def init_ui(self, params=None):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setObjectName("matrixScrollArea")
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.content = QWidget(self.scroll_area)
+        self.content.setObjectName("matrixContent")
+        layout = QVBoxLayout(self.content)
         layout.setContentsMargins(
             SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
         )
@@ -57,6 +71,8 @@ class MatrixScreen(BaseScreen):
         self.info_card = self.create_info_panel()
         layout.addWidget(self.routing_card, 1)
         layout.addWidget(self.info_card)
+        self.scroll_area.setWidget(self.content)
+        root_layout.addWidget(self.scroll_area)
 
     def create_matrix_table(self):
         card = SectionCard("Маршрутизация", "⇄", self)

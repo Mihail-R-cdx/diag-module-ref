@@ -1,8 +1,10 @@
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
+    QFrame,
     QHeaderView,
     QHBoxLayout,
     QMessageBox,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,13 +34,26 @@ class PDUScreen(BaseScreen):
         super().__init__(parent)
 
     def init_ui(self):
-        main_layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setObjectName("pduScrollArea")
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.content = QWidget(self.scroll_area)
+        self.content.setObjectName("pduContent")
+        main_layout = QVBoxLayout(self.content)
         main_layout.setContentsMargins(
             SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
         )
         main_layout.setSpacing(SPACING["md"])
         self.create_info_panel(main_layout)
         self.create_outlets_table(main_layout)
+        self.scroll_area.setWidget(self.content)
+        root_layout.addWidget(self.scroll_area)
         self.outlet_control_signal.connect(self.on_outlet_control)
 
     def create_info_panel(self, parent_layout):

@@ -51,6 +51,26 @@ class ThemeSourceContractTest(unittest.TestCase):
         self.assertIn("control_height", _literal_assignment("SIZES"))
         self.assertIn("family", _literal_assignment("TYPOGRAPHY"))
 
+        def luminance(hex_color):
+            channels = [
+                int(hex_color[index : index + 2], 16) / 255.0
+                for index in (1, 3, 5)
+            ]
+            linear = [
+                value / 12.92
+                if value <= 0.04045
+                else ((value + 0.055) / 1.055) ** 2.4
+                for value in channels
+            ]
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+        def contrast(first, second):
+            lighter, darker = sorted((luminance(first), luminance(second)), reverse=True)
+            return (lighter + 0.05) / (darker + 0.05)
+
+        self.assertGreaterEqual(contrast(colors["text_secondary"], colors["background"]), 4.5)
+        self.assertGreaterEqual(contrast(colors["text_secondary"], colors["surface"]), 4.5)
+
     def test_qss_declares_semantic_variants_and_widget_states(self):
         source = THEME_PATH.read_text(encoding="utf-8")
         required_fragments = (
@@ -86,11 +106,15 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setStyle("Fusion")
+        cls.app.setQuitOnLastWindowClosed(False)
 
     def tearDown(self):
         if hasattr(self, "window"):
+            from PyQt5.QtCore import QEvent
+
             self.window.close()
             self.window.deleteLater()
+            QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             QApplication.processEvents()
 
     def test_theme_applies_to_application(self):
@@ -119,7 +143,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.assertEqual("screenContainer", self.window.screen_container.objectName())
         self.assertEqual("inactive", self.window.connection_indicator.property("status"))
         self.assertEqual(
-            "Данные для выбранного устройства ещё не запрашивались",
+            "Данные ещё не запрашивались",
             self.window.connection_status.text(),
         )
         self.assertTrue(self.window.update_timer.isActive())
@@ -141,25 +165,85 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.assertEqual("Соединение: ошибка подключения", self.window.connection_status.text())
 
     def test_connection_panel_controls_do_not_overlap_at_smaller_size(self):
+        from PyQt5.QtCore import Qt
+
+        from gui.components import ValueDisplay
         from gui.main_window import VCSDiagnosticApp
 
         self.window = VCSDiagnosticApp()
-        self.window.resize(800, 800)
         self.window.show()
-        QApplication.processEvents()
-
-        controls = (
-            self.window.device_combo,
-            self.window.ip_entry,
-            self.window.password_btn,
-            self.window.refresh_btn,
-            self.window.debug_btn,
+        pdu = self.window.screens["pdu"]
+        pdu.update_data(
+            {
+                "device_info": {
+                    "model": "PE8208AV",
+                    "ip_address": "192.168.1.100",
+                    "firmware": "2.4.1",
+                    "connected": True,
+                },
+                "outlets": [
+                    {"number": number, "name": f"Outlet {number}", "status": "on"}
+                    for number in range(1, 9)
+                ],
+            }
         )
-        for index, left_control in enumerate(controls):
-            self.assertGreater(left_control.width(), 0)
-            self.assertLessEqual(left_control.geometry().right(), self.window.connection_panel.width())
-            for right_control in controls[index + 1:]:
-                self.assertFalse(left_control.geometry().intersects(right_control.geometry()))
+
+        sizes = ((800, 700), (800, 800), (950, 950), (1200, 900), (1536, 1024))
+        for width, height in sizes:
+            with self.subTest(size=(width, height)):
+                self.window.resize(width, height)
+                QApplication.processEvents()
+                self.assertEqual((width, height), (self.window.width(), self.window.height()))
+
+                controls = (
+                    self.window.device_combo,
+                    self.window.ip_entry,
+                    self.window.password_btn,
+                    self.window.refresh_btn,
+                    self.window.debug_btn,
+                )
+                for index, left_control in enumerate(controls):
+                    self.assertGreater(left_control.width(), 0)
+                    self.assertLess(
+                        left_control.geometry().right(),
+                        self.window.connection_panel.width(),
+                    )
+                    for right_control in controls[index + 1:]:
+                        self.assertFalse(
+                            left_control.geometry().intersects(right_control.geometry())
+                        )
+
+                for screen in self.window.screens.values():
+                    self.window.screen_container.setCurrentWidget(screen)
+                    QApplication.processEvents()
+                    scroll_area = getattr(screen, "scroll_area", None)
+                    if scroll_area is not None:
+                        self.assertEqual(
+                            Qt.ScrollBarAlwaysOff,
+                            scroll_area.horizontalScrollBarPolicy(),
+                        )
+                        self.assertEqual(0, scroll_area.horizontalScrollBar().maximum())
+
+        self.window.resize(800, 700)
+        self.window.screen_container.setCurrentWidget(pdu)
+        QApplication.processEvents()
+        self.assertGreater(pdu.scroll_area.verticalScrollBar().maximum(), 0)
+        column_width = sum(
+            pdu.outlets_table.columnWidth(column)
+            for column in range(pdu.outlets_table.columnCount())
+        )
+        self.assertLessEqual(column_width, pdu.outlets_table.viewport().width())
+
+        self.window.resize(1536, 1024)
+        QApplication.processEvents()
+        for screen in self.window.screens.values():
+            for value in screen.findChildren(ValueDisplay):
+                self.assertLessEqual(value.width(), 360)
+
+        self.assertIs(self.window.ip_entry, self.window.device_combo.nextInFocusChain())
+        self.assertIs(self.window.password_btn, self.window.ip_entry.nextInFocusChain())
+        self.assertIs(self.window.refresh_btn, self.window.password_btn.nextInFocusChain())
+        self.assertIs(self.window.debug_btn, self.window.refresh_btn.nextInFocusChain())
 
 
 if __name__ == "__main__":

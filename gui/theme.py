@@ -127,6 +127,10 @@ def build_stylesheet() -> str:
         QWidget#centralWidget {{
             background-color: {c["background"]};
         }}
+        QWidget#codecContent, QWidget#matrixContent,
+        QWidget#pduContent, QWidget#audioDSPContent {{
+            background-color: {c["background"]};
+        }}
         QWidget[uiRole="card"], QFrame[uiRole="card"] {{
             background-color: {c["surface"]};
             border: 1px solid {c["border"]};
@@ -315,7 +319,7 @@ def build_stylesheet() -> str:
             border-color: {c["danger"]};
         }}
         QFrame[uiRole="parameterRow"] {{
-            background-color: transparent;
+            background-color: {c["surface"]};
             border: none;
             border-bottom: 1px solid {c["border"]};
         }}

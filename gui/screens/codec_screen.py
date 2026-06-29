@@ -214,6 +214,7 @@ class CodecScreen(BaseScreen):
         while self.param_layout.count():
             child = self.param_layout.takeAt(0)
             if child.widget():
+                child.widget().hide()
                 child.widget().deleteLater()
 
         self._reset_param_widget_refs()
@@ -277,7 +278,8 @@ class CodecScreen(BaseScreen):
 
     def create_param_block(self, params, target_layout=None):
         """Создаёт строки через общие компоненты этапа 4."""
-        target_layout = target_layout or self.param_layout
+        if target_layout is None:
+            target_layout = self.param_layout
 
         for param_name in params:
             row = ParameterRow(param_name, "—", self.param_widget)
@@ -365,7 +367,7 @@ class CodecScreen(BaseScreen):
         if not hasattr(self, "info_grid"):
             return
         available_width = self.scroll_area.viewport().width()
-        narrow = available_width < 720
+        narrow = available_width < 840
         positions = (
             ((self.info_left_column, 0, 0), (self.info_right_column, 1, 0))
             if narrow

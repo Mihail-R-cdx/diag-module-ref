@@ -260,6 +260,7 @@ class ParameterRow(QFrame):
         self.name_label.setObjectName("parameterName")
         self.value_display = ValueDisplay(value, self)
         self.value_display.setMinimumWidth(110)
+        self.value_display.setMaximumWidth(360)
 
         self.actions_widget = QWidget(self)
         self.actions_widget.setObjectName("parameterActions")
