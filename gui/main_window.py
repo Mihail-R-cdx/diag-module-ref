@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit, QSizePolicy
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent
 from PyQt5.QtGui import QColor
@@ -9,7 +9,7 @@ import platform
 import subprocess
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
-from .theme import apply_theme, legacy_colors
+from .theme import SPACING, apply_theme, legacy_colors
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
@@ -186,13 +186,16 @@ class VCSDiagnosticApp(QMainWindow):
         self.current_screen = None
         
         # Таймер для обновления времени
-        self.update_timer = QTimer()
+        self.update_timer = QTimer(self)
         self.last_update_time = None
         self._last_logged_button_event = None
         self.button_log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "logs"))
         self.button_log_path = os.path.join(self.button_log_dir, "button_clicks.log")
         
         self.init_ui()
+        self.update_timer.setInterval(30000)
+        self.update_timer.timeout.connect(self.update_time_display)
+        self.update_timer.start()
     
     def init_ui(self, params=None):
         """Инициализация интерфейса"""
@@ -209,8 +212,10 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Основной вертикальный layout
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(SPACING["md"])
+        main_layout.setContentsMargins(
+            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["md"]
+        )
         
         # 1. Панель выбора устройства и подключения
         top_panel = self.create_top_panel()
@@ -218,6 +223,8 @@ class VCSDiagnosticApp(QMainWindow):
         
         # 2. Создаем контейнер для экранов
         self.screen_container = QStackedWidget()
+        self.screen_container.setObjectName("screenContainer")
+        self.screen_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # Создаем экраны
         self.init_screens()
@@ -239,11 +246,11 @@ class VCSDiagnosticApp(QMainWindow):
         update_time_panel = self.create_update_time_panel()
         main_layout.addWidget(update_time_panel)
         
-        # По умолчанию показываем первый кодек
-        self.device_combo.setCurrentIndex(0)
-        
         # Сохраняем текущий выбранный тип экрана
         self.current_screen_type = None
+
+        # По умолчанию выбираем первую конкретную модель, а не заголовок группы.
+        self.device_combo.setCurrentIndex(1)
 
         app = QApplication.instance()
         if app is not None:
@@ -275,14 +282,20 @@ class VCSDiagnosticApp(QMainWindow):
     def create_top_panel(self):
         """Создание верхней панели с выпадающим списком и IP-адресом"""
         group_box = QGroupBox()
+        group_box.setObjectName("connectionPanel")
         group_box.setProperty("uiRole", "toolbar")
         
-        layout = QHBoxLayout()
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 15, 20, 15)
+        layout = QGridLayout()
+        layout.setHorizontalSpacing(SPACING["md"])
+        layout.setVerticalSpacing(SPACING["xs"])
+        layout.setContentsMargins(
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
+        )
         
         # Выпадающий список устройств
         self.device_combo = QComboBox()
+        self.device_combo.setObjectName("deviceCombo")
+        self.device_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
         # Список заголовков
         headers = ["Кодеки ВКС", "Коммутационное оборудование", "Audio DSP", "Управление питанием"]
@@ -327,39 +340,52 @@ class VCSDiagnosticApp(QMainWindow):
         self.device_combo.currentTextChanged.connect(self.on_device_change)
         self.device_combo.installEventFilter(self)
         
+        device_label = QLabel("Устройство")
+        device_label.setProperty("uiRole", "fieldLabel")
+
         # Метка и поле для IP-адреса
-        ip_label = QLabel("IP адрес:")
+        ip_label = QLabel("IP-адрес")
         ip_label.setProperty("uiRole", "fieldLabel")
-        ip_label.setFixedWidth(80)
         
         self.ip_entry = QLineEdit()
-        self.ip_entry.setMinimumWidth(200)
+        self.ip_entry.setObjectName("ipEntry")
+        self.ip_entry.setMinimumWidth(160)
+        self.ip_entry.setPlaceholderText("192.168.1.100")
         self.ip_entry.setText("192.168.1.100")
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         
         # Кнопка для ввода пароля
         self.password_btn = QPushButton("Пароль")
+        self.password_btn.setObjectName("passwordButton")
         self.password_btn.setProperty("uiRole", "secondary")
         self.password_btn.clicked.connect(self.show_password_dialog)
         
         # Кнопка обновления данных
         self.refresh_btn = QPushButton("Обновить данные")
+        self.refresh_btn.setObjectName("refreshButton")
         self.refresh_btn.setProperty("uiRole", "primary")
         self.refresh_btn.clicked.connect(self.refresh_data)
 
         self.debug_btn = QPushButton("Отладка")
+        self.debug_btn.setObjectName("debugButton")
         self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
         
-        layout.addWidget(self.device_combo)
-        layout.addWidget(ip_label)
-        layout.addWidget(self.ip_entry)
-        layout.addWidget(self.password_btn)
-        layout.addWidget(self.refresh_btn)
-        layout.addWidget(self.debug_btn)
-        layout.addStretch()
+        layout.addWidget(device_label, 0, 0)
+        layout.addWidget(ip_label, 0, 1)
+        layout.addWidget(self.device_combo, 1, 0)
+        layout.addWidget(self.ip_entry, 1, 1)
+        layout.addWidget(self.password_btn, 1, 2)
+        layout.addWidget(self.refresh_btn, 1, 3)
+        layout.addWidget(self.debug_btn, 1, 4)
+        layout.setColumnStretch(0, 5)
+        layout.setColumnStretch(1, 4)
+        layout.setColumnStretch(2, 0)
+        layout.setColumnStretch(3, 0)
+        layout.setColumnStretch(4, 0)
         
         group_box.setLayout(layout)
+        self.connection_panel = group_box
         return group_box
     def set_dark_theme(self):
         """Apply the centralized theme for direct window construction."""
@@ -379,13 +405,25 @@ class VCSDiagnosticApp(QMainWindow):
     def create_update_time_panel(self):
         """Создание панели времени обновления"""
         panel = QWidget()
+        panel.setObjectName("connectionStatusBar")
         panel.setProperty("uiRole", "statusBar")
         
         layout = QHBoxLayout(panel)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 5, 20, 5)
+        layout.setSpacing(SPACING["sm"])
+        layout.setContentsMargins(
+            SPACING["sm"], SPACING["sm"], SPACING["sm"], 0
+        )
+
+        self.connection_indicator = QLabel("●")
+        self.connection_indicator.setObjectName("connectionIndicator")
+        self.connection_indicator.setProperty("status", "inactive")
+        self.connection_indicator.setAccessibleName("Состояние соединения")
+
+        self.connection_status = QLabel("Соединение: не установлено")
+        self.connection_status.setObjectName("connectionStatus")
+        self.connection_status.setProperty("uiRole", "secondary")
         
-        time_label = QLabel("Предыдущее обновление данных:")
+        time_label = QLabel("Последнее обновление:")
         time_label.setProperty("uiRole", "secondary")
         
         self.time_display = QLabel("Никогда")
@@ -393,12 +431,24 @@ class VCSDiagnosticApp(QMainWindow):
         self.time_display.setMinimumWidth(10)
         self.time_display.setAlignment(Qt.AlignLeft)
         
-        layout.addStretch(0)
+        layout.addWidget(self.connection_indicator)
+        layout.addWidget(self.connection_status)
+        layout.addStretch(1)
         layout.addWidget(time_label)
         layout.addWidget(self.time_display)
-        layout.addStretch(0)
         
         return panel
+
+    def set_connection_status(self, status: str, text: str):
+        """Update the persistent connection summary without changing device logic."""
+        if not hasattr(self, "connection_indicator"):
+            return
+        self.connection_indicator.setProperty("status", status)
+        self.connection_status.setText(text)
+        for widget in (self.connection_indicator, self.connection_status):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
     
     def generate_fake_data(self, codec_name):
         """Генерация тестовых данных для кодеков"""
@@ -440,6 +490,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Показываем заглушку вместо экрана
         self.screen_container.setCurrentWidget(self.placeholder_widget)
+        self.set_connection_status("inactive", "Соединение: не установлено")
         
         # Обновляем IP адрес
         
@@ -732,6 +783,8 @@ class VCSDiagnosticApp(QMainWindow):
 
         if not self.ensure_ping_success(ip_address):
             return
+
+        self.set_connection_status("warning", f"Соединение: подключение к {ip_address}…")
 
         self.set_current_credential_index(device_name, 0, ip_address)
         if device_name == "Extron IN1804":
@@ -1395,6 +1448,7 @@ class VCSDiagnosticApp(QMainWindow):
         from PyQt5.QtCore import QDateTime
         self.last_update_time = QDateTime.currentDateTime()
         self.update_time_display()
+        self.set_connection_status("success", "Соединение: установлено")
         
         if partial_update:
             if (
@@ -1499,12 +1553,14 @@ class VCSDiagnosticApp(QMainWindow):
             user_message = f"Ошибка: {error_message}"
         
         if is_auth_error:
+            self.set_connection_status("danger", "Соединение: ошибка авторизации")
             QMessageBox.warning(
                 self,
                 "Авторизация",
                 user_message
             )
         else:
+            self.set_connection_status("danger", "Соединение: ошибка подключения")
             QMessageBox.critical(
                 self,
                 "Ошибка подключения",

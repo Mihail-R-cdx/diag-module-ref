@@ -143,6 +143,10 @@ def build_stylesheet() -> str:
             background-color: {c["background"]};
             border-top: 1px solid {c["border"]};
         }}
+        QStackedWidget#screenContainer {{
+            background-color: transparent;
+            border: none;
+        }}
         QGroupBox {{
             background-color: {c["surface"]};
             border: 1px solid {c["border"]};
@@ -178,6 +182,9 @@ def build_stylesheet() -> str:
         QLabel[status="danger"], QLabel[status="error"] {{ color: {c["danger"]}; }}
         QLabel[status="warning"] {{ color: {c["warning"]}; }}
         QLabel[status="muted"], QLabel[status="inactive"] {{ color: {c["text_muted"]}; }}
+        QLabel#connectionIndicator {{
+            font-size: {t["body_large"]}pt;
+        }}
         QPushButton {{
             min-height: {s["control_height_compact"]}px;
             padding: 4px 14px;
