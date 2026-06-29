@@ -76,7 +76,8 @@ class ThemeSourceContractTest(unittest.TestCase):
         self.assertIn("apply_theme(app)", main_source)
         self.assertIn("self.colors = legacy_colors()", window_source)
         self.assertIn('self.refresh_btn.setProperty("uiRole", "primary")', window_source)
-        self.assertIn('placeholder.setProperty("uiRole", "card")', window_source)
+        self.assertIn("return EmptyState(", window_source)
+        self.assertIn('self.connection_indicator = StatusIndicator("inactive"', window_source)
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")

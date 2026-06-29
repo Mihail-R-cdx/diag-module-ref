@@ -178,9 +178,15 @@ def build_stylesheet() -> str:
             font-size: {t["title"]}pt;
             font-weight: {t["weight_semibold"]};
         }}
+        QLabel[uiRole="cardTitle"] {{
+            color: {c["text_primary"]};
+            font-size: {t["body_large"]}pt;
+            font-weight: {t["weight_semibold"]};
+        }}
         QLabel[status="success"] {{ color: {c["success"]}; }}
         QLabel[status="danger"], QLabel[status="error"] {{ color: {c["danger"]}; }}
         QLabel[status="warning"] {{ color: {c["warning"]}; }}
+        QLabel[status="loading"] {{ color: {c["primary"]}; }}
         QLabel[status="muted"], QLabel[status="inactive"] {{ color: {c["text_muted"]}; }}
         QLabel#connectionIndicator {{
             font-size: {t["body_large"]}pt;
@@ -249,6 +255,14 @@ def build_stylesheet() -> str:
             background-color: {c["danger_pressed"]};
             border-color: {c["danger_pressed"]};
         }}
+        QPushButton[uiState="warning"] {{
+            color: {c["warning"]};
+            border-color: {c["warning"]};
+        }}
+        QPushButton[uiState="error"] {{
+            color: {c["danger"]};
+            border-color: {c["danger"]};
+        }}
         QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
             min-height: {s["control_height"]}px;
             padding: 0 12px;
@@ -275,6 +289,26 @@ def build_stylesheet() -> str:
             color: {c["text_muted"]};
             background-color: {c["surface"]};
             border-color: {c["border"]};
+        }}
+        QLineEdit[uiRole="valueDisplay"] {{
+            background-color: {c["surface_raised"]};
+        }}
+        QLineEdit[uiRole="valueDisplay"][uiState="success"] {{
+            color: {c["success"]};
+            border-color: {c["success"]};
+        }}
+        QLineEdit[uiRole="valueDisplay"][uiState="warning"] {{
+            color: {c["warning"]};
+            border-color: {c["warning"]};
+        }}
+        QLineEdit[uiRole="valueDisplay"][uiState="error"] {{
+            color: {c["danger"]};
+            border-color: {c["danger"]};
+        }}
+        QFrame[uiRole="parameterRow"] {{
+            background-color: transparent;
+            border: none;
+            border-bottom: 1px solid {c["border"]};
         }}
         QComboBox::drop-down {{
             width: 30px;

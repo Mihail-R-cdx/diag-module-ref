@@ -9,6 +9,7 @@ import platform
 import subprocess
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
+from .components import EmptyState, StatusIndicator
 from .theme import SPACING, apply_theme, legacy_colors
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
@@ -258,26 +259,10 @@ class VCSDiagnosticApp(QMainWindow):
     
     def create_placeholder_widget(self):
         """Создание виджета-заглушки с надписью Обновите данные"""
-        placeholder = QWidget()
-        placeholder.setProperty("uiRole", "card")
-        
-        layout = QVBoxLayout(placeholder)
-        layout.setAlignment(Qt.AlignCenter)
-        
-        # Создаем метку с надписью
-        label = QLabel("Обновите данные")
-        label.setAlignment(Qt.AlignCenter)
-        label.setProperty("uiRole", "emptyTitle")
-        
-        # Добавляем иконку или дополнительный текст
-        hint_label = QLabel("Нажмите кнопку «Обновить данные» для получения информации об оборудовании")
-        hint_label.setAlignment(Qt.AlignCenter)
-        hint_label.setProperty("uiRole", "secondary")
-        
-        layout.addWidget(label)
-        layout.addWidget(hint_label)
-        
-        return placeholder
+        return EmptyState(
+            "Обновите данные",
+            "Нажмите кнопку «Обновить данные» для получения информации об оборудовании",
+        )
 
     def create_top_panel(self):
         """Создание верхней панели с выпадающим списком и IP-адресом"""
@@ -414,9 +399,8 @@ class VCSDiagnosticApp(QMainWindow):
             SPACING["sm"], SPACING["sm"], SPACING["sm"], 0
         )
 
-        self.connection_indicator = QLabel("●")
+        self.connection_indicator = StatusIndicator("inactive", show_text=False)
         self.connection_indicator.setObjectName("connectionIndicator")
-        self.connection_indicator.setProperty("status", "inactive")
         self.connection_indicator.setAccessibleName("Состояние соединения")
 
         self.connection_status = QLabel("Соединение: не установлено")
@@ -443,7 +427,7 @@ class VCSDiagnosticApp(QMainWindow):
         """Update the persistent connection summary without changing device logic."""
         if not hasattr(self, "connection_indicator"):
             return
-        self.connection_indicator.setProperty("status", status)
+        self.connection_indicator.set_status(status)
         self.connection_status.setText(text)
         for widget in (self.connection_indicator, self.connection_status):
             widget.style().unpolish(widget)
