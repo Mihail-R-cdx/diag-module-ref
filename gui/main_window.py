@@ -1,8 +1,9 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent
 from PyQt5.QtGui import QPalette, QColor
 import datetime
+import os
 import random
 import platform
 import subprocess
@@ -206,6 +207,9 @@ class VCSDiagnosticApp(QMainWindow):
         # Таймер для обновления времени
         self.update_timer = QTimer()
         self.last_update_time = None
+        self._last_logged_button_event = None
+        self.button_log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "logs"))
+        self.button_log_path = os.path.join(self.button_log_dir, "button_clicks.log")
         
         self.init_ui()
     
@@ -258,6 +262,10 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Сохраняем текущий выбранный тип экрана
         self.current_screen_type = None
+
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
     
     def create_placeholder_widget(self):
         """Создание виджета-заглушки с надписью Обновите данные"""
@@ -788,11 +796,69 @@ class VCSDiagnosticApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         """Запускать обновление по Enter на списке устройств."""
+        if isinstance(obj, QPushButton) and self._is_user_button_activation(obj, event):
+            self.log_button_click(obj)
+
         if obj is getattr(self, 'device_combo', None) and event.type() == QEvent.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
                 self.trigger_refresh_from_input()
                 return True
         return super().eventFilter(obj, event)
+
+    def _is_user_button_activation(self, button, event):
+        if not button.isEnabled():
+            return False
+
+        event_type = event.type()
+        if event_type == QEvent.MouseButtonRelease:
+            if event.button() != Qt.LeftButton or not button.rect().contains(event.pos()):
+                return False
+        elif event_type == QEvent.KeyRelease:
+            if event.key() not in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+                return False
+        else:
+            return False
+
+        event_key = (id(button), event_type, int(datetime.datetime.now().timestamp() * 1000))
+        if event_key == self._last_logged_button_event:
+            return False
+        self._last_logged_button_event = event_key
+        return True
+
+    def _get_button_log_label(self, button):
+        text = button.text().strip()
+        tooltip = button.toolTip().strip()
+        object_name = button.objectName().strip()
+
+        if text and tooltip:
+            return f"{text} ({tooltip})"
+        if text:
+            return text
+        if tooltip:
+            return tooltip
+        if object_name:
+            return object_name
+        return button.__class__.__name__
+
+    def log_button_click(self, button):
+        try:
+            os.makedirs(self.button_log_dir, exist_ok=True)
+
+            device_model = self.device_combo.currentText() if hasattr(self, 'device_combo') else ""
+            device_ip = self.ip_entry.text().strip() if hasattr(self, 'ip_entry') else ""
+            clean_value = lambda value: str(value).replace("\r", " ").replace("\n", " ")
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_line = (
+                f"[{timestamp}] "
+                f"Модель: {clean_value(device_model)} | "
+                f"IP: {clean_value(device_ip)} | "
+                f"Кнопка: {clean_value(self._get_button_log_label(button))}\n"
+            )
+
+            with open(self.button_log_path, "a", encoding="utf-8") as log_file:
+                log_file.write(log_line)
+        except Exception as e:
+            print(f"Button click log write failed: {e}")
 
     def trigger_refresh_from_input(self):
         """Унифицированный запуск обновления из полей ввода."""
