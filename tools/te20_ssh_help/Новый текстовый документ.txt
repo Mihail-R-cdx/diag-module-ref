@@ -1,0 +1,225 @@
+"C:\link.ru\tools\te20_ssh_help\collect_te20_ssh_help.py"
+
+C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe "C:\link.ru\tools\te20_ssh_help\collect_te20_ssh_help.py" --host link.ru --username admin
+
+
+C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe "C:\link.ru\tools\te20_ssh_help\collect_te20_ssh_help.py" --host link.ru --username admin
+
+
+
+
+
+C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe "C:\link.ru\tools\te20_ssh_help\collect_te20_ssh_help_plink.py" --plink-path "C:\Users\admin\Downloads\putty-0.73-ru-17\PuTTY\plink.exe" --host link.ru --username admin
+
+
+
+
+C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe "C:\link.ru\tools\te20_ssh_help\collect_te20_ssh_help_plink.py" --plink-path "C:\Users\admin\Downloads\putty-0.73-ru-17\PuTTY\plink.exe" --host link.ru --username admin --command-timeout 8
+
+
+
+������� �����:
+
+������ TLS stack �������� 443 ������������� ������
+������ ������ ��� �� transport, � �����������/������ ������ �� ������ ����
+
+��������� ��� Schannel
+
+
+��. ��� ���� ������ � �� ������ �� ������� �����������������, � �� 4 ���������� �����:
+
+��� ������� TLS handshake
+��� ���������� OpenSSL, Schannel, libcurl, pycurl
+��� �������� ��� � Wireshark
+��� ��� ������� � ��������� HTTP/API-���������
+YouTube
+����� � ���� ������� � ����� �������:
+
+TLS Handshake Explained - Computerphile
+https://link.ru
+������ �������� ���� � ��� handshake. ����� ���� ����� ����� ��������, ������ TE20 ������ ���������� �� API.
+
+SSL TLS Handshake Explained in 12 minutes | Lets Do Coding
+https://link.ru
+������� ������ ����������, ��� ����� ����������. �������, ����� ��������� ClientHello / ServerHello / key exchange.
+
+Analyzing TLS session setup using Wireshark
+https://link.ru
+��� ��� ����� � ���� ��������: ��������, ��� ������ ������� handshake, � ��� ��� ����� �� �������.
+
+Intro to Wireshark: Basics + Packet Analysis!
+https://link.ru
+����� �������� �������� � ���������, ��������� � ��������, ��� �������� TLS, HTTP � cookies.
+
+����������� ������
+�� � �� ������ ����� ��� ����������:
+
+��� ����� Schannel � Windows:
+https://link.ru
+
+����� ������ TLS ������������ Schannel:
+https://link.ru
+
+��� libcurl �������� � ������� TLS backend����:
+https://link.ru
+
+��� � libcurl ������ ���������� SSL backend��:
+https://link.ru
+
+��� ����� pycurl � ��� �� �����������:
+https://link.ru
+
+������ � pycurl ����� backend libcurl:
+https://link.ru
+
+��� ��������� TLS � ����������� ��� � Wireshark:
+https://link.ru
+
+�����
+� �� ���� ��� �������� � ���� ��������������:
+
+Practical Packet Analysis, 3rd Edition � Chris Sanders
+https://link.ru
+����� �������� ��� ������ ����� �����. ��� ����� ����� ��������� ������ ������� ����������� � Wireshark.
+
+Real-World Cryptography � David Wong
+https://link.ru
+������ ��������� ���������� ������������ ��� ������ ����������. ������� ������� �� ���� TLS, ������, ������������, handshake.
+
+HTTP: The Definitive Guide
+https://link.ru
+����� ������, �� ��� ��������� HTTP, cookies, headers, auth flow �� ��� �������.
+
+��� �� � ������ �� ���� �����
+
+���������� Computerphile ��� TLS.
+���������� ����� ��� TLS � Wireshark.
+��������� �������� Microsoft ��� Schannel.
+��������� ���� libcurl ��� SSL backends.
+����������� ������� Practical Packet Analysis.
+����� ����� ��� ��������� � ������ ����� � ����� ���� handshake � Wireshark ��� requests/OpenSSL � ���� ��� pycurl/Schannel.
+���� ������, � ���� ��������� ���������� ������� ���� ������������ ����-���� �� 7 ���� ������ ��� ���� ���� � TE20: ��� ��������, ��� ������ � ����� ��������� ������������ ����������� ������ ������ ����.
+
+--------------------------------------------------------------------
+���� �� 7 ����
+
+���� 1
+�������� TLS Handshake Explained - Computerphile
+https://link.ru
+
+������ �� ����:
+
+������ ClientHello, ServerHello, ����������, key exchange
+������ ������� �������� �� ������: � ����� ����� TE20 ����� �������� ���������� �� HTTP
+��������:
+
+������ �������, ��� ���������� �TLS �� ��������� �� �HTTP API ������ ������
+���� 2
+�������� ������ ���������� TLS:
+https://link.ru
+
+�������:
+
+Schannel SSP overview
+https://link.ru
+������ �� ����:
+
+������, ��� Schannel � ��� ��������� TLS stack Windows
+������, ������ requests/OpenSSL � pycurl/Schannel ����� ��-������� ����� ���� � ����� � ��� �� �����������
+��������:
+
+������ �������:
+requests -> Python _ssl -> OpenSSL
+pycurl -> libcurl -> Schannel
+���� 3
+�������:
+
+libcurl TLS options
+https://link.ru
+curl_global_sslset
+https://link.ru
+������ �� ����:
+
+������, ��� ����� TLS backend � libcurl
+������, ������ ���� � ��� �� pycurl ����� ���� ������ ��-�������
+��������:
+
+�� ����� ������ ������:
+������ ssl.OPENSSL_VERSION
+������ pycurl.version
+������ ������� �������, ������ TE20 ��������� ����� pycurl
+���� 4
+�������� ����� �� Wireshark/TLS:
+https://link.ru
+
+��� ����� ����� �� Wireshark:
+https://link.ru
+
+������ �� ����:
+
+��������� ����������� ������ �� IP � �����
+������ ������� ����� TCP, TLS � HTTP ��������
+��������:
+
+����� 2 �������� �������:
+������� TE20 ����� requests
+������� TE20 ����� pycurl
+��������, �� ����� ���� �������� ������ � �� ������ ���� ������� ������
+���� 5
+������� ��� TLS � Wireshark:
+https://link.ru
+
+������ �� ����:
+
+��������� ������ handshake ��� ������ ����������
+������ Client Hello, Alert, Application Data
+��������:
+
+�������� ���� �� 3 �������:
+��� �� ServerHello
+������ �� Alert
+����� �� �� HTTP POST /action.cgi
+���� 6
+����� �����:
+
+Practical Packet Analysis, 3rd Edition
+https://link.ru
+���, ���� ������� ������ ��� ������������:
+
+Real-World Cryptography
+https://link.ru
+������ �� ����:
+
+�������� ��������� ������� ����������� �� �������� ������
+��������� �������� �� TLS ��� �� ������� ����
+��������:
+
+�������� ���� ���� � TE20 � ���� �������:
+�������
+��������
+�����������
+���������
+�����
+���� 7
+������� � ������ ����� �������.
+
+������ ��������� �������:
+
+������ Python/OpenSSL �� �������
+������ pycurl/Schannel �������
+������ browser-flow �������� �������
+��� ���� �������� credentials
+��� ���� �������� �������� credentials � ����
+��������:
+
+������ ��� ���� ���� �������� ������� ��������� TE20�
+���� ������� ��������� ��� ��� ���� � ��� ����, ������ ���� ������ ��-���������� ������������
+����� �������� ���������� �� ��� ������
+�������� 3 �������:
+
+Chrome -> Windows TLS
+requests -> OpenSSL
+pycurl -> libcurl -> Schannel
+���� ������, � ���� ��������� ���������� ������� ���� ��� ����� ���������� ������:
+
+�7-������� ���� � ��������� � Wireshark-���������, ����� ����� ���� ����� ��������� ���� �� ����� ������.

@@ -1,0 +1,14 @@
+{
+    "Помещение 101 (Серверная)": {
+        "image": "C:/Users/admin/Documents/test module/pics/Scheme P-6.png",
+        "areas": [[925, 425, 1175, 930]]
+    },
+    "Помещение 205 (Офис)": {
+        "image": "pics/Scheme Office.png",
+        "areas": [[100, 100, 300, 300], [400, 400, 500, 500]]
+    },
+    "Помещение 300 (Склад)": {
+        "image": "pics/Scheme Warehouse.png",
+        "areas": []
+    }
+}

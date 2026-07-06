@@ -1,0 +1,283 @@
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import (
+    QFrame,
+    QHeaderView,
+    QHBoxLayout,
+    QMessageBox,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..components import (
+    EmptyState,
+    ParameterRow,
+    SectionCard,
+    SemanticButton,
+    StatusIndicator,
+)
+from ..theme import SPACING
+from .base_screen import BaseScreen
+
+
+class PDUScreen(BaseScreen):
+    """Aten outlet status and control screen."""
+
+    outlet_control_signal = pyqtSignal(int, str)
+
+    def __init__(self, parent=None):
+        self.outlet_names = [f"Розетка {number}" for number in range(1, 9)]
+        self.outlets = []
+        self.device_info = {}
+        super().__init__(parent)
+
+    def init_ui(self):
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setObjectName("pduScrollArea")
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.content = QWidget(self.scroll_area)
+        self.content.setObjectName("pduContent")
+        main_layout = QVBoxLayout(self.content)
+        main_layout.setContentsMargins(
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
+        )
+        main_layout.setSpacing(SPACING["md"])
+        self.create_info_panel(main_layout)
+        self.create_outlets_table(main_layout)
+        self.scroll_area.setWidget(self.content)
+        root_layout.addWidget(self.scroll_area)
+        self.outlet_control_signal.connect(self.on_outlet_control)
+
+    def create_info_panel(self, parent_layout):
+        self.info_group = SectionCard(
+            "Информация об устройстве", "▣", self
+        )
+        self.info_labels = {}
+        self.info_rows = {}
+        fields = (
+            ("model", "Модель"),
+            ("ip_address", "IP-адрес"),
+            ("firmware", "Прошивка"),
+            ("status", "Состояние"),
+        )
+        for field, title in fields:
+            row = ParameterRow(title, "—", self.info_group)
+            row.value_display.setProperty("data_field", True)
+            self.info_rows[field] = row
+            self.info_labels[field] = row.value_display
+            self.info_group.add_widget(row)
+        parent_layout.addWidget(self.info_group)
+
+    def create_outlets_table(self, parent_layout):
+        self.outlets_group = SectionCard(
+            "Управление розетками", "⏻", self
+        )
+
+        refresh_widget = QWidget(self.outlets_group)
+        refresh_layout = QHBoxLayout(refresh_widget)
+        refresh_layout.setContentsMargins(0, 0, 0, 0)
+        refresh_layout.addStretch(1)
+        self.btn_refresh = SemanticButton(
+            "Обновить статус", "primary", refresh_widget
+        )
+        self.btn_refresh.clicked.connect(self.refresh)
+        refresh_layout.addWidget(self.btn_refresh)
+        self.outlets_group.add_widget(refresh_widget)
+
+        self.outlets_table = QTableWidget(0, 6, self.outlets_group)
+        self.outlets_table.setObjectName("pduOutletsTable")
+        self.outlets_table.setHorizontalHeaderLabels(
+            ["№", "Статус", "Название", "Вкл", "Выкл", "Перезапуск"]
+        )
+        self.outlets_table.setAlternatingRowColors(True)
+        self.outlets_table.verticalHeader().setVisible(False)
+        self.outlets_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.outlets_table.setSelectionMode(QTableWidget.NoSelection)
+        self.outlets_table.setFocusPolicy(Qt.NoFocus)
+        self.outlets_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.outlets_table.setMinimumHeight(300)
+
+        header = self.outlets_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+
+        self.outlets_group.add_widget(self.outlets_table, 1)
+        self.outlets_empty = EmptyState(
+            "Нет данных о розетках",
+            "Обновите статус устройства, чтобы увидеть доступные розетки.",
+            "⏻",
+            self.outlets_group,
+        )
+        self.outlets_group.add_widget(self.outlets_empty)
+        self.outlets_table.setVisible(False)
+        parent_layout.addWidget(self.outlets_group, 1)
+
+    def clear_data(self):
+        self.device_info = {}
+        self.outlets = []
+        for row in self.info_rows.values():
+            row.set_value("—")
+            row.set_state("inactive")
+        self.outlets_table.clearContents()
+        self.outlets_table.setRowCount(0)
+        self.outlets_table.setVisible(False)
+        self.outlets_empty.setVisible(True)
+
+    def update_data(self, data):
+        if not data:
+            return
+
+        if "device_info" in data:
+            self.device_info = data["device_info"] or {}
+            self.update_info_panel()
+
+        if "outlets" in data:
+            self.outlets = data["outlets"] or []
+            for outlet in self.outlets:
+                number = outlet.get("number")
+                name = outlet.get("name")
+                if name and isinstance(number, int):
+                    index = number - 1
+                    if 0 <= index < len(self.outlet_names):
+                        self.outlet_names[index] = name
+            self.update_outlets_table()
+
+    def update_info_panel(self):
+        for field in ("model", "ip_address", "firmware"):
+            if field in self.device_info:
+                self.info_rows[field].set_value(self.device_info[field])
+                self.info_rows[field].set_state("normal")
+
+        if "connected" in self.device_info:
+            connected = bool(self.device_info["connected"])
+            self.info_rows["status"].set_value(
+                "Подключено" if connected else "Отключено"
+            )
+            self.info_rows["status"].set_state(
+                "success" if connected else "error"
+            )
+        elif "status" in self.device_info:
+            self.info_rows["status"].set_value(self.device_info["status"])
+            self.info_rows["status"].set_state("normal")
+
+    @staticmethod
+    def _is_outlet_on(value):
+        return str(value).strip().lower() in {"on", "1", "true"}
+
+    def update_outlets_table(self):
+        self.outlets_table.clearContents()
+        self.outlets_table.setRowCount(len(self.outlets))
+        self.outlets_table.setVisible(bool(self.outlets))
+        self.outlets_empty.setVisible(not self.outlets)
+
+        action_specs = (
+            (3, "Вкл", "Включить", "success"),
+            (4, "Выкл", "Выключить", "danger"),
+            (5, "Перезапуск", "Перезагрузить", "secondary"),
+        )
+        for row, outlet in enumerate(self.outlets):
+            outlet_number = outlet.get("number", row + 1)
+            number_item = QTableWidgetItem(str(outlet_number))
+            number_item.setTextAlignment(Qt.AlignCenter)
+            self.outlets_table.setItem(row, 0, number_item)
+
+            status_on = self._is_outlet_on(outlet.get("status", "off"))
+            indicator = StatusIndicator(
+                "success" if status_on else "inactive",
+                "Включена" if status_on else "Выключена",
+                show_text=True,
+                parent=self.outlets_table,
+            )
+            indicator.setAlignment(Qt.AlignCenter)
+            self.outlets_table.setCellWidget(row, 1, indicator)
+
+            default_name = (
+                self.outlet_names[row]
+                if row < len(self.outlet_names)
+                else f"Розетка {row + 1}"
+            )
+            outlet_name = outlet.get("name") or default_name
+            name_item = QTableWidgetItem(str(outlet_name).strip())
+            name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.outlets_table.setItem(row, 2, name_item)
+
+            for column, text, tooltip, role in action_specs:
+                button = SemanticButton(text, role, self.outlets_table)
+                button.setToolTip(tooltip)
+                button.clicked.connect(
+                    lambda checked=False, r=row, action=column:
+                    self.on_outlet_button_click(r, action)
+                )
+                self.outlets_table.setCellWidget(row, column, button)
+
+            self.outlets_table.setRowHeight(row, 44)
+        self.outlets_table.viewport().update()
+
+    def on_outlet_button_click(self, row, action):
+        outlet_num = row + 1
+        action_commands = {3: "on", 4: "off", 5: "reboot"}
+        action_names = {
+            3: "Включить",
+            4: "Выключить",
+            5: "Перезагрузить",
+        }
+        if action not in action_commands:
+            return
+
+        outlet_name = (
+            self.outlet_names[row]
+            if row < len(self.outlet_names)
+            else f"Розетка {outlet_num}"
+        )
+        reply = QMessageBox.question(
+            self,
+            "Подтверждение",
+            f"{action_names[action]} {outlet_name}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.outlet_control_signal.emit(
+                outlet_num, action_commands[action]
+            )
+
+    @pyqtSlot(int, str)
+    def on_outlet_control(self, outlet_num, command):
+        self.set_outlet_command_state(outlet_num, command, True)
+        try:
+            if self.parent and hasattr(self.parent, "control_pdu_outlet"):
+                self.parent.control_pdu_outlet(outlet_num, command)
+        finally:
+            self.set_outlet_command_state(outlet_num, command, False)
+
+    def set_outlet_command_state(self, outlet_num, command, busy):
+        """Disable only the controls for the outlet being changed."""
+        row = outlet_num - 1
+        command_columns = {"on": 3, "off": 4, "reboot": 5}
+        if not (0 <= row < self.outlets_table.rowCount()):
+            return
+        for column in command_columns.values():
+            button = self.outlets_table.cellWidget(row, column)
+            if not isinstance(button, SemanticButton):
+                continue
+            if busy and column == command_columns.get(command):
+                button.set_loading(True, "Выполнение…")
+            else:
+                button.set_loading(False)
+                button.setEnabled(not busy)
+
+    def refresh(self):
+        if self.parent and hasattr(self.parent, "refresh_data"):
+            self.parent.refresh_data()
