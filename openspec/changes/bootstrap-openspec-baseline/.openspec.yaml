@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-11
+goal: Document verified current behavior as canonical OpenSpec specs and prepare
+  the project for spec-driven changes.
