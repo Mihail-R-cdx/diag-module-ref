@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable, Iterable
 
 SENSITIVE_FIELD_MARKERS = (
@@ -11,6 +12,14 @@ SENSITIVE_FIELD_MARKERS = (
     "csrf", "access_key", "api_key",
 )
 REDACTION_MARKER = "<redacted>"
+_SENSITIVE_TEXT_VALUE = re.compile(
+    r"""(?ix)
+    (?P<label>\b(?:authorization|proxy-authorization|cookie|set-cookie|x-csrf-token|
+    csrf(?:token)?|session(?:id)?|token|access[_-]?key|api[_-]?key|password|passwd|pwd)\b\s*[:=]\s*)
+    (?P<value>\"[^\"]*\"|'[^']*'|[^\s,;\}\]]+)
+    """
+)
+_AUTHORIZATION_SCHEME_VALUE = re.compile(r"(?i)\b(?:bearer|basic)\s+[^\s,;\}\]]+")
 
 
 def redact_text(value: Any, secrets: Iterable[Any] = ()) -> str:
@@ -18,7 +27,10 @@ def redact_text(value: Any, secrets: Iterable[Any] = ()) -> str:
     for secret in secrets:
         if secret is not None and str(secret):
             text = text.replace(str(secret), REDACTION_MARKER)
-    return text
+    text = _SENSITIVE_TEXT_VALUE.sub(
+        lambda match: f"{match.group('label')}{REDACTION_MARKER}", text
+    )
+    return _AUTHORIZATION_SCHEME_VALUE.sub(REDACTION_MARKER, text)
 
 
 def redact_exception(value: BaseException | str, secrets: Iterable[Any] = ()) -> str:

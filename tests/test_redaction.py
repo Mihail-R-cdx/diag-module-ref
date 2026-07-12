@@ -172,3 +172,52 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn(username, public_output)
         self.assertNotIn(password, public_output)
         self.assertIn(REDACTION_MARKER, public_output)
+
+    def test_te40_operation_exception_and_traceback_are_redacted(self):
+        username = "synthetic-boundary-user"
+        password = "synthetic-boundary-password"
+        session_id = "synthetic-boundary-session"
+        csrf_token = "synthetic-boundary-csrf"
+        cookie = "synthetic-boundary-cookie"
+        authorization = "Bearer synthetic-boundary-authorization"
+        secrets = (username, password, session_id, csrf_token, cookie, authorization)
+        error_text = " | ".join(secrets)
+
+        class Opener:
+            def open(self, *_args, **_kwargs):
+                raise RuntimeError(error_text)
+
+        handler = HuaweiTE40Handler("192.0.2.1", username=username, password=password)
+        handler.session_id = session_id
+        handler.csrf_token = csrf_token
+        handler.cookie_jar = [type("Cookie", (), {"value": cookie})()]
+        command_log = []
+        handler.command_logger = command_log.append
+        handler.opener = Opener()
+
+        def send_command(command, *_args, **_kwargs):
+            if command in {
+                "get_call_status",
+                "get_audio_status",
+                "get_monitor_audio_params",
+                "get_presentation",
+                "get_camera_status",
+            }:
+                raise RuntimeError(error_text)
+            return {}
+
+        handler.send_command = send_command
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            handler.get_status()
+            handler._connected = True
+            self.assertFalse(handler.set_sip_server("sip.example.test"))
+            self.assertIsNone(handler.verify_sip_server())
+
+        public_output = stdout.getvalue() + "\n".join(command_log)
+        for secret in secrets:
+            self.assertNotIn(secret, public_output)
+        self.assertIn(REDACTION_MARKER, public_output)
+        self.assertIn("Call-status request failed", public_output)
+        self.assertIn("SIP-server update failed", public_output)
+        self.assertIn("SIP-server verification failed", public_output)

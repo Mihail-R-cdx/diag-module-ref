@@ -1,4 +1,3 @@
-import builtins
 import requests
 import json
 import ssl
@@ -198,6 +197,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def _debug(self, value) -> None:
         print(self._redact(value))
 
+    def _report_exception(self, operation: str, exc: Exception) -> None:
+        """Emit redacted diagnostics for a public operation failure."""
+        safe_error = self._redact(str(exc))
+        safe_traceback = self._redact(traceback.format_exc())
+        self._debug(f"{operation} failed: {type(exc).__name__}: {safe_error}")
+        self._log_command(f"[error] {operation}: {safe_traceback}")
+
     def _get_session_cookie(self) -> Optional[str]:
         for cookie in self.cookie_jar:
             if cookie.name.lower() == 'sessionid' and cookie.value:
@@ -307,13 +313,6 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE40"""
-        def print(*args, **kwargs):
-            secrets = (
-                self.credentials.get('username'), self.credentials.get('password'),
-                self.session_id, self.csrf_token,
-            )
-            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
-
         try:
             if not self.credentials.get('username') or not self.credentials.get('password'):
                 raise AuthenticationError("Credentials are required for Huawei TE-40 before connecting.")
@@ -356,7 +355,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             except AuthenticationError:
                 raise
             except Exception as e:
-                if "authentication" in str(e).lower() or "401" in str(e):
+                safe_error = self._redact(str(e)).lower()
+                if "authentication" in safe_error or "401" in safe_error:
                     raise AuthenticationError("Ошибка аутентификации при получении Session ID")
                 raise ConnectionError("Ошибка подключения при получении Session ID")
             
@@ -425,7 +425,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             except AuthenticationError:
                 raise
             except Exception as e:
-                if "authentication" in str(e).lower() or "401" in str(e):
+                safe_error = self._redact(str(e)).lower()
+                if "authentication" in safe_error or "401" in safe_error:
                     raise AuthenticationError("Ошибка аутентификации при получении CSRF токена")
                 self._debug(f"Ошибка получения CSRF Token: {type(e).__name__}")
                 self.csrf_token = None
@@ -458,13 +459,6 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self.uses_cookie_session = False
     
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
-        def print(*args, **kwargs):
-            secrets = (
-                self.credentials.get('username'), self.credentials.get('password'),
-                self.session_id, self.csrf_token,
-            )
-            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
-
         """Отправить команду устройству"""
         if not self.is_connected() or (not self.session_id and not self.uses_cookie_session):
             if not self.connect():
@@ -696,7 +690,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                             status['call_status'] = call_status_map.get(call_state, 'Unknown')
                             print(f"Статус звонка: {status.get('call_status')}")
             except Exception as e:
-                print(f"Ошибка получения статуса звонка: {e}")
+                self._report_exception("Call-status request", e)
             
             # 5. Получаем аудио статус
             print("Запрос аудио статуса...")
@@ -724,7 +718,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                             status['mic_volume'] = audio_data.get('micValue')
                         print(f"Аудио статус получен")
             except Exception as e:
-                print(f"Ошибка получения аудио статуса: {e}")
+                self._report_exception("Audio-status request", e)
 
             print("Запрос monitor audio params...")
             try:
@@ -746,7 +740,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                             monitor_audio_data.get('SpeakerValueIndex')
                         )
             except Exception as e:
-                print(f"Ошибка получения monitor audio params: {e}")
+                self._report_exception("Monitor-audio request", e)
             
             # 6. Получаем статус презентации
             print("Запрос статуса презентации...")
@@ -759,7 +753,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         status['presentation'] = 'Start' if presentation == 'auxOpen' else 'Stop'
                         print(f"Презентация: {status.get('presentation')}")
             except Exception as e:
-                print(f"Ошибка получения статуса презентации: {e}")
+                self._report_exception("Presentation-status request", e)
             
             # 7. Получаем статус камеры
             print("Запрос статуса камеры...")
@@ -815,14 +809,12 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                                 )
                             print(f"Статус камеры: {status.get('camera_status')}")
             except Exception as e:
-                print(f"Ошибка получения статуса камеры: {e}")
+                self._report_exception("Camera-status request", e)
             
             print(f"Сбор статуса завершен. Получено полей: {len(status)}")
             
         except Exception as e:
-            print(f"Ошибка получения статуса: {e}")
-            import traceback
-            traceback.print_exc()
+            self._report_exception("Status collection", e)
         
         return status    
 
@@ -910,13 +902,6 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     
     
     def set_sip_server(self, sip_address="vcs-core-a.sber.ru") -> bool:
-        def print(*args, **kwargs):
-            secrets = (
-                self.credentials.get('username'), self.credentials.get('password'),
-                self.session_id, self.csrf_token,
-            )
-            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
-
         """
         Установка адреса SIP сервера на кодеке Huawei TE40
         """
@@ -988,8 +973,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 return False
                 
         except Exception as e:
-            self._debug(f"Error setting SIP server: {e}")
-            self._debug(traceback.format_exc())
+            self._report_exception("SIP-server update", e)
             return False  
     
     
@@ -1048,7 +1032,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 return None
                 
         except Exception as e:
-            self._debug(f"Ошибка проверки SIP сервера: {e}")
+            self._report_exception("SIP-server verification", e)
             return None
 
     def get_volume_range(self):

@@ -178,7 +178,7 @@ class VCSDiagnosticApp(QMainWindow):
         """Инициализация интерфейса"""
         self.setWindowTitle("Диагностический модуль ММК")
         self.setMinimumSize(800, 700)
-        self.setGeometry(100, 0, 950, 1000)
+        self.setGeometry(100, 100, 950, 950)
         
         # Установка темной темы
         self.set_dark_theme()
@@ -1940,277 +1940,6 @@ class VCSDiagnosticApp(QMainWindow):
         return f'#{r:02x}{g:02x}{b:02x}'
 
 
-    def fix_sip_huawei_te40(self, ip_address: str):
-        """Исправление SIP регистрации для Huawei TE40"""
-        print(f"Исправление SIP регистрации для TE-40 на {ip_address}")
-        
-        # Жёстко заданный SIP сервер
-        sip_server = "vcs-core-a.sber.ru"
-        
-        # Показываем диалог прогресса
-        self.show_progress_dialog(f"Установка SIP сервера {sip_server}...")
-        
-        creds = {}
-        try:
-            # Получаем текущие credentials
-            device_name = "Huawei TE-40"
-            creds_list = self.device_credentials.get(device_name, [])
-            current_idx = self.current_credential_index.get(device_name, 0)
-            if not creds_list:
-                raise CredentialConfigurationError("No resolved credentials are available for Huawei TE-40.")
-            creds = creds_list[current_idx]
-            
-            # Создаем worker для установки SIP
-            from core.worker import HuaweiTE40Worker
-            
-            self.fix_worker = HuaweiTE40Worker(
-                ip_address=ip_address,
-                port=self.huawei_settings.get('port', 443),
-                username=creds['username'],
-                password=creds['password']
-            )
-            
-            # Подключаем сигналы
-            self.fix_worker.signals.result.connect(self.on_sip_fix_result)
-            self.fix_worker.signals.error.connect(self.on_sip_fix_error)
-            self.fix_worker.signals.status.connect(self.on_status_update)
-            self.fix_worker.signals.finished.connect(self.on_worker_finished)
-            
-            # Запускаем установку SIP сервера
-            QThreadPool.globalInstance().start(self.fix_worker)
-            self.fix_worker.set_sip_server(sip_server)
-            
-        except Exception as e:
-            secrets = (creds.get("username"), creds.get("password"))
-            safe_error = redact_exception(e, secrets)
-            safe_traceback = redact_text(traceback.format_exc(), secrets)
-            print(f"SIP fix failed: {safe_error}")
-            print(safe_traceback)
-            self.hide_progress_dialog()
-            QMessageBox.critical(self, "Ошибка", "Не удалось установить SIP сервер. Проверьте настройки подключения.")
-
-  
-    @pyqtSlot(dict)
-    def on_sip_fix_result(self, result):
-        """Обработка результата установки SIP сервера"""
-        self.hide_progress_dialog()
-        
-        if result.get('action') == 'set_sip_server':
-            if result.get('success'):
-                QMessageBox.information(
-                    self,
-                    "Успех",
-                    result.get('message', 'SIP сервер успешно установлен')
-                )
-                # Обновляем данные после успешной установки
-                self.refresh_data()
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Ошибка",
-                    result.get('message', 'Не удалось установить SIP сервер')
-                )
-    
-    @pyqtSlot(tuple)
-    def on_sip_fix_error(self, error_info):
-        """Обработка ошибки установки SIP сервера"""
-        self.hide_progress_dialog()
-        error_type, error, traceback_text = error_info
-        safe_error = redact_exception(error)
-        safe_traceback = redact_text(traceback_text)
-        print(f"SIP worker error: {safe_error}")
-        print(safe_traceback)
-        QMessageBox.critical(
-            self,
-            "Ошибка",
-            "Не удалось установить SIP сервер. Проверьте настройки подключения."
-        )
-
-
-
-    def on_fix_sip_registration(self, ip_address: str, device_name: str):
-        """Обработчик нажатия кнопки 'Исправить' для SIP регистрации"""
-        print(f"=== Нажата кнопка Исправить для {device_name} ({ip_address}) ===")
-        
-        # Жёстко заданный SIP сервер
-        sip_server = "vcs-core-a.sber.ru"
-        
-        # Показываем диалог с вопросом
-        reply = QMessageBox.question(
-            self,
-            "Подтверждение",
-            f"Вы действительно хотите установить SIP сервер\n"
-            f"{sip_server}\n\n"
-            f"на устройстве {device_name}?\nIP: {ip_address}\n\n"
-            f"Это действие может занять несколько секунд.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            # В зависимости от типа устройства вызываем соответствующий метод
-            if device_name == "Huawei TE-40":
-                self.fix_sip_huawei_te40(ip_address)
-            elif device_name == "CloudLink Bar 310":
-                # TODO: реализовать для Bar 310
-                QMessageBox.information(self, "Информация", "Поддержка Bar 310 будет добавлена позже")
-            elif device_name == "Huawei TE-20":
-                # TODO: реализовать для TE-20
-                QMessageBox.information(self, "Информация", "Поддержка TE-20 будет добавлена позже")
-            elif device_name == "Polycom RPG 310":
-                # TODO: реализовать для Polycom
-                QMessageBox.information(self, "Информация", "Поддержка Polycom будет добавлена позже")
-            else:
-                QMessageBox.information(
-                    self,
-                    "Информация",
-                    f"Исправление SIP регистрации для {device_name} будет добавлено позже"
-                )
-
-
-    def fix_sip_huawei_te40(self, ip_address: str):
-        """Исправление SIP регистрации для Huawei TE40"""
-        print(f"\n=== fix_sip_huawei_te40 called ===")
-        print(f"IP Address: {ip_address}")
-        
-        sip_server = "vcs-core-a.sber.ru"
-        print(f"SIP Server to set: {sip_server}")
-        
-        self.show_progress_dialog(f"Установка SIP сервера {sip_server}...")
-        
-        creds = {}
-        try:
-            # Получаем текущие credentials
-            device_name = "Huawei TE-40"
-            creds_list = self.device_credentials.get(device_name, [])
-            current_idx = self.current_credential_index.get(device_name, 0)
-            if not creds_list:
-                raise CredentialConfigurationError("No resolved credentials are available for Huawei TE-40.")
-            creds = creds_list[current_idx]
-            
-            print("Credentials resolved for SIP request (values redacted)")
-            
-            # Создаем worker для установки SIP
-            from core.worker import HuaweiTE40Worker
-            
-            self.fix_worker = HuaweiTE40Worker(
-                ip_address=ip_address,
-                port=self.huawei_settings.get('port', 443),
-                username=creds['username'],
-                password=creds['password']
-            )
-            
-            print(f"Worker created for {ip_address}:{self.huawei_settings.get('port', 443)}")
-            
-            # Подключаем сигналы
-            self.fix_worker.signals.result.connect(self.on_sip_fix_result)
-            self.fix_worker.signals.error.connect(self.on_sip_fix_error)
-            self.fix_worker.signals.status.connect(self.on_status_update)
-            self.fix_worker.signals.finished.connect(self.on_worker_finished)
-            
-            print("Starting worker...")
-            # Запускаем установку SIP сервера
-            QThreadPool.globalInstance().start(self.fix_worker)
-            self.fix_worker.set_sip_server(sip_server)
-            print("Worker started")
-            
-        except Exception as e:
-            secrets = (creds.get("username"), creds.get("password"))
-            safe_error = redact_exception(e, secrets)
-            safe_traceback = redact_text(traceback.format_exc(), secrets)
-            print(f"SIP fix failed: {safe_error}")
-            print(safe_traceback)
-            self.hide_progress_dialog()
-            QMessageBox.critical(self, "Ошибка", "Не удалось установить SIP сервер. Проверьте настройки подключения.")
-    
-    
-    
-        def fix_sip_huawei_bar310(self, ip_address: str):
-            """Исправление SIP регистрации для CloudLink Bar 310"""
-            print(f"Исправление SIP регистрации для Bar 310 на {ip_address}")
-            self.show_progress_dialog("Исправление SIP регистрации...")
-            
-            # TODO: Реализовать для Bar 310
-            import time
-            from PyQt5.QtCore import QTimer
-            QTimer.singleShot(2000, lambda: self.on_fix_complete(True, "SIP регистрация успешно исправлена"))
-    
-    def fix_sip_huawei_te20(self, ip_address: str):
-        """Исправление SIP регистрации для Huawei TE20"""
-        print(f"Исправление SIP регистрации для TE-20 на {ip_address}")
-        self.show_progress_dialog("Исправление SIP регистрации...")
-        
-        # TODO: Реализовать для TE-20
-        import time
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(2000, lambda: self.on_fix_complete(True, "SIP регистрация успешно исправлена"))
-    
-    def fix_sip_polycom_rpg310(self, ip_address: str):
-        """Исправление SIP регистрации для Polycom RPG 310"""
-        print(f"Исправление SIP регистрации для Polycom RPG 310 на {ip_address}")
-        self.show_progress_dialog("Исправление SIP регистрации...")
-        
-        # TODO: Реализовать для Polycom
-        import time
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(2000, lambda: self.on_fix_complete(True, "SIP регистрация успешно исправлена"))
-    
-    def on_fix_complete(self, success: bool, message: str):
-        """Обработчик завершения исправления SIP"""
-        self.hide_progress_dialog()
-        
-        if success:
-            QMessageBox.information(self, "Успех", message)
-            # После успешного исправления обновляем данные
-            self.refresh_data()
-        else:
-            QMessageBox.critical(self, "Ошибка", message)    
-            
-            
-    @pyqtSlot(dict)
-    def on_sip_fix_result(self, result):
-        """Обработка результата установки SIP сервера."""
-        self.hide_progress_dialog()
-        self._set_sip_fix_busy(False)
-
-        if result.get('action') == 'set_sip_server':
-            if result.get('success'):
-                self.set_ui_state(UIState.CONNECTED, "Команда SIP выполнена")
-                QMessageBox.information(
-                    self,
-                    "Успех",
-                    result.get('message', 'SIP сервер успешно установлен')
-                )
-                self.refresh_data()
-            else:
-                self.set_ui_state(
-                    UIState.REQUEST_ERROR,
-                    result.get('message', 'Не удалось установить SIP сервер'),
-                )
-                QMessageBox.warning(
-                    self,
-                    "Ошибка",
-                    result.get('message', 'Не удалось установить SIP сервер')
-                )
-
-    @pyqtSlot(tuple)
-    def on_sip_fix_error(self, error_info):
-        """Обработка ошибки установки SIP сервера."""
-        self.hide_progress_dialog()
-        self._set_sip_fix_busy(False)
-        error_type, error, traceback_text = error_info
-        safe_error = redact_exception(error)
-        safe_traceback = redact_text(traceback_text)
-        print(f"SIP worker error: {safe_error}")
-        print(safe_traceback)
-        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды SIP: {safe_error}")
-
-        QMessageBox.critical(
-            self,
-            "Ошибка",
-            "Не удалось установить SIP сервер. Проверьте настройки подключения."
-        )
-
     def on_fix_sip_registration(self, ip_address: str, device_name: str):
         """Обработчик нажатия кнопки 'Исправить' для SIP регистрации."""
         print(f"=== Нажата кнопка Исправить для {device_name} ({ip_address}) ===")
@@ -2244,6 +1973,43 @@ class VCSDiagnosticApp(QMainWindow):
                 "Информация",
                 f"Исправление SIP регистрации для {device_name} будет добавлено позже"
             )
+
+    @pyqtSlot(dict)
+    def on_sip_fix_result(self, result):
+        """Handle a completed SIP-server update."""
+        self.hide_progress_dialog()
+        self._set_sip_fix_busy(False)
+
+        if result.get('action') == 'set_sip_server':
+            if result.get('success'):
+                self.set_ui_state(UIState.CONNECTED, "Команда SIP выполнена")
+                QMessageBox.information(
+                    self,
+                    "Успех",
+                    result.get('message', 'SIP сервер успешно установлен'),
+                )
+                self.refresh_data()
+            else:
+                message = result.get('message', 'Не удалось установить SIP сервер')
+                self.set_ui_state(UIState.REQUEST_ERROR, message)
+                QMessageBox.warning(self, "Ошибка", message)
+
+    @pyqtSlot(tuple)
+    def on_sip_fix_error(self, error_info):
+        """Handle a SIP worker failure without exposing diagnostic secrets."""
+        self.hide_progress_dialog()
+        self._set_sip_fix_busy(False)
+        _error_type, error, traceback_text = error_info
+        safe_error = redact_exception(error)
+        safe_traceback = redact_text(traceback_text)
+        print(f"SIP worker error: {safe_error}")
+        print(safe_traceback)
+        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды SIP: {safe_error}")
+        QMessageBox.critical(
+            self,
+            "Ошибка",
+            "Не удалось установить SIP сервер. Проверьте настройки подключения.",
+        )
 
     def _get_sip_fix_connection_params(self, device_name: str, ip_address: str):
         """Подготовить параметры подключения для SIP fix."""
