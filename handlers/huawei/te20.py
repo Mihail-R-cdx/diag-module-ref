@@ -266,7 +266,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         return headers
 
     def _connect_https_pycurl(self) -> bool:
-        auth_username = self.credentials.get('username', 'api')
+        auth_username = self.credentials.get('username')
         auth_password = self.credentials.get('password', '')
 
         session_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestSessionID"
@@ -355,7 +355,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             print(f"Подключаюсь к {self.base_url}/")
             
             # Получаем логин и пароль из credentials базового класса
-            auth_username = self.credentials.get('username', 'api')
+            auth_username = self.credentials.get('username')
             auth_password = self.credentials.get('password', '')
             
             print("Использую credentials: <redacted>")

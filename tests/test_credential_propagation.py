@@ -12,7 +12,8 @@ from handlers.biamp.tesira_forte_ci import BiampTesiraForteCIHandler
 from handlers.extron.in1804 import ExtronIN1804Handler
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 from core.te20_worker import HuaweiTE20Worker
-from core.worker import HuaweiBar310Worker
+from core.worker import CodecSipFixWorker, HuaweiBar310Worker, HuaweiTE40Worker
+from gui.main_window import VCSDiagnosticApp
 
 
 class CredentialPropagationTests(unittest.TestCase):
@@ -47,6 +48,44 @@ class CredentialPropagationTests(unittest.TestCase):
             self.assertEqual("192.0.2.1", kwargs["ip_address"])
             self.assertEqual("synthetic-user", kwargs["username"])
             self.assertEqual("synthetic-password", kwargs["password"])
+
+    def test_gui_resolved_credentials_reach_every_production_handler_constructor(self):
+        captured = []
+
+        class Provider:
+            def resolve(self, *, device_model=None, profile_name=None):
+                self.request = (device_model, profile_name)
+                return Credential(AUTH_USERNAME_PASSWORD, "synthetic-user", "synthetic-password")
+
+        class CapturingHandler:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        model_protocols = {
+            "Huawei TE-20": "huawei_te20",
+            "Huawei TE-40": "huawei_te40",
+            "CloudLink Bar 310": "huawei_bar310",
+            "Polycom RPG 310": "polycom_rpg310",
+            "Extron IN1804": "extron_in1804",
+            "Aten PE8208AV": "aten_pdu",
+            "Biamp Tesira Forte CI": "biamp_tesira_forte_ci",
+        }
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window.credential_provider = Provider()
+        setattr(sys.modules[__name__], "CapturingHandler", CapturingHandler)
+        original_handlers = ProtocolFactory._handlers.copy()
+        try:
+            for label, protocol in model_protocols.items():
+                ProtocolFactory.register_handler(protocol, __name__, "CapturingHandler")
+                resolved = window.resolve_device_credentials(label)
+                ProtocolFactory.create_handler(protocol, "192.0.2.1", resolved)
+        finally:
+            ProtocolFactory._handlers = original_handlers
+            delattr(sys.modules[__name__], "CapturingHandler")
+
+        self.assertEqual(7, len(captured))
+        self.assertTrue(all(item["username"] == "synthetic-user" for item in captured))
+        self.assertTrue(all(item["password"] == "synthetic-password" for item in captured))
 
     def test_required_auth_handlers_reject_absent_credentials_before_network_io(self):
         aten = AtenPDUHandler("192.0.2.1")
@@ -185,6 +224,40 @@ class CredentialPropagationTests(unittest.TestCase):
         self.assertEqual("synthetic-password", captured[0]["password"])
         self.assertNotIn("synthetic-user", stdout.getvalue())
         self.assertNotIn("synthetic-password", stdout.getvalue())
+
+    def test_te40_worker_error_and_sip_precondition_do_not_publish_credentials(self):
+        secret = "synthetic-te40-password"
+
+        class FailingHandler:
+            def __init__(self, **_kwargs):
+                self.port = 443
+                self.use_ssl = True
+
+            def connect(self):
+                raise RuntimeError(f"failure carries {secret}")
+
+            def disconnect(self):
+                pass
+
+        worker = HuaweiTE40Worker("192.0.2.1", username="synthetic-te40-user", password=secret)
+        emitted = []
+        terminal_log = []
+        worker.signals.result.connect(emitted.append)
+        worker.signals.error.connect(emitted.append)
+        worker.signals.terminal_log.connect(terminal_log.append)
+        stdout = io.StringIO()
+        with patch("core.worker.HuaweiTE40Handler", FailingHandler), contextlib.redirect_stdout(stdout):
+            worker.run()
+        public_output = stdout.getvalue() + repr(emitted) + "\n".join(terminal_log)
+        self.assertNotIn(secret, public_output)
+
+        sip_worker = CodecSipFixWorker(
+            "Huawei TE40", "192.0.2.1", 443, "", "", "sip.example.test"
+        )
+        sip_errors = []
+        sip_worker.signals.error.connect(sip_errors.append)
+        sip_worker.run()
+        self.assertEqual("authentication_error", sip_errors[0][0])
 
 
 if __name__ == "__main__":

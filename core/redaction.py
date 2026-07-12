@@ -7,7 +7,8 @@ from typing import Any, Callable, Iterable
 
 SENSITIVE_FIELD_MARKERS = (
     "password", "credential", "token", "session", "authorization",
-    "auth_header", "secret", "username", "usr", "pwd",
+    "auth_header", "secret", "username", "usr", "pwd", "cookie",
+    "csrf", "access_key", "api_key",
 )
 REDACTION_MARKER = "<redacted>"
 
@@ -58,6 +59,15 @@ def redact_data(value: Any, secrets: Iterable[Any] = ()) -> Any:
     if isinstance(value, tuple):
         return tuple(redact_data(item, secrets) for item in value)
     if isinstance(value, str):
+        # Responses and exception details are often serialized JSON embedded
+        # inside a larger diagnostic structure.  Redact their keys as data,
+        # not merely their currently-known values.
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return redact_text(value, secrets)
+        if isinstance(parsed, (dict, list, tuple)):
+            return json.dumps(redact_data(parsed, secrets), ensure_ascii=False)
         return redact_text(value, secrets)
     return value
 

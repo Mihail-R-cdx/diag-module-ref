@@ -8,10 +8,12 @@ import urllib.parse
 import re
 import random
 import time
+import traceback
 from datetime import datetime
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from core.redaction import redact_diagnostic
 
 class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     """Обработчик для Huawei TE-40 с рабочей реализацией подключения"""
@@ -56,7 +58,22 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def _log_command(self, message: str) -> None:
         logger = getattr(self, 'command_logger', None)
         if callable(logger):
-            logger(message)
+            logger(str(self._redact(message)))
+
+    def _secret_values(self):
+        """Return request-scoped values that must never cross a diagnostic boundary."""
+        values = [
+            self.credentials.get('username'), self.credentials.get('password'),
+            self.session_id, self.csrf_token,
+        ]
+        values.extend(cookie.value for cookie in self.cookie_jar if cookie.value)
+        return values
+
+    def _redact(self, value):
+        return redact_diagnostic(value, self._secret_values())
+
+    def _debug(self, value) -> None:
+        print(self._redact(value))
 
     def _get_session_cookie(self) -> Optional[str]:
         for cookie in self.cookie_jar:
@@ -89,7 +106,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
 
     def _connect_browser_login(self) -> bool:
         """Fallback login flow used by TE40 web UI on some firmware versions."""
-        print("Пробую браузерный flow подключения TE40...")
+        self._debug("Пробую браузерный flow подключения TE40...")
 
         session_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestSessionID&rmd={random.random()}"
         session_result = self._open_json_request(
@@ -107,8 +124,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
 
         token_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestCertificate&rmd={random.random()}"
         token_data = json.dumps({
-            "password": self.credentials.get('password', ''),
-            "user": self.credentials.get('username', 'api'),
+            "password": self.credentials.get('password'),
+            "user": self.credentials.get('username'),
         }).encode('utf-8')
         token_result = self._open_json_request(
             token_url,
@@ -138,7 +155,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self.session_id = self._get_session_cookie() or self.session_id
         self.uses_cookie_session = True
         self._connected = True
-        print("✓ Браузерный flow подключения TE40 успешен")
+        self._debug("✓ Браузерный flow подключения TE40 успешен")
         return True
 
     def _is_authentication_response(self, result: Dict[str, Any]) -> bool:
@@ -163,7 +180,9 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE-40"""
         try:
-            print(f"Подключаюсь к {self.base_url}/")
+            if not self.credentials.get('username') or not self.credentials.get('password'):
+                raise AuthenticationError("Credentials are required for Huawei TE-40 before connecting.")
+            self._debug(f"Подключаюсь к {self.base_url}/")
             
             # 1. Получаем Session ID
             session_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestSessionIDAPI"
@@ -174,7 +193,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 session_response = self.opener.open(session_request, timeout=10)
                 session_response_text = session_response.read().decode('utf-8')
                 self._log_command(f"[response] 200 {session_response_text}")
-                print(f"Ответ Session ID: {session_response_text}")
+                self._debug(f"Ответ Session ID: {session_response_text}")
                 
                 result = json.loads(session_response_text)
                 
@@ -189,9 +208,9 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     elif isinstance(data, dict):
                         self.session_id = data.get('acSessionId')
                     
-                    print(f"✓ Session ID получен: {self.session_id}")
+                    self._debug(f"✓ Session ID получен: {self.session_id}")
                 else:
-                    print(f"✗ Session ID не получен: {result}")
+                    self._debug(f"✗ Session ID не получен: {result}")
                     # Проверяем, не ошибка ли это аутентификации
                     if self._is_authentication_response(result):
                         raise AuthenticationError(f"Ошибка аутентификации: {result.get('message', 'Неверные учетные данные')}")
@@ -209,13 +228,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 raise ConnectionError(f"Ошибка подключения: {str(e)}")
             
             # 2. Получаем CSRF Token
-            print("Получаю CSRF Token...")
+            self._debug("Получаю CSRF Token...")
             token_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestCertificateAPI"
             certificate_ok = False
             
             data = json.dumps({
-                "user": self.credentials.get('username', 'api'),
-                "password": self.credentials.get('password', '')
+                "user": self.credentials.get('username'),
+                "password": self.credentials.get('password')
             }).encode('utf-8')
             self._log_command(f"[request] POST {token_url}")
             self._log_command(f"[payload] {data.decode('utf-8', errors='ignore')}")
@@ -235,7 +254,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 token_response = self.opener.open(token_request, timeout=10)
                 token_response_text = token_response.read().decode('utf-8')
                 self._log_command(f"[response] 200 {token_response_text}")
-                print(f"Ответ CSRF Token: {token_response_text}")
+                self._debug(f"Ответ CSRF Token: {token_response_text}")
                 
                 token_result = json.loads(token_response_text)
                 
@@ -258,11 +277,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         self.csrf_token = token_data.get('acCSRFToken')
                     
                     if self.csrf_token:
-                        print(f"✓ CSRF Token получен: {self.csrf_token}")
+                        self._debug(f"✓ CSRF Token получен: {self.csrf_token}")
                     else:
-                        print("⚠ CSRF Token не получен (пустой ответ)")
+                        self._debug("⚠ CSRF Token не получен (пустой ответ)")
                 else:
-                    print(f"✗ CSRF Token запрос неуспешен: {token_result}")
+                    self._debug(f"✗ CSRF Token запрос неуспешен: {token_result}")
                     # Проверяем, не ошибка ли это аутентификации
                     if self._is_authentication_response(token_result):
                         raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена")
@@ -277,26 +296,26 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             except Exception as e:
                 if "authentication" in str(e).lower() or "401" in str(e):
                     raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {str(e)}")
-                print(f"Ошибка получения CSRF Token: {type(e).__name__}: {str(e)}")
+                self._debug(f"Ошибка получения CSRF Token: {type(e).__name__}: {str(e)}")
                 self.csrf_token = None
             
             # 3. Проверяем подключение
             if self.session_id and certificate_ok:
                 self._connected = True
-                print("✓ Подключение установлено")
+                self._debug("✓ Подключение установлено")
                 return True
             else:
                 if self._connect_browser_login():
                     return True
-                print("✗ Не удалось установить подключение")
+                self._debug("✗ Не удалось установить подключение")
                 return False
                 
         except AuthenticationError:
             # Пробрасываем AuthenticationError дальше
             raise
         except Exception as e:
-            print(f"Ошибка подключения: {type(e).__name__}: {str(e)}")
-            raise ConnectionError(f"Ошибка подключения: {str(e)}")
+            self._debug(f"Ошибка подключения: {type(e).__name__}: {str(e)}")
+            raise ConnectionError(f"Ошибка подключения: {self._redact(str(e))}")
 
 
     
@@ -336,7 +355,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             rmd = random.random()
             url = f"{self.base_url}/action.cgi?ActionID={action}&rmd={rmd}"
             
-            print(f"Отправка команды {command} на {url}")
+            self._debug(f"Отправка команды {command} на {url}")
             
             # Подготавливаем заголовки
             headers = {
@@ -375,18 +394,18 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             response = self.opener.open(request, timeout=10)
             response_text = response.read().decode('utf-8')
             self._log_command(f"[response] 200 {response_text}")
-            print(f"Ответ {command}: {response_text[:200]}...")
+            self._debug(f"Ответ {command}: {response_text[:200]}...")
             
             try:
                 result = json.loads(response_text)
                 return result
             except json.JSONDecodeError:
-                print(f"Не JSON ответ: {response_text}")
+                self._debug(f"Не JSON ответ: {response_text}")
                 return {}
             
         except Exception as e:
             self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
-            print(f"Ошибка выполнения команды {command}: {e}")
+            self._debug(f"Ошибка выполнения команды {command}: {e}")
             return {}
 
     @staticmethod
@@ -685,16 +704,16 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         """
         Установка адреса SIP сервера на кодеке Huawei TE-40
         """
-        print(f"\n=== set_sip_server called ===")
-        print(f"IP: {self.ip_address}")
-        print(f"Session ID: {self.session_id}")
-        print(f"CSRF Token: {self.csrf_token}")
-        print(f"SIP Address: {sip_address}")
+        self._debug("\n=== set_sip_server called ===")
+        self._debug(f"IP: {self.ip_address}")
+        self._debug(f"Session ID: {self.session_id}")
+        self._debug(f"CSRF Token: {self.csrf_token}")
+        self._debug(f"SIP Address: {sip_address}")
         
         if not self.is_connected():
-            print("Not connected, trying to connect...")
+            self._debug("Not connected, trying to connect...")
             if not self.connect():
-                print("Failed to connect")
+                self._debug("Failed to connect")
                 return False
         
         try:
@@ -712,24 +731,24 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             # Добавляем CSRF токен, если есть
             if self.csrf_token:
                 data["acCSRFToken"] = self.csrf_token
-                print(f"CSRF Token added to data: {self.csrf_token}")
+                self._debug("CSRF token added to request data")
             else:
-                print("No CSRF token available")
+                self._debug("No CSRF token available")
             
-            print(f"Request data: {json.dumps(data, indent=2)}")
+            self._debug({"request_data": data})
             
             # Отправляем команду сохранения конфигурации
             url = f"{self.base_url}/action.cgi?ActionID=WEB_SaveCfgParamAPI&rmd={random.random()}"
-            print(f"Request URL: {url}")
+            self._debug(f"Request URL: {url}")
             
             headers = {
                 'Content-Type': 'application/json',
                 'Sessionid': self.session_id
             }
-            print(f"Headers: {headers}")
+            self._debug({"headers": headers})
             
             data_bytes = json.dumps(data).encode('utf-8')
-            print(f"Data bytes length: {len(data_bytes)}")
+            self._debug(f"Data bytes length: {len(data_bytes)}")
             
             request = urllib.request.Request(
                 url,
@@ -738,25 +757,24 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 method='POST'
             )
             
-            print("Sending request...")
+            self._debug("Sending request...")
             response = self.opener.open(request, timeout=10)
             response_text = response.read().decode('utf-8')
-            print(f"Response: {response_text}")
+            self._debug({"response": response_text})
             
             result = json.loads(response_text)
-            print(f"Parsed result: {result}")
+            self._debug({"response": result})
             
             if result and result.get('success') == 1:
-                print(f"✓ SIP server set successfully: {sip_address}")
+                self._debug(f"✓ SIP server set successfully: {sip_address}")
                 return True
             else:
-                print(f"✗ Failed to set SIP server: {result}")
+                self._debug({"set_sip_server_result": result})
                 return False
                 
         except Exception as e:
-            print(f"Error setting SIP server: {e}")
-            import traceback
-            traceback.print_exc()
+            self._debug(f"Error setting SIP server: {e}")
+            self._debug(traceback.format_exc())
             return False  
     
     
@@ -814,7 +832,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 return None
                 
         except Exception as e:
-            print(f"Ошибка проверки SIP сервера: {e}")
+            self._debug(f"Ошибка проверки SIP сервера: {e}")
             return None
 
     def get_volume_range(self):

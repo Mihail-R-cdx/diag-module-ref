@@ -904,10 +904,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
 
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'default', 'password': ''},
-            {'username': 'admin', 'password': ''},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         current_idx = self.get_current_credential_index(device_name, ip_address)
         if current_idx >= len(creds_list):
             current_idx = 0
@@ -952,11 +949,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для Bar 310
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},
-            {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},
-            {'username': 'api', 'password': 'Change_Me'}
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.get_current_credential_index(device_name, ip_address)
@@ -1015,7 +1008,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для TE-20
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [{'username': 'api', 'password': '***REMOVED_CREDENTIAL***'}])
+        creds_list = self.device_credentials.get(device_name)
 
         # Создаем worker с текущими credentials
         current_idx = self.get_current_credential_index(device_name, ip_address)
@@ -1073,7 +1066,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для TE-40
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [{'username': 'api', 'password': ''}])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.get_current_credential_index(device_name, ip_address)
@@ -1131,11 +1124,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для Polycom
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'admin', 'password': ''},
-            {'username': 'polycom', 'password': 'polycom'},
-            {'username': 'admin', 'password': 'admin'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -1193,11 +1182,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для Extron IN1804
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': '', 'password': ''},  # Без аутентификации
-            {'username': 'admin', 'password': ''},
-            {'username': 'admin', 'password': 'admin'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -1255,10 +1240,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для PDU
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'administrator', 'password': ''},
-            {'username': 'administrator', 'password': '1'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -1771,17 +1753,10 @@ class VCSDiagnosticApp(QMainWindow):
             
             # Добавляем новый пароль в начало списка credentials для текущего устройства
             if device_name in self.device_credentials:
-                # Создаем новый credentials с пустым username (или можно спросить username)
-                # По умолчанию используем username 'api' для большинства устройств
-                default_username = 'api'
-                
-                # Для некоторых устройств нужно использовать другие username
-                if device_name == "Aten PE8208AV":
-                    default_username = 'administrator'
-                elif device_name == "Polycom RPG 310":
-                    default_username = 'admin'
-                elif device_name == "Extron IN1804":
-                    default_username = 'admin'
+                default_username = self.device_credentials[device_name][0].get('username', '')
+                if not default_username:
+                    QMessageBox.warning(self, "Внимание", "Введите логин и пароль в полном диалоге.")
+                    return
                 
                 # Создаем новый credentials
                 new_credential = {'username': default_username, 'password': password}
@@ -1804,10 +1779,8 @@ class VCSDiagnosticApp(QMainWindow):
                         self, 
                         "Успех", 
                         f"Пароль для {device_name} успешно сохранен\n"
-                        f"Username: {default_username}\n"
                         f"Пароль будет использован при следующем подключении"
                     )
-                    print(f"Добавлен новый пароль для {device_name}: {password}")
                 else:
                     QMessageBox.information(
                         self, 
@@ -1823,28 +1796,7 @@ class VCSDiagnosticApp(QMainWindow):
                             self.current_credential_index[device_name] = 0
                             break
             else:
-                # Если устройство еще не в словаре, создаем новую запись
-                default_username = 'api'
-                if device_name == "Aten PE8208AV":
-                    default_username = 'administrator'
-                elif device_name == "Polycom RPG 310":
-                    default_username = 'admin'
-                elif device_name == "Extron IN1804":
-                    default_username = 'admin'
-                
-                self.device_credentials[device_name] = [
-                    {'username': default_username, 'password': password}
-                ]
-                self.current_credential_index[device_name] = 0
-                
-                QMessageBox.information(
-                    self, 
-                    "Успех", 
-                    f"Пароль для {device_name} успешно сохранен\n"
-                    f"Username: {default_username}\n"
-                    f"Пароль будет использован при следующем подключении"
-                )
-                print(f"Создана новая запись для {device_name} с паролем: {password}")
+                self.show_password_dialog()
     
     def show_password_dialog(self):
         """Показать диалог ввода логина и пароля."""
@@ -1901,7 +1853,6 @@ class VCSDiagnosticApp(QMainWindow):
             message_title = "Успех"
             message_text = (
                 f"Credentials для {device_name} успешно сохранены\n"
-                f"Username: {username}\n"
                 f"Логин и пароль будут использованы при следующем подключении"
             )
         else:
@@ -1914,30 +1865,20 @@ class VCSDiagnosticApp(QMainWindow):
 
         self.set_current_credential_index(device_name, 0, self.ip_entry.text().strip())
         QMessageBox.information(self, message_title, message_text)
-        print(f"Сохранены credentials для {device_name}: {username}:***")
 
     def get_default_username_for_device(self, device_name):
-        """Вернуть логин по умолчанию для устройства."""
-        default_username = 'api'
-        if device_name == "Aten PE8208AV":
-            default_username = 'administrator'
-        elif device_name == "Polycom RPG 310":
-            default_username = 'admin'
-        elif device_name == "Extron IN1804":
-            default_username = 'admin'
-        return default_username
+        """Credentials must be entered explicitly; no model has an operational default."""
+        return ""
 
     def show_saved_passwords(self):
         """Отобразить список сохраненных паролей (для отладки)"""
         device_name = self.device_combo.currentText()
         if device_name in self.device_credentials:
             creds = self.device_credentials[device_name]
-            passwords_list = "\n".join([f"{i+1}. {cred['username']}:{cred['password']}" 
-                                        for i, cred in enumerate(creds)])
             QMessageBox.information(
                 self,
                 "Сохраненные пароли",
-                f"Сохраненные пароли для {device_name}:\n\n{passwords_list}"
+                f"Сохранено профилей: {len(creds)}"
             )
         else:
             QMessageBox.information(
@@ -1976,7 +1917,9 @@ class VCSDiagnosticApp(QMainWindow):
             device_name = "Huawei TE-40"
             creds_list = self.device_credentials.get(device_name, [])
             current_idx = self.current_credential_index.get(device_name, 0)
-            creds = creds_list[current_idx] if creds_list else {'username': 'api', 'password': ''}
+            if not creds_list:
+                raise CredentialConfigurationError("No resolved credentials are available for Huawei TE-40.")
+            creds = creds_list[current_idx]
             
             # Создаем worker для установки SIP
             from core.worker import HuaweiTE40Worker
@@ -2093,9 +2036,11 @@ class VCSDiagnosticApp(QMainWindow):
             device_name = "Huawei TE-40"
             creds_list = self.device_credentials.get(device_name, [])
             current_idx = self.current_credential_index.get(device_name, 0)
-            creds = creds_list[current_idx] if creds_list else {'username': 'api', 'password': ''}
+            if not creds_list:
+                raise CredentialConfigurationError("No resolved credentials are available for Huawei TE-40.")
+            creds = creds_list[current_idx]
             
-            print(f"Credentials: username='{creds['username']}', password='{creds['password']}'")
+            print("Credentials resolved for SIP request (values redacted)")
             
             # Создаем worker для установки SIP
             from core.worker import HuaweiTE40Worker
@@ -2250,13 +2195,10 @@ class VCSDiagnosticApp(QMainWindow):
         """Подготовить параметры подключения для SIP fix."""
         if device_name == "Huawei TE-40":
             port = self.huawei_settings.get('port', 443)
-            fallback = {'username': 'api', 'password': ''}
         elif device_name == "CloudLink Bar 310":
             port = self.huawei_settings.get('port', 443)
-            fallback = {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'}
         elif device_name == "Polycom RPG 310":
             port = 22
-            fallback = {'username': 'admin', 'password': ''}
         else:
             raise ValueError(f"SIP fix не поддерживается для {device_name}")
 
@@ -2268,8 +2210,9 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = 0
             creds = creds_list[0]
         else:
-            current_idx = 0
-            creds = fallback
+            raise CredentialConfigurationError(
+                f"No resolved credentials are available for {device_name}."
+            )
 
         return port, current_idx, creds
 

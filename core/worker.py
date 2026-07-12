@@ -12,15 +12,27 @@ from handlers.extron.in1804 import ExtronIN1804Handler
 from .exceptions import AuthenticationError, ConnectionError
 import traceback
 import builtins
-from core.redaction import redact_diagnostic
+from core.redaction import redact_data, redact_diagnostic, redact_exception, redacted_callback
 
 
-def _mask_secret_text(text: str, secret_values=()):
-    masked = str(text)
-    for secret in secret_values:
-        if secret:
-            masked = masked.replace(str(secret), "***")
-    return masked
+def _worker_secrets(worker):
+    values = [getattr(worker, "username", None), getattr(worker, "password", None)]
+    for credential in getattr(worker, "creds_list", ()):
+        if isinstance(credential, dict):
+            values.extend((credential.get("username"), credential.get("password")))
+    return tuple(values)
+
+
+def _safe_error(error, secrets):
+    return (
+        redact_exception(error, secrets),
+        redact_exception(traceback.format_exc(), secrets),
+    )
+
+
+def _emit_error(worker, category, error, trace=True):
+    message, details = _safe_error(error, _worker_secrets(worker))
+    worker.signals.error.emit((category, message, details if trace else ""))
 
 
 class WorkerSignals(QObject):
@@ -39,7 +51,7 @@ class HuaweiTE40Worker(QRunnable):
     """Специализированный Worker для Huawei TE-40"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'api', password: str = ''):
+                 username: str = None, password: str = None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -67,7 +79,7 @@ class HuaweiTE40Worker(QRunnable):
                 password=self.password,
                 use_ssl=True
             )
-            handler.command_logger = self.signals.terminal_log.emit
+            handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
             
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)
@@ -81,7 +93,9 @@ class HuaweiTE40Worker(QRunnable):
             except Exception as first_error:
                 first_auth_error = first_error if isinstance(first_error, AuthenticationError) else None
                 handler.disconnect()
-                self.signals.terminal_log.emit(f"[connect] HTTPS:{self.port} failed: {type(first_error).__name__}: {first_error}")
+                self.signals.terminal_log.emit(
+                    redact_exception(f"[connect] HTTPS:{self.port} failed: {type(first_error).__name__}: {first_error}", _worker_secrets(self))
+                )
 
                 handler = HuaweiTE40Handler(
                     ip_address=self.ip_address,
@@ -90,7 +104,7 @@ class HuaweiTE40Worker(QRunnable):
                     password=self.password,
                     use_ssl=False
                 )
-                handler.command_logger = self.signals.terminal_log.emit
+                handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
                 self.signals.terminal_log.emit("[connect] attempt 2/2 via HTTP:80")
                 try:
                     if not handler.connect():
@@ -125,28 +139,27 @@ class HuaweiTE40Worker(QRunnable):
             
             self.signals.progress.emit(90)
             print("Отправка результата...")
-            self.signals.result.emit(parsed_data)
+            self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
             
             print("Отключение...")
             handler.disconnect()
             self.signals.disconnected.emit()
             
         except AuthenticationError as e:
-            print(f"!!! Ошибка аутентификации в HuaweiTE40Worker: {str(e)}")
+            print(f"!!! Ошибка аутентификации в HuaweiTE40Worker: {redact_exception(e, _worker_secrets(self))}")
             # Пробрасываем как ошибку с ключевым словом authentication
-            self.signals.error.emit(('authentication_error', str(e), traceback.format_exc()))
+            _emit_error(self, 'authentication_error', e)
         except Exception as e:
-            print(f"!!! Ошибка в HuaweiTE40Worker: {type(e).__name__}: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"!!! Ошибка в HuaweiTE40Worker: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
+            print(redact_exception(traceback.format_exc(), _worker_secrets(self)))
             
             error_data = {
                 'ip_address': self.ip_address,
                 'Модель': 'Huawei TE40',
                 'Версия ПО': 'Ошибка подключения',
-                'Сообщение': f'Ошибка: {str(e)}'
+                'Сообщение': f'Ошибка: {redact_exception(e, _worker_secrets(self))}'
             }
-            self.signals.result.emit(error_data)
+            self.signals.result.emit(redact_data(error_data, _worker_secrets(self)))
         finally:
             self.signals.finished.emit()
         
@@ -213,10 +226,9 @@ class HuaweiTE40Worker(QRunnable):
                 })
                 
         except Exception as e:
-            print(f"Exception in set_sip_server: {e}")
-            import traceback
-            traceback.print_exc()
-            self.signals.error.emit(('set_sip_server_error', str(e), traceback.format_exc()))
+            print(f"Exception in set_sip_server: {redact_exception(e, _worker_secrets(self))}")
+            print(redact_exception(traceback.format_exc(), _worker_secrets(self)))
+            _emit_error(self, 'set_sip_server_error', e)
 
 
 class CodecSipFixWorker(QRunnable):
@@ -262,13 +274,15 @@ class CodecSipFixWorker(QRunnable):
     def run(self):
         handler = None
         try:
+            if not self.username or not self.password:
+                raise AuthenticationError("Credentials are required before setting a SIP server.")
             self.signals.status.emit(
                 f"Подключение к {self.device_name} для установки SIP сервера..."
             )
             self.signals.progress.emit(10)
 
             handler = self._create_handler()
-            handler.command_logger = self.signals.terminal_log.emit
+            handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
             handler.connect()
 
             self.signals.status.emit(f"Устанавливаю SIP сервер: {self.sip_server}...")
@@ -306,9 +320,9 @@ class CodecSipFixWorker(QRunnable):
 
             self.signals.progress.emit(100)
         except AuthenticationError as e:
-            self.signals.error.emit(('authentication_error', str(e), traceback.format_exc()))
+            _emit_error(self, 'authentication_error', e)
         except Exception as e:
-            self.signals.error.emit(('set_sip_server_error', str(e), traceback.format_exc()))
+            _emit_error(self, 'set_sip_server_error', e)
         finally:
             if handler:
                 try:
@@ -376,7 +390,7 @@ class HuaweiBar310Worker(QRunnable):
                     username=creds['username'],
                     password=creds['password']
                 )
-                handler.command_logger = self.signals.terminal_log.emit
+                handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
                 
                 self.signals.status.emit("Подключаюсь к устройству...")
                 self.signals.progress.emit(30)
@@ -406,7 +420,7 @@ class HuaweiBar310Worker(QRunnable):
                 
                 self.signals.progress.emit(90)
                 print("Отправка результата...")
-                self.signals.result.emit(parsed_data)
+                self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
                 
                 print("Отключение...")
                 handler.disconnect()
@@ -422,22 +436,22 @@ class HuaweiBar310Worker(QRunnable):
                 return
                 
             except AuthenticationError as e:
-                print(f"[BAR310] Ошибка аутентификации на попытке #{attempt_no}: {str(e)}")
+                print(f"[BAR310] Ошибка аутентификации на попытке #{attempt_no}: {redact_exception(e, _worker_secrets(self))}")
                 if attempt_no < total_creds:
                     print("[BAR310] Пробуем следующие credentials...")
                     continue
                 print("[BAR310] Все credentials исчерпаны, пробрасываем ошибку")
-                self.signals.error.emit(('authentication_error', str(e), traceback.format_exc()))
+                _emit_error(self, 'authentication_error', e)
                 self.signals.finished.emit()
                 return
                     
             except Exception as e:
-                print(f"[BAR310] Ошибка подключения на попытке #{attempt_no}: {type(e).__name__}: {str(e)}")
+                print(f"[BAR310] Ошибка подключения на попытке #{attempt_no}: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
                 if attempt_no < total_creds:
                     print("[BAR310] Пробуем следующие credentials...")
                     continue
                 print("[BAR310] Все credentials исчерпаны, пробрасываем ошибку")
-                self.signals.error.emit(('connection_error', str(e), traceback.format_exc()))
+                _emit_error(self, 'connection_error', e)
                 self.signals.finished.emit()
                 return
                     
@@ -486,7 +500,7 @@ class PolycomRPG310Worker(QRunnable):
                 username=self.username,
                 password=self.password
             )
-            handler.command_logger = self.signals.terminal_log.emit
+            handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
             
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)
@@ -520,7 +534,7 @@ class PolycomRPG310Worker(QRunnable):
                 'label': f"HTTPS:{handler.port}",
             }
             parsed_data['_partial_update'] = True
-            self.signals.result.emit(parsed_data)
+            self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
 
             self.signals.status.emit("Подключение по SSH для дополнительных параметров...")
             self.signals.progress.emit(68)
@@ -559,22 +573,22 @@ class PolycomRPG310Worker(QRunnable):
             
             self.signals.progress.emit(100)
             print("Отправка результата в GUI...")
-            self.signals.result.emit(parsed_data)
+            self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
             
         except AuthenticationError as e:
-            print(f"!!! Ошибка аутентификации в PolycomRPG310Worker: {str(e)}")
-            self.signals.error.emit(('authentication_error', str(e), traceback.format_exc()))
+            print(f"!!! Ошибка аутентификации в PolycomRPG310Worker: {redact_exception(e, _worker_secrets(self))}")
+            _emit_error(self, 'authentication_error', e)
         except Exception as e:
-            print(f"!!! Ошибка в PolycomRPG310Worker: {type(e).__name__}: {str(e)}")
-            traceback.print_exc()
+            print(f"!!! Ошибка в PolycomRPG310Worker: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
+            print(redact_exception(traceback.format_exc(), _worker_secrets(self)))
             
             error_data = {
                 'ip_address': self.ip_address,
                 'Модель': 'Polycom RealPresence Group 310',
                 'Версия ПО': 'Ошибка подключения',
-                'Сообщение': f'Ошибка: {str(e)}'
+                'Сообщение': f'Ошибка: {redact_exception(e, _worker_secrets(self))}'
             }
-            self.signals.result.emit(error_data)
+            self.signals.result.emit(redact_data(error_data, _worker_secrets(self)))
         finally:
             if handler is not None:
                 try:
@@ -645,7 +659,7 @@ class BiampTesiraForteCIWorker(QRunnable):
                     parsed_data["ip_address"] = self.ip_address
 
                     self.signals.progress.emit(100)
-                    self.signals.result.emit(parsed_data)
+                    self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
                     self.signals.disconnected.emit()
                     return
                 except AuthenticationError:
@@ -653,7 +667,7 @@ class BiampTesiraForteCIWorker(QRunnable):
                         continue
                     raise
                 except Exception as exc:
-                    safe_error = _mask_secret_text(str(exc), (creds.get("password", ""),))
+                    safe_error = redact_exception(exc, _worker_secrets(self))
                     if attempt_no < total_creds and "auth" in safe_error.lower():
                         continue
                     raise RuntimeError(safe_error) from None
@@ -664,9 +678,9 @@ class BiampTesiraForteCIWorker(QRunnable):
                         except Exception:
                             pass
         except AuthenticationError as exc:
-            self.signals.error.emit(("authentication_error", _mask_secret_text(str(exc), [self.password]), ""))
+            _emit_error(self, "authentication_error", exc, trace=False)
         except Exception as exc:
-            self.signals.error.emit(("connection_error", _mask_secret_text(str(exc), [self.password]), traceback.format_exc()))
+            _emit_error(self, "connection_error", exc)
         finally:
             self.signals.finished.emit()
 
@@ -697,7 +711,7 @@ class ExtronIN1804Worker(QRunnable):
                 username=self.username,
                 password=self.password
             )
-            self.handler.log_callback = self.signals.terminal_log.emit
+            self.handler.log_callback = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
             
             self.signals.status.emit("Установка соединения...")
             self.signals.progress.emit(20)
@@ -719,12 +733,11 @@ class ExtronIN1804Worker(QRunnable):
             
             self.signals.progress.emit(100)
             self.signals.status.emit("Готово!")
-            self.signals.result.emit(parsed_data)
+            self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
             
         except Exception as e:
             import traceback
-            error_traceback = traceback.format_exc()
-            error_message = str(e)
+            error_message, error_traceback = _safe_error(e, _worker_secrets(self))
             if "authentication" in error_message.lower():
                 self.signals.error.emit(("authentication_error", error_message, error_traceback))
             else:
@@ -806,7 +819,7 @@ class AtenPDUWorker(QRunnable):
                     }
 
                     self.signals.progress.emit(100)
-                    self.signals.result.emit(result)
+                    self.signals.result.emit(redact_data(result, _worker_secrets(self)))
                     return
 
                 except AuthenticationError:
@@ -823,11 +836,11 @@ class AtenPDUWorker(QRunnable):
                     raise
 
         except AuthenticationError as e:
-            self.signals.error.emit(('authentication_error', str(e), ''))
+            _emit_error(self, 'authentication_error', e, trace=False)
         except ConnectionError as e:
-            self.signals.error.emit(('connection', str(e), ''))
+            _emit_error(self, 'connection', e, trace=False)
         except Exception as e:
-            self.signals.error.emit(('unknown', str(e), traceback.format_exc()))
+            _emit_error(self, 'unknown', e)
         finally:
             if self.handler:
                 self.handler.disconnect()
