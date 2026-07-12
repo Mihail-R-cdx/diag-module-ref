@@ -85,3 +85,81 @@ changed by this report.
 
 No Critical, High, or Medium finding remains from the independent validation.
 The change is ready for final independent validation before archive.
+
+## Independent final validation
+
+Validation date: 2026-07-12 (Europe/Moscow).
+
+The independently validated implementation is
+`433023510f3384b0932385ae1399a3197fd6fe2b` — `Redact username key-value
+diagnostics`. `git fetch origin`,
+`git rev-parse origin/agent/bootstrap-openspec-baseline`, and
+`git log -1 --format="%H%n%s" origin/agent/bootstrap-openspec-baseline`
+confirmed that the remote branch resolved to that exact SHA and subject.
+
+Validation ran in the separate clean worktree
+`.independent-final-validation`, detached at that remote revision. Before
+testing, `git rev-parse HEAD` returned the implementation SHA and
+`git status --short` was empty; therefore local HEAD and the fetched remote
+branch matched. No `AGENTS.md` was present in that checkout.
+
+### Independent checks and results
+
+- Reviewed the proposal, design, tasks, both change specs, and the preceding
+  report as claims rather than evidence. The last implementation diff changes
+  only `core/redaction.py`, this report, and `tests/test_redaction.py`.
+- Reviewed `core/redaction.py`: `_SENSITIVE_TEXT_VALUE` includes the exact
+  case-insensitive `username` key, accepts `:` and `=`, surrounding spaces,
+  and single- or double-quoted values. Its word boundaries leave `user`,
+  `userType`, `user_count`, and `username_status` outside this exact-key
+  policy. A direct synthetic-value check with `secrets=()` verified all eight
+  requested spellings and preserved ordinary diagnostic context.
+- Reviewed `test_redacts_unknown_username_key_value_from_exception_text`:
+  it supplies no username through `secrets`, exercises all eight spellings,
+  removes the synthetic value, emits `<redacted>`, and keeps the non-sensitive
+  message context. `test_te40_operation_exception_and_traceback_are_redacted`
+  uses an unbound exception username absent from handler credential and other
+  secret state; it checks stdout and `command_logger` while also covering the
+  synthetic credentials, Session ID, CSRF, cookie, and Authorization value.
+- Rechecked the previously closed boundaries through the passing suite and
+  focused tests: TE-40 initial Session ID and CSRF handling, status exceptions,
+  SIP update/verification exceptions, GUI SIP exception handling, and worker
+  error/traceback boundaries. The GUI baseline test confirms `950 x 950`.
+  `rg` found exactly one `fix_sip_huawei_te40` and one `on_sip_fix_error`
+  definition. Those production areas were not changed after the preceding
+  validation apart from the shared text-redaction update.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction.RedactionTests.test_redacts_unknown_username_key_value_from_exception_text`
+  — passed: 1 test in 0.000 s.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction`
+  — passed: 8 tests in 0.332 s.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction tests.test_credential_propagation tests.test_gui_theme`
+  — passed: 25 tests in 0.374 s.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest discover -s tests -p 'test_*.py'`
+  — passed: 61 tests in 0.881 s. This matches the committed report's expected
+  full-suite count; it completed as one offline process without live hardware,
+  network calls, a real `credentials.local.json`, a Qt crash, or hung threads.
+- `..\\openspec.cmd validate externalize-device-credentials --strict` — passed:
+  `Change 'externalize-device-credentials' is valid`.
+- `git check-ignore -v credentials.local.json` identified the `.gitignore`
+  rule; `git ls-files -- credentials.local.json` returned no file;
+  `git diff --check` and the post-test `git status --short` were clean. A real
+  credential file was neither created nor read.
+
+Tasks 5.1, 5.2, 5.3, 6.8, 6.11, 7.2, and 7.7 are supported by the inspected
+implementation and passing checks above. Tasks 7.3, 7.6, and 7.8 remain the
+recorded owner decisions and are unchanged. The preceding report's username
+finding, test counts, strict-validation assertion, protection assertion, and
+absence of Critical/High/Medium findings agree with this independent result.
+
+Findings: none at Critical, High, Medium, or Low severity. The test output
+contains existing Python SSL deprecation warnings, but no failure, production
+diff, or change-scope issue.
+
+Verdict: **APPROVE**. Archive is permitted by this verdict, but no archive
+operation was performed in this session.
+
+The validation record commit is created immediately after this report is
+written. Its SHA is necessarily emitted by Git after the commit is created
+(a commit cannot contain its own hash); it is recorded in the commit and push
+evidence accompanying this report. It is distinct from the validated
+implementation SHA above.
