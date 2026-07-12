@@ -14,8 +14,8 @@ warnings.filterwarnings('ignore')
 class AtenPDUHandler(ProtocolHandler):
     """Обработчик для PDU Aten (серия PE)"""
     
-    def __init__(self, ip_address: str, port: int = 443, username: str = 'administrator', 
-                 password: str = '', use_ssl: bool = True, verify_ssl: bool = False):
+    def __init__(self, ip_address: str, port: int = 443, username: str = None,
+                 password: str = None, use_ssl: bool = True, verify_ssl: bool = False):
         super().__init__(ip_address, port)
         
         self.username = username
@@ -128,6 +128,8 @@ class AtenPDUHandler(ProtocolHandler):
     
     def connect(self) -> bool:
         """Подключение к PDU (проверка доступности)"""
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Aten PDU.")
         try:
             # Пробуем получить статус устройства для проверки подключения
             resp = self._api_request("GET", "/api/device/relay")

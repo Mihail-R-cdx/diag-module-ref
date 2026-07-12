@@ -22,9 +22,9 @@ class WorkerSignals(QObject):
 
 
 class HuaweiTE20Worker(QRunnable):
-    """Специализированный worker для Huawei TE-20."""
+    """Специализированный worker для Huawei TE20."""
 
-    def __init__(self, ip_address: str, port: int = 80, username: str = "api", password: str = ""):
+    def __init__(self, ip_address: str, port: int = 80, username: str = None, password: str = None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -79,6 +79,8 @@ class HuaweiTE20Worker(QRunnable):
         handler = None
 
         try:
+            if not self.creds_list and (not self.username or not self.password):
+                raise AuthenticationError("Credentials are required for Huawei TE20 before connecting.")
             self._log(f"[session] start {self.ip_address}")
             self._emit(self.signals.status, "Начинаю подключение к TE-20...")
             self._emit(self.signals.progress, 10)
@@ -99,10 +101,9 @@ class HuaweiTE20Worker(QRunnable):
                 self.password = creds.get("password", self.password)
 
                 self._log(f"[session] attempt {attempt_no}/{total_creds}")
-                self._log(f"[auth] username={self.username}")
                 print(
                     f"[TE20] Credential attempt #{attempt_no}/{total_creds} "
-                    f"(#{actual_idx + 1}) user='{self.username}'"
+                    f"(#{actual_idx + 1}); values redacted"
                 )
 
                 credential_auth_error = None

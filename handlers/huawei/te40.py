@@ -17,7 +17,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     """Обработчик для Huawei TE-40 с рабочей реализацией подключения"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'api', password: str = '',
+                 username: str = None, password: str = None,
                  use_ssl: bool = True, verify_ssl: bool = False):
         super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
         self.device_model = 'Huawei TE-40'

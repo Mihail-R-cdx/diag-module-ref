@@ -34,8 +34,8 @@ class PolycomRPG310Handler:
         self,
         ip_address: str,
         port: int = 443,
-        username: str = "admin",
-        password: str = "",
+        username: str = None,
+        password: str = None,
         timeout: int = 10,
     ):
         self.ip_address = ip_address
@@ -58,6 +58,19 @@ class PolycomRPG310Handler:
         }
 
     def _log_command(self, message: str) -> None:
+        if message.startswith("[payload]"):
+            message = "[payload] <redacted>"
+        elif message.startswith("[response]"):
+            parts = message.split(maxsplit=2)
+            prefix = " ".join(parts[:2]) if len(parts) > 1 else "[response]"
+            message = f"{prefix} <body redacted>"
+        elif message.startswith("[error] HTTP") and ":" in message:
+            message = message.split(":", 1)[0] + ": <body redacted>"
+
+        for secret in (self.username, self.password):
+            if secret and len(str(secret)) >= 4:
+                message = message.replace(str(secret), "<redacted>")
+
         logger = getattr(self, "command_logger", None)
         if callable(logger):
             logger(message)
@@ -112,6 +125,8 @@ class PolycomRPG310Handler:
             raise CommandError(f"Invalid JSON response from Polycom: {error}")
 
     def connect(self) -> bool:
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Polycom.")
         try:
             self._log_command(f"[connect] HTTPS:{self.port} {self.ip_address}")
             context = ssl._create_unverified_context()
@@ -144,10 +159,29 @@ class PolycomRPG310Handler:
             raise ConnectionError(f"Polycom HTTPS connection failed: {error}")
 
     def disconnect(self):
-        self.opener = None
-        self.authenticated = False
-        self._disconnect_ssh()
-        self._log_command("[disconnect] HTTPS session closed")
+        try:
+            if self.opener is not None and self.authenticated:
+                try:
+                    self._request_json(
+                        "/rest/session",
+                        method="POST",
+                        payload={"action": "Logout"},
+                        headers={
+                            "Origin": self.base_url,
+                            "Referer": f"{self.base_url}/index.html",
+                        },
+                    )
+                    self._log_command("[disconnect] server session logged out")
+                except Exception as error:
+                    self._log_command(
+                        "[warn] server logout failed: "
+                        f"{type(error).__name__}: {error}"
+                    )
+        finally:
+            self.opener = None
+            self.authenticated = False
+            self._disconnect_ssh()
+            self._log_command("[disconnect] HTTPS session closed")
 
     def is_connected(self) -> bool:
         return bool(self.opener and self.authenticated)
@@ -188,7 +222,7 @@ class PolycomRPG310Handler:
             output = self._read_ssh_channel()
             if "password failed" in output.lower():
                 self._disconnect_ssh()
-                raise AuthenticationError(f"SSH authentication failed for {self.username}")
+                raise AuthenticationError("SSH authentication failed")
             self._log_command("[connect] SSH session established")
             return True
         except paramiko.AuthenticationException as error:
@@ -485,6 +519,7 @@ class PolycomRPG310Handler:
             )
             status["serial_number"] = config.get("system.info.serialnumber")
             status["mac_address"] = config.get("system.network.wired.ethernet.macaddress")
+            status["sip_address"] = config.get("comm.nics.sipnic.sipusername")
             status["system_name"] = config.get("system.info.systemname")
             status["model"] = (
                 config.get("system.info.humanreadablemodel")

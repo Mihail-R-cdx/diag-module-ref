@@ -14,6 +14,8 @@ from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
+from core.credentials import JsonCredentialProvider, resolve_request_credentials
+from core.exceptions import CredentialConfigurationError
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QPainter
@@ -69,6 +71,19 @@ class MatrixTerminalDialog(QDialog):
         self.output.appendPlainText(text)
         self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
 
+
+class RequestCredentialStore(dict):
+    """Compatibility bridge for explicit UI/test credentials and the provider."""
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+
+    def get(self, device_name, default=None):
+        if device_name in self:
+            return super().get(device_name)
+        return [self.owner.resolve_device_credentials(device_name)]
+
 class VCSDiagnosticApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -108,69 +123,14 @@ class VCSDiagnosticApp(QMainWindow):
         
         self.huawei_settings = {
             'port': 443,
-            'username': 'api',
-            'password': '***REMOVED_CREDENTIAL***',
             'use_ssl': True,
-            'verify_ssl': False
-        }        
-        
-        # Список credentials для разных устройств
-        self.device_credentials = {
-            "Huawei TE-40": [
-                {'username': 'admin', 'password': '***REMOVED_CREDENTIAL***'},        # По умолчанию
-                {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},        # По умолчанию
-                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},          # Альтернатива 1
-            ],
-            "CloudLink Bar 310": [                          # Добавлено для Bar 310
-                {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},        # По умолчанию
-                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'},          # Альтернатива 1
-                {'username': 'user', 'password': '***REMOVED_CREDENTIAL***'},      # Альтернатива 2
-            ],
-            "Huawei TE-20": [
-                {'username': 'admin', 'password': '***REMOVED_CREDENTIAL***'},
-                {'username': 'api', 'password': '***REMOVED_CREDENTIAL***'},
-                {'username': 'debug', 'password': '***REMOVED_CREDENTIAL***'}              
-            ],
-            "CloudLink Box 300": [
-                {'username': 'admin', 'password': ''},
-                {'username': 'api', 'password': 'api'},
-            ],
-            "Polycom RPG 310": [
-                {'username': 'admin', 'password': '***REMOVED_CREDENTIAL***'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'polycom', 'password': 'polycom'},
-            ],
-            "Extron IN1804": [
-                {'username': 'admin', 'password': 'NbCfD26xm'},     
-                {'username': 'admin', 'password': 'Hi-Tech!1'},
-                {'username': 'extron', 'password': 'extron'},
-            ],      
-            "Aten PE8208AV": [
-                {'username': 'administrator', 'password': 'w8O0MbQQA1J.'},
-                {'username': 'administrator', 'password': 'ZadF123@Hhr6'},
-                {'username': 'administrator', 'password': 'Polymedia10@'},
-                {'username': 'administrator', 'password': 'A1b2@c3D4_e5'},
-                {'username': 'administrator', 'password': 'I5FM95S.T0aI'},
-                {'username': 'administrator', 'password': '5'},
-                {'username': 'administrator', 'password': '6'},
-                {'username': 'administrator', 'password': '7'},
-                {'username': 'administrator', 'password': '8'},
-                {'username': 'administrator', 'password': '9'},
-                {'username': 'administrator', 'password': '0'},
-                {'username': 'admin', 'password': ''},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'administrator', 'password': 'administrator'},
-            ],            
-            "Biamp Tesira Forte CI": [
-                {'username': 'default', 'password': ''},
-                {'username': 'admin', 'password': ''},
-            ],
+            'verify_ssl': False,
         }
         
-        # Текущий индекс credentials для каждого устройства
+        self.credential_provider = JsonCredentialProvider()
+        # Tests and explicit callers may inject request-scoped values here.
+        self.device_credentials = RequestCredentialStore(self)
         self.current_credential_index = {}
-        for device in self.device_credentials:
-            self.current_credential_index[device] = 0
         self.device_connection_profiles = {}
         
         
@@ -201,6 +161,16 @@ class VCSDiagnosticApp(QMainWindow):
         self.update_timer.setInterval(30000)
         self.update_timer.timeout.connect(self.update_time_display)
         self.update_timer.start()
+
+    def resolve_device_credentials(self, device_name, profile_name=None, explicit_credentials=None):
+        """Resolve credentials once in the GUI composition layer."""
+        credential = resolve_request_credentials(
+            self.credential_provider,
+            device_model=device_name,
+            profile_name=profile_name,
+            explicit_credentials=explicit_credentials,
+        )
+        return credential.as_handler_kwargs()
     
     def init_ui(self, params=None):
         """Инициализация интерфейса"""

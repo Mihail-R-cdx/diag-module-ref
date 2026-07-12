@@ -47,12 +47,15 @@ class HuaweiTE40Worker(QRunnable):
 
     @pyqtSlot()
     def run(self):
+        handler = None
         try:
+            if not self.username or not self.password:
+                raise AuthenticationError("Credentials are required for Huawei TE40 before connecting.")
             self.signals.status.emit("Начинаю подключение...")
             self.signals.progress.emit(10)
             
             print(f"=== HuaweiTE40Worker.run() для {self.ip_address} ===")
-            print(f"[WORKER] 🔐 Логин: '{self.username}', Пароль: '{self.password}'")
+            print("[WORKER] 🔐 Credentials загружены (значения скрыты)")
             print(f"[WORKER] --- Начало попытки аутентификации ---")
             
             handler = HuaweiTE40Handler(
@@ -137,7 +140,7 @@ class HuaweiTE40Worker(QRunnable):
             
             error_data = {
                 'ip_address': self.ip_address,
-                'Модель': 'Huawei TE-40',
+                'Модель': 'Huawei TE40',
                 'Версия ПО': 'Ошибка подключения',
                 'Сообщение': f'Ошибка: {str(e)}'
             }
@@ -153,7 +156,7 @@ class HuaweiTE40Worker(QRunnable):
         print(f"\n=== HuaweiTE40Worker.set_sip_server called ===")
         print(f"IP: {self.ip_address}")
         print(f"Port: {self.port}")
-        print(f"Username: {self.username}")
+        print("Credentials: <redacted>")
         print(f"SIP Address: {sip_address}")
         
         try:
@@ -171,8 +174,8 @@ class HuaweiTE40Worker(QRunnable):
             handler.connect()
             
             print("Connected successfully")
-            print(f"Session ID: {handler.session_id}")
-            print(f"CSRF Token: {handler.csrf_token}")
+            print("Session ID: <redacted>")
+            print("CSRF Token: <redacted>")
             
             print("Calling set_sip_server...")
             success = handler.set_sip_server(sip_address)
@@ -229,7 +232,7 @@ class CodecSipFixWorker(QRunnable):
         self.signals = WorkerSignals()
 
     def _create_handler(self):
-        if self.device_name == "Huawei TE-40":
+        if self.device_name == "Huawei TE40":
             return HuaweiTE40Handler(
                 ip_address=self.ip_address,
                 port=self.port,
@@ -317,7 +320,7 @@ class HuaweiBar310Worker(QRunnable):
     """Специализированный Worker для Huawei CloudLink Bar 310 с перебором credentials"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'api', password: str = '',
+                 username: str = None, password: str = None,
                  creds_list: list = None):
         super().__init__()
         self.ip_address = ip_address
@@ -325,13 +328,6 @@ class HuaweiBar310Worker(QRunnable):
         self.username = username
         self.password = password
         self.signals = WorkerSignals()
-        
-        self.password_list = [
-            "***REMOVED_CREDENTIAL***",
-            "Change_Me",
-            "api",
-            "admin",
-        ]
         
         self.handler = None
         self.creds_list = creds_list if creds_list is not None else []
@@ -341,15 +337,13 @@ class HuaweiBar310Worker(QRunnable):
     @pyqtSlot()
     def run(self):
         """Основной метод работы с циклом перебора credentials"""
-        creds_to_try = self.creds_list if self.creds_list else [
-            {'username': 'api', 'password': pwd} for pwd in self.password_list
+        creds_to_try = self.creds_list or [
+            {'username': self.username, 'password': self.password}
         ]
-        
-        if not creds_to_try:
-            creds_to_try = [
-                {'username': 'api', 'password': pwd}
-                for pwd in self.password_list
-            ]
+        if not all(creds.get('username') and creds.get('password') for creds in creds_to_try):
+            self.signals.error.emit(('authentication_error', 'Credentials are required for CloudLink Bar 310 before connecting.', ''))
+            self.signals.finished.emit()
+            return
         
         total_creds = len(creds_to_try)
         start_idx = self.current_idx if 0 <= self.current_idx < total_creds else 0
@@ -455,7 +449,7 @@ class PolycomRPG310Worker(QRunnable):
     """Специализированный Worker для Polycom RealPresence Group 310"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'admin', password: str = ''):
+                 username: str = None, password: str = None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -465,12 +459,15 @@ class PolycomRPG310Worker(QRunnable):
     
     @pyqtSlot()
     def run(self):
+        handler = None
         try:
+            if not self.username or not self.password:
+                raise AuthenticationError("Credentials are required for Polycom RPG 310 before connecting.")
             self.signals.status.emit("Начинаю подключение к Polycom RPG 310...")
             self.signals.progress.emit(10)
             
             print(f"=== PolycomRPG310Worker.run() для {self.ip_address} ===")
-            print(f"[WORKER] 🔐 Логин: '{self.username}', Пароль: '{self.password}'")
+            print("[WORKER] 🔐 Credentials загружены (значения скрыты)")
             print(f"[WORKER] --- Начало попытки аутентификации ---")
             
             # Импортируем обработчик
@@ -498,7 +495,10 @@ class PolycomRPG310Worker(QRunnable):
 
             print("Вызываю handler.get_https_status()...")
             raw_data = handler.get_https_status()
-            print(f"get_https_status() вернул: {raw_data}")
+            print(
+                "get_https_status() вернул поля:",
+                sorted(str(key) for key in raw_data),
+            )
 
             self.signals.status.emit("Отображаю данные HTTPS...")
             self.signals.progress.emit(60)
@@ -528,11 +528,14 @@ class PolycomRPG310Worker(QRunnable):
 
             print("Парсинг данных...")
             parsed_data = PolycomDataParser.parse_raw_data(raw_data)
-            print(f"Парсинг завершен. Результат для GUI: {parsed_data}")
+            print(
+                "Парсинг завершен. Поля GUI:",
+                sorted(str(key) for key in parsed_data),
+            )
             
             # Проверяем, есть ли громкость в parsed_data
             if 'Громкость' in parsed_data:
-                print(f"Громкость в parsed_data: {parsed_data['Громкость']}")
+                print("Громкость присутствует в parsed_data")
             else:
                 print("ВНИМАНИЕ: Громкость отсутствует в parsed_data!")
             
@@ -551,10 +554,6 @@ class PolycomRPG310Worker(QRunnable):
             print("Отправка результата в GUI...")
             self.signals.result.emit(parsed_data)
             
-            print("Отключение...")
-            handler.disconnect()
-            self.signals.disconnected.emit()
-            
         except AuthenticationError as e:
             print(f"!!! Ошибка аутентификации в PolycomRPG310Worker: {str(e)}")
             self.signals.error.emit(('authentication_error', str(e), traceback.format_exc()))
@@ -570,13 +569,23 @@ class PolycomRPG310Worker(QRunnable):
             }
             self.signals.result.emit(error_data)
         finally:
+            if handler is not None:
+                try:
+                    print("Отключение...")
+                    handler.disconnect()
+                    self.signals.disconnected.emit()
+                except Exception as error:
+                    print(
+                        "Ошибка cleanup Polycom worker: "
+                        f"{type(error).__name__}"
+                    )
             self.signals.finished.emit()
             
 
 class BiampTesiraForteCIWorker(QRunnable):
     """Read-only worker for Biamp Tesira Forte CI audio-DSP signal status."""
 
-    def __init__(self, ip_address: str, username: str = "default", password: str = ""):
+    def __init__(self, ip_address: str, username: str = None, password: str = None):
         super().__init__()
         self.ip_address = ip_address
         self.username = username
@@ -725,7 +734,7 @@ class AtenPDUWorker(QRunnable):
     """Worker для асинхронной работы с PDU Aten"""
     
     def __init__(self, ip_address: str, port: int = 443, 
-                 username: str = 'administrator', password: str = ''):
+                 username: str = None, password: str = None):
         super().__init__()
         
         self.ip_address = ip_address
@@ -733,26 +742,6 @@ class AtenPDUWorker(QRunnable):
         self.username = username
         self.password = password
         self.signals = WorkerSignals()
-        
-        # Список паролей для перебора
-        self.password_list = [
-            "ZadF123@Hhr6",
-            "w8O0MbQQA1J.",
-            "A1b2@c3D4_e5", 
-            "I5FM95S.T0aI",
-            "lq.zkRvfj8uz",
-            "fl4SMhh0@FLh",
-            "oaFR.HW90VM9",
-            "G2c6cTA5.Iu@",
-            "H5Ns7E6KY0.x",
-            "uFg3qA.uД±Oga",
-            "kJTba47ma.Oq",
-            "YaZ15Had.asN",
-            "Polymedia10@",
-            # 🔹 Можно добавить свои:
-            # "my_custom_pass",
-            # "another_pass",
-        ]
         
         self.handler = None
         self.creds_list = []  # Будет заполнено в refresh_data
@@ -762,13 +751,11 @@ class AtenPDUWorker(QRunnable):
     @pyqtSlot()
     def run(self):
         """Основной метод работы в потоке"""
-        creds_to_try = self.creds_list if self.creds_list else [
-            {'username': self.username, 'password': pwd}
-            for pwd in self.password_list
-        ]
-
-        if not creds_to_try:
-            creds_to_try = [{'username': self.username, 'password': self.password}]
+        creds_to_try = self.creds_list or [{'username': self.username, 'password': self.password}]
+        if not all(creds.get('username') and creds.get('password') for creds in creds_to_try):
+            self.signals.error.emit(('authentication_error', 'Credentials are required for Aten PDU before connecting.', ''))
+            self.signals.finished.emit()
+            return
 
         total_creds = len(creds_to_try)
         start_idx = self.current_idx if 0 <= self.current_idx < total_creds else 0

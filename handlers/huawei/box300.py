@@ -5,7 +5,7 @@ class CloudLinkBox300Handler(BaseHuaweiCodecHandler):
     """Обработчик для Huawei CloudLink Box 300"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'admin', password: str = '',
+                 username: str = None, password: str = None,
                  use_ssl: bool = True, verify_ssl: bool = False):
         super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
         self.device_model = 'Huawei CloudLink Box 300'
@@ -127,8 +127,8 @@ class CloudLinkBox300Handler(BaseHuaweiCodecHandler):
         
         for attempt in range(retries):
             try:
-                auth = (self.credentials.get('username', 'admin'), 
-                       self.credentials.get('password', ''))
+                auth = (self.credentials.get('username'),
+                       self.credentials.get('password'))
                 
                 if method.upper() == 'GET':
                     response = self.session.get(url, auth=auth, timeout=10)

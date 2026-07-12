@@ -22,10 +22,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     """Обработчик для Huawei CloudLink Bar 310"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'api', password: str = '',
+                 username: str = None, password: str = None,
                  use_ssl: bool = True, verify_ssl: bool = False):
         print(f"=== CloudLinkBar310Handler.__init__ для {ip_address} ===")
-        print(f"[INIT] Инициализация handler с логином: '{username}', паролем: '{password}'")
+        print("[INIT] Credentials загружены (значения скрыты)")
         super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
         self.device_model = 'Huawei CloudLink Bar 310'
         self.base_url = f"https://{ip_address}:{port}"
@@ -66,6 +66,19 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             self.session.mount("https://", SSLAdapter(ssl_context=legacy_context))
 
     def _log_command(self, message: str) -> None:
+        if message.startswith("[payload]"):
+            message = "[payload] <redacted>"
+        elif message.startswith("[response]"):
+            parts = message.split(maxsplit=2)
+            message = " ".join(parts[:2]) + " <body redacted>"
+        else:
+            for secret in (
+                self.username,
+                self.password,
+                getattr(self, "acCSRFToken", None),
+            ):
+                if secret:
+                    message = message.replace(str(secret), "<redacted>")
         logger = getattr(self, 'command_logger', None)
         if callable(logger):
             logger(message)
@@ -100,9 +113,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 "password": self.password
             }
             self._log_command(f"[request] POST {self.base_url}/{endpoint}")
-            self._log_command(f"[payload] {json.dumps(data, ensure_ascii=False)}")
+            self._log_command("[payload] <redacted credentials>")
             
-            print(f"🔐 Попытка аутентификации с логином: {self.username}")
+            print("🔐 Попытка аутентификации (credentials скрыты)")
             result = self._make_request(endpoint, data=data)
             
             if result and result.get('success') == 1:
@@ -222,7 +235,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 print(f"  🔗 Ссылка для браузера: {url}")
             
             if request_data:
-                print(f"  -> Данные: {request_data}")
+                print("  -> Данные: <redacted>")
                 self._log_command(f"[payload] {request_data}")
             
             response = self.session.request(
@@ -234,26 +247,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             )
             self._log_command(f"[response] {response.status_code} {response.text}")
             
-            # ВЫВОД СЫРОГО ОТВЕТА
-            print(f"  ! Сырой ответ (статус {response.status_code}):")
-            if response.text:
-                # Пытаемся распарсить и вывести красиво
-                try:
-                    parsed = json.loads(response.text)
-                    # Если есть поле data с строкой JSON, распарсим и его
-                    if isinstance(parsed, dict) and 'data' in parsed and isinstance(parsed['data'], str):
-                        try:
-                            inner_data = json.loads(parsed['data'])
-                            parsed['data'] = inner_data
-                        except:
-                            pass
-                    # Выводим полный отформатированный JSON
-                    print(json.dumps(parsed, indent=2, ensure_ascii=False))
-                except:
-                    # Если не получается распарсить, выводим как есть, но полностью
-                    print(response.text)
-            else:
-                print(f"  <пустой ответ>")
+            print(
+                f"  ! Ответ устройства (статус {response.status_code}, "
+                f"тело скрыто)"
+            )
             
             if response.status_code == 200:
                 # Парсим ответ
@@ -788,7 +785,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         if value == 'Start' and isinstance(error_info, dict):
             if error_info.get('id') == 100666941 and error_info.get('code') == 100687877:
                 self.last_presentation_error_message = (
-                    "К видеовходу не подключён источник. Старт презентации невозможен"
+                    "Нет видеосигнала на презентационном входе Bar310. "
+                    "Подключите источник и повторите попытку "
+                    "(id 100666941, code 100687877)."
                 )
 
         # У Bar310 ответ set-команды бывает без явного success, поэтому сверяем статус.

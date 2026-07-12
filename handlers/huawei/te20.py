@@ -18,8 +18,21 @@ try:
 except ImportError:
     pycurl = None
 
-# Настройка вывода для Windows консоли
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+# Настройка вывода для Windows-консоли. В GUI/IDE sys.stdout может быть
+# перенаправлен в текстовый поток (например, TTYOutStream) без атрибута buffer.
+def _configure_stdout_utf8() -> None:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if not callable(reconfigure):
+        return
+
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, TypeError, ValueError):
+        # Кодировка вывода не должна мешать импорту обработчика.
+        pass
+
+
+_configure_stdout_utf8()
 
 class HuaweiTE20Handler(BaseHuaweiCodecHandler):
     @staticmethod
@@ -61,13 +74,13 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             f"Текущий backend: {pycurl_version}"
         )
         return result
-    """Обработчик для Huawei TE-20 с рабочей реализацией подключения"""
+    """Обработчик для Huawei TE20 с рабочей реализацией подключения"""
     
     def __init__(self, ip_address: str, port: int = 80,
-                 username: str = 'api', password: str = '',
+                 username: str = None, password: str = None,
                  use_ssl: bool = False, verify_ssl: bool = False):
         super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
-        self.device_model = 'Huawei TE-20'
+        self.device_model = 'Huawei TE20'
         self.session_id = None
         self.csrf_token = None
         self.session = None
@@ -274,7 +287,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         token_url = f"{self.base_url}/action.cgi?ActionID=Web_RequestCertificate"
         token_data = {"user": auth_username, "password": auth_password}
         self._log_command(f"[request] POST {token_url}")
-        self._log_command(f"[payload] {json.dumps(token_data, ensure_ascii=False)}")
+        self._log_command("[payload] <redacted credentials>")
         try:
             token_response = self._pycurl_request(
                 token_url,
@@ -323,7 +336,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         return True
     
     def connect(self) -> bool:
-        """Установка соединения с кодеком Huawei TE-20"""
+        """Установка соединения с кодеком Huawei TE20"""
         try:
             if self._use_pycurl_transport:
                 return self._connect_https_pycurl()
@@ -336,7 +349,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             auth_username = self.credentials.get('username', 'api')
             auth_password = self.credentials.get('password', '')
             
-            print(f"Использую логин: '{auth_username}', пароль: '{auth_password}'")
+            print("Использую credentials: <redacted>")
             
             # 1. Получение SessionID
             try:
@@ -417,7 +430,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 token_url = f"{self.base_url}/action.cgi?ActionID=WEB_RequestCertificateAPI"
                 token_data = {"user": auth_username, "password": auth_password}
                 self._log_command(f"[request] POST {token_url}")
-                self._log_command(f"[payload] {json.dumps(token_data, ensure_ascii=False)}")
+                self._log_command("[payload] <redacted credentials>")
                 
                 token_response = self.session.post(
                     token_url,
@@ -568,6 +581,20 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         return cleaned.strip()
 
     def _log_command(self, message: str) -> None:
+        if message.startswith("[payload]"):
+            message = "[payload] <redacted>"
+        elif message.startswith("[response]"):
+            parts = message.split(maxsplit=2)
+            message = " ".join(parts[:2]) + " <body redacted>"
+        else:
+            for secret in (
+                self.credentials.get("username"),
+                self.credentials.get("password"),
+                getattr(self, "session_id", None),
+                getattr(self, "csrf_token", None),
+            ):
+                if secret:
+                    message = message.replace(str(secret), "<redacted>")
         logger = getattr(self, 'command_logger', None)
         if callable(logger):
             logger(message)
@@ -857,7 +884,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 if data:
                     soft_version = self._clean_version_string(data.get('softVersion', 'Unknown'))
                     status['version'] = soft_version
-                    status['model'] = data.get('model', 'Huawei TE-20')
+                    status['model'] = data.get('model', 'Huawei TE20')
                     status['serial_number'] = data.get('lisence', 'Unknown')
                     status['hard_version'] = data.get('hardVersion', 'N/A')
                     status['logic_version'] = data.get('logicVersion', 'N/A')
@@ -1147,7 +1174,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         """Получить информацию об устройстве"""
         status = self.get_status()
         return {
-            'model': status.get('model', 'Huawei TE-20'),
+            'model': status.get('model', 'Huawei TE20'),
             'serial': status.get('serial_number', 'N/A'),
             'version': status.get('version', 'N/A'),
             'mac': status.get('wan_mac', 'N/A'),

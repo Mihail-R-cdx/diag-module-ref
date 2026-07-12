@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Per-workstation device credentials. Never add this file to Git.
+credentials.local.json
+
 run_stdout.log
 run_stderr.log
 startup_trace.log
