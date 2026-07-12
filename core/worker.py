@@ -11,6 +11,8 @@ from core.te20_worker import HuaweiTE20Worker
 from handlers.extron.in1804 import ExtronIN1804Handler
 from .exceptions import AuthenticationError, ConnectionError
 import traceback
+import builtins
+from core.redaction import redact_diagnostic
 
 
 def _mask_secret_text(text: str, secret_values=()):
@@ -336,6 +338,11 @@ class HuaweiBar310Worker(QRunnable):
     
     @pyqtSlot()
     def run(self):
+        def print(*args, **kwargs):
+            secrets = [self.username, self.password]
+            for credential in self.creds_list:
+                secrets.extend((credential.get("username"), credential.get("password")))
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
         """Основной метод работы с циклом перебора credentials"""
         creds_to_try = self.creds_list or [
             {'username': self.username, 'password': self.password}

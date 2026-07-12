@@ -221,7 +221,7 @@ class HuaweiTE20Worker(QRunnable):
             safe_error = redact_exception(e, (self.username, self.password))
             print(f"!!! Ошибка в HuaweiTE20Worker: {type(e).__name__}: {safe_error}")
             try:
-                print(traceback.format_exc())
+                print(redact_text(traceback.format_exc(), (self.username, self.password)))
             except OSError:
                 pass
             self._log(f"[session] failed: {type(e).__name__}: {safe_error}")

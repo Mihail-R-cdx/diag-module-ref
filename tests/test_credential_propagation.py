@@ -9,6 +9,10 @@ from core.factory import ProtocolFactory
 from core.exceptions import AuthenticationError
 from handlers.aten.pdu import AtenPDUHandler
 from handlers.biamp.tesira_forte_ci import BiampTesiraForteCIHandler
+from handlers.extron.in1804 import ExtronIN1804Handler
+from handlers.huawei.bar310 import CloudLinkBar310Handler
+from core.te20_worker import HuaweiTE20Worker
+from core.worker import HuaweiBar310Worker
 
 
 class CredentialPropagationTests(unittest.TestCase):
@@ -84,6 +88,103 @@ class CredentialPropagationTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertNotIn("synthetic-user", output)
         self.assertNotIn("synthetic-password", output)
+
+    def test_bar310_and_extron_reject_missing_auth_before_network_io(self):
+        bar310 = CloudLinkBar310Handler("192.0.2.1")
+        with patch.object(bar310, "_make_request") as request:
+            with self.assertRaises(AuthenticationError):
+                bar310.connect()
+        self.assertFalse(request.called)
+
+        extron = ExtronIN1804Handler("192.0.2.1")
+        with patch.object(extron, "_connect_via_ssh") as ssh, patch.object(
+            extron, "_connect_plain_socket"
+        ) as plain_socket:
+            with self.assertRaises(AuthenticationError):
+                extron.connect()
+        self.assertFalse(ssh.called)
+        self.assertFalse(plain_socket.called)
+
+    def test_bar310_redacts_a_session_token_prefix_in_debug_output(self):
+        token = "synthetic-session-token-with-a-long-prefix"
+        handler = CloudLinkBar310Handler(
+            "192.0.2.1", username="synthetic-user", password="synthetic-password"
+        )
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[
+                {"success": 1},
+                {"success": 1, "data": {"acCSRFToken": token}},
+            ],
+        ):
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                self.assertTrue(handler.connect())
+        output = stdout.getvalue()
+        self.assertNotIn(token, output)
+        self.assertNotIn(token[:20], output)
+        self.assertNotIn("synthetic-user", output)
+        self.assertNotIn("synthetic-password", output)
+
+    def test_te20_worker_redacts_synthetic_secrets_from_exception_tracebacks(self):
+        class RaisingHandler:
+            def __init__(self, **_kwargs):
+                self.port = 80
+                self.use_ssl = False
+
+            def connect(self):
+                raise RuntimeError("synthetic-password")
+
+            def disconnect(self):
+                pass
+
+        worker = HuaweiTE20Worker(
+            "192.0.2.1", username="synthetic-user", password="synthetic-password"
+        )
+        worker._build_unique_profiles = lambda: [
+            {"port": 80, "use_ssl": False, "label": "HTTP:80"}
+        ]
+        stdout = io.StringIO()
+        with patch("core.te20_worker.HuaweiTE20Handler", RaisingHandler), contextlib.redirect_stdout(stdout):
+            worker.run()
+        output = stdout.getvalue()
+        self.assertNotIn("synthetic-user", output)
+        self.assertNotIn("synthetic-password", output)
+
+    def test_bar310_worker_propagates_credentials_without_public_output(self):
+        captured = []
+
+        class CapturingHandler:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+                self.port = kwargs["port"]
+                self.use_ssl = True
+
+            def connect(self):
+                return True
+
+            def get_status(self):
+                return {"username": "synthetic-user", "password": "synthetic-password"}
+
+            def disconnect(self):
+                pass
+
+        worker = HuaweiBar310Worker(
+            "192.0.2.1",
+            username="synthetic-user",
+            password="synthetic-password",
+            creds_list=[{"username": "synthetic-user", "password": "synthetic-password"}],
+        )
+        stdout = io.StringIO()
+        with patch("core.worker.CloudLinkBar310Handler", CapturingHandler), patch(
+            "core.worker.HuaweiBar310DataParser.parse_raw_data", side_effect=lambda data: data
+        ), contextlib.redirect_stdout(stdout):
+            worker.run()
+        self.assertEqual("synthetic-user", captured[0]["username"])
+        self.assertEqual("synthetic-password", captured[0]["password"])
+        self.assertNotIn("synthetic-user", stdout.getvalue())
+        self.assertNotIn("synthetic-password", stdout.getvalue())
 
 
 if __name__ == "__main__":

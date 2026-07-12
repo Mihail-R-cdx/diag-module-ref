@@ -134,6 +134,8 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
     def connect(self) -> bool:
         """Установка TCP соединения с матрицей и аутентификация"""
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Extron.")
         errors = []
 
         for attempt in self._build_connection_attempts():

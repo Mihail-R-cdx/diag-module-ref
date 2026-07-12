@@ -86,8 +86,12 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             logger(message)
         
     def connect(self) -> bool:
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to CloudLink Bar 310.")
         def print(*args, **kwargs):
             secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            if self.acCSRFToken:
+                secrets += (self.acCSRFToken[:20],)
             return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
 
         """Установка соединения с кодеком Huawei CloudLink Bar 310"""
