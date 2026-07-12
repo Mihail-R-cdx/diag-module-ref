@@ -59,9 +59,9 @@
 
 - [x] 7.1 Run a safe repository secret scan or equivalent verification over all tracked files; report only paths, categories, and pass/fail status.
 - [x] 7.2 Run the complete offline test suite with no real credential file and no live hardware: `python -m unittest discover -s tests -p "test_*.py"`.
-- [ ] 7.3 Perform opt-in manual GUI verification for authenticated, configuration-error, unauthenticated, and redacted-error states using non-production credentials only.
+- [x] 7.3 Owner performed manual GUI verification with local credentials for Extron IN1804 and Huawei TE-20; application startup, model-to-profile resolution, connection, and primary data retrieval were satisfactory. Other models were not manually verified.
 - [x] 7.4 Verify a clean/new-PC setup requires a fresh ignored local JSON file and never creates or retrieves one through Git.
 - [x] 7.5 Verify documentation, example JSON, tests, OpenSpec artifacts, and reports contain no real secret values and accurately describe plain-text storage.
-- [ ] 7.6 Review Git history under approved incident guidance, rotate any confirmed previously exposed operational credentials, and document only the remediation status.
+- [x] 7.6 Owner-reviewed Git history found only standard/default credential-like values and examples, not confirmed operational secrets; no credential rotation or history rewrite is required.
 - [x] 7.7 Run `openspec validate externalize-device-credentials --strict` and resolve every artifact-structure or scenario inconsistency.
-- [ ] 7.8 Propose a separate future OpenSpec change for Windows Credential Manager or another approved secure provider after this JSON migration is stable.
+- [x] 7.8 Owner considered a secure credential provider and accepted the current ignored, unencrypted local JSON store; secure-provider migration and a separate follow-up change are not planned at this stage.

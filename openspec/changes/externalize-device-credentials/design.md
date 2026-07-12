@@ -171,8 +171,9 @@ reuse the contract without changing handlers.
    OpenSpec validation. Roll back by restoring the previous application build;
    preserve and protect the operator's local file, which remains outside Git.
 6. Review repository history and rotate any confirmed prior operational
-   credentials under the organization's incident process. Propose a separate
-   future Windows Credential Manager change when this migration is stable.
+   credentials under the organization's incident process. Reconsider a secure
+   provider only if a future product decision changes the current local-JSON
+   storage approach.
 
 ## Open Questions
 

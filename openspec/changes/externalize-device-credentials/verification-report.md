@@ -45,18 +45,32 @@ or committed. All test credentials were synthetic.
   redaction using synthetic values only. Existing tests cover provider repr,
   structured redaction, and Aten debug output.
 
-## Manual and deferred work
+## Owner-confirmed manual GUI verification
 
-- Task 7.3 remains open: interactive GUI verification was not performed in
-  this non-interactive environment.
-- Task 7.6 remains open: Git-history incident review and any credential
-  rotation require separate approval.
-- Task 7.8 remains open as the explicitly deferred secure-provider follow-up;
-  Windows Credential Manager was not implemented and no new change was made.
+The project owner performed manual GUI verification on a local workstation
+with live Extron IN1804 and Huawei TE-20 equipment. Application startup,
+local-file credential loading, selected-model profile resolution, connection,
+and the primary data-retrieval scenario were satisfactory for those two
+models. No other production model is claimed to have received manual testing.
+
+## Owner-confirmed Git-history review
+
+The owner reviewed the available published Git history and classified the
+findings as standard/default credential-like values and credential-like
+examples, with no confirmed operational secret. No credential rotation or
+history rewrite is required, and no credential value is recorded here.
+
+## Plain-text storage decision
+
+The owner knowingly accepts the ignored, unencrypted local JSON store for the
+current product scope and its local-access limitations. Windows Credential
+Manager, keyring, vault integration, and a separate secure-provider change are
+not planned at this stage. The provider abstraction still permits a future
+replacement if the product decision changes.
 
 ## Archive readiness
 
-The technical offline verification is passing, but the change is **not ready
-to archive** until the opt-in manual GUI verification in task 7.3 is completed
-or its acceptance condition is explicitly waived. Tasks 7.6 and 7.8 are
-documented non-blocking follow-ups under their approved scope.
+All tasks are complete. With the passing strict validation, offline test suite,
+and the owner-confirmed manual and history decisions above, the change is ready
+for independent final verification and subsequent archive. This session does
+not archive the change.
