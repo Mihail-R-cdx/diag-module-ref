@@ -47,8 +47,47 @@ class WorkerSignals(QObject):
     disconnected = pyqtSignal()
 
 
+class PolycomCallLogWorker(QRunnable):
+    """Load Polycom call records without blocking the Qt event loop."""
+
+    def __init__(self, handler_class, handler_kwargs):
+        super().__init__()
+        self.handler_class = handler_class
+        self.handler_kwargs = dict(handler_kwargs)
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        handler = None
+        try:
+            handler = self.handler_class(**self.handler_kwargs)
+            handler.connect()
+            records = handler.get_call_records()
+            self.signals.result.emit({"records": list(records or [])})
+        except Exception as error:
+            secrets = (
+                self.handler_kwargs.get("username"),
+                self.handler_kwargs.get("password"),
+            )
+            message = _mask_secret_text(str(error), secrets)
+            self.signals.error.emit(
+                (
+                    type(error).__name__,
+                    message,
+                    "",
+                )
+            )
+        finally:
+            if handler is not None:
+                try:
+                    handler.disconnect()
+                except Exception:
+                    pass
+            self.signals.finished.emit()
+
+
 class HuaweiTE40Worker(QRunnable):
-    """Специализированный Worker для Huawei TE-40"""
+    """Специализированный Worker для Huawei TE40"""
     
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None):
@@ -120,7 +159,7 @@ class HuaweiTE40Worker(QRunnable):
             self.signals.progress.emit(50)
             
             print("Вызываю handler.get_status()...")
-            raw_data = handler.get_status()
+            raw_data = redact_data(handler.get_status(), (self.username, self.password))
             print(f"get_status() вернул: {raw_data}")
             
             self.signals.status.emit("Обрабатываю данные...")
@@ -246,7 +285,7 @@ class CodecSipFixWorker(QRunnable):
         self.signals = WorkerSignals()
 
     def _create_handler(self):
-        if self.device_name == "Huawei TE40":
+        if self.device_name == "Huawei TE-40":
             return HuaweiTE40Handler(
                 ip_address=self.ip_address,
                 port=self.port,
@@ -357,6 +396,7 @@ class HuaweiBar310Worker(QRunnable):
             for credential in self.creds_list:
                 secrets.extend((credential.get("username"), credential.get("password")))
             return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """Основной метод работы с циклом перебора credentials"""
         creds_to_try = self.creds_list or [
             {'username': self.username, 'password': self.password}

@@ -8,20 +8,21 @@ or committed. All test credentials were synthetic.
 
 ## Commands and results
 
-- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_credential_propagation tests.test_credentials tests.test_redaction`
-  passed: 23 tests in 0.020 seconds (0.410 seconds process elapsed).
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction.RedactionTests.test_te40_connect_redacts_new_session_and_csrf_values_before_state_assignment tests.test_redaction.RedactionTests.test_te40_sip_gui_exception_boundary_redacts_credentials`
+  passed: 2 tests in 0.042 seconds.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction tests.test_credential_propagation`
+  passed: 16 tests in 0.012 seconds.
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest discover -s tests -p 'test_*.py'`
-  passed: 56 tests in one process in 0.731 seconds (1.144 seconds process
-  elapsed). The clean checkout contains 56 discovered tests; the previous
-  report's 79-test claim cannot be reproduced here and is superseded.
-- `openspec validate externalize-device-credentials --strict` passed.
+  passed: 85 tests in 1.614 seconds.
+- `.\\openspec.cmd validate externalize-device-credentials --strict` passed.
 - `git check-ignore -v credentials.local.json` confirmed the ignore rule;
   `Test-Path credentials.local.json` and `git ls-files -- credentials.local.json`
   confirmed that no local credential file exists or is tracked.
 
-All automated checks were offline: no live hardware, network calls, or real
-credential file were used. The run completed without a Qt crash or a hanging
-thread.
+All automated checks were offline: no live hardware or network calls were
+used. `tests.test_credentials` creates only synthetic temporary local JSON
+documents; the test commands did not read a real `credentials.local.json`.
+The run completed without a Qt crash or a hanging thread.
 
 ## Verified integration and authentication boundaries
 
@@ -56,6 +57,21 @@ thread.
   request's credentials. Focused tests exercise TE-40 SIP request/response
   redaction, TE-40 worker errors, Bar 310 public output, and existing TE-20,
   Aten, and structured-data coverage using synthetic values only.
+- Corrected a TE-40 initial-response ordering defect: `connect()` now parses
+  Session-ID and CSRF responses before logging them, then logs a structurally
+  redacted representation. A non-JSON response is logged only as a safe
+  omission summary. The same response helper covers browser login,
+  command, SIP, and verification response paths.
+- Added `test_te40_connect_redacts_new_session_and_csrf_values_before_state_assignment`.
+  It begins with `handler.session_id is None` and `handler.csrf_token is None`,
+  returns previously unknown synthetic Session ID and CSRF values, and captures
+  both stdout and `command_logger` output. Username, password, Session ID,
+  CSRF token, authorization value, and cookie value are absent from public
+  output.
+- Added `test_te40_sip_gui_exception_boundary_redacts_credentials`. The
+  TE-40 SIP GUI path now initializes an empty secret set before resolution,
+  redacts the exception and traceback for diagnostic output, and shows users
+  only a short safe error message without a traceback.
 
 ## Owner-confirmed manual GUI verification
 
@@ -83,7 +99,6 @@ replacement if the product decision changes.
 ## Archive readiness
 
 Tasks 5.2, 5.3, 6.8, 6.11, 7.2, and 7.7 are supported by the checks above.
-No change was archived. The clean-checkout count discrepancy is explained by
-the prior report, not by a fabricated target: this checkout discovers 56 tests.
-The change is ready for a new independent offline verification; no unresolved
-Critical, High, or Medium finding is known from this verification.
+No change was archived. The change is ready for a new independent offline
+verification; no unresolved Critical or High finding is known from this
+verification.

@@ -7,6 +7,7 @@ import os
 import random
 import platform
 import subprocess
+import traceback
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
@@ -16,6 +17,7 @@ from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, 
 from core.exceptions import AuthenticationError, ConnectionError
 from core.credentials import JsonCredentialProvider, resolve_request_credentials
 from core.exceptions import CredentialConfigurationError
+from core.redaction import redact_exception, redact_text
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QPainter
@@ -102,7 +104,7 @@ class VCSDiagnosticApp(QMainWindow):
         # Маппинг устройств к экранам
         self.device_to_screen = {
             "Huawei TE-20": "codec",
-            "Huawei TE-40": "codec", 
+            "Huawei TE-40": "codec",
             "CloudLink Bar 310": "codec",  # Добавлено новое устройство
             #"CloudLink Box 300": "codec",
             "Polycom RPG 310": "codec",
@@ -176,7 +178,7 @@ class VCSDiagnosticApp(QMainWindow):
         """Инициализация интерфейса"""
         self.setWindowTitle("Диагностический модуль ММК")
         self.setMinimumSize(800, 700)
-        self.setGeometry(100, 100, 950, 950)
+        self.setGeometry(100, 0, 950, 1000)
         
         # Установка темной темы
         self.set_dark_theme()
@@ -270,8 +272,8 @@ class VCSDiagnosticApp(QMainWindow):
         # Список устройств с категориями
         devices = [
             "Кодеки ВКС",
-            "Huawei TE-20", 
-            "Huawei TE-40", 
+            "Huawei TE-20",
+            "Huawei TE-40",
             "CloudLink Bar 310",
             #"CloudLink Box 300", 
             "Polycom RPG 310",
@@ -320,6 +322,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.setPlaceholderText("192.168.1.100")
         self.ip_entry.setText("192.168.1.100")
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
+        self.ip_entry.installEventFilter(self)
         
         # Кнопка для ввода пароля
         self.password_btn = QPushButton("Пароль")
@@ -541,6 +544,9 @@ class VCSDiagnosticApp(QMainWindow):
         # Показываем заглушку вместо экрана
         self.screen_container.setCurrentWidget(self.placeholder_widget)
         self._active_request = None
+        self.hide_progress_dialog()
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("Обновить данные")
         self.set_ui_state(UIState.IDLE, "Данные ещё не запрашивались")
         
         # Обновляем IP адрес
@@ -553,11 +559,34 @@ class VCSDiagnosticApp(QMainWindow):
         if isinstance(obj, QPushButton) and self._is_user_button_activation(obj, event):
             self.log_button_click(obj)
 
+        # Выделение всего текста в IP-поле при клике
+        if obj is getattr(self, 'ip_entry', None) and event.type() == QEvent.MouseButtonRelease:
+            if event.button() == Qt.LeftButton:
+                QTimer.singleShot(0, self.ip_entry.selectAll)
+
         if obj is getattr(self, 'device_combo', None) and event.type() == QEvent.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
                 self.trigger_refresh_from_input()
                 return True
         return super().eventFilter(obj, event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._top_alignment_attempts = 0
+        QTimer.singleShot(0, self._align_frame_to_screen_top)
+
+    def _align_frame_to_screen_top(self):
+        window_handle = self.windowHandle()
+        screen = window_handle.screen() if window_handle is not None else QApplication.primaryScreen()
+        if screen is None:
+            return
+        top = screen.availableGeometry().top()
+        delta = top - self.frameGeometry().top()
+        if delta:
+            self.move(self.x(), self.y() + delta)
+        self._top_alignment_attempts = getattr(self, "_top_alignment_attempts", 0) + 1
+        if self._top_alignment_attempts < 3:
+            QTimer.singleShot(0, self._align_frame_to_screen_top)
 
     def _is_user_button_activation(self, button, event):
         if not button.isEnabled():
@@ -835,6 +864,15 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
             return
 
+        try:
+            # Resolve before any worker or device-authentication network I/O.
+            self._active_request_credentials = self.device_credentials.get(device_name)
+        except CredentialConfigurationError as error:
+            message = str(error)
+            self.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(self, "Настройка credentials", message)
+            return
+
         if not self.ensure_ping_success(ip_address):
             return
 
@@ -999,7 +1037,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
 
     def refresh_huawei_te20(self, ip_address: str):
-        """Обновление данных Huawei TE-20 с перебором credentials"""
+        """Обновление данных Huawei TE20 с перебором credentials"""
         print(f"=== Начинаю обновление TE-20 для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1057,7 +1095,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
 
     def refresh_huawei_te40(self, ip_address: str):
-        """Обновление данных Huawei TE-40 с перебором credentials"""
+        """Обновление данных Huawei TE40 с перебором credentials"""
         print(f"=== Начинаю обновление для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1903,7 +1941,7 @@ class VCSDiagnosticApp(QMainWindow):
 
 
     def fix_sip_huawei_te40(self, ip_address: str):
-        """Исправление SIP регистрации для Huawei TE-40"""
+        """Исправление SIP регистрации для Huawei TE40"""
         print(f"Исправление SIP регистрации для TE-40 на {ip_address}")
         
         # Жёстко заданный SIP сервер
@@ -1912,6 +1950,7 @@ class VCSDiagnosticApp(QMainWindow):
         # Показываем диалог прогресса
         self.show_progress_dialog(f"Установка SIP сервера {sip_server}...")
         
+        creds = {}
         try:
             # Получаем текущие credentials
             device_name = "Huawei TE-40"
@@ -1942,8 +1981,13 @@ class VCSDiagnosticApp(QMainWindow):
             self.fix_worker.set_sip_server(sip_server)
             
         except Exception as e:
+            secrets = (creds.get("username"), creds.get("password"))
+            safe_error = redact_exception(e, secrets)
+            safe_traceback = redact_text(traceback.format_exc(), secrets)
+            print(f"SIP fix failed: {safe_error}")
+            print(safe_traceback)
             self.hide_progress_dialog()
-            QMessageBox.critical(self, "Ошибка", f"Не удалось установить SIP сервер: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", "Не удалось установить SIP сервер. Проверьте настройки подключения.")
 
   
     @pyqtSlot(dict)
@@ -1972,11 +2016,14 @@ class VCSDiagnosticApp(QMainWindow):
         """Обработка ошибки установки SIP сервера"""
         self.hide_progress_dialog()
         error_type, error, traceback_text = error_info
-        
+        safe_error = redact_exception(error)
+        safe_traceback = redact_text(traceback_text)
+        print(f"SIP worker error: {safe_error}")
+        print(safe_traceback)
         QMessageBox.critical(
             self,
             "Ошибка",
-            f"Не удалось установить SIP сервер:\n{str(error)}"
+            "Не удалось установить SIP сервер. Проверьте настройки подключения."
         )
 
 
@@ -2022,7 +2069,7 @@ class VCSDiagnosticApp(QMainWindow):
 
 
     def fix_sip_huawei_te40(self, ip_address: str):
-        """Исправление SIP регистрации для Huawei TE-40"""
+        """Исправление SIP регистрации для Huawei TE40"""
         print(f"\n=== fix_sip_huawei_te40 called ===")
         print(f"IP Address: {ip_address}")
         
@@ -2031,6 +2078,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         self.show_progress_dialog(f"Установка SIP сервера {sip_server}...")
         
+        creds = {}
         try:
             # Получаем текущие credentials
             device_name = "Huawei TE-40"
@@ -2067,11 +2115,13 @@ class VCSDiagnosticApp(QMainWindow):
             print("Worker started")
             
         except Exception as e:
-            print(f"Error in fix_sip_huawei_te40: {e}")
-            import traceback
-            traceback.print_exc()
+            secrets = (creds.get("username"), creds.get("password"))
+            safe_error = redact_exception(e, secrets)
+            safe_traceback = redact_text(traceback.format_exc(), secrets)
+            print(f"SIP fix failed: {safe_error}")
+            print(safe_traceback)
             self.hide_progress_dialog()
-            QMessageBox.critical(self, "Ошибка", f"Не удалось установить SIP сервер: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", "Не удалось установить SIP сервер. Проверьте настройки подключения.")
     
     
     
@@ -2086,7 +2136,7 @@ class VCSDiagnosticApp(QMainWindow):
             QTimer.singleShot(2000, lambda: self.on_fix_complete(True, "SIP регистрация успешно исправлена"))
     
     def fix_sip_huawei_te20(self, ip_address: str):
-        """Исправление SIP регистрации для Huawei TE-20"""
+        """Исправление SIP регистрации для Huawei TE20"""
         print(f"Исправление SIP регистрации для TE-20 на {ip_address}")
         self.show_progress_dialog("Исправление SIP регистрации...")
         
@@ -2149,12 +2199,16 @@ class VCSDiagnosticApp(QMainWindow):
         self.hide_progress_dialog()
         self._set_sip_fix_busy(False)
         error_type, error, traceback_text = error_info
-        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды SIP: {error}")
+        safe_error = redact_exception(error)
+        safe_traceback = redact_text(traceback_text)
+        print(f"SIP worker error: {safe_error}")
+        print(safe_traceback)
+        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды SIP: {safe_error}")
 
         QMessageBox.critical(
             self,
             "Ошибка",
-            f"Не удалось установить SIP сервер:\n{str(error)}"
+            "Не удалось установить SIP сервер. Проверьте настройки подключения."
         )
 
     def on_fix_sip_registration(self, ip_address: str, device_name: str):
@@ -2216,10 +2270,12 @@ class VCSDiagnosticApp(QMainWindow):
 
         return port, current_idx, creds
 
-    def _start_sip_fix(self, device_name: str, ip_address: str):
+    def _start_sip_fix(self, device_name: str, ip_address: str, connection_params=None):
         """Запустить установку SIP сервера в фоновом потоке."""
         sip_server = "vcs-core-a.sber.ru"
-        port, current_idx, creds = self._get_sip_fix_connection_params(device_name, ip_address)
+        if connection_params is None:
+            connection_params = self._get_sip_fix_connection_params(device_name, ip_address)
+        port, current_idx, creds = connection_params
 
         self.set_ui_state(UIState.COMMAND, "Установка SIP-сервера…")
         self._set_sip_fix_busy(True)
@@ -2252,7 +2308,27 @@ class VCSDiagnosticApp(QMainWindow):
 
     def fix_sip_huawei_te40(self, ip_address: str):
         """Исправление SIP регистрации для Huawei TE-40."""
-        self._start_sip_fix("Huawei TE-40", ip_address)
+        creds = {}
+        try:
+            port, current_idx, creds = self._get_sip_fix_connection_params(
+                "Huawei TE-40", ip_address
+            )
+            self._start_sip_fix(
+                "Huawei TE-40", ip_address, (port, current_idx, creds)
+            )
+        except Exception as e:
+            secrets = (creds.get("username"), creds.get("password"))
+            safe_error = redact_exception(e, secrets)
+            safe_traceback = redact_text(traceback.format_exc(), secrets)
+            print(f"SIP fix failed: {safe_error}")
+            print(safe_traceback)
+            self.hide_progress_dialog()
+            self._set_sip_fix_busy(False)
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                "Не удалось установить SIP сервер. Проверьте настройки подключения.",
+            )
 
     def fix_sip_huawei_bar310(self, ip_address: str):
         """Исправление SIP регистрации для CloudLink Bar 310."""
@@ -2313,7 +2389,7 @@ class VCSDiagnosticApp(QMainWindow):
         if not hasattr(self, 'te20_terminal_dialog') or self.te20_terminal_dialog is None:
             self.te20_terminal_dialog = MatrixTerminalDialog(self.colors, self)
 
-        title = f"Терминал Huawei TE-20 - {ip_address}"
+        title = f"Терминал Huawei TE20 - {ip_address}"
         if reset:
             self.te20_terminal_dialog.reset_session(title)
             self.te20_terminal_dialog.append_line(f"[session] start {ip_address}")
@@ -2374,7 +2450,7 @@ class VCSDiagnosticApp(QMainWindow):
         if device_name == "Huawei TE-20":
             if not hasattr(self, 'te20_terminal_dialog') or self.te20_terminal_dialog is None:
                 self.te20_terminal_dialog = MatrixTerminalDialog(self.colors, self)
-                self.te20_terminal_dialog.setWindowTitle(f"Терминал Huawei TE-20 - {ip_address}")
+                self.te20_terminal_dialog.setWindowTitle(f"Терминал Huawei TE20 - {ip_address}")
             dialog = self.te20_terminal_dialog
         elif device_name == "Extron IN1804":
             if not hasattr(self, 'matrix_terminal_dialog') or self.matrix_terminal_dialog is None:
@@ -2394,6 +2470,9 @@ class VCSDiagnosticApp(QMainWindow):
         dialog.activateWindow()
 
     def closeEvent(self, event):
+        codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
+        if codec_screen and hasattr(codec_screen, "reset_volume_session"):
+            codec_screen.reset_volume_session()
         self.disconnect_matrix_persistent_handler()
         app = QApplication.instance()
         if app is not None:

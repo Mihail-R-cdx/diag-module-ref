@@ -31,6 +31,30 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn(token, redacted)
         self.assertIn(REDACTION_MARKER, redacted)
 
+    def test_redacts_te40_sensitive_key_variants_and_nested_data_json(self):
+        values = {
+            "password": "synthetic-password",
+            "username": "synthetic-username",
+            "credential": "synthetic-credential",
+            "token": "synthetic-token",
+            "csrf": "synthetic-csrf",
+            "session": "synthetic-session",
+            "sessionId": "synthetic-session-id",
+            "authorization": "Bearer synthetic-authorization",
+            "cookie": "synthetic-cookie",
+            "secret": "synthetic-secret",
+            "access_key": "synthetic-access-key",
+            "api_key": "synthetic-api-key",
+        }
+        payload = {"data": json.dumps(values), **values}
+
+        redacted = redact_data(payload)
+        self.assertEqual(REDACTION_MARKER, redacted["password"])
+        nested = json.loads(redacted["data"])
+        for key, value in values.items():
+            self.assertEqual(REDACTION_MARKER, nested[key])
+            self.assertNotIn(value, json.dumps(redacted))
+
     def test_te40_set_sip_server_redacts_request_and_response_secrets(self):
         username = "synthetic-te40-user"
         password = "synthetic-te40-password"
@@ -64,4 +88,87 @@ class RedactionTests(unittest.TestCase):
         public_output = stdout.getvalue() + "\n".join(command_log)
         for secret in (username, password, session_id, csrf_token, authorization):
             self.assertNotIn(secret, public_output)
+        self.assertIn(REDACTION_MARKER, public_output)
+
+    def test_te40_connect_redacts_new_session_and_csrf_values_before_state_assignment(self):
+        username = "synthetic-connect-user"
+        password = "synthetic-connect-password"
+        session_id = "synthetic-new-session-id"
+        csrf_token = "synthetic-new-csrf-token"
+        authorization = "Bearer synthetic-connect-authorization"
+        cookie = "synthetic-connect-cookie"
+
+        class Response:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        class Opener:
+            def __init__(self):
+                self.responses = iter((
+                    Response({
+                        "success": 1,
+                        "data": json.dumps({
+                            "acSessionId": session_id,
+                            "Authorization": authorization,
+                            "cookie": cookie,
+                        }),
+                    }),
+                    Response({
+                        "success": 1,
+                        "data": json.dumps({"acCSRFToken": csrf_token}),
+                    }),
+                ))
+
+            def open(self, *_args, **_kwargs):
+                return next(self.responses)
+
+        handler = HuaweiTE40Handler("192.0.2.1", username=username, password=password)
+        handler.opener = Opener()
+        command_log = []
+        handler.command_logger = command_log.append
+
+        self.assertIsNone(handler.session_id)
+        self.assertIsNone(handler.csrf_token)
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertTrue(handler.connect())
+
+        public_output = stdout.getvalue() + "\n".join(command_log)
+        for secret in (username, password, session_id, csrf_token, authorization, cookie):
+            self.assertNotIn(secret, public_output)
+        self.assertIn(REDACTION_MARKER, public_output)
+        self.assertEqual(session_id, handler.session_id)
+        self.assertEqual(csrf_token, handler.csrf_token)
+
+    def test_te40_sip_gui_exception_boundary_redacts_credentials(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        username = "synthetic-gui-user"
+        password = "synthetic-gui-password"
+
+        class App:
+            def _get_sip_fix_connection_params(self, *_args):
+                return 443, 0, {"username": username, "password": password}
+
+            def _start_sip_fix(self, *_args):
+                raise RuntimeError(f"SIP request failed for {username}/{password}")
+
+            def hide_progress_dialog(self):
+                pass
+
+            def _set_sip_fix_busy(self, _busy):
+                pass
+
+        app = App()
+        stdout = io.StringIO()
+        with patch("gui.main_window.QMessageBox.critical") as critical, \
+                contextlib.redirect_stdout(stdout):
+            VCSDiagnosticApp.fix_sip_huawei_te40(app, "192.0.2.1")
+
+        public_output = stdout.getvalue() + "\n".join(map(str, critical.call_args[0]))
+        self.assertNotIn(username, public_output)
+        self.assertNotIn(password, public_output)
         self.assertIn(REDACTION_MARKER, public_output)

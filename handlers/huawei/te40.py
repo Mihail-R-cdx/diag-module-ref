@@ -1,3 +1,4 @@
+import builtins
 import requests
 import json
 import ssl
@@ -16,19 +17,51 @@ from core.exceptions import AuthenticationError, ConnectionError
 from core.redaction import redact_diagnostic
 
 class HuaweiTE40Handler(BaseHuaweiCodecHandler):
-    """Обработчик для Huawei TE-40 с рабочей реализацией подключения"""
+    """Обработчик для Huawei TE40 с рабочей реализацией подключения"""
+
+    CAMERA_TYPE_MODELS = {
+        0: 'C500',
+        1: 'VPC500',
+        2: 'VPC520',
+        3: 'SONY EVI-HD1',
+        4: 'SONY EVI-D100',
+        5: 'SONY EVI-D70',
+        6: 'SONY D30/D31',
+        7: 'SONY BRC-300P',
+        8: 'SONY BRC-H700',
+        9: 'CANON V50',
+        10: 'CANON VCC1',
+        11: 'CANON VCC4',
+        12: '3CCD',
+        13: 'C200',
+        14: 'GPT CAM',
+        15: 'KX',
+        16: 'PELCO',
+        17: 'PTC100',
+        18: 'SYYT',
+        19: 'TAC',
+        20: 'VCC-SW80P',
+        21: 'VCC-HD90P',
+        22: 'VPC500S',
+        23: 'VPC500E',
+        24: 'VPC600/VPC620',
+        28: 'SONY BRC-Z330',
+        29: 'VPC800',
+        30: 'VPT300',
+    }
     
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
                  use_ssl: bool = True, verify_ssl: bool = False):
         super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
-        self.device_model = 'Huawei TE-40'
+        self.device_model = 'Huawei TE40'
         self.session_id = None
         self.csrf_token = None
         self.opener = None
         self.cookie_jar = http.cookiejar.CookieJar()
         self.uses_cookie_session = False
         self._connected = False
+        self.last_presentation_error_message = None
         
         # Настройка SSL контекста
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS)
@@ -55,10 +88,100 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             urllib.request.HTTPCookieProcessor(self.cookie_jar)
         )
 
+    @staticmethod
+    def _extract_microphone_models(mic_version) -> list[str]:
+        values = []
+        if isinstance(mic_version, (list, tuple)):
+            for item in mic_version:
+                values.extend(
+                    HuaweiTE40Handler._extract_microphone_models(item)
+                )
+        elif isinstance(mic_version, dict):
+            values.extend(
+                HuaweiTE40Handler._extract_microphone_models(
+                    mic_version.get('micVersion')
+                )
+            )
+        elif mic_version not in (None, '', 'N/A'):
+            model = str(mic_version).strip().split(maxsplit=1)[0]
+            if model:
+                values.append(model)
+
+        return list(dict.fromkeys(values))
+
+    @staticmethod
+    def _resolve_microphone_connection_status(
+        mic_version,
+        audio_data: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        microphone_models = (
+            HuaweiTE40Handler._extract_microphone_models(mic_version)
+        )
+        if microphone_models:
+            return (
+                'Микрофон подключён. Модель '
+                + ', '.join(microphone_models)
+            )
+
+        if isinstance(audio_data, dict) and any(
+            key in audio_data
+            for key in (
+                'MicSwitch',
+                'micall',
+                'mic1',
+                'mic2',
+                'mic3',
+                'USBMICIn',
+            )
+        ):
+            return 'Микрофон подключён'
+
+        return 'Не определено'
+
+    @classmethod
+    def _format_camera_connection_status(cls, camera_type) -> str:
+        try:
+            camera_type_code = int(camera_type)
+        except (TypeError, ValueError):
+            return 'Камера подключена. Модель неизвестна'
+
+        model = cls.CAMERA_TYPE_MODELS.get(camera_type_code)
+        if model:
+            return f'Камера подключена. Модель {model}'
+        return (
+            'Камера подключена. '
+            f'Модель неизвестна (код {camera_type_code})'
+        )
+
     def _log_command(self, message: str) -> None:
+        if message.startswith("[payload]"):
+            message = "[payload] <redacted>"
+        else:
+            for secret in (
+                self.credentials.get("username"),
+                self.credentials.get("password"),
+                getattr(self, "session_id", None),
+                getattr(self, "csrf_token", None),
+            ):
+                if secret:
+                    message = message.replace(str(secret), "<redacted>")
         logger = getattr(self, 'command_logger', None)
         if callable(logger):
             logger(str(self._redact(message)))
+
+    def _log_response(self, status: int, body: Any) -> None:
+        """Log a parsed, structurally redacted response without retaining raw text."""
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except (TypeError, ValueError):
+                self._log_command(f"[response] {status} <non-json body omitted>")
+                return
+
+        safe_body = redact_diagnostic(body, self._secret_values())
+        self._log_command(
+            f"[response] {status} {json.dumps(safe_body, ensure_ascii=False, sort_keys=True)}"
+        )
 
     def _secret_values(self):
         """Return request-scoped values that must never cross a diagnostic boundary."""
@@ -101,8 +224,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         response = self.opener.open(request, timeout=10)
         response_text = response.read().decode('utf-8')
-        self._log_command(f"[response] 200 {response_text}")
-        return json.loads(response_text)
+        try:
+            result = json.loads(response_text)
+        except json.JSONDecodeError:
+            self._log_response(200, response_text)
+            raise
+        self._log_response(200, result)
+        return result
 
     def _connect_browser_login(self) -> bool:
         """Fallback login flow used by TE40 web UI on some firmware versions."""
@@ -178,7 +306,14 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         return "authentication" in result_text or "auth" in result_text
     
     def connect(self) -> bool:
-        """Установка соединения с кодеком Huawei TE-40"""
+        """Установка соединения с кодеком Huawei TE40"""
+        def print(*args, **kwargs):
+            secrets = (
+                self.credentials.get('username'), self.credentials.get('password'),
+                self.session_id, self.csrf_token,
+            )
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         try:
             if not self.credentials.get('username') or not self.credentials.get('password'):
                 raise AuthenticationError("Credentials are required for Huawei TE-40 before connecting.")
@@ -192,10 +327,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             try:
                 session_response = self.opener.open(session_request, timeout=10)
                 session_response_text = session_response.read().decode('utf-8')
-                self._log_command(f"[response] 200 {session_response_text}")
-                self._debug(f"Ответ Session ID: {session_response_text}")
-                
                 result = json.loads(session_response_text)
+                self._log_response(200, result)
                 
                 if result.get('success') == 1:
                     data = result.get('data', '{}')
@@ -208,7 +341,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     elif isinstance(data, dict):
                         self.session_id = data.get('acSessionId')
                     
-                    self._debug(f"✓ Session ID получен: {self.session_id}")
+                    self._debug("✓ Session ID получен")
                 else:
                     self._debug(f"✗ Session ID не получен: {result}")
                     # Проверяем, не ошибка ли это аутентификации
@@ -224,8 +357,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 raise
             except Exception as e:
                 if "authentication" in str(e).lower() or "401" in str(e):
-                    raise AuthenticationError(f"Ошибка аутентификации: {str(e)}")
-                raise ConnectionError(f"Ошибка подключения: {str(e)}")
+                    raise AuthenticationError("Ошибка аутентификации при получении Session ID")
+                raise ConnectionError("Ошибка подключения при получении Session ID")
             
             # 2. Получаем CSRF Token
             self._debug("Получаю CSRF Token...")
@@ -253,10 +386,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             try:
                 token_response = self.opener.open(token_request, timeout=10)
                 token_response_text = token_response.read().decode('utf-8')
-                self._log_command(f"[response] 200 {token_response_text}")
-                self._debug(f"Ответ CSRF Token: {token_response_text}")
-                
                 token_result = json.loads(token_response_text)
+                self._log_response(200, token_result)
                 
                 if token_result.get('success') == 1:
                     certificate_ok = True
@@ -277,7 +408,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         self.csrf_token = token_data.get('acCSRFToken')
                     
                     if self.csrf_token:
-                        self._debug(f"✓ CSRF Token получен: {self.csrf_token}")
+                        self._debug("✓ CSRF Token получен")
                     else:
                         self._debug("⚠ CSRF Token не получен (пустой ответ)")
                 else:
@@ -295,8 +426,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 raise
             except Exception as e:
                 if "authentication" in str(e).lower() or "401" in str(e):
-                    raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {str(e)}")
-                self._debug(f"Ошибка получения CSRF Token: {type(e).__name__}: {str(e)}")
+                    raise AuthenticationError("Ошибка аутентификации при получении CSRF токена")
+                self._debug(f"Ошибка получения CSRF Token: {type(e).__name__}")
                 self.csrf_token = None
             
             # 3. Проверяем подключение
@@ -314,8 +445,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             # Пробрасываем AuthenticationError дальше
             raise
         except Exception as e:
-            self._debug(f"Ошибка подключения: {type(e).__name__}: {str(e)}")
-            raise ConnectionError(f"Ошибка подключения: {self._redact(str(e))}")
+            self._debug(f"Ошибка подключения: {type(e).__name__}")
+            raise ConnectionError("Ошибка подключения к Huawei TE-40")
 
 
     
@@ -327,6 +458,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self.uses_cookie_session = False
     
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
+        def print(*args, **kwargs):
+            secrets = (
+                self.credentials.get('username'), self.credentials.get('password'),
+                self.session_id, self.csrf_token,
+            )
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """Отправить команду устройству"""
         if not self.is_connected() or (not self.session_id and not self.uses_cookie_session):
             if not self.connect():
@@ -339,6 +477,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 'get_call_status': 'WEB_GetMailboxDataAPI',
                 'get_sip_status': 'WEB_GetLineStateInfoAPI',
                 'get_audio_status': 'WEB_InitAudioCtrlParamsAPI',
+                'get_monitor_audio_params': 'WEB_GetMonitorAudioParam',
                 'get_presentation': 'WEB_IsSendAuxStreamAPI',
                 'get_system_sleep': 'WEB_IsSystemSleepAPI',
                 'get_camera_status': 'WEB_GetLocalCameraList',
@@ -393,19 +532,20 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             
             response = self.opener.open(request, timeout=10)
             response_text = response.read().decode('utf-8')
-            self._log_command(f"[response] 200 {response_text}")
-            self._debug(f"Ответ {command}: {response_text[:200]}...")
             
             try:
                 result = json.loads(response_text)
+                self._log_response(200, result)
+                self._debug(f"Ответ {command} получен")
                 return result
             except json.JSONDecodeError:
-                self._debug(f"Не JSON ответ: {response_text}")
+                self._log_response(200, response_text)
+                self._debug("Получен не-JSON ответ")
                 return {}
             
         except Exception as e:
-            self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
-            self._debug(f"Ошибка выполнения команды {command}: {e}")
+            self._log_command(f"[error] {type(e).__name__} {command}")
+            self._debug(f"Ошибка выполнения команды {command}: {type(e).__name__}")
             return {}
 
     @staticmethod
@@ -492,17 +632,15 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     soft_version = processed_data.get('softVersion', 'Unknown')
                     soft_version = soft_version.replace('TEX0 ', '').strip()
                     status['version'] = soft_version
-                    status['model'] = processed_data.get('model', 'Huawei TE-40')
+                    status['model'] = processed_data.get('model', 'Huawei TE40')
                     status['serial_number'] = processed_data.get('lisence', 'Unknown')
                     mic_version = processed_data.get('micVersion')
                     status['mic_version'] = mic_version
                     status['mic_connection_status'] = (
-                        'Микрофон не подключён'
-                        if mic_version in (None, [], '', 'N/A')
-                        else 'Подключён'
+                        self._resolve_microphone_connection_status(
+                            mic_version
+                        )
                     )
-                    if status['mic_connection_status'] == 'Микрофон не подключён':
-                        status['mic_volume'] = 'Микрофон не подключён'
                     print(f"Версия: {soft_version}")
             
             # 2. Получаем MAC адрес
@@ -567,17 +705,48 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 if audio_result and audio_result.get('success') == 1:
                     audio_data = self._parse_json_data(audio_result.get('data', '{}'))
                     if audio_data:
+                        status['mic_connection_status'] = (
+                            self._resolve_microphone_connection_status(
+                                status.get('mic_version'),
+                                audio_data,
+                            )
+                        )
                         status['mic_mute'] = 'On' if audio_data.get('MicSwitch', 0) == 0 else 'Off'
                         status['speaker_mute'] = 'On' if audio_data.get('SpeakerSwitch', 0) == 1 else 'Off'
                         status['speaker_volume'] = audio_data.get('speakerValue', 0)
                         if (
-                            status.get('mic_connection_status') != 'Микрофон не подключён'
+                            status.get(
+                                'mic_connection_status',
+                                '',
+                            ).startswith('Микрофон подключён')
                             and 'micValue' in audio_data
                         ):
                             status['mic_volume'] = audio_data.get('micValue')
                         print(f"Аудио статус получен")
             except Exception as e:
                 print(f"Ошибка получения аудио статуса: {e}")
+
+            print("Запрос monitor audio params...")
+            try:
+                monitor_audio_result = self.send_command(
+                    'get_monitor_audio_params'
+                )
+                if (
+                    monitor_audio_result
+                    and monitor_audio_result.get('success') == 1
+                ):
+                    monitor_audio_data = self._parse_json_data(
+                        monitor_audio_result.get('data', {})
+                    )
+                    if monitor_audio_data:
+                        status['monitor_mic_value'] = (
+                            monitor_audio_data.get('MicValueIndex')
+                        )
+                        status['monitor_speaker_value'] = (
+                            monitor_audio_data.get('SpeakerValueIndex')
+                        )
+            except Exception as e:
+                print(f"Ошибка получения monitor audio params: {e}")
             
             # 6. Получаем статус презентации
             print("Запрос статуса презентации...")
@@ -604,6 +773,46 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                             cam1_status = 'On' if item_list[0].get('itemState', 0) == 1 else 'Off'
                             cam2_status = 'On' if item_list[1].get('itemState', 0) == 1 else 'Off'
                             status['camera_status'] = f"{cam1_status}{cam2_status}"
+                            active_camera_models = []
+                            for camera_item in item_list:
+                                if camera_item.get('itemState', 0) != 1:
+                                    continue
+                                camera_type_result = self.send_command(
+                                    'WEB_GetCamTypeByPort',
+                                    {
+                                        'videosource': camera_item.get(
+                                            'itemID',
+                                            0,
+                                        )
+                                    },
+                                )
+                                if (
+                                    camera_type_result
+                                    and camera_type_result.get('success') == 1
+                                ):
+                                    camera_type_data = self._parse_json_data(
+                                        camera_type_result.get('data', {})
+                                    )
+                                    camera_type = camera_type_data.get(
+                                        'Param1'
+                                    )
+                                    active_camera_models.append(
+                                        self._format_camera_connection_status(
+                                            camera_type
+                                        )
+                                    )
+                            if active_camera_models:
+                                status['camera_connection_status'] = (
+                                    '; '.join(
+                                        dict.fromkeys(
+                                            active_camera_models
+                                        )
+                                    )
+                                )
+                            elif status['camera_status'] == 'OffOff':
+                                status['camera_connection_status'] = (
+                                    'Камера не подключена'
+                                )
                             print(f"Статус камеры: {status.get('camera_status')}")
             except Exception as e:
                 print(f"Ошибка получения статуса камеры: {e}")
@@ -635,7 +844,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         """Получить информацию об устройстве"""
         status = self.get_status()
         return {
-            'model': status.get('model', 'Huawei TE-40'),
+            'model': status.get('model', 'Huawei TE40'),
             'serial': status.get('serial_number', 'N/A'),
             'version': status.get('version', 'N/A'),
             'mac': status.get('mac_address', 'N/A'),
@@ -701,8 +910,15 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     
     
     def set_sip_server(self, sip_address="vcs-core-a.sber.ru") -> bool:
+        def print(*args, **kwargs):
+            secrets = (
+                self.credentials.get('username'), self.credentials.get('password'),
+                self.session_id, self.csrf_token,
+            )
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """
-        Установка адреса SIP сервера на кодеке Huawei TE-40
+        Установка адреса SIP сервера на кодеке Huawei TE40
         """
         self._debug("\n=== set_sip_server called ===")
         self._debug(f"IP: {self.ip_address}")
@@ -760,9 +976,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             self._debug("Sending request...")
             response = self.opener.open(request, timeout=10)
             response_text = response.read().decode('utf-8')
-            self._debug({"response": response_text})
-            
             result = json.loads(response_text)
+            self._log_response(200, result)
             self._debug({"response": result})
             
             if result and result.get('success') == 1:
@@ -813,6 +1028,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             response = self.opener.open(request, timeout=10)
             response_text = response.read().decode('utf-8')
             result = json.loads(response_text)
+            self._log_response(200, result)
             
             if result.get('success') == 1:
                 data_field = result.get('data')
@@ -891,6 +1107,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         if not command:
             raise ValueError("Presentation value must be 'Start' or 'Stop'")
 
+        self.last_presentation_error_message = None
         payload = {
             "acCSRFToken": self.csrf_token or "",
         }
@@ -900,7 +1117,32 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
 
         # Некоторые TE40 меняют статус, но не возвращают success=1 на set-команду.
         time.sleep(0.5)
-        return self.get_presentation_status() == value
+        if self.get_presentation_status() == value:
+            return True
+
+        error = result.get('error', {}) if isinstance(result, dict) else {}
+        error_id = error.get('id') if isinstance(error, dict) else None
+        error_code = error.get('code') if isinstance(error, dict) else None
+        if (
+            value == 'Start'
+            and error_id == 100666963
+            and error_code == 100687877
+        ):
+            self.last_presentation_error_message = (
+                "Нет видеосигнала на презентационном входе TE-40. "
+                "Подключите источник и повторите попытку "
+                "(id 100666963, code 100687877)."
+            )
+        elif error_id is not None or error_code is not None:
+            self.last_presentation_error_message = (
+                "TE-40 не подтвердил команду презентации "
+                f"(id {error_id}, code {error_code})."
+            )
+        else:
+            self.last_presentation_error_message = (
+                "TE-40 не подтвердил команду презентации."
+            )
+        return False
 
     def set_speaker_volume(self, value: int) -> bool:
         min_value, max_value = self.get_volume_range()
