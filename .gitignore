@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
+node_modules/
 
 # Per-workstation device credentials. Never add this file to Git.
 credentials.local.json
