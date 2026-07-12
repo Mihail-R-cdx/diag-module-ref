@@ -1,5 +1,6 @@
 # handlers/aten/pdu.py
 
+import builtins
 import requests
 import xml.etree.ElementTree as ET
 import warnings
@@ -7,6 +8,7 @@ import time
 from typing import Optional, List, Dict, Any
 from core.base_handler import ProtocolHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from core.redaction import redact_data
 
 warnings.filterwarnings('ignore')
 
@@ -174,6 +176,12 @@ class AtenPDUHandler(ProtocolHandler):
                      data: Optional[Dict] = None) -> Optional[requests.Response]:
         """Универсальная функция для запросов к API Aten PDU"""
         
+        def print(*args, **kwargs):
+            return builtins.print(
+                *(redact_data(value, (self.username, self.password)) for value in args),
+                **kwargs,
+            )
+
         url = f"{self.base_url}{endpoint}"
         print(f"DEBUG: Request URL: {url}")  # Отладка
         

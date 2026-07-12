@@ -1,3 +1,4 @@
+import builtins
 import requests
 import json
 import re
@@ -11,6 +12,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from core.redaction import redact_diagnostic
 from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 
 try:
@@ -336,6 +338,13 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         return True
     
     def connect(self) -> bool:
+        def print(*args, **kwargs):
+            secrets = (
+                self.credentials.get('username'), self.credentials.get('password'),
+                self.session_id, self.csrf_token,
+            )
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """Установка соединения с кодеком Huawei TE20"""
         try:
             if self._use_pycurl_transport:
@@ -703,6 +712,13 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
 
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
+        def print(*args, **kwargs):
+            secrets = (
+                self.credentials.get('username'), self.credentials.get('password'),
+                self.session_id, self.csrf_token,
+            )
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """Отправить команду устройству"""
         
         # Пытаемся подключиться, если еще не подключены

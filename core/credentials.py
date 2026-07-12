@@ -36,6 +36,10 @@ class Credential:
     username: Optional[str] = None
     password: Optional[str] = None
 
+    def __repr__(self) -> str:
+        """Keep debugger, assertion, and log output free of credentials."""
+        return f"Credential(auth_mode={self.auth_mode!r}, username=<redacted>, password=<redacted>)"
+
     def as_handler_kwargs(self) -> dict[str, str]:
         """Return only values that the selected authentication contract uses."""
         result: dict[str, str] = {}

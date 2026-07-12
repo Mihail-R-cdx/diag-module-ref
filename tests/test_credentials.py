@@ -8,6 +8,7 @@ from core.credentials import (
     AUTH_PASSWORD,
     AUTH_USERNAME_PASSWORD,
     Credential,
+    CredentialProvider,
     JsonCredentialProvider,
     application_root,
     default_credentials_path,
@@ -54,6 +55,21 @@ class JsonCredentialProviderTests(unittest.TestCase):
         self.assertEqual(AUTH_USERNAME_PASSWORD, credential.auth_mode)
         self.assertEqual("synthetic-user", credential.username)
 
+    def test_gui_model_labels_resolve_their_exact_profile_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.valid_document()
+            document["device_profiles"] = {
+                model: "user-pass"
+                for model in (
+                    "Huawei TE-20", "Huawei TE-40", "CloudLink Bar 310",
+                    "Polycom RPG 310", "Biamp Tesira Forte CI", "Extron IN1804",
+                    "Aten PE8208AV",
+                )
+            }
+            provider = JsonCredentialProvider(self.write_document(directory, document))
+            for model in document["device_profiles"]:
+                self.assertEqual("synthetic-user", provider.resolve(device_model=model).username)
+
     def test_supports_password_only_and_unauthenticated_contracts(self):
         with tempfile.TemporaryDirectory() as directory:
             provider = JsonCredentialProvider(self.write_document(directory, self.valid_document()))
@@ -94,6 +110,26 @@ class JsonCredentialProviderTests(unittest.TestCase):
             explicit_credentials=Credential(AUTH_USERNAME_PASSWORD, "test-user", "test-password"),
         )
         self.assertEqual("test-user", direct.username)
+
+    def test_credential_repr_and_str_never_disclose_values(self):
+        credential = Credential(AUTH_USERNAME_PASSWORD, "synthetic-user", "synthetic-password")
+        for rendered in (repr(credential), str(credential), f"assertion helper: {credential!r}"):
+            self.assertNotIn("synthetic-user", rendered)
+            self.assertNotIn("synthetic-password", rendered)
+
+    def test_replaceable_provider_reaches_gui_composition_without_json_coupling(self):
+        class TestProvider(CredentialProvider):
+            def resolve(self, *, device_model=None, profile_name=None):
+                self.request = (device_model, profile_name)
+                return Credential(AUTH_USERNAME_PASSWORD, "synthetic-user", "synthetic-password")
+
+        provider = TestProvider()
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window.credential_provider = provider
+        resolved = window.resolve_device_credentials("Huawei TE-20")
+        self.assertEqual(("Huawei TE-20", None), provider.request)
+        self.assertEqual("synthetic-user", resolved["username"])
+        self.assertNotIn("auth_mode", resolved)
 
     def test_default_path_is_anchored_to_the_application_module(self):
         self.assertEqual(application_root() / "credentials.local.json", default_credentials_path())

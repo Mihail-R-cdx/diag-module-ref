@@ -3,6 +3,7 @@
 Реализует протокол взаимодействия с устройством через HTTPS API.
 """
 
+import builtins
 import requests
 import json
 import time
@@ -12,6 +13,7 @@ from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from core.redaction import redact_diagnostic
 from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 
 # Отключаем предупреждения о самоподписанных сертификатах
@@ -84,6 +86,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             logger(message)
         
     def connect(self) -> bool:
+        def print(*args, **kwargs):
+            secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """Установка соединения с кодеком Huawei CloudLink Bar 310"""
         try:
             print(f"Подключаюсь к {self.base_url}/")
@@ -215,6 +221,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
 
     def _make_request(self, endpoint: str, method: str = 'POST', data: Optional[Dict] = None) -> Optional[Dict]:
+        def print(*args, **kwargs):
+            secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """
         Универсальный метод для выполнения запросов к API
         """
@@ -276,6 +286,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
+        def print(*args, **kwargs):
+            secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
+
         """Отправить команду устройству"""
         if not self.is_connected() or not self.acCSRFToken:
             if not self.connect():

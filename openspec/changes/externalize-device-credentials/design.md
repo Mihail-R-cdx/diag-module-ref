@@ -110,6 +110,11 @@ configuration errors. Authentication failures remain device outcomes. No
 worker result, status dictionary, diagnostic output, exception, print, log,
 or serialized artifact may expose resolved credential values.
 
+All current production device handlers require explicit authentication before
+network I/O. Although the provider supports an `unauthenticated` profile
+contract for a future handler, no active Huawei, Polycom, Biamp, Extron, or
+Aten path is declared unauthenticated merely because a password is blank.
+
 ### Repository protection and remediation
 
 Implementation adds only `.gitignore` protection and a placeholder

@@ -35,8 +35,8 @@
 ## 5. Observability and tracked-artifact remediation
 
 - [x] 5.1 Define one reusable redaction policy for credential values, tokens, session identifiers, authentication headers, and sensitive request/response bodies.
-- [ ] 5.2 Apply redaction to handler debug/print/log paths, GUI debug output, worker errors, application logs, and exception formatting while preserving non-sensitive diagnostic context.
-- [ ] 5.3 Ensure worker results, status dictionaries, callbacks, and serialized diagnostic artifacts omit credential fields and values.
+- [x] 5.2 Apply redaction to handler debug/print/log paths, GUI debug output, worker errors, application logs, and exception formatting while preserving non-sensitive diagnostic context.
+- [x] 5.3 Ensure worker results, status dictionaries, callbacks, and serialized diagnostic artifacts omit credential fields and values.
 - [x] 5.4 Remediate confirmed credential-bearing tracked material according to the inventory, replacing only with safe synthetic examples where documentation or tests need structure.
 - [x] 5.5 Review tools, reference drivers, fixtures, logs, and documentation separately from production code; keep hardware tools opt-in and do not turn secret scanning into value disclosure.
 
@@ -49,16 +49,16 @@
 - [x] 6.5 Add unit tests proving application-root path resolution remains stable from a different working directory.
 - [x] 6.6 Add unit tests proving direct caller/test credential injection works without a local file and wins over provider output.
 - [x] 6.7 Add focused GUI/application tests for model-to-profile selection and configuration-error presentation without rendering secret values.
-- [ ] 6.8 Add factory/worker/handler integration tests for explicit credential propagation across TE20, TE40, Bar 310, Polycom, Biamp, Extron, and Aten paths as applicable.
-- [ ] 6.9 Add tests that required-authentication handlers reject absent credentials without an `admin/admin`-style fallback.
-- [ ] 6.10 Add tests that unauthenticated device paths can start without credentials when their contracts permit it.
-- [ ] 6.11 Add redaction tests for logs, print/debug output, exceptions, worker results, and status dictionaries using synthetic secrets only.
-- [ ] 6.12 Add regression tests proving a provider replacement reaches workers/handlers without coupling them to JSON implementation details.
+- [x] 6.8 Add factory/worker/handler integration tests for explicit credential propagation across TE20, TE40, Bar 310, Polycom, Biamp, Extron, and Aten paths as applicable.
+- [x] 6.9 Add tests that required-authentication handlers reject absent credentials without an `admin/admin`-style fallback.
+- [x] 6.10 Add tests that unauthenticated device paths can start without credentials when their contracts permit it.
+- [x] 6.11 Add redaction tests for logs, print/debug output, exceptions, worker results, and status dictionaries using synthetic secrets only.
+- [x] 6.12 Add regression tests proving a provider replacement reaches workers/handlers without coupling them to JSON implementation details.
 
 ## 7. Verification, migration, and follow-up
 
 - [x] 7.1 Run a safe repository secret scan or equivalent verification over all tracked files; report only paths, categories, and pass/fail status.
-- [ ] 7.2 Run the complete offline test suite with no real credential file and no live hardware: `python -m unittest discover -s tests -p "test_*.py"`.
+- [x] 7.2 Run the complete offline test suite with no real credential file and no live hardware: `python -m unittest discover -s tests -p "test_*.py"`.
 - [ ] 7.3 Perform opt-in manual GUI verification for authenticated, configuration-error, unauthenticated, and redacted-error states using non-production credentials only.
 - [x] 7.4 Verify a clean/new-PC setup requires a fresh ignored local JSON file and never creates or retrieves one through Git.
 - [x] 7.5 Verify documentation, example JSON, tests, OpenSpec artifacts, and reports contain no real secret values and accurately describe plain-text storage.
