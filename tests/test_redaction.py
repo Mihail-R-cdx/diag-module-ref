@@ -31,6 +31,29 @@ class RedactionTests(unittest.TestCase):
         self.assertNotIn(token, redacted)
         self.assertIn(REDACTION_MARKER, redacted)
 
+    def test_redacts_unknown_username_key_value_from_exception_text(self):
+        username = "unbound-synthetic-user"
+        variants = (
+            f"username={username}",
+            f"username: {username}",
+            f"username = {username}",
+            f"username : {username}",
+            f'username="{username}"',
+            f"username='{username}'",
+            f"USERNAME={username}",
+            f"Username: {username}",
+        )
+
+        for key_value in variants:
+            with self.subTest(key_value=key_value):
+                message = f"Authentication failed: {key_value} for remote endpoint"
+                redacted = redact_text(message, secrets=())
+
+                self.assertNotIn(username, redacted)
+                self.assertRegex(redacted, r"(?i)\busername\s*[:=]\s*<redacted>")
+                self.assertIn("Authentication failed", redacted)
+                self.assertIn("remote endpoint", redacted)
+
     def test_redacts_te40_sensitive_key_variants_and_nested_data_json(self):
         values = {
             "password": "synthetic-password",
@@ -181,7 +204,8 @@ class RedactionTests(unittest.TestCase):
         cookie = "synthetic-boundary-cookie"
         authorization = "Bearer synthetic-boundary-authorization"
         secrets = (username, password, session_id, csrf_token, cookie, authorization)
-        error_text = " | ".join(secrets)
+        unbound_username = "unbound-synthetic-user"
+        error_text = " | ".join((*secrets, f"upstream auth failed username={unbound_username}"))
 
         class Opener:
             def open(self, *_args, **_kwargs):
@@ -215,7 +239,7 @@ class RedactionTests(unittest.TestCase):
             self.assertIsNone(handler.verify_sip_server())
 
         public_output = stdout.getvalue() + "\n".join(command_log)
-        for secret in secrets:
+        for secret in (*secrets, unbound_username):
             self.assertNotIn(secret, public_output)
         self.assertIn(REDACTION_MARKER, public_output)
         self.assertIn("Call-status request failed", public_output)

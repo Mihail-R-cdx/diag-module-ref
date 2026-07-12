@@ -2,10 +2,10 @@
 
 ## Scope and verified revision
 
-This report covers the remediation applied after the independent validation of
-`43297326d242c96b780b2fe8c7c74d5f56fc58a7` returned `CHANGES REQUIRED`.
-The verified revision is `HEAD` (the commit containing this report), tested in
-a clean clone created from that commit's parent. No real
+This report covers the final remediation required by independent validation of
+published commit `8e5511c016c5f05af75d26c2b983ba622927639b`, which returned
+`CHANGES REQUIRED`. The verified revision is `HEAD` (the commit containing
+this report), tested in a clean worktree based on that published commit. No real
 `credentials.local.json` was created, read, or committed; all credentials and
 tokens used by tests were synthetic.
 
@@ -25,6 +25,11 @@ tokens used by tests were synthetic.
   tokens, passwords, and access/API keys. This closes a discovered regression
   where an authorization value contained only in an exception was not yet in
   handler state.
+- The shared key/value text policy now also recognises the exact `username`
+  credential key, case-insensitively. It redacts unbound values in
+  `username=value`, colon and whitespace variants, single/double quoted
+  values, and uppercase/mixed-case keys without treating unrelated keys such
+  as `userType`, `user_count`, or `username_status` as credentials.
 - Removed two earlier dead `fix_sip_huawei_te40` definitions and their
   superseded SIP helpers. Class lookup and all call sites use the single final
   SIP flow and error handler; no alias or dynamic lookup referenced the
@@ -37,23 +42,31 @@ tokens used by tests were synthetic.
 cookie, and Authorization value. It forces failures in every TE-40 status
 subrequest, SIP update, and SIP verification, captures stdout and the command
 logger, and asserts that none of those values cross a public boundary while
-redacted diagnostic context remains present. It uses no network or hardware.
+redacted diagnostic context remains present. Its exception also contains an
+unbound `username` value absent from the handler credentials, session, CSRF
+token, cookie jar, and explicit secret list; the captured public outputs omit
+it. `test_redacts_unknown_username_key_value_from_exception_text` independently
+exercises all supported `username` key/value spellings with `secrets=()` and
+keeps the non-sensitive exception context. Both tests use no network or
+hardware.
 
 ## Commands and actual results
 
-- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_gui_theme tests.test_redaction`
-  passed: 14 tests in 0.319 seconds.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction.RedactionTests.test_redacts_unknown_username_key_value_from_exception_text`
+  passed: 1 test in 0.000 seconds.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction`
+  passed: 8 tests in 0.061 seconds.
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_redaction tests.test_credential_propagation tests.test_gui_theme`
-  passed: 24 tests in 0.275 seconds.
+  passed: 25 tests in 0.332 seconds.
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest discover -s tests -p 'test_*.py'`
-  passed: 60 tests in 0.750 seconds.
+  passed: 61 tests in 0.888 seconds.
 
 All commands ran as one offline process per command in the clean checkout.
 They made no live hardware or network calls, did not read a real local
 credential file, and completed without a Qt crash or hung threads. The
 different historical counts (53, 56, 59, and 85) were recorded from different
 repository states and test selections; this report intentionally records only
-the reproducible 60-test result from the verified revision.
+the reproducible 61-test result from the verified revision.
 
 ## Validation and repository protection
 

@@ -15,7 +15,7 @@ REDACTION_MARKER = "<redacted>"
 _SENSITIVE_TEXT_VALUE = re.compile(
     r"""(?ix)
     (?P<label>\b(?:authorization|proxy-authorization|cookie|set-cookie|x-csrf-token|
-    csrf(?:token)?|session(?:id)?|token|access[_-]?key|api[_-]?key|password|passwd|pwd)\b\s*[:=]\s*)
+    csrf(?:token)?|session(?:id)?|token|access[_-]?key|api[_-]?key|username|password|passwd|pwd)\b\s*[:=]\s*)
     (?P<value>\"[^\"]*\"|'[^']*'|[^\s,;\}\]]+)
     """
 )
