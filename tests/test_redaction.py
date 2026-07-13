@@ -93,6 +93,78 @@ class RedactionTests(unittest.TestCase):
             json.loads(preserved.removeprefix("prefix ").removesuffix(" suffix")),
         )
 
+    def test_redacts_unquoted_authorization_scheme_credentials(self):
+        cases = (
+            ("Authorization: Bearer synthetic-auth-bearer", "synthetic-auth-bearer"),
+            ("Authorization: Basic synthetic-auth-basic", "synthetic-auth-basic"),
+            ("authorization=Bearer synthetic-auth-equals", "synthetic-auth-equals"),
+            ("authorization = Basic synthetic-auth-spaced", "synthetic-auth-spaced"),
+            (
+                "Proxy-Authorization: Bearer synthetic-proxy-bearer",
+                "synthetic-proxy-bearer",
+            ),
+            (
+                "proxy-authorization=Basic synthetic-proxy-basic",
+                "synthetic-proxy-basic",
+            ),
+            (
+                "prefix Authorization: Bearer synthetic-auth-middle suffix",
+                "synthetic-auth-middle",
+            ),
+            (
+                "prefix aUtHoRiZaTiOn : bEaReR synthetic-auth-mixed suffix",
+                "synthetic-auth-mixed",
+            ),
+            (
+                "Authorization:\tBearer\tsynthetic-auth-tabs",
+                "synthetic-auth-tabs",
+            ),
+        )
+
+        for message, secret in cases:
+            with self.subTest(message=message):
+                redacted = redact_text(message)
+                self.assertNotIn(secret, redacted)
+                self.assertIn(REDACTION_MARKER, redacted)
+                self.assertRegex(
+                    redacted,
+                    r"(?i)\b(?:proxy-)?authorization\s*[:=]\s*<redacted>",
+                )
+                self.assertEqual(redacted, redact_text(redacted))
+
+        surrounded = redact_text(
+            "prefix Authorization: Bearer synthetic-surrounded suffix"
+        )
+        self.assertTrue(surrounded.startswith("prefix "))
+        self.assertTrue(surrounded.endswith(" suffix"))
+
+        quoted = redact_text(
+            '{"authorization":"Bearer synthetic-json-authorization"}'
+        )
+        self.assertNotIn("synthetic-json-authorization", quoted)
+        self.assertEqual(REDACTION_MARKER, json.loads(quoted)["authorization"])
+
+    def test_does_not_redact_authorization_schemes_outside_header_context(self):
+        message = "Documentation says Bearer tokens and Basic credentials are supported"
+
+        self.assertEqual(message, redact_text(message))
+
+        standalone_secret = "synthetic-standalone-authorization"
+        standalone = redact_text(f"request failed near Bearer {standalone_secret}")
+        self.assertNotIn(standalone_secret, standalone)
+        self.assertIn(REDACTION_MARKER, standalone)
+
+    def test_malformed_authorization_fields_do_not_break_redaction(self):
+        for message in (
+            "Authorization:",
+            "Authorization: Bearer",
+            "Authorization = Basic",
+        ):
+            with self.subTest(message=message):
+                redacted = redact_text(message)
+                self.assertIsInstance(redacted, str)
+                self.assertEqual(redacted, redact_text(redacted))
+
     def test_explicit_secret_replacement_still_redacts_unknown_values(self):
         secret = "synthetic-explicit-secret"
         redacted = redact_text(f"request failed near {secret}", (secret,))

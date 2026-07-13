@@ -20,7 +20,16 @@ _SENSITIVE_TEXT_VALUE = re.compile(
     (?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;\}\]]+)
     """
 )
-_AUTHORIZATION_SCHEME_VALUE = re.compile(r"(?i)\b(?:bearer|basic)\s+[^\s,;\}\]]+")
+_AUTHORIZATION_HEADER_SCHEME_VALUE = re.compile(
+    r"""(?ix)
+    (?P<label>(?P<key_quote>[\"']?)\b(?:authorization|proxy-authorization)\b
+    (?P=key_quote)\s*[:=]\s*)
+    (?:bearer|basic)\s+[^\s,;\}\]]+
+    """
+)
+_STANDALONE_AUTHORIZATION_SCHEME_VALUE = re.compile(
+    r"(?i)\b(?:bearer|basic)\s+(?P<credential>[^\s,;\}\]]+)"
+)
 
 
 def _redact_key_value(match: re.Match[str]) -> str:
@@ -37,13 +46,29 @@ def _redact_key_value(match: re.Match[str]) -> str:
     return f"{match.group('label')}{replacement}"
 
 
+def _redact_authorization_scheme(match: re.Match[str]) -> str:
+    return f"{match.group('label')}{REDACTION_MARKER}"
+
+
+def _redact_standalone_authorization_scheme(match: re.Match[str]) -> str:
+    credential = match.group("credential")
+    if len(credential) >= 16 or any(not char.isalpha() for char in credential):
+        return REDACTION_MARKER
+    return match.group(0)
+
+
 def redact_text(value: Any, secrets: Iterable[Any] = ()) -> str:
     text = str(value)
+    text = _AUTHORIZATION_HEADER_SCHEME_VALUE.sub(_redact_authorization_scheme, text)
+    text = _SENSITIVE_TEXT_VALUE.sub(_redact_key_value, text)
+    text = _STANDALONE_AUTHORIZATION_SCHEME_VALUE.sub(
+        _redact_standalone_authorization_scheme,
+        text,
+    )
     for secret in secrets:
         if secret is not None and str(secret):
             text = text.replace(str(secret), REDACTION_MARKER)
-    text = _SENSITIVE_TEXT_VALUE.sub(_redact_key_value, text)
-    return _AUTHORIZATION_SCHEME_VALUE.sub(REDACTION_MARKER, text)
+    return text
 
 
 def redact_exception(value: BaseException | str, secrets: Iterable[Any] = ()) -> str:
