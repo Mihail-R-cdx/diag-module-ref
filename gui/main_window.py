@@ -7,6 +7,7 @@ import os
 import random
 import platform
 import subprocess
+import traceback
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
@@ -14,6 +15,9 @@ from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
+from core.credentials import JsonCredentialProvider, resolve_request_credentials
+from core.exceptions import CredentialConfigurationError
+from core.redaction import redact_exception, redact_text
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QPainter
@@ -69,6 +73,19 @@ class MatrixTerminalDialog(QDialog):
         self.output.appendPlainText(text)
         self.output.verticalScrollBar().setValue(self.output.verticalScrollBar().maximum())
 
+
+class RequestCredentialStore(dict):
+    """Compatibility bridge for explicit UI/test credentials and the provider."""
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+
+    def get(self, device_name, default=None):
+        if device_name in self:
+            return super().get(device_name)
+        return [self.owner.resolve_device_credentials(device_name)]
+
 class VCSDiagnosticApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -108,72 +125,19 @@ class VCSDiagnosticApp(QMainWindow):
         
         self.huawei_settings = {
             'port': 443,
-            'username': 'admin',
-            'password': 'admin',
             'use_ssl': True,
             'verify_ssl': False
         }        
         
         # Список credentials для разных устройств
-        self.device_credentials = {
-            "Huawei TE40": [
-                {'username': 'admin', 'password': 'admin'},        # По умолчанию
-                {'username': 'admin', 'password': 'admin'},        # По умолчанию
-                {'username': 'admin', 'password': 'admin'},          # Альтернатива 1
-            ],
-            "CloudLink Bar 310": [                          # Добавлено для Bar 310
-                {'username': 'admin', 'password': 'admin'},        # По умолчанию
-                {'username': 'admin', 'password': 'admin'},          # Альтернатива 1
-                {'username': 'admin', 'password': 'admin'},      # Альтернатива 2
-            ],
-            "Huawei TE20": [
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'}              
-            ],
-            "CloudLink Box 300": [
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-            ],
-            "Polycom RPG 310": [
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-            ],
-            "Extron IN1804": [
-                {'username': 'admin', 'password': 'admin'},     
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-            ],      
-            "Aten PE8208AV": [
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-            ],            
-            "Biamp Tesira Forte CI": [
-                {'username': 'admin', 'password': 'admin'},
-                {'username': 'admin', 'password': 'admin'},
-            ],
-        }
+        self.credential_provider = JsonCredentialProvider()
+        self.device_credentials = RequestCredentialStore(self)
         
         # Текущий индекс credentials для каждого устройства
         self.current_credential_index = {}
         for device in self.device_credentials:
             self.current_credential_index[device] = 0
         self.device_connection_profiles = {}
-        
-        
         self.progress_dialog = None
         self.ui_state = UIState.IDLE
         self._request_serial = 0
@@ -201,6 +165,16 @@ class VCSDiagnosticApp(QMainWindow):
         self.update_timer.setInterval(30000)
         self.update_timer.timeout.connect(self.update_time_display)
         self.update_timer.start()
+
+    def resolve_device_credentials(self, device_name, profile_name=None, explicit_credentials=None):
+        """Resolve credentials once in the GUI composition layer."""
+        credential = resolve_request_credentials(
+            self.credential_provider,
+            device_model=device_name,
+            profile_name=profile_name,
+            explicit_credentials=explicit_credentials,
+        )
+        return credential.as_handler_kwargs()
     
     def init_ui(self, params=None):
         """Инициализация интерфейса"""
@@ -892,6 +866,15 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
             return
 
+        try:
+            # Credential resolution is deliberately before ping or worker network I/O.
+            self._active_request_credentials = self.device_credentials.get(device_name)
+        except CredentialConfigurationError as error:
+            message = str(error)
+            self.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(self, "Настройка credentials", message)
+            return
+
         if not self.ensure_ping_success(ip_address):
             return
 
@@ -961,10 +944,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
 
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         current_idx = self.get_current_credential_index(device_name, ip_address)
         if current_idx >= len(creds_list):
             current_idx = 0
@@ -1009,11 +989,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для Bar 310
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'}
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.get_current_credential_index(device_name, ip_address)
@@ -1072,7 +1048,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для TE-20
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [{'username': 'admin', 'password': 'admin'}])
+        creds_list = self.device_credentials.get(device_name)
 
         # Создаем worker с текущими credentials
         current_idx = self.get_current_credential_index(device_name, ip_address)
@@ -1130,7 +1106,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для TE-40
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [{'username': 'admin', 'password': 'admin'}])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.get_current_credential_index(device_name, ip_address)
@@ -1188,11 +1164,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для Polycom
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -1250,11 +1222,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для Extron IN1804
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'admin', 'password': 'admin'},  # Без аутентификации
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -1312,10 +1280,7 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Получаем список credentials для PDU
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name, [
-            {'username': 'admin', 'password': 'admin'},
-            {'username': 'admin', 'password': 'admin'},
-        ])
+        creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
         current_idx = self.current_credential_index.get(device_name, 0)
@@ -2033,7 +1998,9 @@ class VCSDiagnosticApp(QMainWindow):
             device_name = "Huawei TE40"
             creds_list = self.device_credentials.get(device_name, [])
             current_idx = self.current_credential_index.get(device_name, 0)
-            creds = creds_list[current_idx] if creds_list else {'username': 'admin', 'password': 'admin'}
+            if not creds_list:
+                raise CredentialConfigurationError("Credentials are required before setting a SIP server.")
+            creds = creds_list[current_idx]
             
             # Создаем worker для установки SIP
             from core.worker import HuaweiTE40Worker
@@ -2150,9 +2117,9 @@ class VCSDiagnosticApp(QMainWindow):
             device_name = "Huawei TE40"
             creds_list = self.device_credentials.get(device_name, [])
             current_idx = self.current_credential_index.get(device_name, 0)
-            creds = creds_list[current_idx] if creds_list else {'username': 'admin', 'password': 'admin'}
-            
-            print("Credentials: username='admin', password='admin'")
+            if not creds_list:
+                raise CredentialConfigurationError("Credentials are required before setting a SIP server.")
+            creds = creds_list[current_idx]
             
             # Создаем worker для установки SIP
             from core.worker import HuaweiTE40Worker
@@ -2307,13 +2274,10 @@ class VCSDiagnosticApp(QMainWindow):
         """Подготовить параметры подключения для SIP fix."""
         if device_name == "Huawei TE40":
             port = self.huawei_settings.get('port', 443)
-            fallback = {'username': 'admin', 'password': 'admin'}
         elif device_name == "CloudLink Bar 310":
             port = self.huawei_settings.get('port', 443)
-            fallback = {'username': 'admin', 'password': 'admin'}
         elif device_name == "Polycom RPG 310":
             port = 22
-            fallback = {'username': 'admin', 'password': 'admin'}
         else:
             raise ValueError(f"SIP fix не поддерживается для {device_name}")
 
@@ -2325,8 +2289,9 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = 0
             creds = creds_list[0]
         else:
-            current_idx = 0
-            creds = fallback
+            raise CredentialConfigurationError(
+                "Credentials are required before setting a SIP server."
+            )
 
         return port, current_idx, creds
 
@@ -2366,7 +2331,25 @@ class VCSDiagnosticApp(QMainWindow):
 
     def fix_sip_huawei_te40(self, ip_address: str):
         """Исправление SIP регистрации для Huawei TE40."""
-        self._start_sip_fix("Huawei TE40", ip_address)
+        creds = {}
+        try:
+            _port, _current_idx, creds = self._get_sip_fix_connection_params(
+                "Huawei TE40", ip_address
+            )
+            self._start_sip_fix("Huawei TE40", ip_address)
+        except Exception as error:
+            secrets = (creds.get("username"), creds.get("password"))
+            safe_error = redact_exception(error, secrets)
+            safe_traceback = redact_text(traceback.format_exc(), secrets)
+            print(f"SIP fix failed: {safe_error}")
+            print(safe_traceback)
+            self.hide_progress_dialog()
+            self._set_sip_fix_busy(False)
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                "Не удалось установить SIP сервер. Проверьте настройки подключения.",
+            )
 
     def fix_sip_huawei_bar310(self, ip_address: str):
         """Исправление SIP регистрации для CloudLink Bar 310."""

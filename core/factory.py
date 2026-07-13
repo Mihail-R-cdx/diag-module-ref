@@ -15,6 +15,8 @@ class ProtocolFactory:
         'huawei_bar310': ('handlers.huawei.bar310', 'CloudLinkBar310Handler'), 
         'polycom_rpg310': ('handlers.polycom.rpg310', 'PolycomRPG310Handler'),
         'extron_in1804': ('handlers.extron.in1804', 'ExtronIN1804Handler'),
+        'aten_pdu': ('handlers.aten.pdu', 'AtenPDUHandler'),
+        'biamp_tesira_forte_ci': ('handlers.biamp.tesira_forte_ci', 'BiampTesiraForteCIHandler'),
     }
     
     @classmethod
@@ -39,13 +41,20 @@ class ProtocolFactory:
                 module = importlib.import_module(module_path)
                 handler_class = getattr(module, class_name)
                 
-                username = credentials.get('username', '') if credentials else ''
-                password = credentials.get('password', '') if credentials else ''
+                if credentials is None:
+                    credential_kwargs = {}
+                elif hasattr(credentials, 'as_handler_kwargs'):
+                    credential_kwargs = credentials.as_handler_kwargs()
+                else:
+                    credential_kwargs = {
+                        key: value
+                        for key, value in credentials.items()
+                        if key in {'username', 'password'}
+                    }
                 
                 return handler_class(
                     ip_address=ip_address,
-                    username=username,
-                    password=password,
+                    **credential_kwargs,
                     **kwargs
                 )
             except (ImportError, AttributeError) as e:

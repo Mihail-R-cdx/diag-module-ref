@@ -1,5 +1,6 @@
 # handlers/aten/pdu.py
 
+import builtins
 import requests
 import xml.etree.ElementTree as ET
 import warnings
@@ -7,6 +8,7 @@ import time
 from typing import Optional, List, Dict, Any
 from core.base_handler import ProtocolHandler
 from core.exceptions import AuthenticationError, ConnectionError
+from core.redaction import redact_data
 
 warnings.filterwarnings('ignore')
 
@@ -14,8 +16,8 @@ warnings.filterwarnings('ignore')
 class AtenPDUHandler(ProtocolHandler):
     """Обработчик для PDU Aten (серия PE)"""
     
-    def __init__(self, ip_address: str, port: int = 443, username: str = 'admin', 
-                 password: str = 'admin', use_ssl: bool = True, verify_ssl: bool = False):
+    def __init__(self, ip_address: str, port: int = 443, username: str = None,
+                 password: str = None, use_ssl: bool = True, verify_ssl: bool = False):
         super().__init__(ip_address, port)
         
         self.username = username
@@ -128,6 +130,8 @@ class AtenPDUHandler(ProtocolHandler):
     
     def connect(self) -> bool:
         """Подключение к PDU (проверка доступности)"""
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Aten PDU.")
         try:
             # Пробуем получить статус устройства для проверки подключения
             resp = self._api_request("GET", "/api/device/relay")
@@ -172,6 +176,12 @@ class AtenPDUHandler(ProtocolHandler):
                      data: Optional[Dict] = None) -> Optional[requests.Response]:
         """Универсальная функция для запросов к API Aten PDU"""
         
+        def print(*args, **kwargs):
+            return builtins.print(
+                *(redact_data(value, (self.username, self.password)) for value in args),
+                **kwargs,
+            )
+
         url = f"{self.base_url}{endpoint}"
         print(f"DEBUG: Request URL: {url}")  # Отладка
         

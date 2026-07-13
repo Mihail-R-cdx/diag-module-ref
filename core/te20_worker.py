@@ -6,6 +6,7 @@ from core.exceptions import AuthenticationError, ConnectionError
 from core.parser import HuaweiTE20DataParser
 from handlers.huawei.te20 import HuaweiTE20Handler
 from utils.te20_stack import inspect_te20_https_stack
+from core.redaction import redact_data, redact_exception, redact_text, redacted_callback
 
 
 class WorkerSignals(QObject):
@@ -24,7 +25,7 @@ class WorkerSignals(QObject):
 class HuaweiTE20Worker(QRunnable):
     """Специализированный worker для Huawei TE20."""
 
-    def __init__(self, ip_address: str, port: int = 80, username: str = "admin", password: str = "admin"):
+    def __init__(self, ip_address: str, port: int = 80, username: str = None, password: str = None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -43,7 +44,10 @@ class HuaweiTE20Worker(QRunnable):
             return False
 
     def _log(self, message: str) -> None:
-        self._emit(self.signals.terminal_log, message)
+        self._emit(
+            self.signals.terminal_log,
+            redact_text(message, (self.username, self.password)),
+        )
 
     def _build_unique_profiles(self) -> list[dict]:
         connection_profiles = [
@@ -79,6 +83,8 @@ class HuaweiTE20Worker(QRunnable):
         handler = None
 
         try:
+            if not self.creds_list and (not self.username or not self.password):
+                raise AuthenticationError("Credentials are required for Huawei TE20 before connecting.")
             self._log(f"[session] start {self.ip_address}")
             self._emit(self.signals.status, "Начинаю подключение к TE-20...")
             self._emit(self.signals.progress, 10)
@@ -126,7 +132,9 @@ class HuaweiTE20Worker(QRunnable):
                         password=self.password,
                         use_ssl=profile["use_ssl"],
                     )
-                    current_handler.command_logger = self._log
+                    current_handler.command_logger = redacted_callback(
+                        self._log, (self.username, self.password)
+                    )
 
                     try:
                         if current_handler.connect():
@@ -142,16 +150,18 @@ class HuaweiTE20Worker(QRunnable):
                         current_handler.disconnect()
                     except AuthenticationError as e:
                         current_handler.disconnect()
-                        print(f"[TE20] Ошибка аутентификации через {profile['label']}: {e}")
-                        self._log(f"[auth] {profile['label']}: {e}")
+                        safe_error = redact_exception(e, (self.username, self.password))
+                        print(f"[TE20] Ошибка аутентификации через {profile['label']}: {safe_error}")
+                        self._log(f"[auth] {profile['label']}: {safe_error}")
                         credential_auth_error = e
                         last_connection_error = str(e)
                         break
                     except Exception as e:
-                        last_connection_error = f"{profile['label']}: {e}"
+                        safe_error = redact_exception(e, (self.username, self.password))
+                        last_connection_error = f"{profile['label']}: {safe_error}"
                         current_handler.disconnect()
-                        print(f"[TE20] Ошибка подключения через {profile['label']}: {e}")
-                        self._log(f"[error] {profile['label']}: {type(e).__name__}: {e}")
+                        print(f"[TE20] Ошибка подключения через {profile['label']}: {safe_error}")
+                        self._log(f"[error] {profile['label']}: {type(e).__name__}: {safe_error}")
 
                 if handler is not None:
                     break
@@ -174,7 +184,7 @@ class HuaweiTE20Worker(QRunnable):
 
             print("Вызываю handler.get_status()...")
             raw_data = handler.get_status()
-            print(f"get_status() вернул: {raw_data}")
+            print(f"get_status() вернул: {redact_data(raw_data, (self.username, self.password))}")
             self._log(f"[status] raw keys: {', '.join(sorted(raw_data.keys())) if raw_data else 'none'}")
 
             self._emit(self.signals.status, "Обрабатываю данные...")
@@ -182,7 +192,7 @@ class HuaweiTE20Worker(QRunnable):
 
             print("Парсинг данных...")
             parsed_data = HuaweiTE20DataParser.parse_raw_data(raw_data)
-            print(f"Парсинг завершен: {parsed_data}")
+            print(f"Парсинг завершен: {redact_data(parsed_data, (self.username, self.password))}")
             self._log(f"[status] parsed keys: {', '.join(sorted(parsed_data.keys())) if parsed_data else 'none'}")
 
             parsed_data["ip_address"] = self.ip_address
@@ -194,7 +204,7 @@ class HuaweiTE20Worker(QRunnable):
 
             self._emit(self.signals.progress, 90)
             print("Отправка результата...")
-            self._emit(self.signals.result, parsed_data)
+            self._emit(self.signals.result, redact_data(parsed_data, (self.username, self.password)))
             self._log("[session] completed successfully")
 
             print("Отключение...")
@@ -203,17 +213,19 @@ class HuaweiTE20Worker(QRunnable):
             self._emit(self.signals.disconnected)
 
         except AuthenticationError as e:
-            print(f"!!! Ошибка аутентификации в HuaweiTE20Worker: {str(e)}")
-            self._log(f"[session] failed authentication: {e}")
-            self._emit(self.signals.error, ("authentication_error", str(e), traceback.format_exc()))
+            safe_error = redact_exception(e, (self.username, self.password))
+            print(f"!!! Ошибка аутентификации в HuaweiTE20Worker: {safe_error}")
+            self._log(f"[session] failed authentication: {safe_error}")
+            self._emit(self.signals.error, ("authentication_error", safe_error, redact_text(traceback.format_exc(), (self.username, self.password))))
         except Exception as e:
-            print(f"!!! Ошибка в HuaweiTE20Worker: {type(e).__name__}: {str(e)}")
+            safe_error = redact_exception(e, (self.username, self.password))
+            print(f"!!! Ошибка в HuaweiTE20Worker: {type(e).__name__}: {safe_error}")
             try:
-                print(traceback.format_exc())
+                print(redact_text(traceback.format_exc(), (self.username, self.password)))
             except OSError:
                 pass
-            self._log(f"[session] failed: {type(e).__name__}: {e}")
-            self._emit(self.signals.error, ("connection_error", str(e), traceback.format_exc()))
+            self._log(f"[session] failed: {type(e).__name__}: {safe_error}")
+            self._emit(self.signals.error, ("connection_error", safe_error, redact_text(traceback.format_exc(), (self.username, self.password))))
         finally:
             if handler is not None:
                 try:

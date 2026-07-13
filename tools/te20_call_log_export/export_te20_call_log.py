@@ -126,10 +126,10 @@ def export_with_pycurl(base_url, username, password):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Export Huawei TE20 call log XML.")
-    parser.add_argument("--ip", default="link.ru")
+    parser = argparse.ArgumentParser(description="Export Huawei TE-20 call log XML.")
+    parser.add_argument("--ip", default="192.168.1.100")
     parser.add_argument("--username", default="admin")
-    parser.add_argument("--password", default="admin")
+    parser.add_argument("--password", default=os.environ.get("TE20_PASSWORD", ""))
     parser.add_argument("--port", type=int, default=443)
     parser.add_argument("--http", action="store_true", help="Use HTTP:80 instead of HTTPS:443.")
     parser.add_argument("--pycurl", action="store_true", help="Use pycurl/Schannel-style transport for HTTPS.")
@@ -137,6 +137,11 @@ def main():
     parser.add_argument("--p2p", action="store_true", help="Use WEB_GetP2PCallRecordsAPI instead of XML export.")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
+
+    if not args.password:
+        parser.error(
+            "Password is required. Use --password or the TE20_PASSWORD environment variable."
+        )
 
     scheme = "http" if args.http else "https"
     port = 80 if args.http else args.port
