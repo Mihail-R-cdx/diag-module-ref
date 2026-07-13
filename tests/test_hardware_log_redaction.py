@@ -3,6 +3,7 @@ import io
 import unittest
 from unittest.mock import patch
 
+from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import QApplication
 
 from gui.main_window import VCSDiagnosticApp
@@ -324,7 +325,9 @@ class RequestLifecycleRegressionTests(unittest.TestCase):
             )
         finally:
             window.close()
-            self.app.processEvents()
+            window.deleteLater()
+            QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            QApplication.processEvents()
         self.assertEqual([True], reset_calls)
 
 if __name__ == "__main__":
