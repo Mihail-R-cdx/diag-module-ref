@@ -100,3 +100,84 @@ of the full baseline.
 
 RESOLVED FINDING: missing repository-local openspec.cmd
 OPEN FINDING: missing specs/vcs-diagnostic-openspec.md
+
+## Historical baseline restoration
+
+Validation date: 2026-07-13 (Europe/Moscow).
+
+### Finding and provenance
+
+The outstanding High finding was that the published repository did not contain
+the historical `specs/vcs-diagnostic-openspec.md` document claimed by the
+bootstrap proposal, design, and task 2.3. The document was located in the
+available Git object history at the same path in source commit
+`1b5183b3b1eb57a7529b36f445629e0fa53e9971` (`Publish sanitized diagnostic
+source code`). Its source blob is `15fcc7e70de49bcc5fa0be14360ccca0e36b6e16`.
+
+The search covered all refs, path/name history, object names, likely filename
+variants, reflog/stash references, and unreachable objects. The source commit
+was confirmed with `git ls-tree`; the file is a 551-line reverse-engineered
+behavioral specification for the existing diagnostic application. Its sections
+cover metadata and scope, inputs and outputs, UI and worker behavior,
+device-specific diagnostics and controls, error handling, dependencies, and
+the covered source-file inventory.
+
+The tracked file has been restored at `specs/vcs-diagnostic-openspec.md` from
+that source revision. The historical body is restored without semantic
+changes. A short leading status note and normalization of 14 legacy trailing
+whitespace errors are the only intentional technical changes:
+it records the source commit and explicitly labels the document historical,
+migration input, reference-only, and non-authoritative after root specs were
+introduced. It also directs current requirements to `openspec/specs/` and
+gives those specifications precedence in the event of a difference.
+
+This treatment matches the bootstrap artifacts: proposal and design describe
+the document as preserved historical source material and a cross-check, while
+the OpenSpec capability specifications remain the normative baseline. It does
+not claim that every production behavior was formalized, and it does not copy
+later credential-isolation requirements into the historical snapshot.
+
+### Restoration checks
+
+- The file exists at the required path and is non-empty.
+- Deterministic checks found the required `historical migration reference`
+  marker and the `openspec/specs/` reference. No `TODO` or `TBD` placeholder
+  was found.
+- The targeted sensitive-field scan found only documented field/protocol
+  terminology in the restored historical material; no credential values,
+  tokens, cookies, or local credential content were introduced or reported.
+- No separate Markdown-artifact test was added because the repository has no
+  existing repository-artifact test harness; the deterministic checks above
+  provide the requested coverage without adding a framework.
+
+### Workflow and offline validation
+
+The repository-local wrapper was run after `npm ci` using the existing portable
+Node.js runtime. It resolved `@fission-ai/openspec` version `1.6.0`; no global
+OpenSpec installation was used.
+
+| Command | Result |
+| --- | --- |
+| `./openspec.cmd --help` | Passed. |
+| `./openspec.cmd list` | Passed; active `bootstrap-openspec-baseline` reported as 8/9 tasks. The archived credential change was not returned as active. |
+| `./openspec.cmd validate bootstrap-openspec-baseline --strict` | Passed. |
+| `./openspec.cmd validate --all --strict` | Passed; 3 passed, 0 failed. |
+| `python -m unittest discover -s tests -p "test_*.py"` | `python` is not on `PATH` on this host. The equivalent command with the available Python 3.12 interpreter passed 61 tests in 0.733 s. |
+
+The offline suite made no live-hardware or application network calls, used no
+real `credentials.local.json`, and completed without a Qt crash or hung
+threads.
+
+### Git protection and scope
+
+- `git diff --check` passed with no whitespace errors.
+- `git check-ignore -v credentials.local.json` confirmed the ignore rule; `git
+  ls-files -- credentials.local.json` returned no tracked credential file.
+- The restoration is limited to the historical reference, its task provenance,
+  and this verification record. No production code, GUI, handlers, workers,
+  root specs, archived credential change, wrapper, dependency version, archive,
+  merge, pull request, or branch deletion was changed or performed.
+
+The missing historical baseline specification finding is resolved by the
+tracked `specs/vcs-diagnostic-openspec.md` reference document. A new independent
+validation of `bootstrap-openspec-baseline` is required before archive.

@@ -7,7 +7,7 @@
 
 - [x] 2.1 Verify the entry point, main window, screens, workers, handlers, parsers, and offline tests.
 - [x] 2.2 Create capability specs for shell behavior, devices, lifecycle, and secure observability.
-- [x] 2.3 Mark the prior reverse-engineered specification as historical source material.
+- [x] 2.3 Restore `specs/vcs-diagnostic-openspec.md` from source commit `1b5183b3b1eb57a7529b36f445629e0fa53e9971` and mark it as historical, non-authoritative migration reference material.
 
 ## 3. Validate and finalize
 
