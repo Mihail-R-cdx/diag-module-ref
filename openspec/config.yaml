@@ -1,0 +1,64 @@
+schema: spec-driven
+
+# Project context is provided to OpenSpec when preparing future artifacts.
+context: |
+  Project: VCS Diagnostic Module, a PyQt5 desktop application for diagnostics
+  and limited control of AV/VCS equipment. The entry point is main.py; the
+  primary window is gui/main_window.py::VCSDiagnosticApp.
+
+  Architecture: gui/ owns the shell and device screens; core/ owns workers,
+  parsers, base classes, and exceptions; handlers/ owns protocol-specific
+  integrations; utils/ contains shared transport helpers. Current production
+  devices wired into the main UI are Huawei TE20, Huawei TE40, CloudLink Bar
+  310, Polycom RPG 310, Extron IN1804, Aten PE8208AV, and Biamp Tesira Forte
+  CI. Reference drivers and tools/ are not production GUI behavior unless a
+  change explicitly wires them in.
+
+  Preserve these architectural rules in future changes:
+  - Network I/O and long-running device operations belong outside the Qt GUI
+    thread. Existing synchronous control paths are debt, not a precedent for
+    new work.
+  - Bind a worker result, error, and completion callback to the active request
+    context. Do not render a result from an obsolete model/IP request.
+  - Keep device, IP, connection-profile, and credential context isolated
+    across concurrent or superseded operations.
+  - Never add credentials, tokens, request bodies, or response secrets to new
+    logs, dialogs, errors, or test artifacts. Existing credential-display
+    behavior is a remediation candidate and must not be copied.
+  - Make protocol fallback explicit and testable, and release handlers,
+    sockets, sessions, and persistent connections at completion or shutdown.
+  - Keep hardware-dependent checks distinct from the offline test suite.
+  - A behavior change requires its own OpenSpec change. Do not silently fold
+    unrelated bug fixes or debt remediation into another change.
+
+  Tests: use `python -m unittest discover -s tests -p "test_*.py"` for the
+  offline suite, or `python -m unittest tests.test_ui_states` for a focused
+  module when applicable. Hardware tools under tools/ are opt-in and must not
+  be run as part of offline validation.
+
+  OpenSpec workflow: create proposal, specs, design when cross-cutting or
+  ambiguous, and tasks using the installed `spec-driven` schema. A change is
+  ready to archive when required artifacts and scenarios agree, tasks reflect
+  actual completion, `openspec validate --all --strict` passes, relevant
+  offline tests pass, documentation contains no secrets, and no undeclared
+  runtime behavior changed. Archive with `openspec archive <change>` only
+  after that reviewable state has been reached.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
