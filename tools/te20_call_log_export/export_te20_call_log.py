@@ -92,31 +92,24 @@ def export_with_pycurl(base_url, username, password):
 
     try:
         session_url = f"{base_url}/action.cgi?ActionID=Web_RequestSessionID"
-        print(f"[session/pycurl] POST {session_url}")
         session_response = pycurl_request(session_url, cookie_jar_path, headers=headers)
-        print(f"[session/pycurl] status={session_response['status']} body={session_response['body'][:500]}")
+        print(f"[session/pycurl] status={session_response['status']}")
 
         token_url = f"{base_url}/action.cgi?ActionID=Web_RequestCertificate"
         token_payload = json.dumps({"user": username, "password": password}, ensure_ascii=False)
-        print(f"[auth/pycurl] POST {token_url}")
         token_response = pycurl_request(
             token_url,
             cookie_jar_path,
             data=token_payload,
             headers=headers + ["Content-Type: application/json"],
         )
-        print(f"[auth/pycurl] status={token_response['status']} body={token_response['body'][:500]}")
-
-        session_id = read_session_id_from_cookie_jar(cookie_jar_path)
-        if session_id:
-            print(f"[session/pycurl] cookie SessionID={session_id}")
+        print(f"[auth/pycurl] status={token_response['status']}")
+        print("[auth/pycurl] authentication completed")
 
         rmd = random.random()
         export_url = f"{base_url}/action.cgi?ActionID=WEB_CallRecordExport?rmd={rmd}"
-        print(f"[export/pycurl] GET {export_url}")
         export_response = pycurl_request(export_url, cookie_jar_path, method="GET", headers=headers)
         print(f"[export/pycurl] status={export_response['status']} bytes={len(export_response['body'].encode('utf-8'))}")
-        print(f"[export/pycurl] preview={export_response['body'][:300]}")
         return export_response["body"]
     finally:
         try:
@@ -165,15 +158,13 @@ def main():
 
     session_url, session_response = post_action(session, base_url, "WEB_RequestSessionIDAPI")
     session_text = decode_response(session_response)
-    print(f"[session] POST {session_url}")
-    print(f"[session] status={session_response.status_code} body={session_text[:500]}")
+    print(f"[session] status={session_response.status_code}")
     session_response.raise_for_status()
 
     session_id = session.cookies.get("SessionID", "")
     headers = {"Content-Type": "application/json"}
     if session_id:
         headers["Sessionid"] = session_id
-        print(f"[session] cookie SessionID={session_id}")
 
     token_payload = {"user": args.username, "password": args.password}
     token_url, token_response = post_action(
@@ -184,8 +175,7 @@ def main():
         headers=headers,
     )
     token_text = decode_response(token_response)
-    print(f"[auth] POST {token_url}")
-    print(f"[auth] status={token_response.status_code} body={token_text[:500]}")
+    print(f"[auth] status={token_response.status_code}")
     token_response.raise_for_status()
 
     csrf_token = ""
@@ -198,17 +188,15 @@ def main():
         pass
     if csrf_token:
         headers["acCSRFToken"] = csrf_token
-        print("[auth] CSRF token received")
+    print("[auth] authentication completed")
 
     rmd = random.random()
     if args.p2p:
         p2p_url = f"{base_url}/action.cgi?ActionID=WEB_GetP2PCallRecordsAPI?rmd={rmd}"
         p2p_payload = {"acCSRFToken": csrf_token}
-        print(f"[p2p] POST {p2p_url}")
         p2p_response = session.post(p2p_url, json=p2p_payload, headers=headers, timeout=30)
         p2p_text = decode_response(p2p_response)
         print(f"[p2p] status={p2p_response.status_code} bytes={len(p2p_response.content)}")
-        print(f"[p2p] preview={p2p_text[:1000]}")
         p2p_response.raise_for_status()
 
         output_path = Path(args.output) if args.output else Path(__file__).with_name("output") / f"te20_p2p_call_records_{args.ip.replace('.', '_')}.json"
@@ -239,14 +227,12 @@ def main():
     xml_text = ""
     variants_to_try = export_variants if args.probe else export_variants[:1]
     for method, export_url, export_headers in variants_to_try:
-        print(f"[export] {method} {export_url}")
         if method == "POST":
             export_response = session.post(export_url, data="", headers=export_headers, timeout=30)
         else:
             export_response = session.get(export_url, headers=export_headers, timeout=30)
         xml_text = decode_response(export_response)
         print(f"[export] status={export_response.status_code} bytes={len(export_response.content)}")
-        print(f"[export] preview={xml_text[:300]}")
         if xml_text.lstrip().startswith("<?xml") or "<CallRecordsModule>" in xml_text:
             break
         if args.probe:
@@ -256,7 +242,7 @@ def main():
         raise RuntimeError("No export request was sent")
     export_response.raise_for_status()
     if not (xml_text.lstrip().startswith("<?xml") or "<CallRecordsModule>" in xml_text):
-        raise RuntimeError(f"Export did not return XML: {xml_text[:300]}")
+        raise RuntimeError("Export did not return XML")
 
     output_path = Path(args.output) if args.output else Path(__file__).with_name("output") / f"te20_call_log_{args.ip.replace('.', '_')}.xml"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -268,5 +254,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(f"[error] {type(exc).__name__}: {exc}", file=sys.stderr)
-        raise
+        print(f"[error] {type(exc).__name__}: operation failed", file=sys.stderr)
+        sys.exit(1)

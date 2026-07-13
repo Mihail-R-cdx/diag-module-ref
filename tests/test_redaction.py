@@ -54,6 +54,52 @@ class RedactionTests(unittest.TestCase):
                 self.assertIn("Authentication failed", redacted)
                 self.assertIn("remote endpoint", redacted)
 
+    def test_redacts_sensitive_fields_in_embedded_json_and_python_literals(self):
+        cases = (
+            ('{"password":"synthetic-json-password"}', "synthetic-json-password"),
+            ('{"token": "synthetic-json-token"}', "synthetic-json-token"),
+            ("{'password': 'synthetic-python-password'}", "synthetic-python-password"),
+            (
+                'prefix {"password":"synthetic-prefixed-password"} suffix',
+                "synthetic-prefixed-password",
+            ),
+            (
+                '{"user":"admin","password":"synthetic-user-password"}',
+                "synthetic-user-password",
+            ),
+            (
+                '{"nested":{"authorization":"Bearer synthetic-authorization"}}',
+                "synthetic-authorization",
+            ),
+            ('{"PaSsWd":synthetic-unquoted}', "synthetic-unquoted"),
+            ('{"acCSRFToken":"synthetic-csrf"}', "synthetic-csrf"),
+        )
+
+        for message, secret in cases:
+            with self.subTest(message=message):
+                redacted = redact_text(message)
+                self.assertNotIn(secret, redacted)
+                self.assertIn(REDACTION_MARKER, redacted)
+                self.assertEqual(redacted, redact_text(redacted))
+
+        preserved = redact_text(
+            'prefix {"user":"admin","password":"synthetic-password"} suffix'
+        )
+        self.assertIn("prefix ", preserved)
+        self.assertIn('"user":"admin"', preserved)
+        self.assertIn(" suffix", preserved)
+        self.assertEqual(
+            {"user": "admin", "password": REDACTION_MARKER},
+            json.loads(preserved.removeprefix("prefix ").removesuffix(" suffix")),
+        )
+
+    def test_explicit_secret_replacement_still_redacts_unknown_values(self):
+        secret = "synthetic-explicit-secret"
+        redacted = redact_text(f"request failed near {secret}", (secret,))
+
+        self.assertNotIn(secret, redacted)
+        self.assertIn(REDACTION_MARKER, redacted)
+
     def test_redacts_te40_sensitive_key_variants_and_nested_data_json(self):
         values = {
             "password": "synthetic-password",

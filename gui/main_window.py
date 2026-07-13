@@ -1829,7 +1829,7 @@ class VCSDiagnosticApp(QMainWindow):
                         f"Username: {default_username}\n"
                         f"Пароль будет использован при следующем подключении"
                     )
-                    print(f"Добавлен новый пароль для {device_name}: {password}")
+                    print(f"Добавлены новые credentials для {device_name}")
                 else:
                     QMessageBox.information(
                         self, 
@@ -1866,7 +1866,7 @@ class VCSDiagnosticApp(QMainWindow):
                     f"Username: {default_username}\n"
                     f"Пароль будет использован при следующем подключении"
                 )
-                print(f"Создана новая запись для {device_name} с паролем: {password}")
+                print(f"Создана новая запись credentials для {device_name}")
     
     def show_password_dialog(self):
         """Показать диалог ввода логина и пароля."""
@@ -1949,26 +1949,6 @@ class VCSDiagnosticApp(QMainWindow):
             default_username = 'admin'
         return default_username
 
-    def show_saved_passwords(self):
-        """Отобразить список сохраненных паролей (для отладки)"""
-        device_name = self.device_combo.currentText()
-        if device_name in self.device_credentials:
-            creds = self.device_credentials[device_name]
-            passwords_list = "\n".join([f"{i+1}. {cred['username']}:{cred['password']}" 
-                                        for i, cred in enumerate(creds)])
-            QMessageBox.information(
-                self,
-                "Сохраненные пароли",
-                f"Сохраненные пароли для {device_name}:\n\n{passwords_list}"
-            )
-        else:
-            QMessageBox.information(
-                self,
-                "Сохраненные пароли",
-                f"Для {device_name} нет сохраненных паролей"
-            )
-    
-    
     def lighten_color(self, hex_color, percent):
         """Осветлить HEX цвет на указанный процент"""
         hex_color = hex_color.lstrip('#')

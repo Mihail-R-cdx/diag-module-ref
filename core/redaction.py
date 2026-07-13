@@ -9,17 +9,32 @@ from typing import Any, Callable, Iterable
 SENSITIVE_FIELD_MARKERS = (
     "password", "credential", "token", "session", "authorization",
     "auth_header", "secret", "username", "usr", "pwd", "cookie",
-    "csrf", "access_key", "api_key",
+    "csrf", "access_key", "api_key", "passwd", "bearer",
 )
 REDACTION_MARKER = "<redacted>"
 _SENSITIVE_TEXT_VALUE = re.compile(
     r"""(?ix)
-    (?P<label>\b(?:authorization|proxy-authorization|cookie|set-cookie|x-csrf-token|
-    csrf(?:token)?|session(?:id)?|token|access[_-]?key|api[_-]?key|username|password|passwd|pwd)\b\s*[:=]\s*)
-    (?P<value>\"[^\"]*\"|'[^']*'|[^\s,;\}\]]+)
+    (?P<label>(?P<key_quote>[\"']?)\b(?:authorization|proxy-authorization|cookie|set-cookie|
+    (?:ac|x[_-])?csrf(?:[_-]?token)?|session(?:[_-]?id)?|token|bearer|
+    access[_-]?key|api[_-]?key|username|password|passwd|pwd)\b(?P=key_quote)\s*[:=]\s*)
+    (?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;\}\]]+)
     """
 )
 _AUTHORIZATION_SCHEME_VALUE = re.compile(r"(?i)\b(?:bearer|basic)\s+[^\s,;\}\]]+")
+
+
+def _redact_key_value(match: re.Match[str]) -> str:
+    value = match.group("value")
+    if (
+        match.group("key_quote")
+        and len(value) >= 2
+        and value[0] in {"\"", "'"}
+        and value[-1] == value[0]
+    ):
+        replacement = f"{value[0]}{REDACTION_MARKER}{value[0]}"
+    else:
+        replacement = REDACTION_MARKER
+    return f"{match.group('label')}{replacement}"
 
 
 def redact_text(value: Any, secrets: Iterable[Any] = ()) -> str:
@@ -27,9 +42,7 @@ def redact_text(value: Any, secrets: Iterable[Any] = ()) -> str:
     for secret in secrets:
         if secret is not None and str(secret):
             text = text.replace(str(secret), REDACTION_MARKER)
-    text = _SENSITIVE_TEXT_VALUE.sub(
-        lambda match: f"{match.group('label')}{REDACTION_MARKER}", text
-    )
+    text = _SENSITIVE_TEXT_VALUE.sub(_redact_key_value, text)
     return _AUTHORIZATION_SCHEME_VALUE.sub(REDACTION_MARKER, text)
 
 
