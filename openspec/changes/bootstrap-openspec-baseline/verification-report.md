@@ -181,3 +181,84 @@ threads.
 The missing historical baseline specification finding is resolved by the
 tracked `specs/vcs-diagnostic-openspec.md` reference document. A new independent
 validation of `bootstrap-openspec-baseline` is required before archive.
+
+## Independent final validation after blocker remediation
+
+Validation date: 2026-07-13 (Europe/Moscow).
+
+The independently validated published implementation is
+`68b8ac788a153ce49b5d058ad2560810d8b7252a` — `Restore historical VCS
+diagnostic specification`. After `git fetch origin`, both
+`origin/agent/bootstrap-openspec-baseline` and the separate detached clean
+checkout resolved to that SHA. `git status --short` was empty before this
+report update; validation therefore exercised the published implementation,
+not an uncommitted local diff.
+
+### Reproduced setup and repository-local wrapper
+
+- `package.json` and `package-lock.json` pin `@fission-ai/openspec` to
+  `1.6.0`; `npm ci` completed successfully in the clean checkout, restoring
+  79 packages with 0 reported vulnerabilities. The installed package metadata
+  reported version `1.6.0`.
+- A portable Node.js `20.19.0` runtime was placed on `PATH` only for this
+  validation run. No global OpenSpec executable was used; every OpenSpec
+  invocation used the repository-local `openspec.cmd` and its local
+  `node_modules\\.bin\\openspec.cmd`.
+- Static inspection confirms that `openspec.cmd` derives its repository
+  location from `%~dp0`, uses `pushd`/`popd`, forwards `%*`, preserves the
+  child exit code, and provides a clear nonzero missing-dependency error with
+  no machine-specific path or global fallback.
+- From a temporary directory outside the checkout, the absolute-path wrapper
+  invocation `list` succeeded with exit code 0, reported only active
+  `bootstrap-openspec-baseline` at 8/9 tasks, and returned the caller to its
+  original directory. The checkout path contains spaces.
+- A controlled, untracked fake local executable received
+  `validate --all --strict` unchanged and returned 23; the wrapper returned
+  23 and preserved the caller directory. The fake file was removed and is
+  ignored by Git. With the executable absent, the wrapper emitted its `npm ci`
+  guidance and returned 1.
+
+### Historical document, structure, and validation evidence
+
+- Source commit `1b5183b3b1eb57a7529b36f445629e0fa53e9971` exists and contains
+  `specs/vcs-diagnostic-openspec.md` as blob
+  `15fcc7e70de49bcc5fa0be14360ccca0e36b6e16`. The restored body has the same
+  line count and matches that source after only trailing-whitespace
+  normalization: the source had 13 trailing-whitespace lines and the restored
+  file has none. The sole added content is the 13-line historical,
+  non-authoritative migration-status notice that directs current requirements
+  to `openspec/specs/`.
+- The historical-document sensitive-field scan produced only generic field
+  names and protocol/error descriptions. Manual review found no credential,
+  token, cookie, or private-key value.
+- `openspec.cmd --help` and `openspec.cmd list` passed. The archived
+  `externalize-device-credentials` change remains under
+  `openspec/changes/archive/` and is not listed as active; the two root specs
+  remain available and do not conflict with the historical reference.
+- `openspec.cmd validate bootstrap-openspec-baseline --strict` passed with
+  exit code 0. `openspec.cmd validate --all --strict` passed with exit code 0:
+  3 passed, 0 failed (`bootstrap-openspec-baseline`,
+  `credential-source-isolation`, and `repository-secret-hygiene`).
+- The complete offline suite, run as one process with the available Python
+  3.12 interpreter, passed: 61 tests in 0.690 s. It used no real local
+  credential file or live hardware; no Qt crash or hung thread occurred.
+- `git diff --check` passed. `credentials.local.json` is ignored and
+  untracked; `node_modules/` is ignored; `openspec.cmd`, package metadata,
+  lockfile, and the historical document are tracked. No temporary validation
+  artifact is tracked.
+
+### Task reconciliation, findings, and verdict
+
+The completed bootstrap tasks are supported by the inspected OpenSpec
+configuration and artifacts, repository-local wrapper behavior, pinned clean
+checkout reproduction, source provenance comparison, strict validation,
+offline-suite result, root-spec/archive review, historical-document migration
+boundary, and Git-protection checks above. Task 3.3 remains unchecked as
+required: no archive was performed.
+
+Findings: none at Critical, High, Medium, or Low severity.
+
+Verdict: **APPROVE**. Archive of `bootstrap-openspec-baseline` is permitted.
+The branch is ready to merge only after that archive is performed and reviewed.
+This validation did not archive the change, merge a branch, create a pull
+request, or delete a branch.
