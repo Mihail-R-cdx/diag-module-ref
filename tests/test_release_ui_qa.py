@@ -25,6 +25,7 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
     def setUp(self):
         from gui.main_window import VCSDiagnosticApp
 
+        self.app.setQuitOnLastWindowClosed(False)
         self.window = VCSDiagnosticApp()
         self.window.show()
         QApplication.processEvents()
@@ -150,15 +151,18 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
         with patch.object(QDialog, "exec_", return_value=QDialog.Rejected):
             self.window.show_password_dialog()
 
-        for device_name in (
-            "Huawei TE20",
-            "Extron IN1804",
-            "Aten PE8208AV",
-        ):
-            with self.subTest(device=device_name):
-                self.window.device_combo.setCurrentText(device_name)
-                self.window.show_debug_window()
-                QApplication.processEvents()
+        with patch.object(self.window, "show_debug_window") as show_debug_window:
+            for device_name in (
+                "Huawei TE20",
+                "Extron IN1804",
+                "Aten PE8208AV",
+            ):
+                with self.subTest(device=device_name):
+                    self.window.device_combo.setCurrentText(device_name)
+                    self.window.show_debug_window()
+                    QApplication.processEvents()
+
+            self.assertEqual(3, show_debug_window.call_count)
 
         call_log = CallLogWindow(self.window, self.window.colors)
         call_log.set_call_records(

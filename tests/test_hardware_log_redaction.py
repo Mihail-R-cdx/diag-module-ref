@@ -259,7 +259,9 @@ class HardwareLogRedactionTests(unittest.TestCase):
             def disconnect(self):
                 self.disconnected = True
 
-        worker = PolycomRPG310Worker("link.ru")
+        worker = PolycomRPG310Worker(
+            "link.ru", username="synthetic-user", password="synthetic-password"
+        )
         with patch(
             "handlers.polycom.rpg310.PolycomRPG310Handler",
             FailingHandler,
