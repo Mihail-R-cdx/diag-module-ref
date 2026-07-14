@@ -86,6 +86,35 @@ GUI. A non-authentication failure may move to another supported transport for
 the same credential when the worker already supports that behavior, but it
 never selects another credential.
 
+TE40 follows the same ownership boundary with an explicit HTTPS-to-HTTP
+transport fallback. A confirmed HTTPS authentication failure ends the worker
+immediately and returns one `authentication_error`; HTTP is not attempted in
+that case. A non-authentication HTTPS transport failure may fall back to HTTP
+with the same assigned credential. The HTTP outcome is then authoritative: an
+HTTP authentication failure returns `authentication_error`, while an HTTP
+timeout, SSL, connection, parsing, transport, or protocol failure returns a
+non-authentication error. A later failure never masks or replaces an earlier
+confirmed authentication failure because protocol fallback does not run after
+that failure.
+
+### Separate successful results from failed attempts
+
+A final worker `result` is a success contract: device data was obtained and
+parsed successfully, and only that final non-partial result permits the GUI to
+cache the assigned credential index or enter the connected state. An
+authentication or non-authentication failure is emitted through the worker
+`error` signal and is never encoded as a final result dictionary.
+
+Polycom may emit an explicitly marked `_partial_update` after its HTTPS stage.
+That partial payload can update the screen while the SSH stage continues, but
+it does not cache the credential, enter the connected state, or show a success
+dialog. If SSH, parsing, protocol, or transport work then fails, the worker
+emits one redacted error and no final non-partial result; the GUI transitions
+from loading to the corresponding error state. As a defensive compatibility
+boundary, the GUI also rejects a result payload explicitly marked with
+`_outcome: error` instead of treating it as success; no localized message
+matching is used.
+
 ### Preserve mode-specific kwargs
 
 Candidate conversion delegates to `Credential.as_handler_kwargs()`.  Thus a
@@ -120,6 +149,11 @@ structured-text redaction for error formats that do not label their values.
   workers perform one credential attempt and only the GUI advances the index.
 - [A saved index could wrap to candidates already skipped in this request] →
   advance monotonically through only the remaining suffix of the chain.
+- [A worker could encode a failed attempt as device data] → final `result`
+  means successful acquisition and parsing; every failure uses `error`.
+- [A Polycom partial update could be mistaken for completion] → partial
+  payloads remain loading-only, and a later failure produces an error state
+  without credential caching or a success dialog.
 
 ## Migration Plan
 

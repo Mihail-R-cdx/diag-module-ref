@@ -125,6 +125,27 @@ most one terminal result or error.
   final data collection
 - **THEN** that candidate is not cached as successful
 
+#### Scenario: Successful final result permits credential caching
+- **WHEN** a worker emits a final non-partial result
+- **THEN** device acquisition and parsing completed successfully
+- **AND** only that result permits the GUI to cache the assigned candidate
+
+#### Scenario: Failed attempt is not a result
+- **WHEN** a worker receives an authentication or non-authentication failure
+- **THEN** the worker emits an error signal
+- **AND** it does not emit a final result containing an error description
+
+#### Scenario: Partial result is followed by failure
+- **WHEN** Polycom emits a partial HTTPS result and a later SSH, parsing, transport, or protocol stage fails
+- **THEN** the candidate is not cached as successful
+- **AND** no final non-partial result or success dialog is produced
+- **AND** the GUI enters an error state
+
+#### Scenario: Confirmed authentication failure ends protocol fallback
+- **WHEN** a protocol attempt returns a confirmed authentication failure
+- **THEN** the worker immediately emits one authentication error for the GUI
+- **AND** it does not hide that failure behind another protocol attempt
+
 ### Requirement: Safe candidate observability and provider isolation
 Workers and handlers SHALL receive resolved credential values through existing
 construction inputs and SHALL NOT read JSON-provider internals. Public

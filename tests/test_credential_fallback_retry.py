@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 from PyQt5.QtWidgets import QMessageBox
 
 from gui.main_window import VCSDiagnosticApp
+from gui.ui_states import UIState
 
 
 class CredentialFallbackRetryTests(unittest.TestCase):
@@ -40,6 +41,19 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             current_idx=index,
             creds_list=[{"username": f"synthetic-{item}", "password": f"synthetic-password-{item}"} for item in range(total)],
         )
+
+    def prepare_data_window(self, worker):
+        window = self.make_window()
+        window.current_worker = worker
+        window.ip_entry = SimpleNamespace(text=lambda: worker.ip_address)
+        window.screens = {}
+        window.current_screen_type = None
+        window.progress_dialog = None
+        window.suppress_success_message_once = False
+        window.update_time_display = Mock()
+        window.set_device_connection_profile = Mock()
+        window.show_progress_dialog = Mock()
+        return window
 
     def test_authentication_failure_advances_once_and_uses_actual_chain_length(self):
         window = self.make_window()
@@ -83,6 +97,8 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                     "refresh_biamp_tesira_forte_ci",
                 ):
                     getattr(window, method_name).assert_not_called()
+                window.set_current_credential_index.assert_not_called()
+                self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
 
     def test_exhausted_chain_emits_one_safe_terminal_authentication_message(self):
         window = self.make_window()
@@ -279,16 +295,8 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window.refresh_huawei_te40.assert_not_called()
 
     def test_success_in_middle_caches_index_and_starts_no_further_worker(self):
-        window = self.make_window()
         worker = self.worker(index=2, total=5)
-        window.current_worker = worker
-        window.ip_entry = SimpleNamespace(text=lambda: "192.0.2.10")
-        window.screens = {}
-        window.current_screen_type = None
-        window.progress_dialog = None
-        window.suppress_success_message_once = False
-        window.update_time_display = Mock()
-        window.set_device_connection_profile = Mock()
+        window = self.prepare_data_window(worker)
 
         with patch.object(QMessageBox, "information"):
             window.on_device_data_received(
@@ -308,6 +316,59 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             "refresh_biamp_tesira_forte_ci",
         ):
             getattr(window, method_name).assert_not_called()
+
+    def test_structured_error_outcome_cannot_cache_or_render_success(self):
+        worker = self.worker(index=2, total=5)
+        window = self.prepare_data_window(worker)
+
+        with patch.object(QMessageBox, "critical") as critical, patch.object(
+            QMessageBox, "information"
+        ) as information:
+            window.on_device_data_received(
+                {
+                    "_outcome": "error",
+                    "error_type": "connection_error",
+                    "error": "synthetic structured failure",
+                    "ip_address": "192.0.2.10",
+                },
+                worker,
+                1,
+            )
+
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
+        critical.assert_called_once()
+        information.assert_not_called()
+
+    def test_polycom_partial_then_error_never_caches_or_enters_connected(self):
+        worker = self.worker(index=2, total=5)
+        worker.device_name = "Polycom RPG 310"
+        window = self.prepare_data_window(worker)
+        window.device_combo = SimpleNamespace(currentText=lambda: "Polycom RPG 310")
+
+        with patch.object(QMessageBox, "critical") as critical, patch.object(
+            QMessageBox, "information"
+        ) as information:
+            window.on_device_data_received(
+                {
+                    "ip_address": "192.0.2.10",
+                    "status": "partial",
+                    "_partial_update": True,
+                },
+                worker,
+                1,
+            )
+            self.assertEqual(UIState.LOADING, window.set_ui_state.call_args.args[0])
+            window.on_device_error(
+                ("connection_error", "ssh failed", "synthetic traceback"),
+                worker,
+                1,
+            )
+
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
+        critical.assert_called_once()
+        information.assert_not_called()
 
     def test_te20_and_extron_terminal_errors_redact_every_candidate_secret(self):
         secrets = (

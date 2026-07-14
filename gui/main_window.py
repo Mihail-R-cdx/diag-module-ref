@@ -1492,6 +1492,18 @@ class VCSDiagnosticApp(QMainWindow):
             return
         worker = worker or getattr(self, "current_worker", None)
         data = dict(data)
+        structured_outcome = data.pop('_outcome', None)
+        if structured_outcome == 'error':
+            self.on_device_error(
+                (
+                    data.pop('error_type', 'connection_error'),
+                    data.pop('error', data.pop('message', 'Worker request failed')),
+                    data.pop('traceback', ''),
+                ),
+                worker,
+                request_id,
+            )
+            return
         partial_update = bool(data.pop('_partial_update', False))
         if not partial_update:
             self.hide_progress_dialog()

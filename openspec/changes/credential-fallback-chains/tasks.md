@@ -33,3 +33,15 @@
 - [x] 5.8 Rerun required focused and full offline tests, strict OpenSpec validation, and Git hygiene checks.
 - [x] 5.9 Update factual implementation evidence for independent re-validation.
 - [x] 5.10 Remove the remaining internal credential fallback from the Biamp and Aten production workers and add regression coverage.
+
+## 6. Independent-validation worker-outcome corrections
+
+- [x] 6.1 Define final success, failure, Polycom partial-result, and confirmed-auth protocol-fallback contracts in design and delta spec.
+- [x] 6.2 Make TE40 emit failures only through error signals and stop protocol fallback immediately after confirmed authentication failure.
+- [x] 6.3 Make Polycom emit post-partial and other failures through error signals without a final success result.
+- [x] 6.4 Add a structured GUI guard so explicitly failed result payloads cannot cache credentials or enter the connected state.
+- [x] 6.5 Add TE40 worker-level success, authentication, transport fallback, parsing, single-outcome, index, and redaction tests.
+- [x] 6.6 Add Polycom worker-level full-success, partial-then-error, failure-category, single-outcome, index, and redaction tests.
+- [x] 6.7 Add GUI success-caching and partial-result-followed-by-error tests and verify the seven-worker production outcome contract.
+- [x] 6.8 Rerun required targeted/full/OpenSpec/hygiene gates.
+- [x] 6.9 Update factual implementation evidence for independent re-validation.
