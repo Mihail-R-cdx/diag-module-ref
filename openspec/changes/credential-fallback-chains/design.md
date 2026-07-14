@@ -58,6 +58,21 @@ password-only candidate contains only `password`, and an unauthenticated
 candidate contains no credential keys.  This avoids manufacturing fields that
 could change handler contracts.
 
+### Isolate retry state and terminal errors by request context
+
+Successful credential indexes are scoped to the exact device/IP pair whenever
+an IP address is available. A device-only index remains a legacy value for
+callers without an IP address, but is never used as a fallback for an
+IP-specific request. Refresh and command paths treat an index outside the
+current candidate sequence as zero, so a changed chain cannot cause an index
+error. Existing request-id checks continue to reject stale callbacks, and a
+partial result does not cache a candidate as successful.
+
+Before TE20 or Extron error text reaches a terminal, status, or dialog, the
+GUI redacts the error with every credential value in the active candidate
+chain supplied as explicit secrets. This supplements the centralized
+structured-text redaction for error formats that do not label their values.
+
 ## Risks / Trade-offs
 
 - [An invalid later profile could otherwise permit partial connection] → parse

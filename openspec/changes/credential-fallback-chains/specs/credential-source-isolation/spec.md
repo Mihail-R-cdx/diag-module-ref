@@ -81,6 +81,21 @@ after exhaustion.
 - **WHEN** every candidate fails authentication
 - **THEN** no additional worker is created and the user receives one safe terminal authentication error
 
+#### Scenario: Credential index is isolated by device and IP
+- **WHEN** one device/IP request succeeds with a later candidate and a new IP
+  for the same device starts a request
+- **THEN** the new IP starts at candidate zero, while a later request for the
+  original IP reuses only that IP's successful candidate
+
+#### Scenario: Stored index no longer fits the chain
+- **WHEN** a saved credential index is outside the current candidate sequence
+- **THEN** the request starts safely at candidate zero without an index error
+
+#### Scenario: Partial result precedes completion
+- **WHEN** a worker emits a partial result before completing authentication and
+  final data collection
+- **THEN** that candidate is not cached as successful
+
 ### Requirement: Safe candidate observability and provider isolation
 Workers and handlers SHALL receive resolved credential values through existing
 construction inputs and SHALL NOT read JSON-provider internals. Public
@@ -95,3 +110,9 @@ or credential values.
 #### Scenario: Provider rejects a later profile
 - **WHEN** any profile in a mapped chain is missing or invalid
 - **THEN** no worker starts and the safe configuration error discloses neither profile nor credential values
+
+#### Scenario: TE20 or Extron worker error reaches a public terminal
+- **WHEN** a TE20 or Extron error contains credential values or authorization
+  material from any candidate in the active chain
+- **THEN** terminal, status, and dialog output receive only redacted safe text
+  before any rendering occurs
