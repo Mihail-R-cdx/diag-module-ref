@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PyQt5.QtCore import QEvent, QTimer
+    from PyQt5.QtTest import QTest
     from PyQt5.QtWidgets import QApplication, QComboBox, QLineEdit, QWidget
 except ImportError:
     QApplication = None
@@ -312,8 +313,9 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         self.screen.set_presentation_state = lambda _direction: None
 
         self.screen.on_presentation_button_clicked(param_name, "on")
+        timer = self.screen._presentation_enable_timers[param_name]
         self.assertTrue(
-            self.screen._presentation_enable_timers[param_name].isActive()
+            timer.isActive()
         )
 
         screen = self.screen
@@ -321,6 +323,8 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         screen.close()
         screen.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QApplication.processEvents()
+        QTest.qWait(1600)
         QApplication.processEvents()
 
     def test_information_columns_stack_at_narrow_width(self):
