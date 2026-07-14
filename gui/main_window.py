@@ -15,7 +15,11 @@ from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
-from core.credentials import JsonCredentialProvider, resolve_request_credentials
+from core.credentials import (
+    JsonCredentialProvider,
+    resolve_request_credential_candidates,
+    resolve_request_credentials,
+)
 from core.exceptions import CredentialConfigurationError
 from core.redaction import redact_exception, redact_text
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
@@ -84,7 +88,7 @@ class RequestCredentialStore(dict):
     def get(self, device_name, default=None):
         if device_name in self:
             return super().get(device_name)
-        return [self.owner.resolve_device_credentials(device_name)]
+        return self.owner.resolve_device_credential_candidates(device_name)
 
 class VCSDiagnosticApp(QMainWindow):
     def __init__(self):
@@ -175,6 +179,18 @@ class VCSDiagnosticApp(QMainWindow):
             explicit_credentials=explicit_credentials,
         )
         return credential.as_handler_kwargs()
+
+    def resolve_device_credential_candidates(
+        self, device_name, profile_name=None, explicit_credentials=None
+    ):
+        """Resolve all candidates once before any worker or handler is created."""
+        credentials = resolve_request_credential_candidates(
+            self.credential_provider,
+            device_model=device_name,
+            profile_name=profile_name,
+            explicit_credentials=explicit_credentials,
+        )
+        return [credential.as_handler_kwargs() for credential in credentials]
     
     def init_ui(self, params=None):
         """Инициализация интерфейса"""
@@ -878,7 +894,6 @@ class VCSDiagnosticApp(QMainWindow):
         if not self.ensure_ping_success(ip_address):
             return
 
-        self.set_current_credential_index(device_name, 0, ip_address)
         if device_name == "Extron IN1804":
             self.disconnect_matrix_persistent_handler()
         
@@ -960,8 +975,7 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             self.current_worker = BiampTesiraForteCIWorker(
                 ip_address=ip_address,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             self.current_worker.creds_list = creds_list
             self.current_worker.current_idx = current_idx
@@ -1012,8 +1026,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiBar310Worker(
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
-                username=creds['username'],
-                password=creds['password'],
+                **creds,
                 creds_list=creds_list
             )
             
@@ -1070,8 +1083,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiTE20Worker(
                 ip_address=ip_address,
                 port=80,  # TE-20 использует HTTP порт 80
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1128,8 +1140,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiTE40Worker(
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1167,7 +1178,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, ip_address)
+        if current_idx >= len(creds_list):
+            current_idx = 0
         creds = creds_list[current_idx]
         
         
@@ -1186,8 +1199,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = PolycomRPG310Worker(
                 ip_address=ip_address,
                 port=443,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1225,7 +1237,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, ip_address)
+        if current_idx >= len(creds_list):
+            current_idx = 0
         creds = creds_list[current_idx]
         
         
@@ -1244,8 +1258,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = ExtronIN1804Worker(
                 ip_address=ip_address,
                 port=22023,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1283,7 +1296,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_current_credential_index(device_name, ip_address)
+        if current_idx >= len(creds_list):
+            current_idx = 0
         creds = creds_list[current_idx]
         
         
@@ -1301,8 +1316,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = AtenPDUWorker(
                 ip_address=ip_address,
                 port=443,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток

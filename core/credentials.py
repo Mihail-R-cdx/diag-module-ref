@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 from core.exceptions import (
     CredentialConfigurationError,
@@ -63,6 +63,15 @@ class CredentialProvider(ABC):
     ) -> Credential:
         """Resolve an explicitly requested or device-mapped profile."""
 
+    def resolve_candidates(
+        self,
+        *,
+        device_model: Optional[str] = None,
+        profile_name: Optional[str] = None,
+    ) -> Sequence[Credential]:
+        """Resolve ordered candidates while keeping single-provider compatibility."""
+        return (self.resolve(device_model=device_model, profile_name=profile_name),)
+
 
 def application_root() -> Path:
     """Resolve the project root from this stable module path, never ``cwd``."""
@@ -91,9 +100,28 @@ def resolve_request_credentials(
     explicit_credentials: Credential | Mapping[str, Any] | None = None,
 ) -> Credential:
     """Apply source priority: direct input, explicit profile, model mapping."""
+    return resolve_request_credential_candidates(
+        provider,
+        device_model=device_model,
+        profile_name=profile_name,
+        explicit_credentials=explicit_credentials,
+    )[0]
+
+
+def resolve_request_credential_candidates(
+    provider: CredentialProvider,
+    *,
+    device_model: Optional[str] = None,
+    profile_name: Optional[str] = None,
+    explicit_credentials: Credential | Mapping[str, Any] | None = None,
+) -> Sequence[Credential]:
+    """Apply source priority and return all request-scoped candidates."""
     if explicit_credentials is not None:
-        return normalize_credential(explicit_credentials)
-    return provider.resolve(device_model=device_model, profile_name=profile_name)
+        return (normalize_credential(explicit_credentials),)
+    resolve_candidates = getattr(provider, "resolve_candidates", None)
+    if callable(resolve_candidates):
+        return resolve_candidates(device_model=device_model, profile_name=profile_name)
+    return (provider.resolve(device_model=device_model, profile_name=profile_name),)
 
 
 class JsonCredentialProvider(CredentialProvider):
@@ -108,23 +136,40 @@ class JsonCredentialProvider(CredentialProvider):
         device_model: Optional[str] = None,
         profile_name: Optional[str] = None,
     ) -> Credential:
+        return self.resolve_candidates(
+            device_model=device_model,
+            profile_name=profile_name,
+        )[0]
+
+    def resolve_candidates(
+        self,
+        *,
+        device_model: Optional[str] = None,
+        profile_name: Optional[str] = None,
+    ) -> Sequence[Credential]:
         document = self._load_document()
         profiles = document["profiles"]
-        selected_profile = profile_name
-        if selected_profile is None:
+        if profile_name is not None:
+            profile_names = self._validate_profile_names((profile_name,))
+        else:
             if not device_model:
                 raise CredentialProfileNotFoundError(
                     "Credential configuration needs an explicit profile or a mapped device model."
                 )
-            selected_profile = document["device_profiles"].get(device_model)
-            if not isinstance(selected_profile, str) or not selected_profile:
+            mapping = document["device_profiles"].get(device_model)
+            if mapping is None:
                 raise CredentialProfileNotFoundError(
                     "Credential configuration has no profile mapped for the selected device."
                 )
-        profile = profiles.get(selected_profile)
-        if not isinstance(profile, dict):
-            raise CredentialProfileNotFoundError("Credential configuration profile was not found.")
-        return self._parse_profile(profile)
+            profile_names = self._mapping_profile_names(mapping)
+
+        resolved: list[Credential] = []
+        for name in profile_names:
+            profile = profiles.get(name)
+            if not isinstance(profile, dict):
+                raise CredentialProfileNotFoundError("Credential configuration profile was not found.")
+            resolved.append(self._parse_profile(profile))
+        return tuple(resolved)
 
     def _load_document(self) -> dict[str, Any]:
         try:
@@ -149,10 +194,27 @@ class JsonCredentialProvider(CredentialProvider):
             raise CredentialSchemaError("Credential configuration requires a profiles object.")
         if not isinstance(mappings, dict):
             raise CredentialSchemaError("Credential configuration device_profiles must be an object.")
-        for model, profile_name in mappings.items():
-            if not isinstance(model, str) or not model or not isinstance(profile_name, str) or not profile_name:
+        for model, mapping in mappings.items():
+            if not isinstance(model, str) or not model.strip():
                 raise CredentialSchemaError("Credential configuration has an invalid device profile mapping.")
+            self._mapping_profile_names(mapping)
         return {"profiles": profiles, "device_profiles": mappings}
+
+    @classmethod
+    def _mapping_profile_names(cls, mapping: Any) -> tuple[str, ...]:
+        if isinstance(mapping, str):
+            return cls._validate_profile_names((mapping,))
+        if isinstance(mapping, list):
+            return cls._validate_profile_names(mapping)
+        raise CredentialSchemaError("Credential configuration has an invalid device profile mapping.")
+
+    @staticmethod
+    def _validate_profile_names(names: Sequence[Any]) -> tuple[str, ...]:
+        if not names:
+            raise CredentialSchemaError("Credential configuration has an invalid device profile mapping.")
+        if any(not isinstance(name, str) or not name.strip() for name in names):
+            raise CredentialSchemaError("Credential configuration has an invalid device profile mapping.")
+        return tuple(names)
 
     @staticmethod
     def _parse_profile(profile: Mapping[str, Any]) -> Credential:
