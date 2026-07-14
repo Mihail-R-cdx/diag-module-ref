@@ -1,60 +1,115 @@
 ## Implementation Evidence
 
-This is an implementation-session record, not an independent validation
-verdict. It does not approve, archive, merge, or delete the change.
+This is implementation evidence, not an independent validation verdict. It
+does not approve, archive, merge, or delete the change.
 
-### Baseline and delivered fixes
+### Repository baseline and scope
 
-- Baseline branch SHA: `7534917a47102f0392b596e854f60650a7e097e6`.
-- Successful credential indexes are now stored only under a device/IP key for
-  IP-specific requests; a legacy device-only value is not an IP fallback.
-  A new IP starts at zero, the original IP retains its own successful index,
-  and an out-of-range saved index safely starts at zero.
-- Refresh and command paths use the bounded device/IP helper. Partial worker
-  results no longer cache a candidate as successful, and existing request-id
-  checks continue to reject stale callbacks.
-- `on_device_error()` redacts errors before TE20 or Extron terminal rendering.
-  It passes every value in the active candidate chain as an explicit secret to
-  the centralized redaction helper, covering unlabeled values as well as
-  username, password, token, session, and authorization material.
-- Regression coverage includes cross-IP and cross-device isolation, legacy
-  device-only non-fallback behavior, invalid-index recovery, partial results,
-  TE40/Extron/Aten retry dispatch, and TE20/Extron terminal, status, and dialog
-  redaction with synthetic values.
+- Branch: `agent/change-052-credential-fallback-chains`.
+- Published baseline SHA: `53d53ac2aec3c2396856e8b8e941ae1c58863cdc`.
+- The baseline commit `docs: document portable Node validation setup` and its
+  agreed `RULES.md` changes are preserved. `RULES.md` was not modified in this
+  implementation session.
+- History was not rewritten: no force-push, rebase, squash, amend, merge, or
+  archive operation was used.
+- The final implementation commit and post-push local/remote SHA equality are
+  recorded in the session handoff because a tracked report cannot contain the
+  SHA of the commit that contains the report itself.
+
+### Retry ownership corrections
+
+- The GUI/application composition layer is the sole credential-fallback owner.
+  `on_device_error()` advances monotonically to the next larger candidate only
+  after a confirmed authentication failure. A timeout, SSL, connection,
+  parsing, transport, or protocol error terminates the chain.
+- Error de-duplication is scoped to `worker + request_id`, so duplicate signals
+  from one attempt cannot create a second retry while a worker reused by a new
+  request remains valid. Existing request identity checks reject stale worker
+  callbacks.
+- A request beginning at a saved index tries only the remaining suffix of the
+  chain. It does not wrap to earlier candidates and ends after a finite number
+  of attempts with one safe authentication error when exhausted.
+- `HuaweiTE20Worker` performs one credential attempt. Its existing HTTP/HTTPS
+  transport fallback uses the same assigned username/password on every
+  transport, does not change `current_idx`, and emits one terminal result or
+  error.
+- `HuaweiBar310Worker` performs one credential attempt, does not change
+  `current_idx`, does not cache a successful index, and emits one terminal
+  result or error.
+- Focused review found the same competing retry pattern in the production
+  Biamp and Aten workers. Those internal loops were also removed so the generic
+  one-worker/one-credential requirement is true for every affected production
+  path rather than only the two workers named in the original finding.
+- Workers retain the full `creds_list` only as redaction/request context. The
+  shared worker-secret collector now redacts every value in each candidate.
+
+### OpenSpec artifacts
+
+- `proposal.md`, `design.md`, and the delta
+  `specs/credential-source-isolation/spec.md` now define one retry owner,
+  credential-stable protocol fallback, one terminal worker outcome, monotonic
+  saved-index exhaustion, and application-only credential-index advancement.
+- `tasks.md` records the independent-validation corrections and their factual
+  implementation/test completion.
+- The root `openspec/specs/credential-source-isolation/spec.md` was read for
+  context and was not modified manually while the change remains active.
 
 ### Test evidence
 
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_credentials tests.test_credential_propagation`
   - 24 passed; 0 failures, 0 errors, 0 skips.
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_credential_fallback_retry`
+  - 13 passed; 0 failures, 0 errors, 0 skips.
+  - Covers all seven production retry dispatch paths, chain lengths five and
+    ten, saved-index suffix exhaustion, duplicate/stale callbacks,
+    non-authentication termination, and success-in-the-middle behavior.
+- `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_credential_worker_retry_ownership`
   - 8 passed; 0 failures, 0 errors, 0 skips.
+  - Covers TE20 and Bar 310 one-credential behavior, TE20 transport fallback,
+    authentication and non-authentication failures, immutable worker index,
+    single terminal outcomes, full-chain redaction, and Biamp/Aten ownership.
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest tests.test_hardware_log_redaction`
   - 14 passed; 0 failures, 0 errors, 0 skips.
 - `C:\\Users\\Mih\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m unittest discover -s tests -p "test_*.py"`
-  - 110 passed; 0 failures, 0 errors, 0 skips.
-- `git diff --check`
-  - passed before the final evidence update; it is rerun before commit.
-- Portable Node from the repository-root `.tools` directory:
-  - Node `v20.19.0`; npm `10.8.2`.
-- `npm ci`
-  - succeeded: 79 packages added, 80 audited, 0 vulnerabilities.
-- `./openspec.cmd validate credential-fallback-chains --strict`
-  - passed: `Change 'credential-fallback-chains' is valid`.
-- `./openspec.cmd validate --all --strict`
-  - passed: 7 items passed, 0 failed.
+  - 123 passed; 0 failures, 0 errors, 0 skips; final status `OK`.
 
-### Environment resolution and remaining handoff
+### Node and OpenSpec evidence
 
-- `python` is unavailable on PATH; the installed Python 3.12 executable above
-  was used directly.
-- `RULES.md` identifies the portable Node directory. It was prepended to PATH
-  only for the commands above; no system PATH setting or portable runtime is
-  committed.
-- The implementation commit SHA and its post-push local/remote comparison are
-  recorded in the session handoff after the normal commit and push.
+- Portable Node was supplied from the repository-owned ignored `.tools`
+  directory through process-local `DIAG_NODE_HOME`; it was not added to the
+  system PATH or tracked files.
+- `node --version`: `v20.19.0`.
+- `npm --version`: `10.8.2`.
+- `npm ci`: succeeded; 79 packages added, 80 audited, 0 vulnerabilities.
+- `.\\openspec.cmd validate credential-fallback-chains --strict`:
+  `Change 'credential-fallback-chains' is valid`.
+- `.\\openspec.cmd validate --all --strict`: 7 passed, 0 failed.
 
-### Remaining verification
+### Safety and hygiene
 
-After publication, an independent validation session must fetch the published
-branch, create a clean detached worktree from its remote SHA, rerun the
-required checks, and record its own verdict. No `APPROVE` is issued here.
+- `git diff --check` passed.
+- `credentials.local.json` is ignored, absent, and untracked; it was not read.
+- `node_modules` and the portable Node runtime are untracked.
+- No real credential, test-log, portable-runtime, or temporary artifact is in
+  the implementation diff. Tests use synthetic values only.
+- No internal credential-order or wrap-around loop remains in the affected
+  production workers; `current_idx` is assigned by GUI composition and remains
+  unchanged during a worker run.
+
+### Failures and remaining verification
+
+- Environment: the first parallel targeted-test rerun was rejected before
+  test startup by a Windows sandbox ACL helper. The same commands were rerun
+  sequentially and all passed.
+- Branch/test: an intermediate full suite exposed one UI-state regression when
+  error de-duplication was initially worker-global. It was corrected to
+  `worker + request_id`; the focused 17-test UI/retry rerun and final 123-test
+  suite passed. No branch/test failure remains.
+- Existing TLS deprecation warnings remain unchanged and do not affect the
+  required offline results.
+- A new independent validation session must fetch the published branch into a
+  clean detached worktree, rerun the required gates, and issue its own verdict.
+
+### Implementation status
+
+`READY FOR RE-VALIDATION`

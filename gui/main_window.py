@@ -1013,7 +1013,7 @@ class VCSDiagnosticApp(QMainWindow):
 
 
     def refresh_huawei_bar310(self, ip_address: str):
-        """Обновление данных Huawei CloudLink Bar 310 с перебором credentials"""
+        """Start one Bar 310 attempt with the GUI-selected credential."""
         print(f"=== Начинаю обновление Huawei CloudLink Bar 310 для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1043,7 +1043,7 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             from core.worker import HuaweiBar310Worker
             
-            # Передаем creds_list в конструктор worker для корректной работы перебора
+            # The full list is request context for redaction; the worker uses only **creds.
             self.current_worker = HuaweiBar310Worker(
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
@@ -1073,7 +1073,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
 
     def refresh_huawei_te20(self, ip_address: str):
-        """Обновление данных Huawei TE20 с перебором credentials"""
+        """Start one TE20 attempt with the GUI-selected credential."""
         print(f"=== Начинаю обновление TE-20 для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1309,7 +1309,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
 
     def refresh_aten_pdu(self, ip_address: str):
-        """Обновление данных Aten PDU с перебором credentials"""
+        """Start one Aten PDU attempt with the GUI-selected credential."""
         print(f"=== Начинаю обновление Aten PE8208AV для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1606,6 +1606,16 @@ class VCSDiagnosticApp(QMainWindow):
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
         worker = worker or getattr(self, "current_worker", None)
+        active_request_id = request_id
+        if active_request_id is None:
+            active_request_id = (self._active_request or {}).get("id")
+        unhandled = object()
+        if worker and getattr(
+            worker, "_device_error_handled_request", unhandled
+        ) == active_request_id:
+            return
+        if worker:
+            worker._device_error_handled_request = active_request_id
         error_type, error, traceback_text = error_info
         creds_list = getattr(worker, 'creds_list', []) if worker else []
         error = redact_exception(

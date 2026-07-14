@@ -1,11 +1,14 @@
 ## Context
 
-The GUI already keeps an ordered `creds_list` and retries the next entry only
-after its existing authentication-failure classification.  However, the
-composition layer supplies only one resolved credential because the JSON
-provider accepts only a string-valued device mapping.  The change must extend
-that boundary without duplicating retries in device handlers or exposing
-credential metadata in public output.
+The GUI keeps an ordered `creds_list` and retries the next entry only after its
+authentication-failure classification. The composition layer originally
+supplied only one resolved credential because the JSON provider accepted only
+a string-valued device mapping. After plural resolution was added, the TE20
+and Bar 310 workers still iterated the same list independently, competing with
+the GUI retry flow and permitting repeated or non-authentication retries. The
+change must therefore extend the provider boundary while keeping credential
+fallback under one owner and without exposing credential metadata in public
+output.
 
 ## Goals / Non-Goals
 
@@ -16,11 +19,16 @@ credential metadata in public output.
 - Preserve the single-candidate provider and GUI interfaces for existing
   providers, callers, and direct test overrides.
 - Feed the ordered, redacted-safe handler kwargs into the existing retry state.
+- Make one worker instance correspond to exactly one credential attempt, with
+  the GUI/application composition layer as the only owner of credential index
+  advancement.
+- Keep protocol or transport fallback distinct from credential fallback and
+  preserve the current credential across all protocol attempts.
 
 **Non-Goals:**
 
-- Change device protocols, retry classification, storage encryption, or add a
-  runtime dependency.
+- Change device protocol ordering, storage encryption, or add a runtime
+  dependency.
 - Create, read in workers, or commit a real local credential file.
 
 ## Decisions
@@ -50,6 +58,33 @@ store use it.  Existing worker fields (`creds_list`, current index, device and
 IP context) continue to govern retry, attempt display, de-duplication, stale
 callback rejection, and successful-index caching.  No handler receives a
 profile name or reads JSON.
+
+The GUI/application composition layer is the sole owner of credential
+fallback. It creates a worker with the current candidate and may advance only
+to the next larger index after a confirmed authentication failure. A request
+that begins at a saved index does not wrap around to earlier candidates; it
+terminates after the remaining suffix of the chain. This monotonic ordering
+ensures every request completes after a finite number of attempts and no
+candidate is attempted more than once in that request.
+
+Each worker uses only the `username` and `password` passed for its assigned
+candidate. A worker may retain `creds_list` for redacting the complete active
+chain and retain `current_idx` as immutable request context, but it does not
+select from the list, change the index, or cache a successful index. A worker
+emits at most one terminal result or error. A confirmed authentication failure
+returns one `authentication_error` to the GUI; a timeout, SSL, connection,
+parsing, transport, or protocol failure returns a non-authentication error and
+terminates the credential chain.
+
+### Keep protocol fallback credential-stable
+
+Protocol or transport fallback is local to a worker and is not credential
+fallback. TE20 may try its existing HTTP/HTTPS connection profiles, but every
+profile uses the worker's one assigned username/password pair. A confirmed
+authentication failure ends that worker immediately and returns control to the
+GUI. A non-authentication failure may move to another supported transport for
+the same credential when the worker already supports that behavior, but it
+never selects another credential.
 
 ### Preserve mode-specific kwargs
 
@@ -81,6 +116,10 @@ structured-text redaction for error formats that do not label their values.
   one-element fallback.
 - [Credential metadata could leak during retry] → display only attempt number
   and total, and test public signal/error paths with synthetic values.
+- [Two retry owners could repeat candidates or retry after transport errors] →
+  workers perform one credential attempt and only the GUI advances the index.
+- [A saved index could wrap to candidates already skipped in this request] →
+  advance monotonically through only the remaining suffix of the chain.
 
 ## Migration Plan
 
@@ -88,7 +127,9 @@ structured-text redaction for error formats that do not label their values.
 2. Pass candidate kwargs through GUI composition and cover legacy-provider and
    direct-override compatibility.
 3. Verify all production paths continue to receive the existing retry fields.
-4. Update the tracked example and run focused, full offline, and strict
+4. Remove worker-owned credential iteration from TE20 and Bar 310 and add
+   worker-level retry-ownership tests.
+5. Update the tracked example and run focused, full offline, and strict
    OpenSpec validation. Rollback is safe because string mappings and
    single-candidate APIs remain supported.
 

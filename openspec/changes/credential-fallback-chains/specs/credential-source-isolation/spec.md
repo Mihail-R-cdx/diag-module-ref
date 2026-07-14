@@ -63,7 +63,11 @@ given to a worker. The existing retry mechanism SHALL try a later candidate
 only after a confirmed authentication failure, SHALL stop for a
 non-authentication error, SHALL retain a successful candidate index for the
 same device/IP context, and SHALL emit one safe terminal authentication error
-after exhaustion.
+after exhaustion. The GUI/application composition layer SHALL be the sole
+owner of credential fallback and SHALL advance monotonically to higher
+candidate indexes without wrap-around. Each worker instance SHALL use only its
+assigned candidate, SHALL NOT change the credential index, and SHALL emit at
+most one terminal result or error.
 
 #### Scenario: Legacy provider is used
 - **WHEN** a provider implements only the existing one-candidate method
@@ -73,13 +77,38 @@ after exhaustion.
 - **WHEN** a worker reports a confirmed authentication failure before the final candidate
 - **THEN** the existing retry mechanism starts exactly one next attempt
 
+#### Scenario: Worker performs one credential attempt
+- **WHEN** the GUI creates a worker for credential candidate N
+- **THEN** the worker uses only candidate N
+- **AND** the worker does not advance to another credential candidate itself
+
+#### Scenario: Protocol fallback preserves credential
+- **WHEN** a worker tries another supported transport or protocol
+- **THEN** every protocol attempt uses the same assigned credential candidate
+
+#### Scenario: Authentication failure returns to the GUI
+- **WHEN** a worker receives a confirmed authentication failure
+- **THEN** the worker emits one authentication error
+- **AND** the GUI decides whether to start the next candidate
+
 #### Scenario: Non-authentication failure stops the chain
 - **WHEN** an attempt fails with timeout, transport, SSL, parsing, or protocol error
 - **THEN** no next credential candidate is started
+- **AND** the worker does not use another credential candidate
 
 #### Scenario: Chain is exhausted
 - **WHEN** every candidate fails authentication
 - **THEN** no additional worker is created and the user receives one safe terminal authentication error
+
+#### Scenario: Saved candidate exhausts the remaining chain
+- **WHEN** a request starts from a saved candidate with an index greater than zero
+- **AND** that candidate and every later candidate fail authentication
+- **THEN** each candidate in the remaining suffix is attempted no more than once
+- **AND** the request ends with one safe terminal authentication error without wrapping to an earlier candidate
+
+#### Scenario: Retry ownership remains in the application layer
+- **WHEN** credential fallback is active for a request
+- **THEN** only the GUI/application composition layer changes the credential index between attempts
 
 #### Scenario: Credential index is isolated by device and IP
 - **WHEN** one device/IP request succeeds with a later candidate and a new IP

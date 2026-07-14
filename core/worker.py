@@ -19,7 +19,7 @@ def _worker_secrets(worker):
     values = [getattr(worker, "username", None), getattr(worker, "password", None)]
     for credential in getattr(worker, "creds_list", ()):
         if isinstance(credential, dict):
-            values.extend((credential.get("username"), credential.get("password")))
+            values.extend(credential.values())
     return tuple(values)
 
 
@@ -374,7 +374,7 @@ class CodecSipFixWorker(QRunnable):
 
 
 class HuaweiBar310Worker(QRunnable):
-    """Специализированный Worker для Huawei CloudLink Bar 310 с перебором credentials"""
+    """Worker for one CloudLink Bar 310 credential attempt."""
     
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
@@ -394,118 +394,83 @@ class HuaweiBar310Worker(QRunnable):
     @pyqtSlot()
     def run(self):
         def print(*args, **kwargs):
-            secrets = [self.username, self.password]
-            for credential in self.creds_list:
-                secrets.extend((credential.get("username"), credential.get("password")))
+            secrets = _worker_secrets(self)
             return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
 
-        """Основной метод работы с циклом перебора credentials"""
-        creds_to_try = self.creds_list or [
-            {'username': self.username, 'password': self.password}
-        ]
-        if not all(creds.get('username') and creds.get('password') for creds in creds_to_try):
-            self.signals.error.emit(('authentication_error', 'Credentials are required for CloudLink Bar 310 before connecting.', ''))
-            self.signals.finished.emit()
-            return
-        
-        total_creds = len(creds_to_try)
-        start_idx = self.current_idx if 0 <= self.current_idx < total_creds else 0
-        ordered_indices = list(range(start_idx, total_creds)) + list(range(0, start_idx))
-        
-        print(f"=== HuaweiBar310Worker.run() для {self.ip_address} ===")
-        print(f"[WORKER] Всего credentials для проверки: {total_creds}")
-        print(f"[WORKER] Старт с credentials #{start_idx + 1}")
-        
-        for attempt_no, actual_idx in enumerate(ordered_indices, start=1):
-            self.current_idx = actual_idx
-            creds = creds_to_try[actual_idx]
-            print(f"[WORKER] Попытка #{attempt_no}/{total_creds} (credentials #{actual_idx + 1}): {creds['username']}:{'*' * len(creds['password'])}")
-            
-            handler = None
-            try:
-                self.signals.status.emit(f"Подключение (попытка {attempt_no}/{total_creds})...")
-                self.signals.progress.emit(10)
-                
-                handler = CloudLinkBar310Handler(
-                    ip_address=self.ip_address,
-                    port=self.port,
-                    username=creds['username'],
-                    password=creds['password']
+        handler = None
+        try:
+            if not self.username or not self.password:
+                raise AuthenticationError(
+                    'Credentials are required for CloudLink Bar 310 before connecting.'
                 )
-                handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
-                
-                self.signals.status.emit("Подключаюсь к устройству...")
-                self.signals.progress.emit(30)
-                handler.connect()
-                
-                self.signals.connected.emit()
-                self.signals.status.emit("Получаю данные...")
-                self.signals.progress.emit(50)
-                
-                print("Вызываю handler.get_status()...")
-                raw_data = handler.get_status()
-                print(f"get_status() вернул: {raw_data}")
-                
-                self.signals.status.emit("Обрабатываю данные...")
-                self.signals.progress.emit(70)
-                
-                print("Парсинг данных...")
-                parsed_data = HuaweiBar310DataParser.parse_raw_data(raw_data)
-                print(f"Парсинг завершен: {parsed_data}")
-                
-                parsed_data['ip_address'] = self.ip_address
-                parsed_data['connection_profile'] = {
-                    'port': handler.port,
-                    'use_ssl': bool(getattr(handler, 'use_ssl', True)),
-                    'label': f"{'HTTPS' if getattr(handler, 'use_ssl', True) else 'HTTP'}:{handler.port}",
-                }
-                
-                self.signals.progress.emit(90)
-                print("Отправка результата...")
-                self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
-                
-                print("Отключение...")
+
+            print(f"=== HuaweiBar310Worker.run() для {self.ip_address} ===")
+            self.signals.status.emit("Подключение к устройству...")
+            self.signals.progress.emit(10)
+
+            handler = CloudLinkBar310Handler(
+                ip_address=self.ip_address,
+                port=self.port,
+                username=self.username,
+                password=self.password
+            )
+            self.handler = handler
+            handler.command_logger = redacted_callback(
+                self.signals.terminal_log.emit, _worker_secrets(self)
+            )
+
+            self.signals.progress.emit(30)
+            handler.connect()
+
+            self.signals.connected.emit()
+            self.signals.status.emit("Получаю данные...")
+            self.signals.progress.emit(50)
+
+            print("Вызываю handler.get_status()...")
+            raw_data = handler.get_status()
+            print(f"get_status() вернул: {raw_data}")
+
+            self.signals.status.emit("Обрабатываю данные...")
+            self.signals.progress.emit(70)
+
+            print("Парсинг данных...")
+            parsed_data = HuaweiBar310DataParser.parse_raw_data(raw_data)
+            print(f"Парсинг завершен: {parsed_data}")
+
+            parsed_data['ip_address'] = self.ip_address
+            parsed_data['connection_profile'] = {
+                'port': handler.port,
+                'use_ssl': bool(getattr(handler, 'use_ssl', True)),
+                'label': f"{'HTTPS' if getattr(handler, 'use_ssl', True) else 'HTTP'}:{handler.port}",
+            }
+
+            self.signals.progress.emit(90)
+            print("Отправка результата...")
+            self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
+
+            print("Отключение...")
+            try:
                 handler.disconnect()
-                self.signals.disconnected.emit()
-                
-                if hasattr(self, 'device_name') and self.device_name:
-                    if not hasattr(self, 'current_credential_index'):
-                        self.current_credential_index = {}
-                    self.current_credential_index[self.device_name] = actual_idx
-                    print(f"[BAR310] Сохранен успешный credentials #{actual_idx + 1} для {self.device_name}")
-                
-                self.signals.finished.emit()
-                return
-                
-            except AuthenticationError as e:
-                print(f"[BAR310] Ошибка аутентификации на попытке #{attempt_no}: {redact_exception(e, _worker_secrets(self))}")
-                if attempt_no < total_creds:
-                    print("[BAR310] Пробуем следующие credentials...")
-                    continue
-                print("[BAR310] Все credentials исчерпаны, пробрасываем ошибку")
-                _emit_error(self, 'authentication_error', e)
-                self.signals.finished.emit()
-                return
-                    
-            except Exception as e:
-                print(f"[BAR310] Ошибка подключения на попытке #{attempt_no}: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
-                if attempt_no < total_creds:
-                    print("[BAR310] Пробуем следующие credentials...")
-                    continue
-                print("[BAR310] Все credentials исчерпаны, пробрасываем ошибку")
-                _emit_error(self, 'connection_error', e)
-                self.signals.finished.emit()
-                return
-                    
-            finally:
-                if handler:
-                    try:
-                        handler.disconnect()
-                    except:
-                        pass
-        
-        print("[BAR310] Все попытки подключения неудачны")
-        self.signals.finished.emit()
+            except Exception:
+                pass
+            handler = None
+            self.handler = None
+            self.signals.disconnected.emit()
+
+        except AuthenticationError as e:
+            print(f"[BAR310] Ошибка аутентификации: {redact_exception(e, _worker_secrets(self))}")
+            _emit_error(self, 'authentication_error', e)
+        except Exception as e:
+            print(f"[BAR310] Ошибка подключения: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
+            _emit_error(self, 'connection_error', e)
+        finally:
+            if handler:
+                try:
+                    handler.disconnect()
+                except Exception:
+                    pass
+            self.handler = None
+            self.signals.finished.emit()
 
 
 class PolycomRPG310Worker(QRunnable):
@@ -660,70 +625,50 @@ class BiampTesiraForteCIWorker(QRunnable):
 
     @pyqtSlot()
     def run(self):
-        creds_to_try = self.creds_list if self.creds_list else [
-            {"username": self.username, "password": self.password}
-        ]
-        total_creds = len(creds_to_try)
-        start_idx = self.current_idx if 0 <= self.current_idx < total_creds else 0
-        ordered_indices = list(range(start_idx, total_creds)) + list(range(0, start_idx))
-
         from handlers.biamp.tesira_forte_ci import BiampTesiraForteCIHandler
 
+        handler = None
         try:
-            for attempt_no, actual_idx in enumerate(ordered_indices, start=1):
-                creds = creds_to_try[actual_idx]
-                self.current_idx = actual_idx
-                handler = None
-                try:
-                    self.signals.status.emit(
-                        f"Подключение к Biamp Tesira Forte CI (попытка {attempt_no}/{total_creds})..."
-                    )
-                    self.signals.progress.emit(15)
-                    self.signals.terminal_log.emit(
-                        f"[connect] Biamp Tesira Forte CI {self.ip_address} attempt {attempt_no}/{total_creds}"
-                    )
+            if not self.username or not self.password:
+                raise AuthenticationError(
+                    "Credentials are required for Biamp Tesira Forte CI before connecting."
+                )
+            self.signals.status.emit("Подключение к Biamp Tesira Forte CI...")
+            self.signals.progress.emit(15)
+            self.signals.terminal_log.emit(
+                f"[connect] Biamp Tesira Forte CI {self.ip_address}"
+            )
 
-                    handler = BiampTesiraForteCIHandler(
-                        ip_address=self.ip_address,
-                        username=creds.get("username", ""),
-                        password=creds.get("password", ""),
-                    )
-                    handler.connect()
-                    self.signals.connected.emit()
+            handler = BiampTesiraForteCIHandler(
+                ip_address=self.ip_address,
+                username=self.username,
+                password=self.password,
+            )
+            handler.connect()
+            self.signals.connected.emit()
 
-                    self.signals.status.emit("Получение источников сигнала...")
-                    self.signals.progress.emit(55)
-                    raw_data = handler.get_status()
+            self.signals.status.emit("Получение источников сигнала...")
+            self.signals.progress.emit(55)
+            raw_data = handler.get_status()
 
-                    self.signals.status.emit("Обработка данных Biamp...")
-                    self.signals.progress.emit(80)
-                    parsed_data = BiampTesiraForteCIDataParser.parse_raw_data(raw_data)
-                    parsed_data["ip_address"] = self.ip_address
+            self.signals.status.emit("Обработка данных Biamp...")
+            self.signals.progress.emit(80)
+            parsed_data = BiampTesiraForteCIDataParser.parse_raw_data(raw_data)
+            parsed_data["ip_address"] = self.ip_address
 
-                    self.signals.progress.emit(100)
-                    self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
-                    self.signals.disconnected.emit()
-                    return
-                except AuthenticationError:
-                    if attempt_no < total_creds:
-                        continue
-                    raise
-                except Exception as exc:
-                    safe_error = redact_exception(exc, _worker_secrets(self))
-                    if attempt_no < total_creds and "auth" in safe_error.lower():
-                        continue
-                    raise RuntimeError(safe_error) from None
-                finally:
-                    if handler:
-                        try:
-                            handler.disconnect()
-                        except Exception:
-                            pass
+            self.signals.progress.emit(100)
+            self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
+            self.signals.disconnected.emit()
         except AuthenticationError as exc:
             _emit_error(self, "authentication_error", exc, trace=False)
         except Exception as exc:
             _emit_error(self, "connection_error", exc)
         finally:
+            if handler:
+                try:
+                    handler.disconnect()
+                except Exception:
+                    pass
             self.signals.finished.emit()
 
 
@@ -813,79 +758,61 @@ class AtenPDUWorker(QRunnable):
     @pyqtSlot()
     def run(self):
         """Основной метод работы в потоке"""
-        creds_to_try = self.creds_list or [{'username': self.username, 'password': self.password}]
-        if not all(creds.get('username') and creds.get('password') for creds in creds_to_try):
-            self.signals.error.emit(('authentication_error', 'Credentials are required for Aten PDU before connecting.', ''))
-            self.signals.finished.emit()
-            return
-
-        total_creds = len(creds_to_try)
-        start_idx = self.current_idx if 0 <= self.current_idx < total_creds else 0
-        ordered_indices = list(range(start_idx, total_creds)) + list(range(0, start_idx))
-
         from handlers.aten.pdu import AtenPDUHandler
 
         try:
-            for attempt_no, actual_idx in enumerate(ordered_indices, start=1):
-                creds = creds_to_try[actual_idx]
-                self.current_idx = actual_idx
-                self.handler = AtenPDUHandler(
-                    ip_address=self.ip_address,
-                    port=self.port,
-                    username=creds['username'],
-                    password=creds['password']
+            if not self.username or not self.password:
+                raise AuthenticationError(
+                    'Credentials are required for Aten PDU before connecting.'
+                )
+            self.handler = AtenPDUHandler(
+                ip_address=self.ip_address,
+                port=self.port,
+                username=self.username,
+                password=self.password
+            )
+
+            self.signals.progress.emit(10)
+            self.signals.status.emit("Подключение к PDU...")
+
+            if not self.handler.connect():
+                raise AuthenticationError(
+                    "Не удалось аутентифицироваться с указанными credentials"
                 )
 
-                try:
-                    self.signals.progress.emit(10)
-                    self.signals.status.emit(f"Подключение к PDU (попытка {attempt_no}/{total_creds})...")
+            self.signals.progress.emit(60)
+            self.signals.status.emit("Получение статуса розеток...")
+            outlets = self.handler.get_outlets_status()
 
-                    if not self.handler.connect():
-                        raise AuthenticationError("Не удалось аутентифицироваться с указанными credentials")
+            self.signals.progress.emit(80)
+            self.signals.status.emit("Получение информации об устройстве...")
+            device_info = self.handler.get_device_info()
 
-                    self.signals.progress.emit(60)
-                    self.signals.status.emit("Получение статуса розеток...")
-                    outlets = self.handler.get_outlets_status()
+            result = {
+                'device_info': device_info,
+                'outlets': outlets,
+                'ip_address': self.ip_address,
+                'model': 'PE8208AV',
+                'manufacturer': 'Aten',
+                'type': 'pdu'
+            }
 
-                    self.signals.progress.emit(80)
-                    self.signals.status.emit("Получение информации об устройстве...")
-                    device_info = self.handler.get_device_info()
-
-                    result = {
-                        'device_info': device_info,
-                        'outlets': outlets,
-                        'ip_address': self.ip_address,
-                        'model': 'PE8208AV',
-                        'manufacturer': 'Aten',
-                        'type': 'pdu'
-                    }
-
-                    self.signals.progress.emit(100)
-                    self.signals.result.emit(redact_data(result, _worker_secrets(self)))
-                    return
-
-                except AuthenticationError:
-                    if self.handler:
-                        self.handler.disconnect()
-                        self.handler = None
-                    if attempt_no < total_creds:
-                        continue
-                    raise
-                except Exception:
-                    if self.handler:
-                        self.handler.disconnect()
-                        self.handler = None
-                    raise
+            self.signals.progress.emit(100)
+            self.signals.result.emit(redact_data(result, _worker_secrets(self)))
 
         except AuthenticationError as e:
             _emit_error(self, 'authentication_error', e, trace=False)
         except ConnectionError as e:
-            _emit_error(self, 'connection', e, trace=False)
+            _emit_error(self, 'connection_error', e, trace=False)
         except Exception as e:
-            _emit_error(self, 'unknown', e)
+            _emit_error(self, 'connection_error', e)
         finally:
             if self.handler:
-                self.handler.disconnect()
+                try:
+                    self.handler.disconnect()
+                except Exception:
+                    pass
+                self.handler = None
             self.signals.finished.emit()
 
 

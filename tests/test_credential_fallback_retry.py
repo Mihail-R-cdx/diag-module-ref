@@ -17,7 +17,18 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window.hide_progress_dialog = Mock()
         window.set_ui_state = Mock()
         window.set_current_credential_index = Mock()
-        window.refresh_huawei_te40 = Mock()
+        for method_name in (
+            "refresh_huawei_te20",
+            "refresh_huawei_te40",
+            "refresh_huawei_bar310",
+            "refresh_polycom_rpg310",
+            "refresh_extron_in1804",
+            "refresh_aten_pdu",
+            "refresh_biamp_tesira_forte_ci",
+        ):
+            setattr(window, method_name, Mock())
+        window.finish_te20_terminal = Mock()
+        window.finish_matrix_terminal = Mock()
         window.refresh_btn = Mock()
         window.is_vcs_codec_device = lambda _device: True
         return window
@@ -49,12 +60,29 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         self.assertIn("5", window.set_ui_state.call_args.args[1])
 
     def test_non_authentication_error_does_not_retry(self):
-        window = self.make_window()
-        worker = self.worker()
-        window.current_worker = worker
-        with patch.object(QMessageBox, "critical"):
-            window.on_device_error(("request_error", "timeout", ""), worker, 1)
-        window.refresh_huawei_te40.assert_not_called()
+        for message in (
+            "timeout",
+            "SSL handshake failed",
+            "Connection refused",
+            "parse error",
+            "protocol error",
+        ):
+            with self.subTest(message=message):
+                window = self.make_window()
+                worker = self.worker()
+                window.current_worker = worker
+                with patch.object(QMessageBox, "critical"):
+                    window.on_device_error(("request_error", message, ""), worker, 1)
+                for method_name in (
+                    "refresh_huawei_te20",
+                    "refresh_huawei_te40",
+                    "refresh_huawei_bar310",
+                    "refresh_polycom_rpg310",
+                    "refresh_extron_in1804",
+                    "refresh_aten_pdu",
+                    "refresh_biamp_tesira_forte_ci",
+                ):
+                    getattr(window, method_name).assert_not_called()
 
     def test_exhausted_chain_emits_one_safe_terminal_authentication_message(self):
         window = self.make_window()
@@ -154,9 +182,13 @@ class CredentialFallbackRetryTests(unittest.TestCase):
 
     def test_authentication_retry_dispatches_each_production_path(self):
         refresh_methods = {
+            "Huawei TE20": "refresh_huawei_te20",
             "Huawei TE40": "refresh_huawei_te40",
+            "CloudLink Bar 310": "refresh_huawei_bar310",
+            "Polycom RPG 310": "refresh_polycom_rpg310",
             "Extron IN1804": "refresh_extron_in1804",
             "Aten PE8208AV": "refresh_aten_pdu",
+            "Biamp Tesira Forte CI": "refresh_biamp_tesira_forte_ci",
         }
         for device_name, method_name in refresh_methods.items():
             with self.subTest(device=device_name):
@@ -166,15 +198,116 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 window.current_worker = worker
                 refresh = Mock(side_effect=lambda _ip: setattr(window, "current_worker", object()))
                 setattr(window, method_name, refresh)
-                window.finish_te20_terminal = Mock()
-                window.finish_matrix_terminal = Mock()
-
                 window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
                 refresh.assert_called_once_with("192.0.2.10")
                 window.set_current_credential_index.assert_called_once_with(
                     device_name, 1, "192.0.2.10"
                 )
+
+    def test_chain_length_ten_has_no_special_case_limit(self):
+        window = self.make_window()
+        worker = self.worker(index=8, total=10)
+        window.current_worker = worker
+        window.refresh_huawei_te40.side_effect = (
+            lambda _ip: setattr(window, "current_worker", object())
+        )
+
+        window.on_device_error(("authentication_error", "401", ""), worker, 1)
+
+        window.set_current_credential_index.assert_called_once_with(
+            "Huawei TE40", 9, "192.0.2.10"
+        )
+        window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
+        self.assertIn("10", window.set_ui_state.call_args.args[1])
+
+    def test_saved_index_exhausts_only_remaining_suffix_without_wraparound(self):
+        window = self.make_window()
+        first_worker = self.worker(index=3, total=5)
+        window.current_worker = first_worker
+        attempted = [3]
+
+        def start_next(_ip_address):
+            next_index = window.set_current_credential_index.call_args.args[1]
+            next_worker = self.worker(index=next_index, total=5)
+            attempted.append(next_index)
+            window.current_worker = next_worker
+
+        window.refresh_huawei_te40.side_effect = start_next
+
+        window.on_device_error(
+            ("authentication_error", "synthetic-password-3", ""), first_worker, 1
+        )
+        last_worker = window.current_worker
+        with patch.object(QMessageBox, "warning") as warning:
+            window.on_device_error(
+                ("authentication_error", "synthetic-password-4", ""),
+                last_worker,
+                1,
+            )
+
+        self.assertEqual([3, 4], attempted)
+        self.assertEqual(1, window.refresh_huawei_te40.call_count)
+        warning.assert_called_once()
+
+    def test_duplicate_terminal_error_from_one_worker_is_ignored(self):
+        window = self.make_window()
+        worker = self.worker(index=4, total=5)
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "warning") as warning:
+            window.on_device_error(("authentication_error", "401", ""), worker, 1)
+            window.on_device_error(("authentication_error", "401", ""), worker, 1)
+
+        warning.assert_called_once()
+        window.refresh_huawei_te40.assert_not_called()
+
+    def test_stale_worker_error_does_not_retry_or_render(self):
+        window = self.make_window()
+        stale_worker = self.worker(index=0, total=5)
+        window.current_worker = object()
+
+        with patch.object(QMessageBox, "warning") as warning, patch.object(
+            QMessageBox, "critical"
+        ) as critical:
+            window.on_device_error(
+                ("authentication_error", "401", ""), stale_worker, 1
+            )
+
+        warning.assert_not_called()
+        critical.assert_not_called()
+        window.refresh_huawei_te40.assert_not_called()
+
+    def test_success_in_middle_caches_index_and_starts_no_further_worker(self):
+        window = self.make_window()
+        worker = self.worker(index=2, total=5)
+        window.current_worker = worker
+        window.ip_entry = SimpleNamespace(text=lambda: "192.0.2.10")
+        window.screens = {}
+        window.current_screen_type = None
+        window.progress_dialog = None
+        window.suppress_success_message_once = False
+        window.update_time_display = Mock()
+        window.set_device_connection_profile = Mock()
+
+        with patch.object(QMessageBox, "information"):
+            window.on_device_data_received(
+                {"ip_address": "192.0.2.10", "status": "ok"}, worker, 1
+            )
+
+        window.set_current_credential_index.assert_called_once_with(
+            "Huawei TE40", 2, "192.0.2.10"
+        )
+        for method_name in (
+            "refresh_huawei_te20",
+            "refresh_huawei_te40",
+            "refresh_huawei_bar310",
+            "refresh_polycom_rpg310",
+            "refresh_extron_in1804",
+            "refresh_aten_pdu",
+            "refresh_biamp_tesira_forte_ci",
+        ):
+            getattr(window, method_name).assert_not_called()
 
     def test_te20_and_extron_terminal_errors_redact_every_candidate_secret(self):
         secrets = (

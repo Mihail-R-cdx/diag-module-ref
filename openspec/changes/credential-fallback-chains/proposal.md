@@ -12,6 +12,9 @@ credential when an operator rotates or temporarily changes device access.
   list of profiles, and validate the complete chain before network I/O.
 - Pass the resolved chain through GUI request composition to the existing
   worker retry flow without exposing profile names or credential values.
+- Make the GUI/application composition layer the sole owner of credential
+  fallback. Each worker instance performs one credential attempt; any
+  protocol or transport fallback within that worker preserves that credential.
 - Document both mapping forms and add regression coverage for unbounded
   chains, source priority, safe validation failures, and retry behavior.
 
