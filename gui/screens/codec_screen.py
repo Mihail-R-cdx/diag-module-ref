@@ -99,6 +99,7 @@ class CodecScreen(BaseScreen):
         self._te20_is_sleeping = False
         self._te20_wake_countdown_remaining = 0
         self._polycom_command_progress = None
+        self._presentation_enable_timers = {}
         super().__init__(parent)
         self.volume_refresh_timer = QTimer(self)
         self.volume_refresh_timer.setSingleShot(True)
@@ -1009,13 +1010,31 @@ class CodecScreen(BaseScreen):
         finally:
             self._hide_polycom_command_progress(progress)
 
+    def _schedule_presentation_buttons_enable(self, param_name):
+        previous_timer = self._presentation_enable_timers.pop(param_name, None)
+        if previous_timer is not None:
+            previous_timer.stop()
+            previous_timer.deleteLater()
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def enable_buttons():
+            self._presentation_enable_timers.pop(param_name, None)
+            self.set_presentation_buttons_enabled(param_name, True)
+            timer.deleteLater()
+
+        timer.timeout.connect(enable_buttons)
+        self._presentation_enable_timers[param_name] = timer
+        timer.start(1500)
+
     def on_presentation_button_clicked(self, param_name, direction):
         """Обработчик нажатия кнопок управления презентацией"""
         print(f"Нажата кнопка presentation {direction} для {param_name}")
 
         if param_name in self.presentation_buttons:
             self.set_presentation_buttons_enabled(param_name, False)
-            QTimer.singleShot(1500, lambda name=param_name: self.set_presentation_buttons_enabled(name, True))
+            self._schedule_presentation_buttons_enable(param_name)
             progress = self._show_polycom_command_progress("Управление презентацией Polycom...")
             try:
                 self.set_presentation_state(direction)

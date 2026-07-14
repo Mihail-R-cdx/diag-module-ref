@@ -12,6 +12,7 @@ from core.credentials import (
     JsonCredentialProvider,
     application_root,
     default_credentials_path,
+    resolve_request_credential_candidates,
     resolve_request_credentials,
 )
 from core.exceptions import (
@@ -143,3 +144,93 @@ class JsonCredentialProviderTests(unittest.TestCase):
             )
             resolved = window.resolve_device_credentials("Model A")
         self.assertEqual({"username", "password"}, set(resolved))
+
+    def test_string_and_ordered_mappings_resolve_candidates_in_json_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.valid_document()
+            document["profiles"].update({
+                f"profile-{index}": {
+                    "auth_mode": AUTH_USERNAME_PASSWORD,
+                    "username": f"synthetic-user-{index}",
+                    "password": f"synthetic-password-{index}",
+                }
+                for index in range(10)
+            })
+            document["device_profiles"] = {
+                "String": "profile-0",
+                "List": [f"profile-{index}" for index in range(10)],
+            }
+            provider = JsonCredentialProvider(self.write_document(directory, document))
+            self.assertEqual(1, len(provider.resolve_candidates(device_model="String")))
+            candidates = provider.resolve_candidates(device_model="List")
+            self.assertEqual(10, len(candidates))
+            self.assertEqual(
+                [f"synthetic-user-{index}" for index in range(10)],
+                [candidate.username for candidate in candidates],
+            )
+            self.assertEqual("synthetic-user-0", provider.resolve(device_model="List").username)
+
+    def test_candidate_source_priority_and_legacy_provider_compatibility(self):
+        class LegacyProvider(CredentialProvider):
+            def resolve(self, *, device_model=None, profile_name=None):
+                self.request = (device_model, profile_name)
+                return Credential(AUTH_USERNAME_PASSWORD, "synthetic-user", "synthetic-password")
+
+        provider = LegacyProvider()
+        direct = resolve_request_credential_candidates(
+            provider,
+            device_model="ignored",
+            profile_name="ignored",
+            explicit_credentials=Credential(AUTH_PASSWORD, password="synthetic-direct-password"),
+        )
+        self.assertEqual(1, len(direct))
+        self.assertEqual(AUTH_PASSWORD, direct[0].auth_mode)
+        candidates = resolve_request_credential_candidates(
+            provider, device_model="Model A", profile_name="explicit"
+        )
+        self.assertEqual(("Model A", "explicit"), provider.request)
+        self.assertEqual(1, len(candidates))
+
+    def test_invalid_chain_is_rejected_without_partial_candidates_or_secret_values(self):
+        invalid_mappings = (
+            [],
+            ["user-pass", ""],
+            ["user-pass", "   "],
+            ["user-pass", 42],
+            ["user-pass", {}],
+            {"primary": "user-pass"},
+            ["user-pass", "missing-profile"],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for mapping in invalid_mappings:
+                with self.subTest(mapping_type=type(mapping).__name__):
+                    document = self.valid_document()
+                    document["device_profiles"] = {"Model A": mapping}
+                    provider = JsonCredentialProvider(self.write_document(directory, document))
+                    with self.assertRaises((CredentialSchemaError, CredentialProfileNotFoundError)) as error:
+                        provider.resolve_candidates(device_model="Model A")
+                    self.assertNotIn("synthetic-user", str(error.exception))
+                    self.assertNotIn("synthetic-password", str(error.exception))
+
+    def test_gui_candidate_composition_preserves_order_and_auth_mode_kwargs(self):
+        class CandidateProvider(CredentialProvider):
+            def resolve(self, *, device_model=None, profile_name=None):
+                return Credential(AUTH_NONE)
+
+            def resolve_candidates(self, *, device_model=None, profile_name=None):
+                return (
+                    Credential(AUTH_PASSWORD, password="synthetic-password-only"),
+                    Credential(AUTH_NONE),
+                    Credential(AUTH_USERNAME_PASSWORD, "synthetic-user", "synthetic-password"),
+                )
+
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window.credential_provider = CandidateProvider()
+        self.assertEqual(
+            [
+                {"password": "synthetic-password-only"},
+                {},
+                {"username": "synthetic-user", "password": "synthetic-password"},
+            ],
+            window.resolve_device_credential_candidates("Model A"),
+        )

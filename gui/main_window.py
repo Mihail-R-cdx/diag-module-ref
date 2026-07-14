@@ -15,7 +15,11 @@ from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.exceptions import AuthenticationError, ConnectionError
-from core.credentials import JsonCredentialProvider, resolve_request_credentials
+from core.credentials import (
+    JsonCredentialProvider,
+    resolve_request_credential_candidates,
+    resolve_request_credentials,
+)
 from core.exceptions import CredentialConfigurationError
 from core.redaction import redact_exception, redact_text
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
@@ -84,7 +88,7 @@ class RequestCredentialStore(dict):
     def get(self, device_name, default=None):
         if device_name in self:
             return super().get(device_name)
-        return [self.owner.resolve_device_credentials(device_name)]
+        return self.owner.resolve_device_credential_candidates(device_name)
 
 class VCSDiagnosticApp(QMainWindow):
     def __init__(self):
@@ -175,6 +179,18 @@ class VCSDiagnosticApp(QMainWindow):
             explicit_credentials=explicit_credentials,
         )
         return credential.as_handler_kwargs()
+
+    def resolve_device_credential_candidates(
+        self, device_name, profile_name=None, explicit_credentials=None
+    ):
+        """Resolve all candidates once before any worker or handler is created."""
+        credentials = resolve_request_credential_candidates(
+            self.credential_provider,
+            device_model=device_name,
+            profile_name=profile_name,
+            explicit_credentials=explicit_credentials,
+        )
+        return [credential.as_handler_kwargs() for credential in credentials]
     
     def init_ui(self, params=None):
         """Инициализация интерфейса"""
@@ -656,9 +672,9 @@ class VCSDiagnosticApp(QMainWindow):
         if not creds_list:
             return None
 
-        current_idx = self.get_current_credential_index(device_name, self.ip_entry.text().strip())
-        if current_idx >= len(creds_list):
-            current_idx = 0
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, self.ip_entry.text().strip()
+        )
         return creds_list[current_idx]
 
     def get_credential_key(self, device_name: str, ip_address: str = None):
@@ -667,15 +683,34 @@ class VCSDiagnosticApp(QMainWindow):
         return device_name
 
     def get_current_credential_index(self, device_name: str, ip_address: str = None):
-        key = self.get_credential_key(device_name, ip_address)
-        if key in self.current_credential_index:
-            return self.current_credential_index[key]
+        if ip_address:
+            return self.current_credential_index.get(
+                self.get_credential_key(device_name, ip_address),
+                0,
+            )
         return self.current_credential_index.get(device_name, 0)
 
     def set_current_credential_index(self, device_name: str, index: int, ip_address: str = None):
-        self.current_credential_index[device_name] = index
         if ip_address:
             self.current_credential_index[self.get_credential_key(device_name, ip_address)] = index
+        else:
+            self.current_credential_index[device_name] = index
+
+    def get_valid_current_credential_index(self, device_name, creds_list, ip_address=None):
+        index = self.get_current_credential_index(device_name, ip_address)
+        if index < 0 or index >= len(creds_list):
+            return 0
+        return index
+
+    @staticmethod
+    def _credential_secrets(creds_list):
+        return tuple(
+            value
+            for credentials in creds_list
+            if isinstance(credentials, dict)
+            for value in credentials.values()
+            if value is not None and str(value)
+        )
 
     def get_device_connection_profile(self, device_name: str, ip_address: str = None):
         if ip_address:
@@ -878,7 +913,6 @@ class VCSDiagnosticApp(QMainWindow):
         if not self.ensure_ping_success(ip_address):
             return
 
-        self.set_current_credential_index(device_name, 0, ip_address)
         if device_name == "Extron IN1804":
             self.disconnect_matrix_persistent_handler()
         
@@ -945,9 +979,9 @@ class VCSDiagnosticApp(QMainWindow):
 
         device_name = self.device_combo.currentText()
         creds_list = self.device_credentials.get(device_name)
-        current_idx = self.get_current_credential_index(device_name, ip_address)
-        if current_idx >= len(creds_list):
-            current_idx = 0
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
 
         if hasattr(self, 'refresh_btn'):
@@ -960,8 +994,7 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             self.current_worker = BiampTesiraForteCIWorker(
                 ip_address=ip_address,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             self.current_worker.creds_list = creds_list
             self.current_worker.current_idx = current_idx
@@ -980,7 +1013,7 @@ class VCSDiagnosticApp(QMainWindow):
 
 
     def refresh_huawei_bar310(self, ip_address: str):
-        """Обновление данных Huawei CloudLink Bar 310 с перебором credentials"""
+        """Start one Bar 310 attempt with the GUI-selected credential."""
         print(f"=== Начинаю обновление Huawei CloudLink Bar 310 для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -992,7 +1025,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.get_current_credential_index(device_name, ip_address)
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
         
         
@@ -1008,12 +1043,11 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             from core.worker import HuaweiBar310Worker
             
-            # Передаем creds_list в конструктор worker для корректной работы перебора
+            # The full list is request context for redaction; the worker uses only **creds.
             self.current_worker = HuaweiBar310Worker(
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
-                username=creds['username'],
-                password=creds['password'],
+                **creds,
                 creds_list=creds_list
             )
             
@@ -1039,7 +1073,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
 
     def refresh_huawei_te20(self, ip_address: str):
-        """Обновление данных Huawei TE20 с перебором credentials"""
+        """Start one TE20 attempt with the GUI-selected credential."""
         print(f"=== Начинаю обновление TE-20 для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1051,7 +1085,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
 
         # Создаем worker с текущими credentials
-        current_idx = self.get_current_credential_index(device_name, ip_address)
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
         
         
@@ -1070,8 +1106,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiTE20Worker(
                 ip_address=ip_address,
                 port=80,  # TE-20 использует HTTP порт 80
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1109,7 +1144,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.get_current_credential_index(device_name, ip_address)
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
         
         
@@ -1128,8 +1165,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiTE40Worker(
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1167,7 +1203,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
         
         
@@ -1186,8 +1224,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = PolycomRPG310Worker(
                 ip_address=ip_address,
                 port=443,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1225,7 +1262,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
         
         
@@ -1244,8 +1283,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = ExtronIN1804Worker(
                 ip_address=ip_address,
                 port=22023,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1271,7 +1309,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
 
     def refresh_aten_pdu(self, ip_address: str):
-        """Обновление данных Aten PDU с перебором credentials"""
+        """Start one Aten PDU attempt with the GUI-selected credential."""
         print(f"=== Начинаю обновление Aten PE8208AV для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
@@ -1283,7 +1321,9 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         creds = creds_list[current_idx]
         
         
@@ -1301,8 +1341,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = AtenPDUWorker(
                 ip_address=ip_address,
                 port=443,
-                username=creds['username'],
-                password=creds['password']
+                **creds,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -1342,8 +1381,10 @@ class VCSDiagnosticApp(QMainWindow):
         print(f"Управление PDU: розетка {outlet_num}, команда {command}")
         
         # Получаем текущие credentials
-        current_idx = self.current_credential_index.get(device_name, 0)
         creds_list = self.device_credentials.get(device_name, [])
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
         
         if current_idx < len(creds_list):
             creds = creds_list[current_idx]
@@ -1451,6 +1492,18 @@ class VCSDiagnosticApp(QMainWindow):
             return
         worker = worker or getattr(self, "current_worker", None)
         data = dict(data)
+        structured_outcome = data.pop('_outcome', None)
+        if structured_outcome == 'error':
+            self.on_device_error(
+                (
+                    data.pop('error_type', 'connection_error'),
+                    data.pop('error', data.pop('message', 'Worker request failed')),
+                    data.pop('traceback', ''),
+                ),
+                worker,
+                request_id,
+            )
+            return
         partial_update = bool(data.pop('_partial_update', False))
         if not partial_update:
             self.hide_progress_dialog()
@@ -1479,7 +1532,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Сбрасываем индекс на успешный credentials для этого устройства
-        if worker:
+        if worker and not partial_update:
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
             if device_name:
@@ -1565,7 +1618,22 @@ class VCSDiagnosticApp(QMainWindow):
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
         worker = worker or getattr(self, "current_worker", None)
+        active_request_id = request_id
+        if active_request_id is None:
+            active_request_id = (self._active_request or {}).get("id")
+        unhandled = object()
+        if worker and getattr(
+            worker, "_device_error_handled_request", unhandled
+        ) == active_request_id:
+            return
+        if worker:
+            worker._device_error_handled_request = active_request_id
         error_type, error, traceback_text = error_info
+        creds_list = getattr(worker, 'creds_list', []) if worker else []
+        error = redact_exception(
+            error,
+            VCSDiagnosticApp._credential_secrets(creds_list),
+        )
         if worker and getattr(worker, 'device_name', None) == "Extron IN1804":
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
         elif worker and getattr(worker, 'device_name', None) == "Huawei TE20":
@@ -1574,7 +1642,6 @@ class VCSDiagnosticApp(QMainWindow):
         # Проверяем, есть ли текущий worker и нужно ли пробовать другие credentials
         if worker:
             device_name = getattr(worker, 'device_name', None)
-            creds_list = getattr(worker, 'creds_list', [])
             current_idx = getattr(worker, 'current_idx', 0)
             
             error_message = str(error)
@@ -1977,9 +2044,11 @@ class VCSDiagnosticApp(QMainWindow):
             # Получаем текущие credentials
             device_name = "Huawei TE40"
             creds_list = self.device_credentials.get(device_name, [])
-            current_idx = self.current_credential_index.get(device_name, 0)
             if not creds_list:
                 raise CredentialConfigurationError("Credentials are required before setting a SIP server.")
+            current_idx = self.get_valid_current_credential_index(
+                device_name, creds_list, ip_address
+            )
             creds = creds_list[current_idx]
             
             # Создаем worker для установки SIP
@@ -2096,9 +2165,11 @@ class VCSDiagnosticApp(QMainWindow):
             # Получаем текущие credentials
             device_name = "Huawei TE40"
             creds_list = self.device_credentials.get(device_name, [])
-            current_idx = self.current_credential_index.get(device_name, 0)
             if not creds_list:
                 raise CredentialConfigurationError("Credentials are required before setting a SIP server.")
+            current_idx = self.get_valid_current_credential_index(
+                device_name, creds_list, ip_address
+            )
             creds = creds_list[current_idx]
             
             # Создаем worker для установки SIP
@@ -2262,16 +2333,14 @@ class VCSDiagnosticApp(QMainWindow):
             raise ValueError(f"SIP fix не поддерживается для {device_name}")
 
         creds_list = self.device_credentials.get(device_name, [])
-        current_idx = self.get_current_credential_index(device_name, ip_address)
-        if creds_list and 0 <= current_idx < len(creds_list):
-            creds = creds_list[current_idx]
-        elif creds_list:
-            current_idx = 0
-            creds = creds_list[0]
-        else:
+        if not creds_list:
             raise CredentialConfigurationError(
                 "Credentials are required before setting a SIP server."
             )
+        current_idx = self.get_valid_current_credential_index(
+            device_name, creds_list, ip_address
+        )
+        creds = creds_list[current_idx]
 
         return port, current_idx, creds
 
