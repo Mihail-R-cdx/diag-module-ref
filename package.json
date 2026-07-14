@@ -1,0 +1,11 @@
+{
+  "name": "vcs-diagnostic-openspec-tools",
+  "private": true,
+  "description": "Repository-local tooling for OpenSpec validation.",
+  "devDependencies": {
+    "@fission-ai/openspec": "1.6.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

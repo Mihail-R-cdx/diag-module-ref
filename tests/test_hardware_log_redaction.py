@@ -3,10 +3,11 @@ import io
 import unittest
 from unittest.mock import patch
 
+from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import QApplication
 
 from gui.main_window import VCSDiagnosticApp
-from core.worker import PolycomRPG310Worker
+from core.worker import PolycomCallLogWorker, PolycomRPG310Worker
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 from handlers.huawei.te20 import HuaweiTE20Handler
 from handlers.huawei.te40 import HuaweiTE40Handler
@@ -259,7 +260,9 @@ class HardwareLogRedactionTests(unittest.TestCase):
             def disconnect(self):
                 self.disconnected = True
 
-        worker = PolycomRPG310Worker("link.ru")
+        worker = PolycomRPG310Worker(
+            "link.ru", username="synthetic-user", password="synthetic-password"
+        )
         with patch(
             "handlers.polycom.rpg310.PolycomRPG310Handler",
             FailingHandler,
@@ -268,6 +271,54 @@ class HardwareLogRedactionTests(unittest.TestCase):
 
         self.assertEqual(1, len(instances))
         self.assertTrue(instances[0].disconnected)
+
+    def test_polycom_call_log_worker_redacts_failed_request_error(self):
+        synthetic_username = "synthetic-polycom-user"
+        synthetic_password = "synthetic-polycom-password"
+        synthetic_token = "synthetic-polycom-authorization-token"
+
+        class FailingHandler:
+            def __init__(self, **_kwargs):
+                self.disconnected = False
+
+            def connect(self):
+                pass
+
+            def get_call_records(self):
+                raise RuntimeError(
+                    '{{"username":"{}","password":"{}",'
+                    '"Authorization":"Bearer {}"}}'.format(
+                        synthetic_username,
+                        synthetic_password,
+                        synthetic_token,
+                    )
+                )
+
+            def disconnect(self):
+                self.disconnected = True
+
+        worker = PolycomCallLogWorker(
+            FailingHandler,
+            {
+                "username": synthetic_username,
+                "password": synthetic_password,
+            },
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual(1, len(errors))
+        category, message, details = errors[0]
+        self.assertEqual("PolycomCallLogError", category)
+        self.assertEqual("", details)
+        self.assertIn("Polycom call log request failed", message)
+        self.assertIn("<redacted>", message)
+        self.assertNotIn(synthetic_username, message)
+        self.assertNotIn(synthetic_password, message)
+        self.assertNotIn(synthetic_token, message)
+        self.assertNotIn("NameError", message)
 
     def test_te40_presentation_no_signal_error_is_actionable(self):
         handler = HuaweiTE40Handler("link.ru")
@@ -322,7 +373,9 @@ class RequestLifecycleRegressionTests(unittest.TestCase):
             )
         finally:
             window.close()
-            self.app.processEvents()
+            window.deleteLater()
+            QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            QApplication.processEvents()
         self.assertEqual([True], reset_calls)
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ class BaseHuaweiCodecHandler(ProtocolHandler):
     """Базовый класс для всех кодеков Huawei"""
 
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = 'admin', password: str = 'admin',
+                 username: str = None, password: str = None,
                  use_ssl: bool = True, verify_ssl: bool = False):
         super().__init__(ip_address, {'username': username, 'password': password})
         self.port = port
@@ -74,6 +74,8 @@ class BaseHuaweiCodecHandler(ProtocolHandler):
 
     def _setup_session(self):
         """Настройка HTTP сессии"""
+        if not self.credentials.get('username') or not self.credentials.get('password'):
+            raise AuthenticationError("Credentials are required before connecting to this device.")
         import requests
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -132,6 +134,8 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
     def connect(self) -> bool:
         """Установка TCP соединения с матрицей и аутентификация"""
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Extron.")
         errors = []
 
         for attempt in self._build_connection_attempts():

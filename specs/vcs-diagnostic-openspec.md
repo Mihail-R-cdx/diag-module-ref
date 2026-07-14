@@ -1,3 +1,16 @@
+> **Status:** Historical migration input and reference snapshot. This document
+> preserves the reverse-engineered baseline tracked in commit
+> `1b5183b3b1eb57a7529b36f445629e0fa53e9971`; all following content is restored
+> from that revision without semantic changes.
+>
+> This document is a historical migration reference. It is not the authoritative
+> source for current requirements. Current behavior is governed by the
+> specifications under `openspec/specs/`.
+>
+> Where this snapshot and an active/root OpenSpec specification differ, the
+> current specification takes precedence. Later changes may supersede this
+> snapshot; it must not be used instead of active/root specifications.
+
 # OpenSpec: Diagnostic Module for VCS and AV Devices
 
 ## 1. Metadata
@@ -290,8 +303,8 @@ sequenceDiagram
 
 ### 6.1 Huawei TE-20
 
-Handler: `handlers/huawei/te20.py::HuaweiTE20Handler`  
-Worker: `core/te20_worker.py::HuaweiTE20Worker`  
+Handler: `handlers/huawei/te20.py::HuaweiTE20Handler`
+Worker: `core/te20_worker.py::HuaweiTE20Worker`
 Parser: `core/parser.py::HuaweiTE20DataParser`
 
 Main behavior:
@@ -334,8 +347,8 @@ TE20 edge behavior:
 
 ### 6.2 Huawei TE-40
 
-Handler: `handlers/huawei/te40.py::HuaweiTE40Handler`  
-Worker: `core/worker.py::HuaweiTE40Worker`  
+Handler: `handlers/huawei/te40.py::HuaweiTE40Handler`
+Worker: `core/worker.py::HuaweiTE40Worker`
 Parser: `core/parser.py::HuaweiTE40DataParser`
 
 Main behavior:
@@ -372,8 +385,8 @@ TE-40 edge behavior:
 
 ### 6.3 Huawei CloudLink Bar 310
 
-Handler: `handlers/huawei/bar310.py::CloudLinkBar310Handler`  
-Worker: `core/worker.py::HuaweiBar310Worker`  
+Handler: `handlers/huawei/bar310.py::CloudLinkBar310Handler`
+Worker: `core/worker.py::HuaweiBar310Worker`
 Parser: `core/parser.py::HuaweiBar310DataParser`
 
 Main behavior:
@@ -411,8 +424,8 @@ Bar 310 edge behavior:
 
 ### 6.4 Polycom RPG 310
 
-Handler: `handlers/polycom/rpg310.py::PolycomRPG310Handler`  
-Worker: `core/worker.py::PolycomRPG310Worker`  
+Handler: `handlers/polycom/rpg310.py::PolycomRPG310Handler`
+Worker: `core/worker.py::PolycomRPG310Worker`
 Parser: `core/parser.py::PolycomDataParser`
 
 Main behavior:
@@ -446,9 +459,9 @@ Polycom edge behavior:
 
 ### 6.5 Extron IN1804
 
-Handler: `handlers/extron/in1804.py::ExtronIN1804Handler`  
-Base handler: `core/base_handler.py::BaseExtronMatrixHandler`  
-Worker: `core/worker.py::ExtronIN1804Worker`  
+Handler: `handlers/extron/in1804.py::ExtronIN1804Handler`
+Base handler: `core/base_handler.py::BaseExtronMatrixHandler`
+Worker: `core/worker.py::ExtronIN1804Worker`
 Parser: `core/parser.py::ExtronIN1804DataParser`
 
 Main behavior:
@@ -491,8 +504,8 @@ Extron edge behavior:
 
 ### 6.6 Aten PE8208AV
 
-Handler: `handlers/aten/pdu.py::AtenPDUHandler`  
-Worker: `core/worker.py::AtenPDUWorker`  
+Handler: `handlers/aten/pdu.py::AtenPDUHandler`
+Worker: `core/worker.py::AtenPDUWorker`
 Screen: `gui/screens/pdu_screen.py::PDUScreen`
 
 Main behavior:

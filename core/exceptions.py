@@ -41,3 +41,33 @@ class DeviceNotFoundError(DeviceError):
 class ProtocolError(DeviceError):
     """Ошибка протокола"""
     pass
+
+
+class CredentialConfigurationError(DeviceError):
+    """Safe error raised before network I/O when local credentials are invalid."""
+    pass
+
+
+class CredentialFileMissingError(CredentialConfigurationError):
+    """The ignored local credential file has not been created."""
+    pass
+
+
+class CredentialJsonError(CredentialConfigurationError):
+    """The local credential file is not valid JSON."""
+    pass
+
+
+class CredentialSchemaError(CredentialConfigurationError):
+    """The local credential file does not match the supported schema."""
+    pass
+
+
+class CredentialProfileNotFoundError(CredentialConfigurationError):
+    """The requested or mapped credential profile is unavailable."""
+    pass
+
+
+class CredentialFieldMissingError(CredentialConfigurationError):
+    """A selected authentication mode is missing a required field."""
+    pass

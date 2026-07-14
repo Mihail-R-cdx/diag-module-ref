@@ -8,7 +8,7 @@ import socket
 import time
 from typing import Any, Protocol
 
-from core.exceptions import CommandError, ConnectionError
+from core.exceptions import AuthenticationError, CommandError, ConnectionError
 
 
 class BiampSession(Protocol):
@@ -59,6 +59,8 @@ class BiampTesiraForteCIHandler:
         self._cached_status: dict[str, Any] | None = None
 
     def connect(self) -> bool:
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Biamp.")
         self._session = self.transport.connect(
             ip_address=self.ip_address,
             username=self.username,

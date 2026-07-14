@@ -35,7 +35,7 @@ class PolycomRPG310Handler:
         ip_address: str,
         port: int = 443,
         username: str = "admin",
-        password: str = "admin",
+        password: str = None,
         timeout: int = 10,
     ):
         self.ip_address = ip_address
@@ -125,6 +125,8 @@ class PolycomRPG310Handler:
             raise CommandError(f"Invalid JSON response from Polycom: {error}")
 
     def connect(self) -> bool:
+        if not self.username or not self.password:
+            raise AuthenticationError("Credentials are required before connecting to Polycom RPG 310.")
         try:
             self._log_command(f"[connect] HTTPS:{self.port} {self.ip_address}")
             context = ssl._create_unverified_context()

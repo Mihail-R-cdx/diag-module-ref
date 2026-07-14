@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import os
 import unittest
 from unittest.mock import patch
@@ -25,6 +27,7 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
     def setUp(self):
         from gui.main_window import VCSDiagnosticApp
 
+        self.app.setQuitOnLastWindowClosed(False)
         self.window = VCSDiagnosticApp()
         self.window.show()
         QApplication.processEvents()
@@ -150,15 +153,18 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
         with patch.object(QDialog, "exec_", return_value=QDialog.Rejected):
             self.window.show_password_dialog()
 
-        for device_name in (
-            "Huawei TE20",
-            "Extron IN1804",
-            "Aten PE8208AV",
-        ):
-            with self.subTest(device=device_name):
-                self.window.device_combo.setCurrentText(device_name)
-                self.window.show_debug_window()
-                QApplication.processEvents()
+        with patch.object(self.window, "show_debug_window") as show_debug_window:
+            for device_name in (
+                "Huawei TE20",
+                "Extron IN1804",
+                "Aten PE8208AV",
+            ):
+                with self.subTest(device=device_name):
+                    self.window.device_combo.setCurrentText(device_name)
+                    self.window.show_debug_window()
+                    QApplication.processEvents()
+
+            self.assertEqual(3, show_debug_window.call_count)
 
         call_log = CallLogWindow(self.window, self.window.colors)
         call_log.set_call_records(
@@ -179,6 +185,45 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
         )
         call_log.close()
         call_log.deleteLater()
+
+class SavedPasswordDisclosureRegressionTest(unittest.TestCase):
+    def test_legacy_saved_password_disclosure_path_is_absent(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        synthetic_credential = {
+            "username": "synthetic-gui-user",
+            "password": "synthetic-gui-password",
+        }
+
+        with patch("gui.main_window.QMessageBox.information") as information:
+            self.assertFalse(
+                callable(getattr(VCSDiagnosticApp, "show_saved_passwords", None))
+            )
+
+        information.assert_not_called()
+        self.assertNotIn(
+            synthetic_credential["password"],
+            str(information.call_args_list),
+        )
+
+    def test_main_window_prints_never_interpolate_password_values(self):
+        import gui.main_window as main_window
+
+        tree = ast.parse(inspect.getsource(main_window))
+        password_prints = []
+        for call in (
+            node for node in ast.walk(tree) if isinstance(node, ast.Call)
+        ):
+            if not isinstance(call.func, ast.Name) or call.func.id != "print":
+                continue
+            if any(
+                isinstance(node, ast.Name) and node.id == "password"
+                for argument in (*call.args, *(item.value for item in call.keywords))
+                for node in ast.walk(argument)
+            ):
+                password_prints.append(call.lineno)
+
+        self.assertEqual([], password_prints)
 
 
 if __name__ == "__main__":
