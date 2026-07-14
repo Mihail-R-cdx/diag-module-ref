@@ -313,9 +313,8 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         self.screen.set_presentation_state = lambda _direction: None
 
         self.screen.on_presentation_button_clicked(param_name, "on")
-        timer = self.screen._presentation_enable_timers[param_name]
-        self.assertTrue(
-            timer.isActive()
+        self.assertFalse(
+            self.screen.presentation_buttons[param_name]["on"].isEnabled()
         )
 
         screen = self.screen
