@@ -50,10 +50,11 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         QApplication.processEvents()
 
     def tearDown(self):
-        self.screen.stop_te20_monitor_audio_polling()
-        self.screen.close()
+        if self.screen is not None:
+            self.screen.stop_te20_monitor_audio_polling()
+            self.screen.close()
+            self.screen.deleteLater()
         self.parent_widget.close()
-        self.screen.deleteLater()
         self.parent_widget.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         QApplication.processEvents()
@@ -254,6 +255,73 @@ class CodecScreenOffscreenTest(unittest.TestCase):
             volume_calls,
         )
         self.assertEqual(["on"], presentation_calls)
+
+    def test_presentation_enable_timer_reenables_buttons(self):
+        self._select_device("Huawei TE40")
+        param_name = "Статус презентации"
+        self.screen.set_presentation_state = lambda _direction: None
+
+        self.screen.on_presentation_button_clicked(param_name, "on")
+
+        timer = self.screen._presentation_enable_timers[param_name]
+        self.assertTrue(timer.isActive())
+        self.assertEqual(1500, timer.interval())
+        self.assertFalse(
+            self.screen.presentation_buttons[param_name]["on"].isEnabled()
+        )
+
+        timer.timeout.emit()
+
+        self.assertNotIn(param_name, self.screen._presentation_enable_timers)
+        self.assertTrue(
+            self.screen.presentation_buttons[param_name]["on"].isEnabled()
+        )
+
+    def test_presentation_enable_timer_replaces_same_parameter_timer(self):
+        first_timer = self.screen._schedule_presentation_buttons_enable(
+            "first"
+        )
+        self.assertIsNone(first_timer)
+        first_timer = self.screen._presentation_enable_timers["first"]
+
+        self.screen._schedule_presentation_buttons_enable("first")
+        second_timer = self.screen._presentation_enable_timers["first"]
+
+        self.assertIsNot(first_timer, second_timer)
+        self.assertFalse(first_timer.isActive())
+        self.assertTrue(second_timer.isActive())
+
+    def test_presentation_enable_timers_for_different_parameters_are_independent(self):
+        self.screen._schedule_presentation_buttons_enable("first")
+        self.screen._schedule_presentation_buttons_enable("second")
+
+        first_timer = self.screen._presentation_enable_timers["first"]
+        second_timer = self.screen._presentation_enable_timers["second"]
+        first_timer.timeout.emit()
+
+        self.assertNotIn("first", self.screen._presentation_enable_timers)
+        self.assertIs(
+            second_timer,
+            self.screen._presentation_enable_timers["second"],
+        )
+        self.assertTrue(second_timer.isActive())
+
+    def test_presentation_enable_timer_is_destroyed_with_screen(self):
+        self._select_device("Huawei TE40")
+        param_name = "Статус презентации"
+        self.screen.set_presentation_state = lambda _direction: None
+
+        self.screen.on_presentation_button_clicked(param_name, "on")
+        self.assertTrue(
+            self.screen._presentation_enable_timers[param_name].isActive()
+        )
+
+        screen = self.screen
+        self.screen = None
+        screen.close()
+        screen.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QApplication.processEvents()
 
     def test_information_columns_stack_at_narrow_width(self):
         self.screen.scroll_area.resize(650, 700)
