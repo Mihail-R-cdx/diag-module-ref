@@ -198,8 +198,11 @@ permits it. Archive MUST be followed by strict validation of all OpenSpec
 artifacts, the full offline test suite, `git diff --check`, review of the
 archive and root-spec diff, and a dedicated archive commit and push.
 
-Archive and merge MUST be separate steps. An archive session MUST NOT merge;
-merge MAY happen only after review of the archived branch.
+After the archive checks pass and the dedicated archive commit is pushed, the
+same session MAY merge the feature branch. A separate archived-branch review or
+separate merge session is NOT required unless the user or repository policy
+explicitly requests one. Before merging, the session MUST confirm that the
+remote feature-branch HEAD still matches the reviewed archive commit.
 
 ### Temporary artifacts
 
