@@ -69,10 +69,12 @@ class PolycomCallLogWorker(QRunnable):
                 self.handler_kwargs.get("username"),
                 self.handler_kwargs.get("password"),
             )
-            message = _mask_secret_text(str(error), secrets)
+            message = "Polycom call log request failed: {}".format(
+                redact_exception(error, secrets)
+            )
             self.signals.error.emit(
                 (
-                    type(error).__name__,
+                    "PolycomCallLogError",
                     message,
                     "",
                 )
