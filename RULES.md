@@ -120,7 +120,10 @@ path.
 
 ```powershell
 $nodeHome = $env:DIAG_NODE_HOME
-if ($nodeHome) { $env:Path = "$nodeHome;$env:Path" }
+if (-not $nodeHome -or -not (Test-Path "$nodeHome\node.exe")) {
+    throw "Set DIAG_NODE_HOME to the portable Node directory before OpenSpec validation."
+}
+$env:Path = "$nodeHome;$env:Path"
 node --version
 npm --version
 npm ci
@@ -129,6 +132,14 @@ npm ci
 The portable Node directory MUST be added to `PATH` before `npm ci` so
 post-install scripts can locate `node`. A portable Node installation and
 `node_modules` MUST NOT be committed.
+
+For a sibling clean worktree, set `DIAG_NODE_HOME` in the calling shell to the
+portable Node directory owned by the primary checkout before invoking the
+worktree's local wrapper. The value is process-local; do not persist it in the
+system PATH and do not place a user-specific absolute path in tracked rules or
+scripts. Run the version commands above before any `npm ci` or OpenSpec command
+and treat a missing executable or an unsupported version as an environment
+failure, not a validation result.
 
 ### Text encoding
 
