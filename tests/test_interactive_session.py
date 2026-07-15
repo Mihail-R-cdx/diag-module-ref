@@ -435,6 +435,68 @@ class InteractiveSessionControllerTests(unittest.TestCase):
                 self.assertEqual([0], set_attempts)
                 self.assertEqual(1, len([event for event in events if event[0] == "read"]))
 
+    def test_te20_setter_missing_mute_evidence_reaches_controller_as_failure(self):
+        commands = []
+        diagnostic_reads = []
+
+        def factory(model, kwargs):
+            self.assertEqual("Huawei TE20", model)
+            handler = HuaweiTE20Handler(**kwargs)
+            outcomes = [
+                {"success": 0},
+                {"success": 1, "data": {"mic1Value": 0}},
+            ]
+
+            def connect():
+                handler._connected = True
+                return True
+
+            def disconnect():
+                handler._connected = False
+
+            def send_command(command, data=None):
+                del data
+                commands.append(command)
+                return outcomes.pop(0)
+
+            def get_audio_status():
+                diagnostic_reads.append("get_audio_status")
+                return {"mute": "Off"}
+
+            handler.connect = connect
+            handler.disconnect = disconnect
+            handler.send_command = send_command
+            handler.get_audio_status = get_audio_status
+            return handler
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Huawei TE20",
+            "192.0.2.10",
+            ({"username": "synthetic", "password": "credential-a"},),
+        )
+        with patch("handlers.huawei.te20.time.sleep", return_value=None):
+            controller.submit(
+                InteractiveOperation(
+                    kind="microphone_set",
+                    method="set_microphone_volume",
+                    args=(1,),
+                    semantic=OperationSemantic.DESIRED_STATE,
+                    readback_method="get_microphone_volume",
+                    original="Muted",
+                    target="Unmuted",
+                )
+            )
+            controller.wait_until_idle(2)
+            self.drain()
+            controller.shutdown()
+
+        self.assertEqual([], results)
+        self.assertEqual("command_error", errors[0]["category"])
+        self.assertEqual(["WEB_OpenMicAPI", "get_audio_status"], commands)
+        self.assertEqual([], diagnostic_reads)
+
     def test_real_huawei_muted_readback_does_not_send_twice(self):
         for model, handler_type in (
             ("Huawei TE20", OfflineTE20Handler),

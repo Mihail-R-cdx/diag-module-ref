@@ -1385,11 +1385,8 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             return True
 
         time.sleep(0.5)
-        audio_status = self.get_audio_status()
-        mic_mute = str(audio_status.get('mute', '')).lower()
-        if muted:
-            return mic_mute.startswith('on') or 'выключ' in mic_mute or 'muted' in mic_mute
-        return mic_mute.startswith('off') or 'включ' in mic_mute or 'unmuted' in mic_mute
+        expected_state = 'Muted' if muted else 'Unmuted'
+        return self.get_microphone_volume() == expected_state
 
     def set_microphone_volume(self, value: int) -> bool:
         # TE20 web API exposes microphone mute, not a separate microphone gain command.

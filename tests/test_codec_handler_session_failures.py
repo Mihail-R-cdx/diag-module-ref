@@ -33,6 +33,53 @@ class RaisingOpener:
 
 
 class HandlerSessionFailureTests(unittest.TestCase):
+    def assert_huawei_microphone_confirmation(
+        self,
+        handler_type,
+        *,
+        muted,
+        observed,
+        expected,
+    ):
+        handler = handler_type("192.0.2.10", username="u", password="p")
+        with patch.object(
+            handler,
+            "send_command",
+            return_value={"success": 0},
+        ) as command, patch.object(
+            handler,
+            "get_microphone_volume",
+            return_value=observed,
+        ) as readback, patch(
+            f"{handler_type.__module__}.time.sleep",
+            return_value=None,
+        ):
+            self.assertEqual(expected, handler.set_microphone_mute(muted))
+
+        expected_action = "WEB_CloseMicAPI" if muted else "WEB_OpenMicAPI"
+        self.assertEqual(expected_action, command.call_args.args[0])
+        readback.assert_called_once_with()
+
+    def assert_huawei_microphone_confirmation_propagates_session_failure(
+        self,
+        handler_type,
+    ):
+        handler = handler_type("192.0.2.10", username="u", password="p")
+        with patch.object(
+            handler,
+            "send_command",
+            return_value={"success": 0},
+        ), patch.object(
+            handler,
+            "get_microphone_volume",
+            side_effect=SessionInvalidError("expired"),
+        ), patch(
+            f"{handler_type.__module__}.time.sleep",
+            return_value=None,
+        ):
+            with self.assertRaises(SessionInvalidError):
+                handler.set_microphone_mute(False)
+
     def assert_huawei_microphone_readback(self, handler_type, response, expected):
         handler = handler_type("192.0.2.10", username="u", password="p")
         with patch.object(handler, "send_command", return_value=response) as request:
@@ -73,6 +120,43 @@ class HandlerSessionFailureTests(unittest.TestCase):
     def test_te20_authoritative_microphone_readback_propagates_session_failure(self):
         self.assert_huawei_microphone_session_failure(HuaweiTE20Handler)
 
+    def test_te20_unmute_confirmation_missing_evidence_is_not_success(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE20Handler,
+            muted=False,
+            observed=None,
+            expected=False,
+        )
+
+    def test_te20_unmute_confirmation_accepts_authoritative_unmuted(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE20Handler,
+            muted=False,
+            observed="Unmuted",
+            expected=True,
+        )
+
+    def test_te20_mute_confirmation_accepts_authoritative_muted(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE20Handler,
+            muted=True,
+            observed="Muted",
+            expected=True,
+        )
+
+    def test_te20_mute_confirmation_rejects_authoritative_unmuted(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE20Handler,
+            muted=True,
+            observed="Unmuted",
+            expected=False,
+        )
+
+    def test_te20_mute_confirmation_propagates_session_failure(self):
+        self.assert_huawei_microphone_confirmation_propagates_session_failure(
+            HuaweiTE20Handler
+        )
+
     def test_te40_authoritative_microphone_readback_returns_muted(self):
         self.assert_huawei_microphone_readback(
             HuaweiTE40Handler,
@@ -96,6 +180,43 @@ class HandlerSessionFailureTests(unittest.TestCase):
 
     def test_te40_authoritative_microphone_readback_propagates_session_failure(self):
         self.assert_huawei_microphone_session_failure(HuaweiTE40Handler)
+
+    def test_te40_unmute_confirmation_missing_evidence_is_not_success(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE40Handler,
+            muted=False,
+            observed=None,
+            expected=False,
+        )
+
+    def test_te40_unmute_confirmation_accepts_authoritative_unmuted(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE40Handler,
+            muted=False,
+            observed="Unmuted",
+            expected=True,
+        )
+
+    def test_te40_mute_confirmation_accepts_authoritative_muted(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE40Handler,
+            muted=True,
+            observed="Muted",
+            expected=True,
+        )
+
+    def test_te40_mute_confirmation_rejects_authoritative_unmuted(self):
+        self.assert_huawei_microphone_confirmation(
+            HuaweiTE40Handler,
+            muted=True,
+            observed="Unmuted",
+            expected=False,
+        )
+
+    def test_te40_mute_confirmation_propagates_session_failure(self):
+        self.assert_huawei_microphone_confirmation_propagates_session_failure(
+            HuaweiTE40Handler
+        )
 
     def test_te20_established_401_is_session_invalid(self):
         handler = HuaweiTE20Handler(

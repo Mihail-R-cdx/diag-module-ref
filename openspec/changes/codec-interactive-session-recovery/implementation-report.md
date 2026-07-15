@@ -221,6 +221,60 @@ git diff --check                                        -> clean
 No architecture deviation was required. The Polycom lazy SSH credential
 fallback implementation and its regression coverage were not changed.
 
+## Huawei mute-command confirmation remediation
+
+Review of published head `42112a58412ed2039c2e6f4a226f00140d8501c1`
+returned `CHANGES REQUIRED` because the TE20 and TE40 mute setters still used
+best-effort `get_audio_status()` after a command response with `success != 1`.
+That diagnostic path could supply its default `mute = Off` without a real
+`MicSwitch` field and falsely confirm an Unmute request.
+
+The confirmation path now uses only the existing strict authoritative
+`get_microphone_volume()` readback. TE20 and TE40 apply the same contract:
+
+- a Mute request is confirmed only by `Muted`;
+- an Unmute request is confirmed only by `Unmuted`;
+- missing evidence (`None`) and the opposite state return `False`;
+- `SessionInvalidError`, `AuthenticationError`, `ConnectionError`, and
+  `ProtocolError` are not caught and therefore propagate to the controller;
+- `get_status()` and `get_audio_status()` remain unchanged as best-effort
+  diagnostic APIs.
+
+Ten handler-level regression tests cover missing evidence, matching Mute and
+Unmute evidence, the opposite state, and `SessionInvalidError` propagation for
+both TE20 and TE40. A controller integration regression uses the real TE20
+setter with a synthetic diagnostic default of `Off` and a strict response that
+lacks `MicSwitch`; the operation now terminates as `command_error`, never as a
+successful result, and the diagnostic API is not consulted.
+
+Focused regression groups were run in isolated Python processes to avoid Qt
+teardown interference:
+
+```text
+Huawei handler/session contracts                             -> 23 passed
+interactive controller, Huawei and Polycom recovery          -> 24 passed
+credential fallback and retry ownership                      -> 24 passed
+hardware-log redaction                                       -> 14 passed
+general redaction                                            -> 13 passed
+```
+
+Final implementation-worktree validation after this remediation:
+
+```text
+Python                                                       -> 3.12.9
+Node / npm                                                   -> 20.19.0 / 10.8.2
+python -m unittest discover -s tests -p "test_*.py"           -> 200 passed
+.\openspec.cmd validate codec-interactive-session-recovery --strict
+                                                             -> valid
+.\openspec.cmd validate --all --strict                       -> 7 passed, 0 failed
+git diff --check                                             -> clean
+```
+
+No architecture deviation was required. The one-operation recovery budget,
+no-blind-replay rule, Polycom lazy SSH credential fallback, credential
+ownership, saved-profile ordering, stale-operation handling, duplicate poll
+ownership, and security/redaction implementations were not changed.
+
 ## Security evidence
 
 Synthetic credential, cookie, Session ID, CSRF, SSH, terminal, dialog, and
