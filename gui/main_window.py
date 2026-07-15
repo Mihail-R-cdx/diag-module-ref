@@ -344,7 +344,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.setObjectName("ipEntry")
         self.ip_entry.setMinimumWidth(160)
         self.ip_entry.setPlaceholderText("link.ru")
-        self.ip_entry.setText("link.ru")
+        self.ip_entry.setText("192.168.1.1")
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
         
