@@ -368,7 +368,7 @@ class RequestLifecycleRegressionTests(unittest.TestCase):
             self.assertIsNone(window._active_request)
             self.assertTrue(window.refresh_btn.isEnabled())
             self.assertEqual(window.refresh_btn.text(), "Обновить данные")
-            window.screens["codec"].reset_volume_session = (
+            window.screens["codec"].shutdown_interactive_controller = (
                 lambda: reset_calls.append(True)
             )
         finally:

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 from PyQt5.QtWidgets import (
     QVBoxLayout,
@@ -28,6 +29,11 @@ from ..components import (
 from ..theme import SIZES, SPACING
 from ..ui_states import UIState
 from utils.te20_audio import format_te20_monitor_audio_level
+from core.interactive_session import (
+    InteractiveOperation,
+    InteractiveSessionController,
+    OperationSemantic,
+)
 from .base_screen import BaseScreen
 
 
@@ -89,8 +95,6 @@ class CodecScreen(BaseScreen):
         self.volume_values = {}  # Храним текущие значения громкости для каждого параметра
         self.last_unmuted_volume = {}
         self.microphone_mute_state = None
-        self.volume_session_handler = None
-        self.volume_session_key = None
         self._show_te20_monitor_audio_fields = False
         self.wake_buttons = {}
         self.wake_countdown_labels = {}
@@ -100,7 +104,18 @@ class CodecScreen(BaseScreen):
         self._te20_wake_countdown_remaining = 0
         self._polycom_command_progress = None
         self._presentation_enable_timers = {}
+        self._interactive_callback_serial = 0
+        self._interactive_callbacks = {}
         super().__init__(parent)
+        self.interactive_controller = InteractiveSessionController(self)
+        self.interactive_controller.signals.result.connect(self._on_interactive_result)
+        self.interactive_controller.signals.error.connect(self._on_interactive_error)
+        self.interactive_controller.signals.dropped.connect(self._on_interactive_dropped)
+        self.interactive_controller.signals.finished.connect(self._on_interactive_finished)
+        if self.parent and hasattr(self.parent, "ip_entry"):
+            self.parent.ip_entry.textChanged.connect(self._on_interactive_identity_changed)
+        controller = self.interactive_controller
+        self.destroyed.connect(lambda: controller.shutdown(wait=False))
         self.volume_refresh_timer = QTimer(self)
         self.volume_refresh_timer.setSingleShot(True)
         self._pending_volume_refresh_param = "Громкость динамиков"
@@ -137,6 +152,119 @@ class CodecScreen(BaseScreen):
             current_idx = 0
 
         return creds_list[current_idx], current_idx, creds_list
+
+    def _activate_interactive_context(self):
+        if not self.parent:
+            return None
+        device_name = self.parent.device_combo.currentText()
+        ip_address = self.parent.ip_entry.text().strip()
+        if not device_name or not ip_address:
+            return None
+        creds_list = self.parent.device_credentials.get(device_name, [])
+        if not creds_list:
+            return None
+        if hasattr(self.parent, "get_valid_current_credential_index"):
+            current_idx = self.parent.get_valid_current_credential_index(
+                device_name, creds_list, ip_address
+            )
+        else:
+            _creds, current_idx, _all = self._get_current_device_credentials(
+                device_name, ip_address
+            )
+        saved_profile = None
+        if hasattr(self.parent, "get_device_connection_profile"):
+            saved_profile = self.parent.get_device_connection_profile(
+                device_name, ip_address
+            )
+        generation = self.interactive_controller.activate_context(
+            device_name,
+            ip_address,
+            creds_list,
+            current_idx,
+            saved_profile,
+        )
+        return device_name, ip_address, generation
+
+    def _submit_interactive(self, operation, on_result=None, on_error=None):
+        context = self._activate_interactive_context()
+        if context is None:
+            return None
+        self._interactive_callback_serial += 1
+        token = self._interactive_callback_serial
+        operation = replace(operation, client_token=token)
+        self._interactive_callbacks[token] = (on_result, on_error)
+        operation_id = self.interactive_controller.submit(
+            operation, generation=context[2]
+        )
+        if operation_id is None:
+            self._interactive_callbacks.pop(token, None)
+        return operation_id
+
+    def _interactive_payload_is_current(self, payload):
+        if not self.parent:
+            return False
+        return (
+            payload.get("generation") == self.interactive_controller.generation
+            and payload.get("model") == self.parent.device_combo.currentText()
+            and payload.get("ip_address") == self.parent.ip_entry.text().strip()
+        )
+
+    def _on_interactive_result(self, payload):
+        if not self._interactive_payload_is_current(payload):
+            return
+        if self.parent:
+            index = payload.get("credential_index")
+            profile = payload.get("connection_profile")
+            if index is not None and hasattr(self.parent, "set_current_credential_index"):
+                self.parent.set_current_credential_index(
+                    payload["model"], index, payload["ip_address"]
+                )
+            if profile and hasattr(self.parent, "set_device_connection_profile"):
+                self.parent.set_device_connection_profile(
+                    payload["model"], profile, payload["ip_address"]
+                )
+        callback = self._interactive_callbacks.get(
+            payload.get("client_token"), (None, None)
+        )[0]
+        if callable(callback):
+            callback(payload.get("value"), payload)
+
+    def _on_interactive_error(self, payload):
+        if not self._interactive_payload_is_current(payload):
+            return
+        callback = self._interactive_callbacks.get(
+            payload.get("client_token"), (None, None)
+        )[1]
+        if callable(callback):
+            callback(payload)
+        elif not payload.get("quiet"):
+            QMessageBox.warning(
+                self,
+                "Ошибка управления кодеком",
+                payload.get("message", "Не удалось выполнить операцию."),
+            )
+
+    def _on_interactive_dropped(self, payload):
+        self._interactive_callbacks.pop(payload.get("client_token"), None)
+
+    def _on_interactive_finished(self, payload):
+        self._interactive_callbacks.pop(payload.get("client_token"), None)
+
+    def _on_interactive_identity_changed(self, *_args):
+        self.stop_te20_monitor_audio_polling()
+        self.interactive_controller.invalidate_context()
+
+    def shutdown_interactive_controller(self):
+        self.stop_te20_monitor_audio_polling()
+        for timer_name in (
+            "volume_refresh_timer",
+            "presentation_refresh_timer",
+            "wake_countdown_timer",
+        ):
+            timer = getattr(self, timer_name, None)
+            if timer is not None:
+                timer.stop()
+        self.interactive_controller.shutdown(wait=False)
 
     def _is_deleted_widget(self, widget):
         if widget is None:
@@ -611,24 +739,32 @@ class CodecScreen(BaseScreen):
             )
             return
 
-        try:
-            self.call_log_window.status_label.setText("Загрузка журнала звонков...")
-            handler = self._get_or_create_volume_handler(
-                ip_address=ip_address,
-                device_name=device_name,
-                username=creds['username'],
-                password=creds['password'],
-            )
-            if handler is None:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось подключиться к {device_name} для получения журнала звонков")
-                self.call_log_window.status_label.setText("Не удалось загрузить журнал звонков.")
-                return
+        self.call_log_window.status_label.setText("Загрузка журнала звонков...")
 
-            records = handler.get_call_records()
-            self.call_log_window.set_call_records(records)
-        except Exception as e:
-            self.call_log_window.status_label.setText(f"Не удалось загрузить журнал звонков: {str(e)}")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось получить журнал звонков:\n{str(e)}")
+        def on_records(records, _payload):
+            if not self._is_deleted_widget(self.call_log_window):
+                self.call_log_window.set_call_records(records or [])
+
+        def on_error(payload):
+            if not self._is_deleted_widget(self.call_log_window):
+                self.call_log_window.status_label.setText(
+                    "Не удалось загрузить журнал звонков."
+                )
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                payload.get("message", "Не удалось получить журнал звонков."),
+            )
+
+        self._submit_interactive(
+            InteractiveOperation(
+                kind="huawei_call_log",
+                method="get_call_records",
+                semantic=OperationSemantic.READ_ONLY,
+            ),
+            on_records,
+            on_error,
+        )
 
     def _start_polycom_call_log_load(self, ip_address, username, password):
         if getattr(self, "_polycom_call_log_loading", False):
@@ -903,11 +1039,7 @@ class CodecScreen(BaseScreen):
         print(f"Нажата кнопка {direction} для {param_name}")
 
         if param_name in self.volume_buttons:
-            progress = self._show_polycom_command_progress("Изменение громкости Polycom...")
-            try:
-                self.adjust_volume(param_name, direction)
-            finally:
-                self._hide_polycom_command_progress(progress)
+            self.adjust_volume(param_name, direction)
 
     def _get_param_label_widget(self, param_name):
         for name_label, value_label in self.param_widgets:
@@ -999,16 +1131,22 @@ class CodecScreen(BaseScreen):
             return
 
         current_value = self._get_current_volume_value(param_name)
-        progress = self._show_polycom_command_progress("Изменение состояния звука Polycom...")
-        try:
-            if muted:
-                restore_value = self._get_restore_volume(param_name)
-                self.set_volume_value(param_name, restore_value)
-            else:
-                self._remember_unmuted_volume(param_name, current_value)
-                self.set_volume_value(param_name, 0)
-        finally:
-            self._hide_polycom_command_progress(progress)
+        if muted:
+            restore_value = self._get_restore_volume(param_name)
+            self.set_volume_value(
+                param_name,
+                restore_value,
+                original=current_value,
+                relative=True,
+            )
+        else:
+            self._remember_unmuted_volume(param_name, current_value)
+            self.set_volume_value(
+                param_name,
+                0,
+                original=current_value,
+                relative=True,
+            )
 
     def _schedule_presentation_buttons_enable(self, param_name):
         previous_timer = self._presentation_enable_timers.pop(param_name, None)
@@ -1035,11 +1173,7 @@ class CodecScreen(BaseScreen):
         if param_name in self.presentation_buttons:
             self.set_presentation_buttons_enabled(param_name, False)
             self._schedule_presentation_buttons_enable(param_name)
-            progress = self._show_polycom_command_progress("Управление презентацией Polycom...")
-            try:
-                self.set_presentation_state(direction)
-            finally:
-                self._hide_polycom_command_progress(progress)
+            self.set_presentation_state(direction)
 
     def _is_polycom_selected(self):
         return bool(
@@ -1078,7 +1212,7 @@ class CodecScreen(BaseScreen):
             self._polycom_command_progress = None
 
     def set_presentation_state(self, direction):
-        """Отправка команды включения или выключения презентации."""
+        """Submit desired presentation state without blocking the GUI thread."""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else None
         device_name = self.parent.device_combo.currentText() if self.parent else None
 
@@ -1096,67 +1230,88 @@ class CodecScreen(BaseScreen):
             return
 
         self._show_presentation_terminal(device_name, ip_address, command)
-        print(f"Отправка команды управления презентацией на {device_name} ({ip_address}): {command}")
-
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-
-        if creds is None:
-            print(f"Не найдены credentials для {device_name}")
-            QMessageBox.warning(self, "Ошибка", f"Не найдены credentials для {device_name}")
+        if command == "Start" and device_name in {
+            "Huawei TE20",
+            "Huawei TE40",
+            "CloudLink Bar 310",
+        }:
+            self._submit_interactive(
+                InteractiveOperation(
+                    kind="presentation_sleep_read",
+                    method="get_sleep_mode",
+                    semantic=OperationSemantic.READ_ONLY,
+                    quiet=True,
+                ),
+                lambda sleep_mode, _payload: self._continue_presentation_after_sleep_read(
+                    command, sleep_mode
+                ),
+                lambda _payload: self._submit_presentation_command(command),
+            )
             return
+        self._submit_presentation_command(command)
 
-        self._append_presentation_terminal_log(
-            f"[session] credential {current_idx + 1}/{len(creds_list)}"
+    def _continue_presentation_after_sleep_read(self, command, sleep_mode):
+        if sleep_mode != "On":
+            self._submit_presentation_command(command)
+            return
+        reply = QMessageBox.question(
+            self,
+            "Режим сна",
+            "Устройство в состоянии сна, разбудить его ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            self._finish_presentation_terminal("cancelled while device was sleeping")
+            return
+        self._submit_interactive(
+            InteractiveOperation(
+                kind="presentation_wake",
+                method="wake_up",
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_sleep_mode",
+                target="Off",
+                original="On",
+            ),
+            lambda _value, _payload: self._submit_presentation_command(command),
+            lambda payload: self._finish_presentation_terminal(
+                f"wake failed: {payload.get('category')}"
+            ),
         )
 
-        try:
-            handler = self._get_or_create_volume_handler(
-                ip_address=ip_address,
-                device_name=device_name,
-                username=creds['username'],
-                password=creds['password'],
-                command_logger=self._append_presentation_terminal_log,
+    def _submit_presentation_command(self, command):
+        opposite = "Stop" if command == "Start" else "Start"
+
+        def on_result(_value, _payload):
+            self._finish_presentation_terminal(f"completed successfully: {command}")
+            self.update_presentation_display(command)
+            self.schedule_presentation_refresh()
+
+        def on_error(payload):
+            self._finish_presentation_terminal(
+                f"failed: {payload.get('category', 'command_error')}"
             )
-
-            if handler is None:
-                print("Не удалось подключиться к устройству для управления презентацией")
-                self._finish_presentation_terminal("connection failed")
-                QMessageBox.warning(self, "Ошибка", "Не удалось подключиться к устройству для управления презентацией")
-                return
-
-            if not hasattr(handler, 'set_presentation'):
-                print(f"Устройство {device_name} пока не поддерживает управление презентацией")
-                self._finish_presentation_terminal("presentation control is not supported")
-                QMessageBox.information(self, "Информация", f"Устройство {device_name} пока не поддерживает управление презентацией")
-                return
-
-            if command == "Start" and not self._prepare_sleeping_device_for_presentation(handler):
-                return
-
-            success = handler.set_presentation(command)
-            if success:
-                print(f"Команда презентации {command} успешно отправлена")
-                self._finish_presentation_terminal(f"completed successfully: {command}")
-                self.update_presentation_display(command)
-                self.schedule_presentation_refresh()
-            else:
-                print(f"Устройство не подтвердило команду презентации {command}")
-                self._finish_presentation_terminal(f"device did not confirm command: {command}")
-                detailed_error = getattr(handler, 'last_presentation_error_message', None)
-                if detailed_error:
-                    QMessageBox.warning(self, "Ошибка", detailed_error)
-                    return
-                QMessageBox.warning(self, "Ошибка", f"Устройство не подтвердило команду презентации: {command}")
-
-        except Exception as e:
-            print(f"Ошибка при управлении презентацией: {type(e).__name__}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            self.reset_volume_session()
             for name in self.presentation_buttons:
                 self.set_presentation_buttons_enabled(name, True)
-            self._finish_presentation_terminal(f"failed: {type(e).__name__}: {str(e)}")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось выполнить команду презентации:\n{str(e)}")
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                payload.get("message", "Не удалось изменить презентацию."),
+            )
+
+        self._submit_interactive(
+            InteractiveOperation(
+                kind="presentation_set",
+                method="set_presentation",
+                args=(command,),
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_presentation_status",
+                target=command,
+                original=opposite,
+            ),
+            on_result,
+            on_error,
+        )
 
     def _show_presentation_terminal(self, device_name, ip_address, command):
         if self.parent and hasattr(self.parent, 'show_codec_terminal'):
@@ -1316,7 +1471,12 @@ class CodecScreen(BaseScreen):
         print(f"Текущая громкость: {current_volume}, Новое значение: {new_volume}")
         
         # Отправляем команду на устройство через API
-        self.set_volume_value(param_name, new_volume)
+        self.set_volume_value(
+            param_name,
+            new_volume,
+            original=current_volume,
+            relative=True,
+        )
     
     def _get_volume_control_kind(self, param_name):
         if param_name == "Громкость динамиков":
@@ -1325,203 +1485,117 @@ class CodecScreen(BaseScreen):
             return "microphone"
         return None
 
-    def set_volume_value(self, param_name, value):
+    def set_volume_value(self, param_name, value, *, original=None, relative=False):
         if self._te20_is_sleeping and param_name in self._microphone_param_names():
             return False
 
         control_kind = self._get_volume_control_kind(param_name)
         if control_kind == "speaker":
-            return self.set_speaker_volume(value)
+            return self.set_speaker_volume(
+                value, original=original, relative=relative
+            )
         if control_kind == "microphone":
-            return self.set_microphone_volume(value)
+            return self.set_microphone_volume(
+                value, original=original, relative=relative
+            )
         return False
     
-    def set_speaker_volume(self, value):
-        """Отправка команды изменения громкости на устройство через API"""
-        # Получаем текущие credentials и IP адрес
-        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
-        
-        if not ip_address or not device_name:
-            print("Не удалось получить IP адрес или имя устройства для изменения гро��кости")
-            return
-        
-        print(f"Отправка команды изменения громкости на {device_name} ({ip_address}): {value}")
-        
-        # Получаем текущие credentials
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-        
-        if creds is not None:
-            
-            # Создаем обработчик для отправки команды
-            try:
-                handler = self._get_or_create_volume_handler(
-                    ip_address=ip_address,
-                    device_name=device_name,
-                    username=creds['username'],
-                    password=creds['password'],
-                )
+    def set_speaker_volume(self, value, *, original=None, relative=False):
+        """Submit an absolute target, preserving relative-button intent metadata."""
+        semantic = (
+            OperationSemantic.RELATIVE_AS_ABSOLUTE
+            if relative
+            else OperationSemantic.ABSOLUTE
+        )
 
-                if handler:
-                    success = handler.set_speaker_volume(value)
-                    if success:
-                        print(f"Громкость успешно изменена на {value}")
-                        self.update_volume_display(value, param_name="Громкость динамиков")
-                        self.schedule_volume_refresh("Громкость динамиков")
-                    else:
-                        print("Ошибка изменения громкости: устройство не подтвердило команду")
-                        self.refresh_volume_status("Громкость динамиков")
-                else:
-                    print("Не удалось подключиться к устройству для изменения громкости")
-                    
-            except Exception as e:
-                print(f"Ошибка при изменении громкости: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                self.reset_volume_session()
+        def on_result(_result, _payload):
+            self.update_volume_display(value, param_name="Громкость динамиков")
+            self.schedule_volume_refresh("Громкость динамиков")
 
-    def set_microphone_volume(self, value):
-        """Отправка команды изменения громкости микрофона на устройство через API."""
-        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
+        return self._submit_interactive(
+            InteractiveOperation(
+                kind="speaker_volume_set",
+                method="set_speaker_volume",
+                args=(value,),
+                semantic=semantic,
+                readback_method="get_speaker_volume",
+                target=value,
+                original=original,
+                allow_set_from_any_authoritative=not relative,
+            ),
+            on_result,
+        )
 
-        if not ip_address or not device_name:
-            print("Не удалось получить IP адрес или имя устройства для изменения громкости микрофона")
-            return False
+    def set_microphone_volume(self, value, *, original=None, relative=False):
+        """Submit mute/gain as an absolute desired state, never as a toggle."""
+        semantic = (
+            OperationSemantic.RELATIVE_AS_ABSOLUTE
+            if relative
+            else OperationSemantic.ABSOLUTE
+        )
+        display_value = (
+            "Muted"
+            if self._uses_microphone_mute_control() and int(value) <= 0
+            else "Unmuted"
+            if self._uses_microphone_mute_control()
+            else value
+        )
 
-        print(f"Отправка команды изменения громкости микрофона на {device_name} ({ip_address}): {value}")
+        def on_result(_result, _payload):
+            self.update_volume_display(
+                display_value, param_name=self._microphone_param_name()
+            )
+            self.schedule_volume_refresh(self._microphone_param_name())
 
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-
-        if creds is not None:
-            try:
-                handler = self._get_or_create_volume_handler(
-                    ip_address=ip_address,
-                    device_name=device_name,
-                    username=creds['username'],
-                    password=creds['password'],
-                )
-
-                if handler:
-                    success = handler.set_microphone_volume(value)
-                    if success:
-                        print(f"Состояние микрофона успешно изменено на {value}")
-                        display_value = "Muted" if self._uses_microphone_mute_control() and int(value) <= 0 else (
-                            "Unmuted" if self._uses_microphone_mute_control() else value
-                        )
-                        self.update_volume_display(display_value, param_name=self._microphone_param_name())
-                        self.schedule_volume_refresh(self._microphone_param_name())
-                    else:
-                        print("Изменение громкости микрофона не подтверждено или не поддерживается этим кодеком")
-                        self.refresh_volume_status(self._microphone_param_name())
-                    return success
-
-                print("Не удалось подключиться к устройству для изменения громкости микрофона")
-            except Exception as e:
-                print(f"Ошибка при изменении громкости микрофона: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                self.reset_volume_session()
-
-        return False
+        return self._submit_interactive(
+            InteractiveOperation(
+                kind="microphone_set",
+                method="set_microphone_volume",
+                args=(value,),
+                semantic=semantic,
+                readback_method="get_microphone_volume",
+                target=display_value if self._uses_microphone_mute_control() else value,
+                original=original,
+                allow_set_from_any_authoritative=not relative,
+            ),
+            on_result,
+        )
 
     def get_speaker_volume(self):
-        """Получение текущей громкости с устройства через API"""
-        # Получаем текущие credentials и IP адрес
-        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
-        
-        if not ip_address or not device_name:
-            print("Не удалось получить IP адрес или имя устройства для получения громкости")
-            return
-        
-        print(f"Запрос текущей громкости с устройства {device_name} ({ip_address})...")
-        
-        # Получаем текущие credentials
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-        
-        if creds is not None:
-            
-            # Создаем обработчик для запроса данных
-            try:
-                handler = self._get_or_create_volume_handler(
-                    ip_address=ip_address,
-                    device_name=device_name,
-                    username=creds['username'],
-                    password=creds['password'],
+        """Read speaker volume on the serialized background lane."""
+        return self._submit_interactive(
+            InteractiveOperation(
+                kind="speaker_volume_read",
+                method="get_speaker_volume",
+                semantic=OperationSemantic.READ_ONLY,
+                quiet=True,
+            ),
+            lambda volume, _payload: (
+                self.update_volume_display(
+                    volume, param_name="Громкость динамиков"
                 )
-
-                if handler:
-                    volume = handler.get_speaker_volume()
-                    if volume is not None:
-                        print(f"Текущая громкость с устройства: {volume}")
-                        self.update_volume_display(volume, param_name="Громкость динамиков")
-                    else:
-                        print("Ошибка получения громкости: устройство не вернуло значение")
-                    return volume
-                else:
-                    print("Не удалось подключиться к устройству для получения громкости")
-                    
-            except Exception as e:
-                print(f"Ошибка при получении громкости: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                self.reset_volume_session()
-
-        return None
+                if volume is not None
+                else None
+            ),
+        )
 
     def get_microphone_volume(self):
-        """Получение текущей громкости микрофона с устройства через API."""
-        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
-
-        if not ip_address or not device_name:
-            print("Не удалось получить IP адрес или имя устройства для получения громкости микрофона")
-            return None
-
-        print(f"Запрос текущей громкости микрофона с устройства {device_name} ({ip_address})...")
-
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-
-        if creds is not None:
-            try:
-                handler = self._get_or_create_volume_handler(
-                    ip_address=ip_address,
-                    device_name=device_name,
-                    username=creds['username'],
-                    password=creds['password'],
+        """Read microphone mute/gain on the serialized background lane."""
+        return self._submit_interactive(
+            InteractiveOperation(
+                kind="microphone_read",
+                method="get_microphone_volume",
+                semantic=OperationSemantic.READ_ONLY,
+                quiet=True,
+            ),
+            lambda volume, _payload: (
+                self.update_volume_display(
+                    volume, param_name=self._microphone_param_name()
                 )
-
-                if handler:
-                    volume = None
-                    get_audio_status = getattr(handler, 'get_audio_status', None)
-                    if callable(get_audio_status):
-                        audio_status = get_audio_status()
-                        if isinstance(audio_status, dict):
-                            if audio_status.get('mute') is not None:
-                                self.microphone_mute_state = audio_status.get('mute')
-                                if self._uses_microphone_mute_control():
-                                    volume = self._format_microphone_mute_state(self.microphone_mute_state)
-                            if not self._uses_microphone_mute_control():
-                                volume = audio_status.get('microphone_volume')
-
-                    if volume is None:
-                        volume = handler.get_microphone_volume()
-                    if volume is not None:
-                        print(f"Текущая громкость микрофона с устройства: {volume}")
-                        self.update_volume_display(volume, param_name=self._microphone_param_name())
-                    else:
-                        print("Ошибка получения громкости микрофона: устройство не вернуло значение")
-                    return volume
-
-                print("Не удалось подключиться к устройству для получения громкости микрофона")
-            except Exception as e:
-                print(f"Ошибка при получении громкости микрофона: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                self.reset_volume_session()
-
-        return None
+                if volume is not None
+                else None
+            ),
+        )
 
     def refresh_pending_volume_status(self):
         self.refresh_volume_status(self._pending_volume_refresh_param)
@@ -1545,150 +1619,29 @@ class CodecScreen(BaseScreen):
         self.presentation_refresh_timer.start(1500)
 
     def refresh_presentation_status(self):
-        ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
-
-        if not ip_address or not device_name:
-            return
-
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-        if creds is None:
-            return
-
-        try:
-            handler = self._get_or_create_volume_handler(
-                ip_address=ip_address,
-                device_name=device_name,
-                username=creds['username'],
-                password=creds['password'],
-                command_logger=self._append_presentation_terminal_log,
-            )
-            if not handler:
-                return
-
-            get_presentation_status = getattr(handler, 'get_presentation_status', None)
-            if not callable(get_presentation_status):
-                return
-
-            presentation_state = get_presentation_status()
-            if presentation_state is not None:
-                self.update_presentation_display(presentation_state)
-        except Exception as e:
-            self._append_presentation_terminal_log(
-                f"[presentation] refresh failed: {type(e).__name__}: {str(e)}"
-            )
+        return self._submit_interactive(
+            InteractiveOperation(
+                kind="presentation_read",
+                method="get_presentation_status",
+                semantic=OperationSemantic.READ_ONLY,
+                quiet=True,
+            ),
+            lambda state, _payload: (
+                self.update_presentation_display(state)
+                if state is not None
+                else None
+            ),
+            lambda payload: self._append_presentation_terminal_log(
+                f"[presentation] refresh failed: {payload.get('category')}"
+            ),
+        )
 
     def reset_volume_session(self):
-        """Сбрасывает долгоживущую сессию управления громкостью."""
+        """Invalidate the shared interactive context and all queued old work."""
         self.stop_te20_monitor_audio_polling()
-        if self.volume_session_handler is not None:
-            try:
-                self.volume_session_handler.disconnect()
-            except Exception:
-                pass
-        self.volume_session_handler = None
-        self.volume_session_key = None
-
-    def _get_or_create_volume_handler(self, ip_address, device_name, username, password, command_logger=None):
-        """Возвращает существующую сессию громкости или создаёт новую."""
-        handler_class = None
-        base_handler_kwargs = {
-            "ip_address": ip_address,
-            "username": username,
-            "password": password,
-        }
-        connection_profiles = []
-
-        if device_name == "Huawei TE20":
-            from handlers.huawei.te20 import HuaweiTE20Handler
-            handler_class = HuaweiTE20Handler
-            connection_profiles = [
-                {"port": 80, "use_ssl": False, "label": "HTTP:80"},
-                {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
-            ]
-        elif device_name == "Huawei TE40":
-            from handlers.huawei.te40 import HuaweiTE40Handler
-            handler_class = HuaweiTE40Handler
-            connection_profiles = [
-                {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
-                {"port": 80, "use_ssl": False, "label": "HTTP:80"},
-            ]
-        elif device_name == "CloudLink Bar 310":
-            from handlers.huawei.bar310 import CloudLinkBar310Handler
-            handler_class = CloudLinkBar310Handler
-            connection_profiles = [{"port": 443, "use_ssl": True, "label": "HTTPS:443"}]
-        elif device_name == "Polycom RPG 310":
-            from handlers.polycom.rpg310 import PolycomRPG310Handler
-            handler_class = PolycomRPG310Handler
-            connection_profiles = [{"port": 443, "label": "HTTPS:443"}]
-        else:
-            self.reset_volume_session()
-            return None
-
-        preferred_profile = None
-        if self.parent and hasattr(self.parent, 'get_device_connection_profile'):
-            preferred_profile = self.parent.get_device_connection_profile(device_name, ip_address)
-        if device_name in {"Huawei TE20", "Huawei TE40"}:
-            preferred_profile = None
-        if isinstance(preferred_profile, dict) and preferred_profile:
-            preferred_port = preferred_profile.get("port")
-            preferred_use_ssl = preferred_profile.get("use_ssl")
-            prioritized_profiles = []
-            if preferred_port is not None:
-                preferred_entry = {
-                    "port": preferred_port,
-                    "label": preferred_profile.get(
-                        "label",
-                        f"{'HTTPS' if preferred_use_ssl else 'HTTP'}:{preferred_port}"
-                    ),
-                }
-                if device_name != "Polycom RPG 310":
-                    preferred_entry["use_ssl"] = preferred_use_ssl
-                prioritized_profiles.append(preferred_entry)
-            prioritized_profiles.extend(connection_profiles)
-
-            seen_profiles = set()
-            connection_profiles = []
-            for profile in prioritized_profiles:
-                key = (profile.get("port"), profile.get("use_ssl"))
-                if key in seen_profiles:
-                    continue
-                seen_profiles.add(key)
-                connection_profiles.append(profile)
-
-        profile_signature = tuple(
-            (profile.get("port"), profile.get("use_ssl"))
-            for profile in connection_profiles
-        )
-        session_key = (device_name, ip_address, username, password, profile_signature)
-        if self.volume_session_handler is not None and self.volume_session_key == session_key:
-            self.volume_session_handler.command_logger = command_logger
-            return self.volume_session_handler
-
-        self.reset_volume_session()
-
-        for profile in connection_profiles:
-            handler_kwargs = dict(base_handler_kwargs)
-            allowed_profile_keys = {"port"} if device_name == "Polycom RPG 310" else {"port", "use_ssl"}
-            handler_kwargs.update({k: v for k, v in profile.items() if k in allowed_profile_keys})
-
-            handler = handler_class(**handler_kwargs)
-            handler.command_logger = command_logger
-
-            if callable(command_logger):
-                command_logger(f"[connect] control via {profile['label']}")
-
-            if handler.connect():
-                self.volume_session_handler = handler
-                self.volume_session_key = session_key
-                return handler
-
-            try:
-                handler.disconnect()
-            except Exception:
-                pass
-
-        return None
+        controller = getattr(self, "interactive_controller", None)
+        if controller is not None:
+            controller.invalidate_context()
 
     def _get_volume_range(self, param_name="Громкость динамиков"):
         device_name = self.parent.device_combo.currentText() if self.parent else None
@@ -1872,38 +1825,29 @@ class CodecScreen(BaseScreen):
         if not ip_address or device_name != "Huawei TE20":
             return
 
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-        if creds is None:
-            return
-
         self._append_te20_monitor_audio_terminal_log("[sleep] wake requested from monitor audio row")
 
-        try:
-            handler = self._get_or_create_volume_handler(
-                ip_address=ip_address,
-                device_name=device_name,
-                username=creds['username'],
-                password=creds['password'],
-                command_logger=self._append_te20_monitor_audio_terminal_log,
-            )
-            if not handler:
-                self._append_te20_monitor_audio_terminal_log("[sleep] wake failed: handler unavailable")
-                return
-
-            wake_up = getattr(handler, 'wake_up', None)
-            if not callable(wake_up):
-                self._append_te20_monitor_audio_terminal_log("[sleep] wake failed: command is not supported")
-                return
-
-            wake_success = wake_up()
-            self._append_te20_monitor_audio_terminal_log(f"[sleep] wake command result: {wake_success}")
-            if wake_success:
-                self._set_te20_monitor_audio_sleep_state(False)
-                self._start_te20_wake_countdown(7)
-        except Exception as e:
+        def on_result(_value, _payload):
             self._append_te20_monitor_audio_terminal_log(
-                f"[sleep] wake exception: {type(e).__name__}: {str(e)}"
+                "[sleep] wake command completed"
             )
+            self._set_te20_monitor_audio_sleep_state(False)
+            self._start_te20_wake_countdown(7)
+
+        self._submit_interactive(
+            InteractiveOperation(
+                kind="wake",
+                method="wake_up",
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_sleep_mode",
+                target="Off",
+                original="On",
+            ),
+            on_result,
+            lambda payload: self._append_te20_monitor_audio_terminal_log(
+                f"[sleep] wake failed: {payload.get('category')}"
+            ),
+        )
 
     def _append_te20_monitor_audio_terminal_log(self, message):
         if not self.parent:
@@ -1934,68 +1878,40 @@ class CodecScreen(BaseScreen):
             self.stop_te20_monitor_audio_polling()
             return
 
-        creds, current_idx, creds_list = self._get_current_device_credentials(device_name, ip_address)
-        if creds is None:
-            return
+        self._append_te20_monitor_audio_terminal_log("[poll] monitor audio tick")
 
-        try:
-            self._append_te20_monitor_audio_terminal_log("[poll] monitor audio tick")
-            handler = self._get_or_create_volume_handler(
-                ip_address=ip_address,
-                device_name=device_name,
-                username=creds['username'],
-                password=creds['password'],
-                command_logger=self._append_te20_monitor_audio_terminal_log,
-            )
-            if not handler:
-                self._append_te20_monitor_audio_terminal_log("[poll] monitor audio handler is unavailable")
+        def on_result(result, _payload):
+            if not isinstance(result, dict):
                 return
-
+            sleep_mode = result.get("sleep_mode")
             if device_name == "Huawei TE20":
-                get_sleep_mode = getattr(handler, 'get_sleep_mode', None)
-                if callable(get_sleep_mode):
-                    sleep_mode = get_sleep_mode()
-                    self._append_te20_monitor_audio_terminal_log(
-                        f"[sleep] current mode: {sleep_mode}"
-                    )
-                    if sleep_mode == 'On':
-                        self._set_te20_monitor_audio_sleep_state(True)
-                        return
-
-                self._set_te20_monitor_audio_sleep_state(False)
-            result = handler.send_command('get_monitor_audio_params')
-            if not result or result.get('success') != 1:
-                self._append_te20_monitor_audio_terminal_log(f"[poll] monitor audio failed: {result}")
-                return
-
-            data = result.get('data', {})
-            if isinstance(data, str):
-                try:
-                    data = json.loads(data)
-                except (TypeError, ValueError):
-                    self._append_te20_monitor_audio_terminal_log(
-                        "[poll] monitor audio returned invalid JSON data"
-                    )
+                self._set_te20_monitor_audio_sleep_state(sleep_mode == "On")
+                if sleep_mode == "On":
                     return
+            data = result.get("audio", {})
             if not isinstance(data, dict):
-                self._append_te20_monitor_audio_terminal_log("[poll] monitor audio returned non-dict data")
                 return
-
             self._update_monitor_audio_display(
-                mic_value=data.get('MicValueIndex'),
-                speaker_value=data.get('SpeakerValueIndex'),
+                mic_value=data.get("MicValueIndex"),
+                speaker_value=data.get("SpeakerValueIndex"),
             )
             self._append_te20_monitor_audio_terminal_log(
-                f"[poll] monitor audio values mic={data.get('MicValueIndex')} speaker={data.get('SpeakerValueIndex')}"
+                "[poll] monitor audio values updated"
             )
-        except Exception as e:
-            self._append_te20_monitor_audio_terminal_log(
-                f"[poll] monitor audio exception: {type(e).__name__}: {str(e)}"
-            )
-            print(
-                "Ошибка при опросе monitor audio "
-                f"{device_name}: {type(e).__name__}: {str(e)}"
-            )
+
+        self._submit_interactive(
+            InteractiveOperation(
+                kind="live_audio",
+                method="get_live_audio_status",
+                semantic=OperationSemantic.READ_ONLY,
+                duplicate_key="live_audio",
+                quiet=True,
+            ),
+            on_result,
+            lambda payload: self._append_te20_monitor_audio_terminal_log(
+                f"[poll] monitor audio failed: {payload.get('category')}"
+            ),
+        )
 
     def update_volume_display(self, volume, param_name="Громкость динамиков"):
         """Обновление отображения громкости в GUI"""

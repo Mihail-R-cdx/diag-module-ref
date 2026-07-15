@@ -31,7 +31,12 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window.finish_te20_terminal = Mock()
         window.finish_matrix_terminal = Mock()
         window.refresh_btn = Mock()
-        window.is_vcs_codec_device = lambda _device: True
+        window.is_vcs_codec_device = lambda device: device in {
+            "Huawei TE20",
+            "Huawei TE40",
+            "CloudLink Bar 310",
+            "Polycom RPG 310",
+        }
         return window
 
     def worker(self, index=0, total=5):
@@ -67,8 +72,12 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window.on_device_error(("authentication_error", "401", ""), worker, 1)
         window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
-        window.set_current_credential_index.assert_called_once_with(
-            "Huawei TE40", 4, "192.0.2.10"
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(
+            4,
+            window._credential_attempt_plans[
+                "Huawei TE40|192.0.2.10"
+            ].current_index,
         )
         window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
         self.assertIn("5", window.set_ui_state.call_args.args[1])
@@ -99,6 +108,21 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                     getattr(window, method_name).assert_not_called()
                 window.set_current_credential_index.assert_not_called()
                 self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
+
+    def test_codec_retry_authority_ignores_auth_and_401_message_text(self):
+        for error_type, message in (
+            ("connection_error", "transport auth 401 failed"),
+            ("protocol_error", "authentication response malformed"),
+            ("command_error", "success: 0, code 403"),
+        ):
+            with self.subTest(error_type=error_type):
+                window = self.make_window()
+                worker = self.worker(index=0, total=2)
+                window.current_worker = worker
+                with patch.object(QMessageBox, "critical"):
+                    window.on_device_error((error_type, message, ""), worker, 1)
+                window.refresh_huawei_te40.assert_not_called()
+                window.set_current_credential_index.assert_not_called()
 
     def test_exhausted_chain_emits_one_safe_terminal_authentication_message(self):
         window = self.make_window()
@@ -217,9 +241,23 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
                 refresh.assert_called_once_with("192.0.2.10")
-                window.set_current_credential_index.assert_called_once_with(
-                    device_name, 1, "192.0.2.10"
-                )
+                if device_name in {
+                    "Huawei TE20",
+                    "Huawei TE40",
+                    "CloudLink Bar 310",
+                    "Polycom RPG 310",
+                }:
+                    window.set_current_credential_index.assert_not_called()
+                    self.assertEqual(
+                        1,
+                        window._credential_attempt_plans[
+                            f"{device_name}|192.0.2.10"
+                        ].current_index,
+                    )
+                else:
+                    window.set_current_credential_index.assert_called_once_with(
+                        device_name, 1, "192.0.2.10"
+                    )
 
     def test_chain_length_ten_has_no_special_case_limit(self):
         window = self.make_window()
@@ -231,8 +269,12 @@ class CredentialFallbackRetryTests(unittest.TestCase):
 
         window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
-        window.set_current_credential_index.assert_called_once_with(
-            "Huawei TE40", 9, "192.0.2.10"
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(
+            9,
+            window._credential_attempt_plans[
+                "Huawei TE40|192.0.2.10"
+            ].current_index,
         )
         window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
         self.assertIn("10", window.set_ui_state.call_args.args[1])
@@ -244,7 +286,9 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         attempted = [3]
 
         def start_next(_ip_address):
-            next_index = window.set_current_credential_index.call_args.args[1]
+            next_index = window._credential_attempt_plans[
+                "Huawei TE40|192.0.2.10"
+            ].current_index
             next_worker = self.worker(index=next_index, total=5)
             attempted.append(next_index)
             window.current_worker = next_worker

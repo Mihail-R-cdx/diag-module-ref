@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Generic, Mapping, Optional, Sequence, TypeVar
 
 from core.exceptions import (
     CredentialConfigurationError,
@@ -26,6 +26,53 @@ AUTH_USERNAME_PASSWORD = "username_password"
 AUTH_PASSWORD = "password"
 AUTH_NONE = "unauthenticated"
 AUTH_MODES = {AUTH_USERNAME_PASSWORD, AUTH_PASSWORD, AUTH_NONE}
+
+CandidateT = TypeVar("CandidateT")
+
+
+class CredentialAttemptPlan(Generic[CandidateT]):
+    """Finite monotonic request cursor; persistence remains a caller decision."""
+
+    def __init__(self, candidates: Sequence[CandidateT], start_index: int = 0):
+        self._candidates = tuple(candidates)
+        if not self._candidates:
+            raise ValueError("Credential attempt plan requires at least one candidate.")
+        if start_index < 0 or start_index >= len(self._candidates):
+            start_index = 0
+        self.start_index = start_index
+        self.current_index = start_index
+        self._attempted_indexes: set[int] = set()
+
+    @property
+    def candidates(self) -> tuple[CandidateT, ...]:
+        return self._candidates
+
+    @property
+    def current_candidate(self) -> CandidateT:
+        return self._candidates[self.current_index]
+
+    @property
+    def attempted_indexes(self) -> tuple[int, ...]:
+        return tuple(sorted(self._attempted_indexes))
+
+    def mark_attempted(self) -> None:
+        self._attempted_indexes.add(self.current_index)
+
+    def advance_after_authentication_failure(self) -> bool:
+        """Advance exactly once to an unattempted higher candidate, never wrap."""
+
+        self.mark_attempted()
+        for index in range(self.current_index + 1, len(self._candidates)):
+            if index not in self._attempted_indexes:
+                self.current_index = index
+                return True
+        return False
+
+    def successful_index(self) -> int:
+        """Return the index a caller may commit after final confirmed success."""
+
+        self.mark_attempted()
+        return self.current_index
 
 
 @dataclass(frozen=True)

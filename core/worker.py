@@ -9,7 +9,12 @@ from handlers.huawei.te40 import HuaweiTE40Handler
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 from core.te20_worker import HuaweiTE20Worker
 from handlers.extron.in1804 import ExtronIN1804Handler
-from .exceptions import AuthenticationError, ConnectionError
+from core.codec_connection_profiles import order_codec_profiles
+from .exceptions import (
+    AuthenticationError,
+    ConnectionError,
+    classify_codec_failure,
+)
 import traceback
 import builtins
 from core.redaction import redact_data, redact_diagnostic, redact_exception, redacted_callback
@@ -31,6 +36,8 @@ def _safe_error(error, secrets):
 
 
 def _emit_error(worker, category, error, trace=True):
+    if category is None:
+        category = classify_codec_failure(error).value
     message, details = _safe_error(error, _worker_secrets(worker))
     worker.signals.error.emit((category, message, details if trace else ""))
 
@@ -92,7 +99,8 @@ class HuaweiTE40Worker(QRunnable):
     """Специализированный Worker для Huawei TE40"""
     
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = None, password: str = None):
+                 username: str = None, password: str = None,
+                 preferred_profile: dict = None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -102,6 +110,7 @@ class HuaweiTE40Worker(QRunnable):
         self.creds_list = []
         self.current_idx = 0
         self.device_name = "Huawei TE40"
+        self.preferred_profile = dict(preferred_profile) if preferred_profile else None
 
     @pyqtSlot()
     def run(self):
@@ -117,63 +126,58 @@ class HuaweiTE40Worker(QRunnable):
             print("[WORKER] 🔐 Credentials загружены (значения скрыты)")
             print(f"[WORKER] --- Начало попытки аутентификации ---")
             
-            handler = HuaweiTE40Handler(
-                ip_address=self.ip_address,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                use_ssl=True
-            )
-            handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
-            
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)
-            
-            # Try TE40 over HTTPS first. Only a non-authentication transport
-            # failure may fall back to HTTP with the same credential.
-            self.signals.terminal_log.emit(f"[connect] attempt 1/2 via HTTPS:{self.port}")
-            try:
-                if not handler.connect():
-                    raise ConnectionError(f"HTTPS:{self.port} did not return a valid TE40 session")
-                self.signals.terminal_log.emit(f"[connect] success via HTTPS:{self.port}")
-            except AuthenticationError as auth_error:
-                try:
-                    handler.disconnect()
-                except Exception:
-                    pass
-                handler = None
-                self.signals.terminal_log.emit(
-                    redact_exception(
-                        f"[connect] HTTPS:{self.port} authentication failed: {auth_error}",
-                        _worker_secrets(self),
-                    )
-                )
-                raise
-            except Exception as first_error:
-                try:
-                    handler.disconnect()
-                except Exception:
-                    pass
-                self.signals.terminal_log.emit(
-                    redact_exception(
-                        f"[connect] HTTPS:{self.port} failed: "
-                        f"{type(first_error).__name__}: {first_error}",
-                        _worker_secrets(self),
-                    )
-                )
-
+            profiles = order_codec_profiles(
+                "Huawei TE40", self.preferred_profile
+            )
+            last_error = None
+            for ordinal, profile in enumerate(profiles, start=1):
                 handler = HuaweiTE40Handler(
                     ip_address=self.ip_address,
-                    port=80,
+                    port=profile["port"],
                     username=self.username,
                     password=self.password,
-                    use_ssl=False
+                    use_ssl=profile["use_ssl"],
                 )
-                handler.command_logger = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
-                self.signals.terminal_log.emit("[connect] attempt 2/2 via HTTP:80")
-                if not handler.connect():
-                    raise ConnectionError("HTTP:80 did not return a valid TE40 session")
-                self.signals.terminal_log.emit("[connect] success via HTTP:80")
+                handler.command_logger = redacted_callback(
+                    self.signals.terminal_log.emit, _worker_secrets(self)
+                )
+                self.signals.terminal_log.emit(
+                    f"[connect] attempt {ordinal}/{len(profiles)} via {profile['label']}"
+                )
+                try:
+                    if handler.connect():
+                        self.signals.terminal_log.emit(
+                            f"[connect] success via {profile['label']}"
+                        )
+                        break
+                    raise ConnectionError(
+                        f"{profile['label']} did not return a valid TE40 session"
+                    )
+                except AuthenticationError:
+                    try:
+                        handler.disconnect()
+                    except Exception:
+                        pass
+                    handler = None
+                    raise
+                except Exception as error:
+                    last_error = error
+                    try:
+                        handler.disconnect()
+                    except Exception:
+                        pass
+                    handler = None
+                    self.signals.terminal_log.emit(
+                        redact_exception(
+                            f"[connect] {profile['label']} failed: "
+                            f"{type(error).__name__}: {error}",
+                            _worker_secrets(self),
+                        )
+                    )
+            if handler is None:
+                raise ConnectionError(str(last_error or "TE40 connection failed"))
             
             self.signals.connected.emit()
             self.signals.status.emit("Получаю данные...")
@@ -205,11 +209,11 @@ class HuaweiTE40Worker(QRunnable):
         except AuthenticationError as e:
             print(f"!!! Ошибка аутентификации в HuaweiTE40Worker: {redact_exception(e, _worker_secrets(self))}")
             # Пробрасываем как ошибку с ключевым словом authentication
-            _emit_error(self, 'authentication_error', e)
+            _emit_error(self, None, e)
         except Exception as e:
             print(f"!!! Ошибка в HuaweiTE40Worker: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
             print(redact_exception(traceback.format_exc(), _worker_secrets(self)))
-            _emit_error(self, 'connection_error', e)
+            _emit_error(self, None, e)
         finally:
             if handler is not None:
                 try:
@@ -378,7 +382,7 @@ class CodecSipFixWorker(QRunnable):
 
             self.signals.progress.emit(100)
         except AuthenticationError as e:
-            _emit_error(self, 'authentication_error', e)
+            _emit_error(self, None, e)
         except Exception as e:
             _emit_error(self, 'set_sip_server_error', e)
         finally:
@@ -479,7 +483,7 @@ class HuaweiBar310Worker(QRunnable):
             _emit_error(self, 'authentication_error', e)
         except Exception as e:
             print(f"[BAR310] Ошибка подключения: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
-            _emit_error(self, 'connection_error', e)
+            _emit_error(self, None, e)
         finally:
             if handler:
                 try:
@@ -604,11 +608,11 @@ class PolycomRPG310Worker(QRunnable):
             
         except AuthenticationError as e:
             print(f"!!! Ошибка аутентификации в PolycomRPG310Worker: {redact_exception(e, _worker_secrets(self))}")
-            _emit_error(self, 'authentication_error', e)
+            _emit_error(self, None, e)
         except Exception as e:
             print(f"!!! Ошибка в PolycomRPG310Worker: {type(e).__name__}: {redact_exception(e, _worker_secrets(self))}")
             print(redact_exception(traceback.format_exc(), _worker_secrets(self)))
-            _emit_error(self, 'connection_error', e)
+            _emit_error(self, None, e)
         finally:
             if handler is not None:
                 try:
