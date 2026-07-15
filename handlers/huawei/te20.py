@@ -1397,20 +1397,26 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         return self.set_microphone_mute(int(value) <= 0)
 
     def get_microphone_volume(self) -> Optional[str]:
-        """Return the TE20 microphone mute state used by the codec UI."""
+        """Return authoritative TE20 microphone mute state for reconciliation."""
 
-        audio_status = self.get_audio_status()
-        mute_state = str(audio_status.get('mute', '')).strip().lower()
-        if (
-            mute_state.startswith('off')
-            or 'включ' in mute_state
-            or 'unmuted' in mute_state
-        ):
-            return 'Unmuted'
-        if (
-            mute_state.startswith('on')
-            or 'выключ' in mute_state
-            or 'muted' in mute_state
-        ):
+        result = self.send_command('get_audio_status')
+        if not isinstance(result, dict) or result.get('success') != 1:
+            return None
+
+        audio_data = result.get('data')
+        if isinstance(audio_data, str):
+            try:
+                audio_data = json.loads(audio_data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE20 audio-status data is malformed") from error
+        if not isinstance(audio_data, dict) or 'MicSwitch' not in audio_data:
+            return None
+
+        mic_switch = audio_data['MicSwitch']
+        if isinstance(mic_switch, bool):
+            return None
+        if mic_switch in (0, '0'):
             return 'Muted'
+        if mic_switch in (1, '1'):
+            return 'Unmuted'
         return None

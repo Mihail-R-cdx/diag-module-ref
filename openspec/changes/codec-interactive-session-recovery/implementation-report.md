@@ -165,6 +165,62 @@ python -m unittest discover -s tests -p "test_*.py"        -> 181 passed
 git diff --check                                           -> clean
 ```
 
+## Authoritative Huawei mute-readback remediation
+
+Independent validation of published head
+`a9e6392f7c4589f411c65a4328adf4bb9ee96f60` returned `CHANGES REQUIRED`
+because the TE20 and TE40 reconciliation readback still passed through the
+best-effort aggregate `get_status()` path. A failed or partial aggregate could
+therefore fabricate the diagnostic default `mic_mute = Off` and expose it as
+authoritative `Unmuted`.
+
+The remediation separates the two status contracts without changing the
+approved controller architecture:
+
+- `get_status()` and `get_audio_status()` remain best-effort diagnostic
+  aggregation for the existing general-status UI;
+- `HuaweiTE20Handler.get_microphone_volume()` and
+  `HuaweiTE40Handler.get_microphone_volume()` now issue their model audio-status
+  request directly and inspect only an explicitly present `MicSwitch` field;
+- `MicSwitch` 0 maps to `Muted`, `MicSwitch` 1 maps to `Unmuted`, and a missing
+  or unknown value returns `None`; microphone gain and other audio fields are
+  never used as mute evidence;
+- typed transport/session/protocol failures are not caught by aggregate status
+  collection and propagate to the controller recovery/error path;
+- an unavailable reconciliation readback produces `unknown_command_outcome`
+  and does not authorize a second state-changing command.
+
+Focused regression evidence, run in isolated Python processes:
+
+```text
+Huawei handler and session/connection contracts            -> 18 passed
+interactive controller, Huawei and Polycom recovery         -> 23 passed
+credential fallback, propagation, ownership, worker paths   -> 50 passed
+hardware-log and general redaction                          -> 27 passed
+```
+
+The handler tests independently cover TE20 and TE40 valid muted, valid
+unmuted, missing `MicSwitch`, and `SessionInvalidError` propagation. The
+controller tests use both real Huawei handler readback implementations with
+offline transports and prove authoritative-opposite resend, target-already-
+applied suppression, unavailable-readback suppression, and terminal typed
+session failure after the single permitted recovery cycle.
+
+Final implementation-worktree validation:
+
+```text
+Python                                                  -> 3.12.9
+Node / npm                                              -> 20.19.0 / 10.8.2
+python -m unittest discover -s tests -p "test_*.py"      -> 189 passed
+.\openspec.cmd validate codec-interactive-session-recovery --strict
+                                                        -> valid
+.\openspec.cmd validate --all --strict                  -> 7 passed, 0 failed
+git diff --check                                        -> clean
+```
+
+No architecture deviation was required. The Polycom lazy SSH credential
+fallback implementation and its regression coverage were not changed.
+
 ## Security evidence
 
 Synthetic credential, cookie, Session ID, CSRF, SSH, terminal, dialog, and

@@ -33,42 +33,69 @@ class RaisingOpener:
 
 
 class HandlerSessionFailureTests(unittest.TestCase):
-    def test_te20_microphone_readback_returns_mute_state_not_numeric_gain(self):
-        handler = HuaweiTE20Handler("192.0.2.10", username="u", password="p")
+    def assert_huawei_microphone_readback(self, handler_type, response, expected):
+        handler = handler_type("192.0.2.10", username="u", password="p")
+        with patch.object(handler, "send_command", return_value=response) as request:
+            self.assertEqual(expected, handler.get_microphone_volume())
+        request.assert_called_once_with("get_audio_status")
 
+    def assert_huawei_microphone_session_failure(self, handler_type):
+        handler = handler_type("192.0.2.10", username="u", password="p")
         with patch.object(
             handler,
-            "get_audio_status",
-            return_value={"mute": "On", "microphone_volume": 0},
+            "send_command",
+            side_effect=SessionInvalidError("expired"),
         ):
-            self.assertEqual("Muted", handler.get_microphone_volume())
+            with self.assertRaises(SessionInvalidError):
+                handler.get_microphone_volume()
 
-        with patch.object(
-            handler,
-            "get_audio_status",
-            return_value={"mute": "Off", "microphone_volume": 0},
-        ):
-            self.assertEqual("Unmuted", handler.get_microphone_volume())
+    def test_te20_authoritative_microphone_readback_returns_muted(self):
+        self.assert_huawei_microphone_readback(
+            HuaweiTE20Handler,
+            {"success": 1, "data": {"MicSwitch": 0, "mic1Value": 19}},
+            "Muted",
+        )
 
-    def test_te40_unmuted_zero_gain_uses_authoritative_mute_state(self):
-        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+    def test_te20_authoritative_microphone_readback_returns_unmuted(self):
+        self.assert_huawei_microphone_readback(
+            HuaweiTE20Handler,
+            {"success": 1, "data": {"MicSwitch": 1, "mic1Value": 0}},
+            "Unmuted",
+        )
 
-        with patch.object(
-            handler,
-            "get_audio_status",
-            return_value={"mute": "Off", "microphone_volume": 0},
-        ):
-            self.assertEqual("Unmuted", handler.get_microphone_volume())
+    def test_te20_authoritative_microphone_readback_missing_evidence_is_unavailable(self):
+        self.assert_huawei_microphone_readback(
+            HuaweiTE20Handler,
+            {"success": 1, "data": {"mic1Value": 0}},
+            None,
+        )
 
-    def test_te40_muted_nonzero_gain_uses_authoritative_mute_state(self):
-        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+    def test_te20_authoritative_microphone_readback_propagates_session_failure(self):
+        self.assert_huawei_microphone_session_failure(HuaweiTE20Handler)
 
-        with patch.object(
-            handler,
-            "get_audio_status",
-            return_value={"mute": "On", "microphone_volume": 7},
-        ):
-            self.assertEqual("Muted", handler.get_microphone_volume())
+    def test_te40_authoritative_microphone_readback_returns_muted(self):
+        self.assert_huawei_microphone_readback(
+            HuaweiTE40Handler,
+            {"success": 1, "data": {"MicSwitch": 0, "micValue": 7}},
+            "Muted",
+        )
+
+    def test_te40_authoritative_microphone_readback_returns_unmuted(self):
+        self.assert_huawei_microphone_readback(
+            HuaweiTE40Handler,
+            {"success": 1, "data": {"MicSwitch": 1, "micValue": 0}},
+            "Unmuted",
+        )
+
+    def test_te40_authoritative_microphone_readback_missing_evidence_is_unavailable(self):
+        self.assert_huawei_microphone_readback(
+            HuaweiTE40Handler,
+            {"success": 1, "data": {"micValue": 0}},
+            None,
+        )
+
+    def test_te40_authoritative_microphone_readback_propagates_session_failure(self):
+        self.assert_huawei_microphone_session_failure(HuaweiTE40Handler)
 
     def test_te20_established_401_is_session_invalid(self):
         handler = HuaweiTE20Handler(

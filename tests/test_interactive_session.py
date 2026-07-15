@@ -15,15 +15,21 @@ from core.interactive_session import (
     InteractiveSessionController,
     OperationSemantic,
 )
+from handlers.huawei.te20 import HuaweiTE20Handler
 from handlers.huawei.te40 import HuaweiTE40Handler
 from handlers.polycom.rpg310 import PolycomRPG310Handler
 
 
-class OfflineTE40Handler(HuaweiTE40Handler):
-    def __init__(self, *, events, set_attempts, **kwargs):
+class OfflineHuaweiMuteMixin:
+    def __init__(self, *, events, set_attempts, audio_outcomes=None, **kwargs):
         super().__init__(**kwargs)
         self.events = events
         self.set_attempts = set_attempts
+        self.audio_outcomes = (
+            audio_outcomes
+            if audio_outcomes is not None
+            else [{"success": 1, "data": {"MicSwitch": 1, "micValue": 0}}]
+        )
 
     def connect(self):
         self.events.append(("https", self.credentials["password"]))
@@ -33,8 +39,14 @@ class OfflineTE40Handler(HuaweiTE40Handler):
     def disconnect(self):
         self._connected = False
 
-    def get_audio_status(self):
-        return {"mute": "Off", "microphone_volume": 0}
+    def send_command(self, command, data=None):
+        del data
+        self.events.append(("read", self.credentials["password"], command))
+        outcomes = self.audio_outcomes
+        outcome = outcomes.pop(0) if len(outcomes) > 1 else outcomes[0]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
 
     def set_microphone_volume(self, value):
         self.events.append(("mute-set", self.credentials["password"], value))
@@ -42,6 +54,14 @@ class OfflineTE40Handler(HuaweiTE40Handler):
         if len(self.set_attempts) == 1:
             raise CommandOutcomeUnknownError("synthetic ambiguous result")
         return True
+
+
+class OfflineTE20Handler(OfflineHuaweiMuteMixin, HuaweiTE20Handler):
+    pass
+
+
+class OfflineTE40Handler(OfflineHuaweiMuteMixin, HuaweiTE40Handler):
+    pass
 
 
 class FakeSSHChannel:
@@ -322,48 +342,184 @@ class InteractiveSessionControllerTests(unittest.TestCase):
             [call[2] for call in calls if call[0] == "connect"],
         )
 
-    def test_real_te40_semantic_readback_reconciles_ambiguous_mute(self):
-        events = []
-        set_attempts = []
+    def test_real_huawei_readback_reconciles_ambiguous_mute_from_unmuted(self):
+        for model, handler_type in (
+            ("Huawei TE20", OfflineTE20Handler),
+            ("Huawei TE40", OfflineTE40Handler),
+        ):
+            with self.subTest(model=model):
+                events = []
+                set_attempts = []
 
-        def factory(model, kwargs):
-            self.assertEqual("Huawei TE40", model)
-            return OfflineTE40Handler(
-                events=events,
-                set_attempts=set_attempts,
-                **kwargs,
-            )
+                def factory(selected_model, kwargs):
+                    self.assertEqual(model, selected_model)
+                    return handler_type(
+                        events=events,
+                        set_attempts=set_attempts,
+                        **kwargs,
+                    )
 
-        controller = InteractiveSessionController(handler_factory=factory)
-        results, errors, _ = self.collect(controller)
-        controller.activate_context(
-            "Huawei TE40",
-            "192.0.2.10",
-            ({"username": "synthetic", "password": "credential-a"},),
-        )
-        controller.submit(
-            InteractiveOperation(
-                kind="microphone_set",
-                method="set_microphone_volume",
-                args=(0,),
-                semantic=OperationSemantic.DESIRED_STATE,
-                readback_method="get_microphone_volume",
-                original="Unmuted",
-                target="Muted",
-            )
-        )
-        controller.wait_until_idle(2)
-        self.drain()
-        controller.shutdown()
+                controller = InteractiveSessionController(handler_factory=factory)
+                results, errors, _ = self.collect(controller)
+                controller.activate_context(
+                    model,
+                    "192.0.2.10",
+                    ({"username": "synthetic", "password": "credential-a"},),
+                )
+                controller.submit(
+                    InteractiveOperation(
+                        kind="microphone_set",
+                        method="set_microphone_volume",
+                        args=(0,),
+                        semantic=OperationSemantic.DESIRED_STATE,
+                        readback_method="get_microphone_volume",
+                        original="Unmuted",
+                        target="Muted",
+                    )
+                )
+                controller.wait_until_idle(2)
+                self.drain()
+                controller.shutdown()
 
-        self.assertEqual([], errors)
-        self.assertTrue(results[0]["value"])
-        self.assertTrue(results[0]["reconciled"])
-        self.assertEqual([0, 0], set_attempts)
-        self.assertEqual(
-            [("https", "credential-a"), ("https", "credential-a")],
-            [event for event in events if event[0] == "https"],
-        )
+                self.assertEqual([], errors)
+                self.assertTrue(results[0]["value"])
+                self.assertTrue(results[0]["reconciled"])
+                self.assertEqual([0, 0], set_attempts)
+                self.assertEqual(
+                    [("https", "credential-a"), ("https", "credential-a")],
+                    [event for event in events if event[0] == "https"],
+                )
+
+    def test_real_huawei_missing_mute_evidence_refuses_reconciled_resend(self):
+        for model, handler_type in (
+            ("Huawei TE20", OfflineTE20Handler),
+            ("Huawei TE40", OfflineTE40Handler),
+        ):
+            with self.subTest(model=model):
+                events = []
+                set_attempts = []
+                audio_outcomes = [{"success": 1, "data": {"micValue": 0}}]
+
+                def factory(_model, kwargs):
+                    return handler_type(
+                        events=events,
+                        set_attempts=set_attempts,
+                        audio_outcomes=audio_outcomes,
+                        **kwargs,
+                    )
+
+                controller = InteractiveSessionController(handler_factory=factory)
+                results, errors, _ = self.collect(controller)
+                controller.activate_context(
+                    model,
+                    "192.0.2.10",
+                    ({"username": "synthetic", "password": "credential-a"},),
+                )
+                controller.submit(
+                    InteractiveOperation(
+                        kind="microphone_set",
+                        method="set_microphone_volume",
+                        args=(0,),
+                        semantic=OperationSemantic.DESIRED_STATE,
+                        readback_method="get_microphone_volume",
+                        original="Unmuted",
+                        target="Muted",
+                    )
+                )
+                controller.wait_until_idle(2)
+                self.drain()
+                controller.shutdown()
+
+                self.assertEqual([], results)
+                self.assertEqual("unknown_command_outcome", errors[0]["category"])
+                self.assertEqual([0], set_attempts)
+                self.assertEqual(1, len([event for event in events if event[0] == "read"]))
+
+    def test_real_huawei_muted_readback_does_not_send_twice(self):
+        for model, handler_type in (
+            ("Huawei TE20", OfflineTE20Handler),
+            ("Huawei TE40", OfflineTE40Handler),
+        ):
+            with self.subTest(model=model):
+                events = []
+                set_attempts = []
+                audio_outcomes = [{"success": 1, "data": {"MicSwitch": 0}}]
+
+                def factory(_model, kwargs):
+                    return handler_type(
+                        events=events,
+                        set_attempts=set_attempts,
+                        audio_outcomes=audio_outcomes,
+                        **kwargs,
+                    )
+
+                controller = InteractiveSessionController(handler_factory=factory)
+                results, errors, _ = self.collect(controller)
+                controller.activate_context(
+                    model,
+                    "192.0.2.10",
+                    ({"username": "synthetic", "password": "credential-a"},),
+                )
+                controller.submit(
+                    InteractiveOperation(
+                        kind="microphone_set",
+                        method="set_microphone_volume",
+                        args=(0,),
+                        semantic=OperationSemantic.DESIRED_STATE,
+                        readback_method="get_microphone_volume",
+                        original="Unmuted",
+                        target="Muted",
+                    )
+                )
+                controller.wait_until_idle(2)
+                self.drain()
+                controller.shutdown()
+
+                self.assertEqual([], errors)
+                self.assertEqual("Muted", results[0]["value"])
+                self.assertEqual([0], set_attempts)
+
+    def test_real_huawei_expired_readback_reaches_controller_session_path(self):
+        for model, handler_type in (
+            ("Huawei TE20", OfflineTE20Handler),
+            ("Huawei TE40", OfflineTE40Handler),
+        ):
+            with self.subTest(model=model):
+                events = []
+                audio_outcomes = [
+                    SessionInvalidError("expired"),
+                    SessionInvalidError("still expired"),
+                ]
+
+                def factory(_model, kwargs):
+                    return handler_type(
+                        events=events,
+                        set_attempts=[],
+                        audio_outcomes=audio_outcomes,
+                        **kwargs,
+                    )
+
+                controller = InteractiveSessionController(handler_factory=factory)
+                results, errors, _ = self.collect(controller)
+                controller.activate_context(
+                    model,
+                    "192.0.2.10",
+                    ({"username": "synthetic", "password": "credential-a"},),
+                )
+                controller.submit(
+                    InteractiveOperation(
+                        kind="microphone_read",
+                        method="get_microphone_volume",
+                    )
+                )
+                controller.wait_until_idle(2)
+                self.drain()
+                controller.shutdown()
+
+                self.assertEqual([], results)
+                self.assertEqual("session_invalid", errors[0]["category"])
+                self.assertEqual(2, len([event for event in events if event[0] == "https"]))
+                self.assertEqual(2, len([event for event in events if event[0] == "read"]))
 
     def test_polycom_lazy_ssh_auth_advances_inside_single_recovery_cycle(self):
         events = []
