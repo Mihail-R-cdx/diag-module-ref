@@ -1396,10 +1396,21 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         # The UI uses value 0 as muted and any positive value as unmuted.
         return self.set_microphone_mute(int(value) <= 0)
 
-    def get_microphone_volume(self) -> Optional[int]:
+    def get_microphone_volume(self) -> Optional[str]:
+        """Return the TE20 microphone mute state used by the codec UI."""
+
         audio_status = self.get_audio_status()
-        volume = audio_status.get('microphone_volume')
-        try:
-            return int(volume)
-        except (TypeError, ValueError):
-            return None
+        mute_state = str(audio_status.get('mute', '')).strip().lower()
+        if (
+            mute_state.startswith('off')
+            or 'включ' in mute_state
+            or 'unmuted' in mute_state
+        ):
+            return 'Unmuted'
+        if (
+            mute_state.startswith('on')
+            or 'выключ' in mute_state
+            or 'muted' in mute_state
+        ):
+            return 'Muted'
+        return None

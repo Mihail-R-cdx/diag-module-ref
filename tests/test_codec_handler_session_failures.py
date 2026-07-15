@@ -1,6 +1,6 @@
 import io
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 from core.exceptions import AuthenticationError, SessionInvalidError
@@ -33,6 +33,23 @@ class RaisingOpener:
 
 
 class HandlerSessionFailureTests(unittest.TestCase):
+    def test_te20_microphone_readback_returns_mute_state_not_numeric_gain(self):
+        handler = HuaweiTE20Handler("192.0.2.10", username="u", password="p")
+
+        with patch.object(
+            handler,
+            "get_audio_status",
+            return_value={"mute": "On", "microphone_volume": 0},
+        ):
+            self.assertEqual("Muted", handler.get_microphone_volume())
+
+        with patch.object(
+            handler,
+            "get_audio_status",
+            return_value={"mute": "Off", "microphone_volume": 0},
+        ):
+            self.assertEqual("Unmuted", handler.get_microphone_volume())
+
     def test_te20_established_401_is_session_invalid(self):
         handler = HuaweiTE20Handler(
             "192.0.2.10", username="synthetic", password="synthetic-secret"
