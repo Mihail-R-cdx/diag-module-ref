@@ -4,7 +4,8 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from gui.main_window import VCSDiagnosticApp
 from gui.theme import apply_theme
@@ -56,6 +57,29 @@ def _handle_thread_exception(args) -> None:
     )
 
 
+def _install_help_button(window: VCSDiagnosticApp) -> None:
+    """Add the persistent help button to the bottom-left of the main window."""
+    central_widget = window.centralWidget()
+    layout = central_widget.layout() if central_widget is not None else None
+    if layout is None:
+        return
+
+    help_button = QPushButton("Помощь", central_widget)
+    help_button.setObjectName("helpButton")
+    help_button.setProperty("uiRole", "secondary")
+    help_button.setFixedSize(200, 100)
+    help_button.clicked.connect(
+        lambda: QMessageBox.information(
+            window,
+            "Помощь",
+            "Это диагностический модуль",
+        )
+    )
+
+    layout.addWidget(help_button, 0, Qt.AlignLeft | Qt.AlignBottom)
+    window.help_btn = help_button
+
+
 def main():
     sys.excepthook = _handle_unhandled_exception
     threading.excepthook = _handle_thread_exception
@@ -65,6 +89,7 @@ def main():
     apply_theme(app)
 
     window = VCSDiagnosticApp()
+    _install_help_button(window)
     window.show()
 
     sys.exit(app.exec_())
