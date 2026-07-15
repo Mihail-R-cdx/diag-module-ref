@@ -263,12 +263,10 @@ class InteractiveSessionController(QObject):
                 record = self._recover_once(
                     context, record, error, recovery_budget
                 )
-                if operation.semantic == OperationSemantic.READ_ONLY:
-                    value = self._invoke(record.handler, operation)
-                    reconciled = False
-                else:
-                    value = self._reconcile(record.handler, operation)
-                    reconciled = True
+                value, record = self._complete_after_recovery(
+                    context, record, operation, recovery_budget
+                )
+                reconciled = operation.semantic != OperationSemantic.READ_ONLY
 
             if not self._context_is_current(generation, context):
                 _emit_signal(self.signals.dropped, terminal)
@@ -349,6 +347,34 @@ class InteractiveSessionController(QObject):
         if result is False:
             raise CommandError("Device rejected the reconciled codec command.")
         return result
+
+    def _complete_after_recovery(
+        self,
+        context: _Context,
+        record: _HandlerRecord,
+        operation: InteractiveOperation,
+        recovery_budget: _OperationRecoveryBudget,
+    ) -> tuple[Any, _HandlerRecord]:
+        """Finish one recovery while advancing confirmed Polycom SSH rejects."""
+
+        while True:
+            try:
+                if operation.semantic == OperationSemantic.READ_ONLY:
+                    return self._invoke(record.handler, operation), record
+                return self._reconcile(record.handler, operation), record
+            except AuthenticationError as error:
+                if context.model != "Polycom RPG 310":
+                    raise
+                next_index = record.credential_index + 1
+                if next_index >= len(context.candidates):
+                    self._close_handler()
+                    raise error
+                self._close_handler()
+                record = self._acquire_handler(
+                    context,
+                    recovery_budget,
+                    preferred_index=next_index,
+                )
 
     @staticmethod
     def _invoke(handler: Any, operation: InteractiveOperation) -> Any:

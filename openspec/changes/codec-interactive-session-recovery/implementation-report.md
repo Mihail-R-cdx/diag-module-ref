@@ -112,6 +112,59 @@ python -m unittest discover -s tests -p "test_*.py"      -> 175 passed
 git diff --check                                         -> clean
 ```
 
+## Exact-SHA validation remediation
+
+Independent validation of published head
+`c1a72430099004d5dba92038f725432097d476f0` returned `CHANGES REQUIRED` for
+two additional contract gaps. The remediation remains within the approved
+controller/handler ownership boundaries:
+
+- `HuaweiTE40Handler.get_microphone_volume()` now returns semantic
+  `Muted`/`Unmuted` from the authoritative device mute field. Numeric
+  microphone gain remains available in the diagnostic audio-status data but
+  is not used to infer mute state.
+- A confirmed typed `AuthenticationError` from the real Polycom lazy SSH login
+  is handled by the application-owned controller. After the one allowed
+  same-credential recovery, the controller advances monotonically through
+  remaining credentials inside that already-started recovery cycle. The
+  handler still receives one assigned credential and performs no fallback.
+- Credential advancement is restricted to typed authentication rejection.
+  Polycom SSH transport failure remains terminal after the same-credential
+  recovery and does not advance the credential chain.
+- State-changing work is reconciled before any command on an advanced
+  credential. The rejected credential sends no command, and the successful
+  credential sends exactly one permitted absolute desired-state command.
+
+Focused offline evidence:
+
+```text
+TE40/Polycom handler, controller, and contract tests       -> 33 passed
+CodecScreen offscreen interactive controls                 -> 21 passed
+credential fallback, propagation, ownership, outcomes      -> 64 passed
+hardware-log and general redaction                          -> 27 passed
+```
+
+The Polycom regression exercises the handler's real lazy `send_command()` SSH
+boundary and proves this sequence with one controller recovery transition:
+
+```text
+HTTPS A -> SSH A AuthenticationError
+HTTPS A -> SSH A AuthenticationError
+HTTPS B -> SSH B success -> readback -> one absolute Mute set
+```
+
+Additional assertions cover SSH transport failure without A-to-B advancement
+and multiple confirmed rejections progressing `A -> A -> B -> C` without
+wrap-around. The full offline suite after this remediation is:
+
+```text
+python -m unittest discover -s tests -p "test_*.py"        -> 181 passed
+.\openspec.cmd validate codec-interactive-session-recovery --strict
+                                                           -> valid
+.\openspec.cmd validate --all --strict                     -> 7 passed, 0 failed
+git diff --check                                           -> clean
+```
+
 ## Security evidence
 
 Synthetic credential, cookie, Session ID, CSRF, SSH, terminal, dialog, and
@@ -123,12 +176,17 @@ exception text.
 
 ## Operator hardware evidence
 
-On 2026-07-15 the operator confirmed the current Huawei TE20 build on live
-equipment. The reported reproduction path, including microphone Mute control
-and its delayed status refresh, worked after the follow-up fix: the field
-remained a semantic `Muted`/`Unmuted` state instead of being overwritten by
-numeric gain value `0`. No secrets or device identifiers were included in the
-observation.
+On 2026-07-15 the operator reported a successful Huawei TE20 observation on
+live equipment. The reported reproduction path included microphone Mute
+control and its delayed status refresh: the field remained a semantic
+`Muted`/`Unmuted` state instead of being overwritten by numeric gain value `0`.
+No secrets or device identifiers were included in the observation.
+
+The exact hardware-tested Git revision was not recorded. The observation
+predates later review-remediation changes, including the changes made after
+validation of `c1a72430099004d5dba92038f725432097d476f0`. It is therefore
+supplementary hardware evidence only and does not establish hardware
+validation of the final implementation SHA.
 
 No TE40, Bar 310, or Polycom hardware observations were provided; this is not
 treated as an offline acceptance failure because those devices were not

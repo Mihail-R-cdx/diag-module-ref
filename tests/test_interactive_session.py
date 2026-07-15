@@ -1,6 +1,8 @@
 import threading
 import unittest
+from unittest.mock import patch
 
+import paramiko
 from PyQt5.QtCore import QCoreApplication
 
 from core.exceptions import (
@@ -13,6 +15,108 @@ from core.interactive_session import (
     InteractiveSessionController,
     OperationSemantic,
 )
+from handlers.huawei.te40 import HuaweiTE40Handler
+from handlers.polycom.rpg310 import PolycomRPG310Handler
+
+
+class OfflineTE40Handler(HuaweiTE40Handler):
+    def __init__(self, *, events, set_attempts, **kwargs):
+        super().__init__(**kwargs)
+        self.events = events
+        self.set_attempts = set_attempts
+
+    def connect(self):
+        self.events.append(("https", self.credentials["password"]))
+        self._connected = True
+        return True
+
+    def disconnect(self):
+        self._connected = False
+
+    def get_audio_status(self):
+        return {"mute": "Off", "microphone_volume": 0}
+
+    def set_microphone_volume(self, value):
+        self.events.append(("mute-set", self.credentials["password"], value))
+        self.set_attempts.append(value)
+        if len(self.set_attempts) == 1:
+            raise CommandOutcomeUnknownError("synthetic ambiguous result")
+        return True
+
+
+class FakeSSHChannel:
+    def __init__(self, password, events):
+        self.password = password
+        self.events = events
+        self.closed = False
+        self.muted = False
+        self.pending = b""
+
+    def close(self):
+        self.closed = True
+
+    def recv_ready(self):
+        return bool(self.pending)
+
+    def recv(self, _buffer_size):
+        pending, self.pending = self.pending, b""
+        return pending
+
+    def send(self, command):
+        command = command.strip()
+        self.events.append(("command", self.password, command))
+        if command == "mute near on":
+            self.muted = True
+            self.pending = b"mute near on\n"
+        elif command == "mute near off":
+            self.muted = False
+            self.pending = b"mute near off\n"
+        elif command == "mute near get":
+            state = b"on" if self.muted else b"off"
+            self.pending = b"mute near " + state + b"\n"
+        return len(command)
+
+
+class FakeSSHClient:
+    def __init__(self, events, auth_rejects=(), transport_failures=()):
+        self.events = events
+        self.auth_rejects = set(auth_rejects)
+        self.transport_failures = set(transport_failures)
+        self.password = None
+
+    def set_missing_host_key_policy(self, _policy):
+        pass
+
+    def connect(self, **kwargs):
+        self.password = kwargs["password"]
+        self.events.append(("ssh", self.password))
+        if self.password in self.auth_rejects:
+            raise paramiko.AuthenticationException("synthetic rejection")
+        if self.password in self.transport_failures:
+            raise paramiko.SSHException("synthetic transport failure")
+
+    def invoke_shell(self):
+        return FakeSSHChannel(self.password, self.events)
+
+    def close(self):
+        pass
+
+
+class OfflinePolycomHandler(PolycomRPG310Handler):
+    def __init__(self, *, events, **kwargs):
+        super().__init__(**kwargs)
+        self.events = events
+
+    def connect(self):
+        self.events.append(("https", self.password))
+        self.opener = object()
+        self.authenticated = True
+        return True
+
+    def disconnect(self):
+        self.opener = None
+        self.authenticated = False
+        self._disconnect_ssh()
 
 
 class FakeHandler:
@@ -76,6 +180,18 @@ class InteractiveSessionControllerTests(unittest.TestCase):
 
         controller = InteractiveSessionController(handler_factory=factory)
         return controller, calls
+
+    @staticmethod
+    def count_recoveries(controller):
+        recoveries = []
+        recover_once = controller._recover_once
+
+        def counted_recovery(*args, **kwargs):
+            recoveries.append(args[2])
+            return recover_once(*args, **kwargs)
+
+        controller._recover_once = counted_recovery
+        return recoveries
 
     def collect(self, controller):
         results, errors, dropped = [], [], []
@@ -204,6 +320,205 @@ class InteractiveSessionControllerTests(unittest.TestCase):
         self.assertEqual(
             ["one", "one", "two"],
             [call[2] for call in calls if call[0] == "connect"],
+        )
+
+    def test_real_te40_semantic_readback_reconciles_ambiguous_mute(self):
+        events = []
+        set_attempts = []
+
+        def factory(model, kwargs):
+            self.assertEqual("Huawei TE40", model)
+            return OfflineTE40Handler(
+                events=events,
+                set_attempts=set_attempts,
+                **kwargs,
+            )
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Huawei TE40",
+            "192.0.2.10",
+            ({"username": "synthetic", "password": "credential-a"},),
+        )
+        controller.submit(
+            InteractiveOperation(
+                kind="microphone_set",
+                method="set_microphone_volume",
+                args=(0,),
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_microphone_volume",
+                original="Unmuted",
+                target="Muted",
+            )
+        )
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertTrue(results[0]["value"])
+        self.assertTrue(results[0]["reconciled"])
+        self.assertEqual([0, 0], set_attempts)
+        self.assertEqual(
+            [("https", "credential-a"), ("https", "credential-a")],
+            [event for event in events if event[0] == "https"],
+        )
+
+    def test_polycom_lazy_ssh_auth_advances_inside_single_recovery_cycle(self):
+        events = []
+
+        def factory(model, kwargs):
+            self.assertEqual("Polycom RPG 310", model)
+            return OfflinePolycomHandler(events=events, **kwargs)
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        recoveries = self.count_recoveries(controller)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Polycom RPG 310",
+            "192.0.2.10",
+            (
+                {"username": "synthetic", "password": "credential-a"},
+                {"username": "synthetic", "password": "credential-b"},
+            ),
+        )
+        ssh_factory = lambda: FakeSSHClient(
+            events,
+            auth_rejects={"credential-a"},
+        )
+        with patch(
+            "handlers.polycom.rpg310.paramiko.SSHClient",
+            side_effect=ssh_factory,
+        ), patch("handlers.polycom.rpg310.time.sleep", return_value=None):
+            controller.submit(
+                InteractiveOperation(
+                    kind="microphone_set",
+                    method="set_microphone_volume",
+                    args=(0,),
+                    semantic=OperationSemantic.DESIRED_STATE,
+                    readback_method="get_microphone_volume",
+                    original="Unmuted",
+                    target="Muted",
+                )
+            )
+            controller.wait_until_idle(2)
+            self.drain()
+            controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertTrue(results[0]["value"])
+        self.assertEqual(1, results[0]["credential_index"])
+        self.assertEqual(1, len(recoveries))
+        self.assertEqual(
+            [
+                ("https", "credential-a"),
+                ("https", "credential-a"),
+                ("https", "credential-b"),
+            ],
+            [event for event in events if event[0] == "https"],
+        )
+        self.assertEqual(
+            [
+                ("ssh", "credential-a"),
+                ("ssh", "credential-a"),
+                ("ssh", "credential-b"),
+            ],
+            [event for event in events if event[0] == "ssh"],
+        )
+        state_changes = [
+            event
+            for event in events
+            if event[0] == "command" and event[2] == "mute near on"
+        ]
+        self.assertEqual([("command", "credential-b", "mute near on")], state_changes)
+
+    def test_polycom_lazy_ssh_transport_failure_does_not_advance_credential(self):
+        events = []
+
+        def factory(_model, kwargs):
+            return OfflinePolycomHandler(events=events, **kwargs)
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        recoveries = self.count_recoveries(controller)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Polycom RPG 310",
+            "192.0.2.10",
+            (
+                {"username": "synthetic", "password": "credential-a"},
+                {"username": "synthetic", "password": "credential-b"},
+            ),
+        )
+        ssh_factory = lambda: FakeSSHClient(
+            events,
+            transport_failures={"credential-a"},
+        )
+        with patch(
+            "handlers.polycom.rpg310.paramiko.SSHClient",
+            side_effect=ssh_factory,
+        ), patch("handlers.polycom.rpg310.time.sleep", return_value=None):
+            controller.submit(
+                InteractiveOperation(
+                    kind="microphone_set",
+                    method="set_microphone_volume",
+                    args=(0,),
+                    semantic=OperationSemantic.DESIRED_STATE,
+                    readback_method="get_microphone_volume",
+                    original="Unmuted",
+                    target="Muted",
+                )
+            )
+            controller.wait_until_idle(2)
+            self.drain()
+            controller.shutdown()
+
+        self.assertEqual([], results)
+        self.assertEqual("connection_error", errors[0]["category"])
+        self.assertEqual(1, len(recoveries))
+        self.assertEqual(
+            ["credential-a", "credential-a"],
+            [event[1] for event in events if event[0] == "https"],
+        )
+        self.assertNotIn("credential-b", [event[1] for event in events])
+
+    def test_polycom_rejected_lazy_ssh_credentials_advance_without_wraparound(self):
+        events = []
+
+        def factory(_model, kwargs):
+            return OfflinePolycomHandler(events=events, **kwargs)
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        recoveries = self.count_recoveries(controller)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Polycom RPG 310",
+            "192.0.2.10",
+            tuple(
+                {"username": "synthetic", "password": password}
+                for password in ("credential-a", "credential-b", "credential-c")
+            ),
+        )
+        ssh_factory = lambda: FakeSSHClient(
+            events,
+            auth_rejects={"credential-a", "credential-b"},
+        )
+        with patch(
+            "handlers.polycom.rpg310.paramiko.SSHClient",
+            side_effect=ssh_factory,
+        ), patch("handlers.polycom.rpg310.time.sleep", return_value=None):
+            controller.submit(InteractiveOperation(kind="read", method="get_microphone_volume"))
+            controller.wait_until_idle(2)
+            self.drain()
+            controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertEqual("Unmuted", results[0]["value"])
+        self.assertEqual(2, results[0]["credential_index"])
+        self.assertEqual(1, len(recoveries))
+        self.assertEqual(
+            ["credential-a", "credential-a", "credential-b", "credential-c"],
+            [event[1] for event in events if event[0] == "ssh"],
         )
 
     def test_second_session_failure_is_terminal_without_retry_loop(self):

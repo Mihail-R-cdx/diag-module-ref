@@ -233,6 +233,9 @@ class PolycomRPG310Handler:
                 raise AuthenticationError("SSH authentication failed")
             self._log_command("[connect] SSH session established")
             return True
+        except AuthenticationError:
+            self._disconnect_ssh()
+            raise
         except paramiko.AuthenticationException as error:
             self._disconnect_ssh()
             raise AuthenticationError(f"SSH authentication failed: {error}")

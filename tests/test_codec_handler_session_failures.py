@@ -50,6 +50,26 @@ class HandlerSessionFailureTests(unittest.TestCase):
         ):
             self.assertEqual("Unmuted", handler.get_microphone_volume())
 
+    def test_te40_unmuted_zero_gain_uses_authoritative_mute_state(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+
+        with patch.object(
+            handler,
+            "get_audio_status",
+            return_value={"mute": "Off", "microphone_volume": 0},
+        ):
+            self.assertEqual("Unmuted", handler.get_microphone_volume())
+
+    def test_te40_muted_nonzero_gain_uses_authoritative_mute_state(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+
+        with patch.object(
+            handler,
+            "get_audio_status",
+            return_value={"mute": "On", "microphone_volume": 7},
+        ):
+            self.assertEqual("Muted", handler.get_microphone_volume())
+
     def test_te20_established_401_is_session_invalid(self):
         handler = HuaweiTE20Handler(
             "192.0.2.10", username="synthetic", password="synthetic-secret"
