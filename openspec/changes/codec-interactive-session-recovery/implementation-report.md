@@ -6,7 +6,8 @@
 - Branch: `agent/codec-interactive-session-recovery`
 - Architecture baseline: `a8a5fae389158d6fcb6ac36c58af9064f61983fe`
 - Implementation date: 2026-07-15
-- Hardware access: not used; acceptance remains fully offline.
+- Hardware access: authorized operator-performed Huawei TE20 QA; no device
+  identifiers, credentials, or session material were recorded.
 
 ## Delivered behavior
 
@@ -83,9 +84,21 @@ metadata, stable categories, safe messages, selected credential index, and
 transport profile; they never expose candidate credential values or raw caught
 exception text.
 
-## Remaining opt-in evidence
+## Operator hardware evidence
 
-Task 6.4 remains open because real-device access was neither provided nor
-authorized for this implementation session. Per the change contract, missing
-hardware observations do not weaken offline acceptance and no behavior was
-changed to compensate for their absence.
+On 2026-07-15 the operator confirmed the current Huawei TE20 build on live
+equipment. The reported reproduction path, including microphone Mute control
+and its delayed status refresh, worked after the follow-up fix: the field
+remained a semantic `Muted`/`Unmuted` state instead of being overwritten by
+numeric gain value `0`. No secrets or device identifiers were included in the
+observation.
+
+No TE40, Bar 310, or Polycom hardware observations were provided; this is not
+treated as an offline acceptance failure because those devices were not
+reported as available for this opt-in QA pass.
+
+Post-implementation operator fixes were intentionally checked narrowly: the
+default-IP text-only correction passed `git diff --check` without a test run,
+and the TE20 mute readback correction passed 25 focused handler/CodecScreen
+tests. The full 167-test result above predates those two corrections and must
+be rerun by the independent validator against the final published SHA.

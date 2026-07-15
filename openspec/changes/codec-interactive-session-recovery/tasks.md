@@ -45,4 +45,4 @@
 - [x] 6.1 Update implementation evidence and the architecture report if implementation discoveries change the documented model matrix or conservative classifier.
 - [x] 6.2 Run focused credential, controller, handler, `CodecScreen`, UI-state, retry-ownership, worker-outcome, and redaction tests with the repository-supported Python interpreter.
 - [x] 6.3 Run the full offline unittest suite, `.\openspec.cmd validate codec-interactive-session-recovery --strict`, `.\openspec.cmd validate --all --strict`, and Git diff/hygiene checks using the tracked repository-local wrapper.
-- [ ] 6.4 Perform authorized opt-in hardware QA beginning with the reproducing TE20, then record redacted TE40, Bar 310, and Polycom observations where devices are available without weakening offline acceptance.
+- [x] 6.4 Perform authorized opt-in hardware QA beginning with the reproducing TE20, then record redacted TE40, Bar 310, and Polycom observations where devices are available without weakening offline acceptance.
