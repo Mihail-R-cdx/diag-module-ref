@@ -57,6 +57,7 @@ handler before it can be reused by the new context.
 #### Scenario: Credentials change with a cached session
 - **WHEN** newly resolved credentials no longer match the assigned cached credential context
 - **THEN** the cached handler is invalidated before network work continues
+- **AND** queued operations carrying the superseded credential context cannot invoke it
 
 ## ADDED Requirements
 
@@ -79,6 +80,47 @@ time.
 #### Scenario: Old operation completes after context change
 - **WHEN** an operation from an earlier model or IP generation completes
 - **THEN** its callback does not change values, buttons, dialogs, or connection state for the current screen
+
+#### Scenario: Queued stale command is dropped before network I/O
+- **WHEN** an operation is queued with one context generation
+- **AND** the model, IP, or credential context changes before that operation begins execution
+- **THEN** the controller rechecks the operation at the head of the queue and drops it
+- **AND** it does not acquire or invoke a handler, open a transport, or send a device command
+
+#### Scenario: In-flight old operation cannot authorize later stale work
+- **WHEN** network I/O from an old generation was already in flight when the context changed
+- **THEN** its result cannot update the current context
+- **AND** every later queued operation from that old generation is dropped before network I/O
+
+### Requirement: Structured codec authentication classification
+Codec refresh and interactive paths SHALL authorize credential advancement only
+from a structured failure classification derived from a confirmed
+`AuthenticationError` while establishing a new session. They SHALL NOT use
+generic message substring matching, arbitrary numeric-code matching, empty or
+malformed response shapes, or the legacy `is_authentication_error()` heuristic
+as retry authority. An HTTP 401/403 SHALL be classified according to operation
+phase: new-session login as authentication failure and an established-session
+operation as session invalidation. User-facing text SHALL remain separate from
+the machine-readable retry decision.
+
+#### Scenario: Transport error text contains 401
+- **WHEN** a codec refresh or interactive transport failure contains the text `401` but is not classified as `AuthenticationError`
+- **THEN** the application does not advance to another credential
+
+#### Scenario: Established session returns 401 or 403
+- **WHEN** an established codec session operation receives HTTP 401 or 403
+- **THEN** the failure is classified as session invalidation
+- **AND** same-credential bounded recovery occurs before any credential advancement is considered
+
+#### Scenario: Confirmed new login rejects credentials
+- **WHEN** a new codec login produces a confirmed `AuthenticationError`
+- **AND** another unattempted credential remains
+- **THEN** the application may advance the request-scoped credential plan monotonically
+
+#### Scenario: Unstructured response does not advance credentials
+- **WHEN** a codec path receives generic `success: 0`, an empty mapping, malformed data, or arbitrary text containing `auth`
+- **AND** no typed new-login authentication failure was produced
+- **THEN** the application does not advance to another credential
 
 ### Requirement: Cached interactive session validity and invalidation
 A cached interactive handler SHALL be reusable only when model, IP, assigned

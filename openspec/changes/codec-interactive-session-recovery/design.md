@@ -41,7 +41,8 @@ same handler concurrently.
 - Reuse the ordered candidates, successful index, and saved connection profile
   owned by `VCSDiagnosticApp`; do not create a second credential registry.
 - Execute every operation for one cached handler serially outside the GUI
-  thread and reject stale callbacks after model/IP/context changes.
+  thread, drop queued work from a superseded context before network I/O, and
+  reject stale callbacks after model/IP/context changes.
 - Detect local closure and device-reported session invalidation, invalidate the
   cache, and allow at most one reconnect cycle for one submitted operation.
 - Separate reconnection from replay. Replay read-only operations once, and use
@@ -80,6 +81,18 @@ profile; it never imports or reads `JsonCredentialProvider`. Candidate
 advancement remains application behavior inside this controller, while every
 handler receives exactly one assigned candidate.
 
+Every operation captures the public context generation when it is submitted.
+Serialization is not sufficient to make that captured context current: after
+an operation reaches the head of the controller queue, and immediately before
+handler acquisition or any other network I/O, the controller rechecks that its
+generation and model/IP/credential context still equal the controller's active
+context. A mismatch drops the operation without invoking a handler, opening a
+transport, or sending a command. Context invalidation also removes later queued
+operations from the superseded generation. Network I/O that was already in
+flight cannot be assumed cancellable; its result is ignored by the existing
+generation-safe callback rule, and no later queued operation from that stale
+generation may start.
+
 The main window and controller will share a small request-scoped credential
 attempt-plan abstraction rather than duplicate retry policy. The plan has a
 starting index, a monotonic current index, and attempted indexes. It never wraps
@@ -117,7 +130,10 @@ Model change, IP change, candidate change, selected-index change, unsupported
 saved profile, screen destruction, application shutdown, local disconnected
 state, session-invalid outcome, or failed recovery invalidates and disconnects
 the cached handler. The generation is incremented before invalidation so late
-results cannot update the new screen context.
+results cannot update the new screen context. Model, IP, and resolved
+credential-context changes clear the cached handler before any subsequently
+accepted operation is executed; a queued operation never retains authority to
+use the old handler merely because it was submitted before invalidation.
 
 Alternative considered: perform a network health request before every command.
 Rejected because it doubles normal traffic and still races with the real
@@ -194,6 +210,26 @@ not reconnect, advance credentials, or repeatedly send a state-changing command
 after transport/session failure. In particular, Bar 310 presentation control
 must stop its current internal repeated set-command loop.
 
+Credential advancement in both codec refresh and interactive paths is driven
+only by machine-readable failure classification produced at a typed boundary.
+For a new login, a handler raises `AuthenticationError` only from confirmed
+protocol evidence, including an HTTP 401/403 received in that login phase. For
+an established operation, the same HTTP status raises `SessionInvalidError` and
+first enters same-credential recovery. Transport text containing `401` or
+`auth`, an arbitrary localized message, an unknown numeric code, generic
+`success: 0`, an empty mapping, and malformed/non-JSON data do not authorize
+credential advancement.
+
+The minimal refresh migration keeps the existing public redacted error display
+but separates it from retry authority. Codec workers map caught typed failures
+to a stable structured failure category; `VCSDiagnosticApp` advances the codec
+refresh attempt plan only from the category derived from a caught
+`AuthenticationError`, never by applying `is_authentication_error()` to message
+text. The interactive controller consumes the typed failure directly. The
+legacy helper may remain temporarily for unrelated device paths, but codec
+refresh and interactive ownership introduced or touched by this change MUST
+not call or inherit it when deciding whether to try another credential.
+
 Alternative considered: retain message-substring classification in callers.
 Rejected because localized text and generic `success: 0` cannot reliably
 separate expired session, authentication, transport, and device rejection.
@@ -260,6 +296,11 @@ worker remains HTTPS status plus SSH enrichment.
   request controller shutdown, disconnect the handler and Polycom SSH resources
   on their owning lane, then stop the lane. Late callbacks are ignored.
 
+For every item above, invalidation first publishes the new generation and
+marks the old generation non-executable. The controller checks that mark again
+when dequeuing each operation, so cancellation is enforced before handler or
+network entry rather than only when a completion signal reaches the GUI.
+
 ### Security and observability boundary
 
 Public operation context contains model, IP, operation kind, attempt ordinal,
@@ -295,12 +336,16 @@ tests use synthetic credentials and session artifacts.
 
 ## Migration Plan
 
-1. Add typed session/outcome errors, the pure transport-order helper, and
-   request-scoped credential attempt plan with unit tests.
+1. Add typed session/outcome errors, phase-sensitive 401/403 classification, a
+   structured codec failure category, the pure transport-order helper, and the
+   request-scoped credential attempt plan with unit tests. Migrate codec refresh
+   retry authority away from message-based `is_authentication_error()` while
+   leaving unrelated legacy callers intact.
 2. Normalize handler failure and single-send/readback behavior for the four
    models without changing successful command payloads.
-3. Add the serialized interactive controller and model adapters; verify
-   transport, credential, invalidation, recovery, and replay policy offline.
+3. Add the serialized interactive controller and model adapters; verify the
+   dequeue-time generation guard, transport, credential, invalidation,
+   recovery, and replay policy offline.
 4. Route `CodecScreen` consumers to asynchronous operation descriptors and add
    stale-callback, timer, button, and shutdown coverage.
 5. Run focused and full offline tests plus strict OpenSpec validation; then

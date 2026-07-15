@@ -27,6 +27,11 @@ SHALL NOT inspect candidates, change an index, or cache success.
 - **THEN** the application does not advance to another credential
 - **AND** only a confirmed authentication failure from a new login permits monotonic advancement
 
+#### Scenario: Codec retry authority is structured
+- **WHEN** a codec refresh worker or interactive handler reports a failure
+- **THEN** credential advancement depends on a machine-readable classification derived from its typed failure boundary
+- **AND** message text, localized authentication words, HTTP-like digits embedded in transport text, and the legacy authentication helper do not grant retry authority
+
 #### Scenario: Handler cannot become a retry owner
 - **WHEN** an interactive handler encounters any failure
 - **THEN** it returns a typed outcome to the application controller

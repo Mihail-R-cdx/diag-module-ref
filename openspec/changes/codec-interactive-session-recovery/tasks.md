@@ -1,8 +1,9 @@
 ## 1. Shared credential and transport contracts
 
-- [ ] 1.1 Add typed established-session and unknown-command-outcome errors without changing existing authentication semantics.
-- [ ] 1.2 Add a request-scoped monotonic credential attempt plan and integrate refresh retry so only final success commits the existing model/IP successful index.
-- [ ] 1.3 Extract and test model-specific codec transport ordering, including runtime-supported TE20 HTTPS, saved-profile-first selection, and deduplication.
+- [ ] 1.1 Add typed authentication, established-session, transport, protocol, command, and unknown-command-outcome boundaries, including phase-sensitive new-login versus established-session handling of HTTP 401/403.
+- [ ] 1.2 Add a stable structured codec failure category derived from caught typed failures; migrate codec refresh retry authority away from `is_authentication_error()` message matching while preserving the legacy helper only for unrelated device paths.
+- [ ] 1.3 Add a request-scoped monotonic credential attempt plan and integrate refresh retry so only final success commits the existing model/IP successful index.
+- [ ] 1.4 Extract and test model-specific codec transport ordering, including runtime-supported TE20 HTTPS, saved-profile-first selection, and deduplication.
 
 ## 2. Handler failure and command semantics
 
@@ -13,7 +14,7 @@
 
 ## 3. Serialized interactive session controller
 
-- [ ] 3.1 Implement one background serialized controller lane with operation IDs, context generations, duplicate-poll suppression, and redacted public signals.
+- [ ] 3.1 Implement one background serialized controller lane with operation IDs, context generations, duplicate-poll suppression, and redacted public signals; revalidate generation/context at dequeue immediately before handler acquisition or network I/O and drop all queued work from superseded generations.
 - [ ] 3.2 Implement handler acquisition with context identity checks, saved-profile-first transport fallback, one assigned credential per handler, and final-success state commits.
 - [ ] 3.3 Implement cache invalidation and a non-recursive one-cycle recovery budget for local closure, invalid session, and recoverable connection loss.
 - [ ] 3.4 Implement read-only replay and state-changing readback/reconciliation descriptors, including conflict-safe relative volume and toggle behavior.
@@ -31,16 +32,17 @@
 ## 5. Regression coverage
 
 - [ ] 5.1 Add credential/transport tests proving saved profiles are first, TE20/TE40 no longer discard them, connect exceptions continue allowed transport fallback, and one credential spans all transports.
-- [ ] 5.2 Add controller tests for expired-session invalidation, one reconnect, same-credential-first recovery, confirmed-auth advancement, successful index/profile commits, and no retry loop.
-- [ ] 5.3 Add replay tests for read-only retry, absolute target confirmation, unknown state refusal, Wake/presentation reconciliation, and relative volume never applying twice.
-- [ ] 5.4 Add offscreen `CodecScreen` tests for responsive background work, live-audio recovery, stale callback rejection, duplicate-poll suppression, model/IP/credential invalidation, and destruction cleanup.
-- [ ] 5.5 Add TE20, TE40, Bar 310, and Polycom handler tests for typed session outcomes, single-send state changes, session artifact cleanup, Huawei recovered call logs, and Polycom path separation.
-- [ ] 5.6 Rerun and extend credential-fallback, worker retry-ownership, worker-outcome, and four-model interactive-control regression suites.
-- [ ] 5.7 Verify synthetic credentials, cookies, Session IDs, CSRF tokens, and SSH material never appear in controller, handler, GUI, terminal, dialog, or test output.
+- [ ] 5.2 Add codec refresh and interactive classification tests proving only a typed confirmed new-login `AuthenticationError` advances credentials; cover transport text containing `401`, established-session 401/403 invalidation, generic `success: 0`, empty/malformed responses, and arbitrary `auth` text without advancement.
+- [ ] 5.3 Add controller tests for expired-session invalidation, one reconnect, same-credential-first recovery, confirmed-auth advancement, successful index/profile commits, no retry loop, and dequeue-time rejection of stale read-only and state-changing operations before handler/network invocation.
+- [ ] 5.4 Add replay tests for read-only retry, absolute target confirmation, unknown state refusal, Wake/presentation reconciliation, and relative volume never applying twice.
+- [ ] 5.5 Add offscreen `CodecScreen` tests for responsive background work, live-audio recovery, stale callback rejection, duplicate-poll suppression, model/IP/credential invalidation, and destruction cleanup.
+- [ ] 5.6 Add TE20, TE40, Bar 310, and Polycom handler tests for typed session outcomes, single-send state changes, session artifact cleanup, Huawei recovered call logs, and Polycom path separation.
+- [ ] 5.7 Rerun and extend credential-fallback, worker retry-ownership, worker-outcome, and four-model interactive-control regression suites.
+- [ ] 5.8 Verify synthetic credentials, cookies, Session IDs, CSRF tokens, and SSH material never appear in controller, handler, GUI, terminal, dialog, or test output.
 
 ## 6. Validation and rollout evidence
 
 - [ ] 6.1 Update implementation evidence and the architecture report if implementation discoveries change the documented model matrix or conservative classifier.
 - [ ] 6.2 Run focused credential, controller, handler, `CodecScreen`, UI-state, retry-ownership, worker-outcome, and redaction tests with the repository-supported Python interpreter.
-- [ ] 6.3 Run the full offline unittest suite, `openspec validate codec-interactive-session-recovery --strict`, `openspec validate --all --strict`, and Git diff/hygiene checks.
+- [ ] 6.3 Run the full offline unittest suite, `.\openspec.cmd validate codec-interactive-session-recovery --strict`, `.\openspec.cmd validate --all --strict`, and Git diff/hygiene checks using the tracked repository-local wrapper.
 - [ ] 6.4 Perform authorized opt-in hardware QA beginning with the reproducing TE20, then record redacted TE40, Bar 310, and Polycom observations where devices are available without weakening offline acceptance.

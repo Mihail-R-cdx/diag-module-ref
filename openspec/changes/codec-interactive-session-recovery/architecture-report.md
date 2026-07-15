@@ -82,6 +82,13 @@ without redacted evidence.
     equivalent immediate IP/credential invalidation, no typed remote-session
     invalidation, and no shutdown contract for pending background interactive
     work because that work is currently synchronous.
+13. Codec refresh fallback still calls `is_authentication_error()` and treats
+    message substrings such as `auth`, `401`, `403`, localized words, and numeric
+    codes as retry authority (`gui/main_window.py:875-887, 1642-1681`). This can
+    advance credentials for a transport/protocol error whose text happens to
+    match. The codec migration must derive retry authority from caught typed
+    failures while allowing unrelated legacy device paths to retain the helper
+    temporarily.
 
 ## Current connection/session path map
 
@@ -108,12 +115,29 @@ identity and local connected state match. The actual operation is the remote
 liveness probe. A confirmed invalid-session response invalidates the entire
 model handler and consumes at most one reconnect cycle.
 
+An operation's captured generation is checked twice: on callback delivery and,
+normatively, when the serialized controller dequeues it immediately before
+handler acquisition or network I/O. If model, IP, or credential context changed
+while the operation waited, it is dropped without invoking the handler. An
+already in-flight call is not assumed cancellable, so its result is ignored and
+all later queued operations from that old generation are discarded before they
+can produce device-side effects.
+
 Transport ordering is saved-supported-profile first, then model defaults,
 deduplicated. All transport attempts for one candidate use that candidate.
 Initial login authentication failure can advance the application attempt plan;
 transport failure cannot. An established-session rejection first reconnects
 the same candidate and becomes credential fallback only if the new login
 itself confirms authentication failure.
+
+For codec refresh, the worker maps a caught typed failure to a stable structured
+category and the application uses that category, not message text, to advance
+the attempt plan. For interactive work, the controller consumes the typed
+exception directly. HTTP 401/403 is authentication failure only during a new
+login; during established use it is session invalidation. Generic `success: 0`,
+empty/malformed data, localized or arbitrary `auth` text, and transport errors
+that merely contain `401` never authorize credential advancement. The existing
+string helper may remain for unrelated devices during this minimal migration.
 
 The existing successful-index and profile maps remain the single durable
 in-process state. A request-local attempt cursor is separated from those maps,
@@ -126,6 +150,8 @@ work.
 - Invalidate on model, IP, selected credential identity, or supported-profile
   change; local disconnected state; confirmed established-session rejection;
   failed recovery; screen destruction; or application shutdown.
+- Recheck generation/context at queue execution time and drop stale operations
+  before handler acquisition or network I/O, including state-changing commands.
 - Distinguish `AuthenticationError`, established `SessionInvalidError`,
   connection/timeout, protocol/parse, normal command rejection, and a command
   whose delivery outcome is unknown.
@@ -188,7 +214,11 @@ separate Polycom call-log worker redesign is expected.
   polling suppression, live-audio recovery, Wake path, stale callback rejection,
   model/IP/credential invalidation, and screen destruction.
 - Extend `tests/test_credential_fallback_retry.py`: request cursor versus
-  successful index and interactive ownership.
+  successful index, structured codec retry authority, transport text containing
+  `401`, established-session 401/403 invalidation, malformed/unstructured
+  outcomes, and interactive ownership.
+- Cover queued stale read-only and state-changing operations whose generation
+  changes before execution; assert no handler call and no network I/O occurs.
 - Re-run `tests/test_credentials.py`, `tests/test_credential_propagation.py`,
   `tests/test_credential_worker_retry_ownership.py`,
   `tests/test_worker_outcomes.py`, `tests/test_ui_states.py`, and
@@ -209,6 +239,23 @@ separate Polycom call-log worker redesign is expected.
   avoids double volume deltas, toggles, Wake, or presentation commands.
 - TE20 is the reproducing hardware and should be the first opt-in QA target.
   TE40, Bar 310, and Polycom require redacted observations where available.
+
+## Planning validation evidence
+
+Validation was rerun from the change branch worktree with the tracked
+repository-local OpenSpec wrapper. No global `openspec` executable or
+`npx @latest` command was used.
+
+- Exact command: `.\openspec.cmd validate codec-interactive-session-recovery --strict`
+  - Result: `Change 'codec-interactive-session-recovery' is valid` (exit code 0).
+- Exact command: `.\openspec.cmd validate --all --strict`
+  - Result: 7 passed, 0 failed (7 items; exit code 0).
+
+These commands were executed again after the review-driven planning revisions.
+This report is the authoritative change-artifact validation evidence; the PR
+description's earlier unqualified `openspec validate ...` command text should
+be replaced with the repository-local forms when the revised branch is
+published. No production code was changed or executed as implementation work.
 
 ## Readiness verdict
 
