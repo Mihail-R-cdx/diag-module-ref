@@ -92,6 +92,31 @@ git -c safe.directory="C:/exact/path/to/worktree" status
 This is a fallback for an ownership problem, not a mandatory prefix for every
 Git command. `safe.directory="*"` MUST NOT be configured.
 
+### Авторизация GitHub CLI
+
+Перед использованием `gh` при необходимости проверить авторизацию:
+
+```powershell
+gh auth status
+```
+
+При первоначальном подключении:
+
+```powershell
+gh auth login
+```
+
+Важно: в изолированной среде `gh` может не иметь доступа к пользовательскому Windows keyring и поэтому не видеть уже сохранённую авторизацию.
+
+Если проверка `gh auth status` в изолированной среде показывает отсутствие авторизации, это не обязательно означает, что пользователь не авторизован в GitHub CLI.
+
+В таком случае повторная проверка должна выполняться в среде с доступом к пользовательскому Windows-профилю и его credential storage.
+
+Не следует предлагать повторный `gh auth login`, пока наличие действующей авторизации не проверено с доступом к пользовательскому профилю.
+
+
+
+
 ### OpenSpec execution
 
 All repository OpenSpec operations MUST use the tracked repository-local
