@@ -75,6 +75,43 @@ lifetime contamination. The repository's canonical discovery run passed, and
 the focused evidence above was rerun in isolated processes; no production
 behavior or mandatory check failed.
 
+## Code-review remediation evidence
+
+Independent review of published head
+`22cd1b14dc968b6457797b0145a6b339cea0174c` returned `CHANGES REQUIRED` for
+three bounded contract violations. The remediation preserves the approved
+design and changes only `core/interactive_session.py`,
+`gui/screens/codec_screen.py`, and their regression tests:
+
+- one private operation budget is created at dequeue and is consumed by either
+  a locally disconnected matching cache or later typed recovery; once consumed,
+  a subsequent recoverable failure is terminal and cannot reconnect again;
+- TE20, TE40, and Polycom mute/unmute descriptors now use opposite authoritative
+  `Muted`/`Unmuted` desired states, while Bar 310 retains numeric gain policy;
+- duplicate ownership is keyed by generation and duplicate key, with the exact
+  operation ID as owner, so an old operation cannot release a new generation's
+  marker.
+
+Focused review-remediation tests were isolated by Qt application type:
+
+```text
+InteractiveSessionController, session/handler contracts -> 27 passed
+CodecScreen offscreen mute descriptors                  -> 21 passed
+credential fallback and worker retry ownership          -> 24 passed
+Focused total                                           -> 72 passed
+```
+
+The canonical full offline suite was rerun after the production and regression
+test changes:
+
+```text
+python -m unittest discover -s tests -p "test_*.py"      -> 175 passed
+.\openspec.cmd validate codec-interactive-session-recovery --strict
+                                                         -> valid
+.\openspec.cmd validate --all --strict                   -> 7 passed, 0 failed
+git diff --check                                         -> clean
+```
+
 ## Security evidence
 
 Synthetic credential, cookie, Session ID, CSRF, SSH, terminal, dialog, and
@@ -97,8 +134,9 @@ No TE40, Bar 310, or Polycom hardware observations were provided; this is not
 treated as an offline acceptance failure because those devices were not
 reported as available for this opt-in QA pass.
 
-Post-implementation operator fixes were intentionally checked narrowly: the
+Post-implementation operator fixes were initially checked narrowly: the
 default-IP text-only correction passed `git diff --check` without a test run,
 and the TE20 mute readback correction passed 25 focused handler/CodecScreen
-tests. The full 167-test result above predates those two corrections and must
-be rerun by the independent validator against the final published SHA.
+tests. Both fixes are included in the later 175-test review-remediation run
+recorded above. Independent validation must still rerun all mandatory commands
+against the final published SHA.

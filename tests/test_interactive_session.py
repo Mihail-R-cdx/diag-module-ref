@@ -45,6 +45,8 @@ class FakeHandler:
         outcome = outcomes.pop(0)
         if isinstance(outcome, BaseException):
             raise outcome
+        if callable(outcome):
+            return outcome()
         return outcome
 
     def set_value(self, value):
@@ -149,6 +151,31 @@ class InteractiveSessionControllerTests(unittest.TestCase):
 
         self.assertEqual([], errors)
         self.assertEqual("recovered", results[0]["value"])
+        self.assertEqual(2, len([call for call in calls if call[0] == "connect"]))
+        self.assertEqual(2, len([call for call in calls if call[0] == "read"]))
+
+    def test_locally_disconnected_cache_consumes_only_reconnect_cycle(self):
+        controller, calls = self.make_controller(
+            {"read": ["warm", SessionInvalidError("expired after reconnect")]}
+        )
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "CloudLink Bar 310",
+            "192.0.2.10",
+            ({"username": "u", "password": "one"},),
+        )
+        controller.submit(InteractiveOperation(kind="warm", method="read"))
+        controller.wait_until_idle(2)
+        self.drain()
+
+        controller._handler_record.handler.connected = False
+        controller.submit(InteractiveOperation(kind="read", method="read"))
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual(["warm"], [result["value"] for result in results])
+        self.assertEqual("session_invalid", errors[0]["category"])
         self.assertEqual(2, len([call for call in calls if call[0] == "connect"]))
         self.assertEqual(2, len([call for call in calls if call[0] == "read"]))
 
@@ -261,6 +288,100 @@ class InteractiveSessionControllerTests(unittest.TestCase):
         self.assertTrue(results[0]["value"])
         self.assertEqual(2, len([call for call in calls if call[0] == "set"]))
 
+    def test_ambiguous_mute_reconciles_once_from_authoritative_opposite(self):
+        behavior = {
+            "set": [CommandOutcomeUnknownError("lost"), True],
+            "current": "Unmuted",
+        }
+        controller, calls = self.make_controller(behavior)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Huawei TE20",
+            "192.0.2.10",
+            ({"username": "u", "password": "one"},),
+        )
+        controller.submit(
+            InteractiveOperation(
+                kind="microphone_set",
+                method="set_value",
+                args=(0,),
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_value",
+                original="Unmuted",
+                target="Muted",
+            )
+        )
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertTrue(results[0]["value"])
+        self.assertTrue(results[0]["reconciled"])
+        self.assertEqual(2, len([call for call in calls if call[0] == "set"]))
+
+    def test_ambiguous_mute_target_already_applied_is_not_sent_twice(self):
+        behavior = {
+            "set": [CommandOutcomeUnknownError("lost"), True],
+            "current": "Muted",
+        }
+        controller, calls = self.make_controller(behavior)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Huawei TE20",
+            "192.0.2.10",
+            ({"username": "u", "password": "one"},),
+        )
+        controller.submit(
+            InteractiveOperation(
+                kind="microphone_set",
+                method="set_value",
+                args=(0,),
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_value",
+                original="Unmuted",
+                target="Muted",
+            )
+        )
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertEqual("Muted", results[0]["value"])
+        self.assertEqual(1, len([call for call in calls if call[0] == "set"]))
+
+    def test_ambiguous_mute_unknown_readback_refuses_second_send(self):
+        behavior = {
+            "set": [CommandOutcomeUnknownError("lost"), True],
+            "current": None,
+        }
+        controller, calls = self.make_controller(behavior)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Huawei TE20",
+            "192.0.2.10",
+            ({"username": "u", "password": "one"},),
+        )
+        controller.submit(
+            InteractiveOperation(
+                kind="microphone_set",
+                method="set_value",
+                args=(0,),
+                semantic=OperationSemantic.DESIRED_STATE,
+                readback_method="get_value",
+                original="Unmuted",
+                target="Muted",
+            )
+        )
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], results)
+        self.assertEqual("unknown_command_outcome", errors[0]["category"])
+        self.assertEqual(1, len([call for call in calls if call[0] == "set"]))
+
     def test_unknown_readback_refuses_state_change_replay(self):
         behavior = {
             "set": [CommandOutcomeUnknownError("lost"), True],
@@ -348,6 +469,55 @@ class InteractiveSessionControllerTests(unittest.TestCase):
 
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+    def test_old_generation_cannot_release_new_duplicate_marker(self):
+        first_lane_gate = threading.Event()
+        first_lane_release = threading.Event()
+        new_poll_started = threading.Event()
+        new_poll_release = threading.Event()
+
+        def blocking_read():
+            new_poll_started.set()
+            new_poll_release.wait(2)
+            return "new"
+
+        controller, _ = self.make_controller({"read": [blocking_read, "next"]})
+        controller.activate_context(
+            "Huawei TE40",
+            "192.0.2.10",
+            ({"username": "u", "password": "one"},),
+        )
+        controller._executor.submit(
+            lambda: (first_lane_gate.set(), first_lane_release.wait(2))
+        )
+        first_lane_gate.wait(1)
+        operation = InteractiveOperation(
+            kind="live_audio",
+            method="read",
+            duplicate_key="live_audio",
+        )
+        old_poll = controller.submit(operation)
+
+        controller.activate_context(
+            "Huawei TE40",
+            "192.0.2.11",
+            ({"username": "u", "password": "one"},),
+        )
+        new_poll = controller.submit(operation)
+        first_lane_release.set()
+        self.assertTrue(new_poll_started.wait(1))
+
+        overlapping_poll = controller.submit(operation)
+        new_poll_release.set()
+        controller.wait_until_idle(2)
+        next_poll = controller.submit(operation)
+        controller.wait_until_idle(2)
+        controller.shutdown()
+
+        self.assertIsNotNone(old_poll)
+        self.assertIsNotNone(new_poll)
+        self.assertIsNone(overlapping_poll)
+        self.assertIsNotNone(next_poll)
 
     def test_shutdown_closes_cached_handler_on_serial_lane(self):
         controller, calls = self.make_controller()

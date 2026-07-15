@@ -1528,18 +1528,21 @@ class CodecScreen(BaseScreen):
 
     def set_microphone_volume(self, value, *, original=None, relative=False):
         """Submit mute/gain as an absolute desired state, never as a toggle."""
-        semantic = (
-            OperationSemantic.RELATIVE_AS_ABSOLUTE
-            if relative
-            else OperationSemantic.ABSOLUTE
-        )
-        display_value = (
-            "Muted"
-            if self._uses_microphone_mute_control() and int(value) <= 0
-            else "Unmuted"
-            if self._uses_microphone_mute_control()
-            else value
-        )
+        uses_mute_state = self._uses_microphone_mute_control()
+        if uses_mute_state:
+            display_value = "Muted" if int(value) <= 0 else "Unmuted"
+            semantic = OperationSemantic.DESIRED_STATE
+            reconciliation_original = (
+                "Unmuted" if display_value == "Muted" else "Muted"
+            )
+        else:
+            display_value = value
+            semantic = (
+                OperationSemantic.RELATIVE_AS_ABSOLUTE
+                if relative
+                else OperationSemantic.ABSOLUTE
+            )
+            reconciliation_original = original
 
         def on_result(_result, _payload):
             self.update_volume_display(
@@ -1554,9 +1557,9 @@ class CodecScreen(BaseScreen):
                 args=(value,),
                 semantic=semantic,
                 readback_method="get_microphone_volume",
-                target=display_value if self._uses_microphone_mute_control() else value,
-                original=original,
-                allow_set_from_any_authoritative=not relative,
+                target=display_value,
+                original=reconciliation_original,
+                allow_set_from_any_authoritative=not relative and not uses_mute_state,
             ),
             on_result,
         )

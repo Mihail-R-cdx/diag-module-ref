@@ -81,6 +81,17 @@ class _HandlerRecord:
     context_identity: tuple[Any, ...]
 
 
+@dataclass
+class _OperationRecoveryBudget:
+    remaining: int = 1
+
+    def consume(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
 class InteractiveSessionSignals(QObject):
     result = pyqtSignal(dict)
     error = pyqtSignal(dict)
@@ -110,7 +121,7 @@ class InteractiveSessionController(QObject):
         self._context: Optional[_Context] = None
         self._handler_record: Optional[_HandlerRecord] = None
         self._operation_serial = 0
-        self._pending_duplicates: set[str] = set()
+        self._pending_duplicates: dict[tuple[int, str], int] = {}
         self._accepting = True
 
     @property
@@ -185,12 +196,15 @@ class InteractiveSessionController(QObject):
             context = self._context
             captured_generation = context.generation if generation is None else generation
             duplicate_key = operation.duplicate_key
-            if duplicate_key and duplicate_key in self._pending_duplicates:
+            duplicate_owner = (
+                (captured_generation, duplicate_key) if duplicate_key else None
+            )
+            if duplicate_owner and duplicate_owner in self._pending_duplicates:
                 return None
-            if duplicate_key:
-                self._pending_duplicates.add(duplicate_key)
             self._operation_serial += 1
             operation_id = self._operation_serial
+            if duplicate_owner:
+                self._pending_duplicates[duplicate_owner] = operation_id
         self._executor.submit(
             self._run_operation,
             operation_id,
@@ -224,11 +238,12 @@ class InteractiveSessionController(QObject):
         operation: InteractiveOperation,
     ) -> None:
         terminal = self._public_context(operation_id, generation, context, operation)
+        recovery_budget = _OperationRecoveryBudget()
         try:
             if not self._context_is_current(generation, context):
                 _emit_signal(self.signals.dropped, terminal)
                 return
-            record = self._acquire_handler(context)
+            record = self._acquire_handler(context, recovery_budget)
             if not self._context_is_current(generation, context):
                 _emit_signal(self.signals.dropped, terminal)
                 return
@@ -245,7 +260,9 @@ class InteractiveSessionController(QObject):
                 OSError,
                 CommandOutcomeUnknownError,
             ) as error:
-                record = self._recover_once(context, record, error)
+                record = self._recover_once(
+                    context, record, error, recovery_budget
+                )
                 if operation.semantic == OperationSemantic.READ_ONLY:
                     value = self._invoke(record.handler, operation)
                     reconciled = False
@@ -281,16 +298,27 @@ class InteractiveSessionController(QObject):
         finally:
             with self._lock:
                 if operation.duplicate_key:
-                    self._pending_duplicates.discard(operation.duplicate_key)
+                    owner = (generation, operation.duplicate_key)
+                    if self._pending_duplicates.get(owner) == operation_id:
+                        self._pending_duplicates.pop(owner, None)
             _emit_signal(self.signals.finished, terminal)
 
     def _recover_once(
-        self, context: _Context, record: _HandlerRecord, error: BaseException
+        self,
+        context: _Context,
+        record: _HandlerRecord,
+        error: BaseException,
+        recovery_budget: _OperationRecoveryBudget,
     ) -> _HandlerRecord:
-        del error
+        if not recovery_budget.consume():
+            raise error
         preferred_index = record.credential_index
         self._close_handler()
-        return self._acquire_handler(context, preferred_index=preferred_index)
+        return self._acquire_handler(
+            context,
+            recovery_budget,
+            preferred_index=preferred_index,
+        )
 
     def _reconcile(self, handler: Any, operation: InteractiveOperation) -> Any:
         if not operation.readback_method:
@@ -330,7 +358,10 @@ class InteractiveSessionController(QObject):
         return method(*operation.args, **dict(operation.kwargs))
 
     def _acquire_handler(
-        self, context: _Context, preferred_index: Optional[int] = None
+        self,
+        context: _Context,
+        recovery_budget: _OperationRecoveryBudget,
+        preferred_index: Optional[int] = None,
     ) -> _HandlerRecord:
         if not self._context_is_current(context.generation, context):
             raise ConnectionError("Interactive codec context was superseded.")
@@ -338,6 +369,10 @@ class InteractiveSessionController(QObject):
         if current is not None and self._record_matches_context(current, context):
             if _handler_is_connected(current.handler):
                 return current
+            if not recovery_budget.consume():
+                raise ConnectionError(
+                    "Interactive codec recovery budget is exhausted."
+                )
             self._close_handler()
 
         start_index = context.start_index if preferred_index is None else preferred_index
