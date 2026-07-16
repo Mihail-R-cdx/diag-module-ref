@@ -251,6 +251,37 @@ to the handler. The handler does not read `credentials.local.json`, inspect
 candidate lists, select a later credential, wrap around, or remember a
 successful index.
 
+PCS4i has a device-scoped exception to the usual "missing mapping is a
+configuration error" behavior. If a PCS4i operation has an explicit credential,
+explicit profile, or mapped credential chain, the application builds the normal
+ordered credential plan and each worker attempt receives at most one assigned
+credential. If a PCS4i operation has no explicit credential, no explicit
+profile, and no device mapping, the application/composition layer creates one
+credentialless attempt instead of stopping before network I/O. That descriptor
+has assigned credential `none`, no candidate index, and no successful
+credential index for that attempt.
+
+The credentialless PCS4i attempt may connect, perform bounded initial
+observation, see no `Password` marker, run a verified read-only SIS readiness
+probe, and complete as a successful passwordless session. If that same
+credentialless attempt receives a `Password` marker, it returns structured
+`CredentialRequired`, sends no password, does not return `AuthenticationError`,
+does not start a next credential candidate because no credential plan exists,
+and surfaces a safe actionable error telling the operator to configure a
+credential.
+
+Credentialless success never creates or updates successful credential memory.
+It does not create a successful credential index, does not change an existing
+cached index, and does not invalidate credential memory. Likewise, if an
+assigned credential candidate was passed but the device never requested
+`Password`, the operation may complete as passwordless success but that
+candidate was not used and its index is not saved as successful.
+
+This credentialless composition path is scoped to protocol/device paths that
+support unauthenticated/passwordless operation; in this change, that means
+PCS4i only. Other authentication-required devices remain blocked before network
+I/O when required credentials are absent.
+
 Credential fallback is authorized only by a structured confirmed
 `AuthenticationError`, meaning an actually sent credential was rejected by the
 phase-scoped Telnet password flow. The following are not fallback authority:
@@ -381,25 +412,55 @@ unchanged behavior remain intact.
 PDU control operations change power state and cannot be blindly repeated after
 an ambiguous transport outcome.
 
-For PCS4i ON/OFF, the worker has at most one initial command send. If that send
-receives acknowledged success, the worker still performs authoritative `PC`
-readback to determine final state. If the device authoritatively rejects the
-command, the operation fails with no credential fallback and no replay. If
-delivery is ambiguous, the operation has at most one reconciliation cycle:
-optionally one recovery/reconnect sequence only if needed for authoritative
-`PC` readback, and at most one normalized authoritative outlet-state decision.
-Recovery and reconciliation must not recurse.
+For PCS4i ON/OFF, the operation records an authoritative pre-command state
+`PRE_STATE` before the first send when a valid `PC` readback is available. The
+target state `TARGET` is ON for `turn_on()` and OFF for `turn_off()`. The
+operation has these budgets for one user action:
 
-PCS4i ON/OFF reconciliation:
+- initial command send: max 1;
+- controlled resend: max 1;
+- total state-changing sends: max 2;
+- reconciliation cycles: max 1;
+- reconciliation decision readback after ambiguous initial delivery: max 1;
+- terminal confirmation readback after the single controlled resend: max 1;
+- recursive recovery/reconciliation: 0.
 
-- if the desired target state is already reached, report success without
-  resending;
-- if readback shows the known pre-command state, policy may send at most one
-  controlled absolute ON or OFF command;
-- if that controlled send is again ambiguous, report indeterminate with no
-  further replay, reconnect, or reconciliation loop;
-- if readback is unavailable, unknown, or conflicting, report indeterminate and
-  do not resend.
+The reconciliation decision readback and the terminal confirmation readback are
+separate budgets. The single reconciliation decision decides whether the target
+already took effect, whether one controlled absolute resend is allowed, or
+whether the outcome is indeterminate. If the controlled resend is used, one
+terminal confirmation `PC` readback is still required and is not a second
+reconciliation cycle.
+
+Initial PCS4i ON/OFF send outcomes:
+
+- Authoritative device rejection -> `FAILURE`; no credential fallback, no
+  resend, and no reconciliation loop.
+- Delivery acknowledged -> perform terminal authoritative `PC` readback even
+  though acknowledgement was received.
+  - `PC == TARGET` -> `SUCCESS`.
+  - `PC == PRE_STATE` -> acknowledgement alone is not success; if no controlled
+    resend has been used, send the same absolute `TARGET` command once and then
+    perform one terminal confirmation `PC` readback.
+  - `PC` unavailable, unknown, or conflicting -> `INDETERMINATE`; no resend.
+- Initial delivery ambiguous -> run the one reconciliation cycle. It may perform
+  at most one reconnect/recovery only if needed for authoritative `PC`
+  readback, then performs one reconciliation decision readback.
+  - `PC == TARGET` -> `SUCCESS`; no resend.
+  - `PC == PRE_STATE` -> one controlled absolute resend of `TARGET` is allowed,
+    followed by exactly one terminal confirmation `PC` readback.
+  - `PC` unavailable, unknown, or conflicting -> `INDETERMINATE`; no resend.
+
+Controlled resend terminal confirmation:
+
+- `PC == TARGET` -> `SUCCESS`.
+- `PC == PRE_STATE` -> `FAILURE`, because authoritative readback confirms the
+  requested target was not reached after the only allowed resend.
+- `PC` unavailable, unknown, or conflicting -> `INDETERMINATE`.
+
+After the terminal confirmation readback, there is no further resend, reconnect,
+or reconciliation. A controlled resend acknowledgement is never enough for
+success without the terminal `PC` confirmation.
 
 There is no PCS4i REBOOT recovery policy because PCS4i REBOOT is unsupported.
 

@@ -42,6 +42,9 @@ ambiguous transport outcomes.
   `CredentialRequired` when a prompt appears without an assigned credential, and
   returns `AuthenticationError` only after confirmed rejection of an actually
   sent credential.
+- Define PCS4i application-side credential composition so an unmapped PCS4i with
+  no explicit credential/profile starts one credentialless attempt instead of
+  failing as a configuration error before network I/O.
 - Keep credential fallback owned by the GUI/application composition layer;
   handlers and workers receive at most one assigned credential and never select
   the next one.

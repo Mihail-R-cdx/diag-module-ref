@@ -89,7 +89,9 @@ because PCS4i REBOOT is unsupported.
 #### Scenario: PDU reconciliation is bounded
 - **WHEN** one user PDU state-changing operation has ambiguous initial delivery
 - **THEN** the application performs at most one reconciliation cycle
-- **AND** that cycle includes at most one recovery/reconnect sequence when needed for device-specific authoritative outlet-state readback and at most one normalized authoritative outlet-state decision
+- **AND** that cycle includes at most one recovery/reconnect sequence when needed for device-specific authoritative outlet-state readback
+- **AND** that cycle includes at most one reconciliation decision readback
+- **AND** one terminal confirmation readback remains allowed after the only controlled resend
 - **AND** recovery or reconciliation does not recurse
 
 #### Scenario: PCS4i ON/OFF recovery uses PC readback
@@ -188,13 +190,54 @@ For one user PDU state-changing operation, the application SHALL send at most
 one initial command. Acknowledged success SHALL complete successfully only after
 any required device-specific final-state confirmation. Authoritative device
 rejection SHALL complete failure with no credential fallback and no command
-replay. Ambiguous delivery SHALL allow at most one reconciliation cycle, at most
-one normalized authoritative outlet-state decision, and no recursive
-recovery/reconciliation. ON/OFF MAY perform at most one controlled absolute
-resend only when device-specific readback authoritatively shows the known
-pre-command state. The shared PDU command boundary SHALL call a
+replay. Ambiguous delivery SHALL allow at most one reconciliation cycle and no
+recursive recovery/reconciliation. ON/OFF MAY perform at most one controlled
+absolute resend only when device-specific readback authoritatively shows the
+known pre-command state. The shared PDU command boundary SHALL call a
 device-specific handler readback operation and SHALL NOT encode PCS4i Telnet or
 Aten status API wire details.
+
+For PCS4i ON/OFF, the application SHALL preserve authoritative `PRE_STATE`
+before the first send when valid `PC` readback is available and SHALL define
+`TARGET` as ON for `turn_on` and OFF for `turn_off`. One user PCS4i ON/OFF
+operation SHALL have these budgets: initial command send max 1, controlled
+resend max 1, total state-changing sends max 2, reconciliation cycles max 1,
+reconciliation decision readback max 1, terminal confirmation readback after
+controlled resend max 1, and recursive recovery max 0.
+
+The reconciliation decision readback and terminal confirmation readback SHALL
+be separate. The decision readback after ambiguous initial delivery decides
+whether `TARGET` is already reached, whether the only controlled resend is
+allowed because readback equals `PRE_STATE`, or whether the outcome is
+indeterminate. If the controlled resend is used, exactly one terminal
+confirmation `PC` readback SHALL run after it and SHALL NOT count as a second
+reconciliation cycle.
+
+PCS4i terminal outcomes SHALL be:
+
+- structured device rejection -> `FAILURE`;
+- initial acknowledgement followed by `PC == TARGET` -> `SUCCESS`;
+- initial acknowledgement followed by `PC == PRE_STATE` -> one controlled
+  absolute resend is allowed, and terminal success still requires final
+  `PC == TARGET`;
+- initial acknowledgement followed by unavailable, unknown, or conflicting
+  `PC` -> `INDETERMINATE` with no resend;
+- ambiguous initial delivery followed by reconciliation `PC == TARGET` ->
+  `SUCCESS` with no resend;
+- ambiguous initial delivery followed by reconciliation `PC == PRE_STATE` ->
+  one controlled absolute resend is allowed;
+- ambiguous initial delivery followed by unavailable, unknown, or conflicting
+  `PC` -> `INDETERMINATE` with no resend;
+- after the controlled resend, terminal confirmation `PC == TARGET` ->
+  `SUCCESS`;
+- after the controlled resend, terminal confirmation `PC == PRE_STATE` ->
+  `FAILURE`;
+- after the controlled resend, terminal confirmation unavailable, unknown, or
+  conflicting -> `INDETERMINATE`.
+
+After the controlled-resend terminal confirmation, no further resend, reconnect,
+or reconciliation SHALL occur. Acknowledgement of either the initial command or
+controlled resend SHALL NOT by itself establish terminal success for PCS4i.
 
 #### Scenario: ON target already applied
 - **WHEN** a PDU ON command loses acknowledgement and device-specific authoritative readback shows the outlet is on
@@ -216,6 +259,40 @@ Aten status API wire details.
 #### Scenario: PCS4i acknowledged ON/OFF uses final PC readback
 - **WHEN** PCS4i ON or OFF command acknowledgement is received
 - **THEN** final success is based on authoritative Telnet `PC` readback
+
+#### Scenario: Acknowledged PCS4i command still equals PRE_STATE
+- **GIVEN** PCS4i ON/OFF command acknowledgement was received
+- **WHEN** authoritative `PC` readback still equals `PRE_STATE`
+- **THEN** acknowledgement alone does not mean success
+- **AND** policy may perform the single controlled absolute resend
+- **AND** terminal success requires final `PC == TARGET`
+
+#### Scenario: Controlled resend confirmation
+- **GIVEN** policy performed the only controlled resend for a PCS4i ON/OFF operation
+- **WHEN** resend completes
+- **THEN** application performs exactly one terminal authoritative `PC` confirmation readback
+- **AND** `PC == TARGET` produces `SUCCESS`
+- **AND** `PC == PRE_STATE` produces `FAILURE`
+- **AND** unavailable, unknown, or conflicting `PC` produces `INDETERMINATE`
+- **AND** no further resend, recovery, or reconciliation occurs
+
+#### Scenario: PCS4i ambiguous initial delivery reaches target
+- **GIVEN** PCS4i initial ON/OFF delivery is ambiguous
+- **WHEN** the one reconciliation decision `PC` readback equals `TARGET`
+- **THEN** the operation reports `SUCCESS`
+- **AND** no resend occurs
+
+#### Scenario: PCS4i ambiguous initial delivery remains at PRE_STATE
+- **GIVEN** PCS4i initial ON/OFF delivery is ambiguous
+- **WHEN** the one reconciliation decision `PC` readback equals `PRE_STATE`
+- **THEN** policy may perform the single controlled absolute resend
+- **AND** exactly one terminal confirmation `PC` readback follows the resend
+
+#### Scenario: PCS4i reconciliation readback is unavailable
+- **GIVEN** PCS4i initial ON/OFF delivery is ambiguous
+- **WHEN** reconciliation `PC` readback is unavailable, unknown, or conflicting
+- **THEN** the operation reports `INDETERMINATE`
+- **AND** no resend occurs
 
 #### Scenario: Aten ON/OFF uses existing authoritative status
 - **WHEN** an Aten ON or OFF command has ambiguous delivery

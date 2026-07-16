@@ -10,7 +10,10 @@ a handler that supports unauthenticated operation SHALL be able to run without
 credentials. Extron IPL T PCS4i SHALL use the existing password-only
 `auth_mode: "password"` contract, SHALL NOT invent a username, and SHALL allow
 the assigned credential to be absent until the Telnet protocol actually
-requests `Password`.
+requests `Password`. For PCS4i only, absence of an explicit credential,
+explicit profile, and device mapping SHALL NOT by itself be a configuration
+error; the application/composition layer SHALL be able to submit one
+credentialless attempt.
 
 #### Scenario: Authenticated handler receives no credentials
 - **WHEN** an authentication-required handler is selected without a valid credential object
@@ -28,6 +31,11 @@ requests `Password`.
 #### Scenario: PCS4i receives no assigned credential
 - **WHEN** PCS4i refresh is submitted without an assigned credential
 - **THEN** the handler may still connect and attempt a verified read-only passwordless readiness probe
+
+#### Scenario: Other authenticated handler receives no credentials
+- **WHEN** an authentication-required non-PCS4i handler is selected without required credentials
+- **THEN** the application reports a safe configuration/authentication-precondition error before network I/O
+- **AND** it does not create a credentialless device attempt
 
 ### Requirement: Ordered credential candidates and authentication fallback
 The credential boundary SHALL expose an ordered sequence of request-scoped
@@ -132,6 +140,69 @@ prompt is not credential fallback.
 - **WHEN** PCS4i returns a new `Password` marker after the assigned password was sent once
 - **THEN** the handler sends the same assigned password exactly one additional time
 - **AND** it does not choose a different credential candidate
+
+### Requirement: PCS4i application credentialless attempt composition
+When PCS4i has an explicit credential, explicit profile, or mapped credential
+chain, the application/composition layer SHALL build the normal ordered
+credential plan. Each worker attempt SHALL receive at most one assigned
+credential, and credential fallback SHALL remain application-owned.
+
+When PCS4i has no explicit credential, no explicit profile, and no device
+mapping, the application/composition layer SHALL create exactly one
+credentialless attempt instead of failing before network I/O. That attempt SHALL
+carry assigned credential `none`, SHALL have no candidate index, and SHALL have
+no successful credential index. If the credentialless attempt succeeds without
+the device requesting `Password`, the operation MAY complete successfully but
+SHALL NOT create, update, persist, or invalidate credential memory. If the
+credentialless attempt receives a `Password` marker, the outcome SHALL be
+structured `CredentialRequired`; no password SHALL be sent, no
+`AuthenticationError` SHALL be returned, and no next credential candidate SHALL
+start because no credential plan existed.
+
+This exception SHALL be scoped only to device/protocol paths that support
+unauthenticated/passwordless operation. In this change, the exception applies
+to PCS4i only and SHALL NOT weaken missing-credential behavior for other
+authentication-required devices.
+
+#### Scenario: PCS4i without mapping starts credentialless attempt
+- **GIVEN** selected device is Extron IPL T PCS4i
+- **AND** no explicit credential is supplied
+- **AND** no explicit profile is supplied
+- **AND** no PCS4i device mapping exists
+- **WHEN** application composition builds the attempt plan
+- **THEN** it creates one credentialless attempt
+- **AND** assigned credential is none
+- **AND** candidate index is absent
+
+#### Scenario: Credentialless PCS4i succeeds without Password prompt
+- **GIVEN** a credentialless PCS4i attempt is running
+- **WHEN** connection is established
+- **AND** no `Password` marker is observed
+- **AND** a verified read-only SIS readiness probe succeeds
+- **THEN** the operation may complete successfully as passwordless
+- **AND** zero password sends occur
+
+#### Scenario: Credentialless PCS4i receives Password prompt
+- **GIVEN** a credentialless PCS4i attempt is running
+- **WHEN** new phase bytes contain `Password`
+- **THEN** the outcome is structured `CredentialRequired`
+- **AND** `AuthenticationError` is not returned
+- **AND** no next credential candidate is started
+- **AND** no password is sent
+- **AND** the user-facing error safely explains that a credential must be configured
+
+#### Scenario: Credentialless success does not update credential index
+- **GIVEN** a credentialless PCS4i attempt succeeds
+- **WHEN** application composition processes the final result
+- **THEN** no successful credential index is created
+- **AND** no successful credential index is updated
+- **AND** credential memory is unchanged
+
+#### Scenario: Other authentication-required devices remain blocked
+- **GIVEN** selected device requires authentication and is not in a passwordless-capable path
+- **WHEN** no required credential, profile, or mapping is available
+- **THEN** application composition reports a safe configuration error before network I/O
+- **AND** it does not create a credentialless attempt
 
 ## ADDED Requirements
 

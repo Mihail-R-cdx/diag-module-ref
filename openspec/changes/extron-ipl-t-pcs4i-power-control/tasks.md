@@ -29,7 +29,11 @@
 - [ ] 3.7 Return structured `AuthenticationError` only after an actually sent assigned password is rejected by a new prompt after send #2.
 - [ ] 3.8 Ensure PCS4i workers and handlers receive at most one assigned credential candidate and never advance the credential index.
 - [ ] 3.9 Ensure passwordless success with an assigned but unused candidate does not cache that candidate, change successful credential index, invalidate an existing index, or trigger fallback.
-- [ ] 3.10 Add authentication tests for passwordless session, decorated prompt, prompt without colon, second prompt sending the same credential, third prompt forbidden, initial prompt not reused, passwordless session with assigned candidate, and password required with no assigned credential.
+- [ ] 3.10 Implement application/composition behavior that creates one credentialless PCS4i attempt when no explicit credential, explicit profile, or PCS4i device mapping exists.
+- [ ] 3.11 Ensure credentialless PCS4i attempts carry assigned credential `none`, no candidate index, and no successful credential index.
+- [ ] 3.12 Ensure credentialless PCS4i `Password` prompt returns `CredentialRequired`, sends no password, starts no next candidate, and surfaces a safe actionable credential-configuration error.
+- [ ] 3.13 Ensure missing credentials for other authentication-required devices still block before network I/O with a safe configuration error.
+- [ ] 3.14 Add authentication/composition tests for passwordless session, decorated prompt, prompt without colon, second prompt sending the same credential, third prompt forbidden, initial prompt not reused, passwordless session with assigned candidate, password required with no assigned credential, PCS4i without mapping starting credentialless, credentialless success without `Password`, credentialless `Password` -> `CredentialRequired`, credentialless success not updating credential memory, and other auth-required devices remaining blocked.
 
 ## 4. HTTP outlet-name enrichment
 
@@ -56,14 +60,17 @@
 
 ## 6. Command safety and capabilities
 
-- [ ] 6.1 Enforce one initial command send maximum for each user PCS4i ON/OFF operation.
-- [ ] 6.2 After PCS4i ON/OFF acknowledged success, confirm final state through authoritative `PC` readback.
-- [ ] 6.3 For ambiguous PCS4i ON/OFF delivery, allow at most one reconciliation cycle, at most one recovery/reconnect sequence when needed for `PC` readback, and at most one normalized authoritative outlet-state decision.
-- [ ] 6.4 Report success without resend when PCS4i ON/OFF readback equals the requested target.
-- [ ] 6.5 Allow at most one controlled absolute PCS4i ON/OFF resend when readback equals the known pre-command state; if that resend is ambiguous, report indeterminate with no further replay.
-- [ ] 6.6 Report indeterminate with zero resend when PCS4i ON/OFF readback is unavailable, unknown, or conflicting.
-- [ ] 6.7 Add tests proving PCS4i REBOOT is hidden in `PDUScreen` and rejected programmatically before handler acquisition/network I/O.
-- [ ] 6.8 Add Aten command safety tests for ambiguous ON, ambiguous OFF, target already reached, known pre-command state permitting at most one controlled resend, unavailable/unknown/conflicting readback producing indeterminate, second ambiguous outcome after controlled resend producing indeterminate, ambiguous REBOOT never resent, reconciliation budget not exceeded, and existing Aten protocol behavior unchanged.
+- [ ] 6.1 Preserve authoritative `PRE_STATE` before the first PCS4i ON/OFF send when valid `PC` readback is available, and define `TARGET` from the requested absolute command.
+- [ ] 6.2 Enforce PCS4i ON/OFF budgets: initial send max 1, controlled resend max 1, total state-changing sends max 2, reconciliation cycles max 1, reconciliation decision readback max 1, terminal confirmation readback after resend max 1, recursive recovery 0.
+- [ ] 6.3 After PCS4i ON/OFF acknowledgement, always perform authoritative `PC` readback; acknowledgement alone is not terminal success.
+- [ ] 6.4 If acknowledged-command `PC == TARGET`, report success; if `PC == PRE_STATE`, allow the single controlled absolute resend; if `PC` is unavailable/unknown/conflicting, report indeterminate with no resend.
+- [ ] 6.5 For ambiguous PCS4i initial delivery, allow at most one reconciliation cycle with at most one reconnect/recovery if needed for `PC` readback and one reconciliation decision readback.
+- [ ] 6.6 If reconciliation decision `PC == TARGET`, report success without resend; if `PC == PRE_STATE`, allow the single controlled absolute resend; if `PC` is unavailable/unknown/conflicting, report indeterminate with no resend.
+- [ ] 6.7 After the controlled resend, perform exactly one terminal confirmation `PC` readback: `TARGET` -> success, `PRE_STATE` -> failure, unavailable/unknown/conflicting -> indeterminate.
+- [ ] 6.8 Ensure no further resend, reconnect, or reconciliation occurs after controlled-resend terminal confirmation.
+- [ ] 6.9 Add tests proving PCS4i REBOOT is hidden in `PDUScreen` and rejected programmatically before handler acquisition/network I/O.
+- [ ] 6.10 Add PCS4i ON/OFF tests for acknowledged mismatch, controlled resend confirmation, ambiguous initial delivery reaching target, ambiguous initial delivery staying at `PRE_STATE`, unavailable reconciliation readback, total send budget, and no success based only on resend acknowledgement.
+- [ ] 6.11 Add Aten command safety tests for ambiguous ON, ambiguous OFF, target already reached, known pre-command state permitting at most one controlled resend, unavailable/unknown/conflicting readback producing indeterminate, second ambiguous outcome after controlled resend producing indeterminate, ambiguous REBOOT never resent, reconciliation budget not exceeded, and existing Aten protocol behavior unchanged.
 
 ## 7. GUI and regression coverage
 
