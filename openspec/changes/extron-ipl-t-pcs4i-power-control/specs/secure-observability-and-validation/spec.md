@@ -50,7 +50,7 @@ shared PDU command boundary for Aten regression behavior.
 
 #### Scenario: PCS4i command safety is offline-testable
 - **WHEN** maintainers run offline PCS4i PDU command tests
-- **THEN** one initial ON/OFF send maximum, one reconciliation cycle maximum, one reconciliation decision readback maximum, one controlled ON/OFF resend maximum, one terminal confirmation `PC` readback after controlled resend, total state-changing sends maximum two, acknowledged mismatch handling, `PC == PRE_STATE` after controlled resend producing failure, unavailable terminal readback producing indeterminate, and no recursive recovery are verified without sending commands to live hardware
+- **THEN** one initial ON/OFF send maximum, one reconciliation cycle maximum, one reconciliation decision readback maximum, one controlled ON/OFF resend maximum, one terminal confirmation `PC` readback after controlled resend, total state-changing sends maximum two, acknowledged mismatch handling with saved `PRE_STATE`, unknown `PRE_STATE` valid non-target readback producing indeterminate with no resend, opposite state not implicitly becoming `PRE_STATE`, `PC == PRE_STATE` after controlled resend producing failure, unavailable terminal readback producing indeterminate, and no recursive recovery are verified without sending commands to live hardware
 
 #### Scenario: PCS4i REBOOT unsupported is offline-testable
 - **WHEN** maintainers run offline PCS4i capability and dispatch tests

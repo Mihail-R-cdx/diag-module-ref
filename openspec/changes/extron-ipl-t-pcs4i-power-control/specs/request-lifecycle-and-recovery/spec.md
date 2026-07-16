@@ -197,9 +197,14 @@ known pre-command state. The shared PDU command boundary SHALL call a
 device-specific handler readback operation and SHALL NOT encode PCS4i Telnet or
 Aten status API wire details.
 
-For PCS4i ON/OFF, the application SHALL preserve authoritative `PRE_STATE`
-before the first send when valid `PC` readback is available and SHALL define
-`TARGET` as ON for `turn_on` and OFF for `turn_off`. One user PCS4i ON/OFF
+For PCS4i ON/OFF, the application SHALL attempt to obtain and preserve
+authoritative `PRE_STATE` through `PC` before the first state-changing send and
+SHALL define `TARGET` as ON for `turn_on` and OFF for `turn_off`. Obtaining
+valid `PRE_STATE` is desirable for safe recovery, but failure to obtain it SHALL
+NOT by itself block the initial absolute ON or OFF command. If the initial
+command proceeds without known `PRE_STATE`, the operation SHALL NOT perform a
+controlled resend. A readback obtained after the first state-changing send SHALL
+NOT be retroactively treated as pre-command state. One user PCS4i ON/OFF
 operation SHALL have these budgets: initial command send max 1, controlled
 resend max 1, total state-changing sends max 2, reconciliation cycles max 1,
 reconciliation decision readback max 1, terminal confirmation readback after
@@ -208,24 +213,31 @@ controlled resend max 1, and recursive recovery max 0.
 The reconciliation decision readback and terminal confirmation readback SHALL
 be separate. The decision readback after ambiguous initial delivery decides
 whether `TARGET` is already reached, whether the only controlled resend is
-allowed because readback equals `PRE_STATE`, or whether the outcome is
-indeterminate. If the controlled resend is used, exactly one terminal
-confirmation `PC` readback SHALL run after it and SHALL NOT count as a second
-reconciliation cycle.
+allowed because readback equals a known saved `PRE_STATE`, or whether the
+outcome is indeterminate. If the controlled resend is used, exactly one
+terminal confirmation `PC` readback SHALL run after it and SHALL NOT count as a
+second reconciliation cycle. A valid non-target readback SHALL NOT be treated
+as `PRE_STATE` unless it exactly matches authoritative `PRE_STATE` captured
+before the first state-changing send.
 
 PCS4i terminal outcomes SHALL be:
 
 - structured device rejection -> `FAILURE`;
 - initial acknowledgement followed by `PC == TARGET` -> `SUCCESS`;
-- initial acknowledgement followed by `PC == PRE_STATE` -> one controlled
-  absolute resend is allowed, and terminal success still requires final
-  `PC == TARGET`;
+- initial acknowledgement followed by known saved `PRE_STATE` and
+  `PC == PRE_STATE` -> one controlled absolute resend is allowed, and terminal
+  success still requires final `PC == TARGET`;
+- initial acknowledgement with unknown `PRE_STATE` followed by valid
+  `PC != TARGET` -> `INDETERMINATE` and no controlled resend;
 - initial acknowledgement followed by unavailable, unknown, or conflicting
   `PC` -> `INDETERMINATE` with no resend;
 - ambiguous initial delivery followed by reconciliation `PC == TARGET` ->
   `SUCCESS` with no resend;
-- ambiguous initial delivery followed by reconciliation `PC == PRE_STATE` ->
-  one controlled absolute resend is allowed;
+- ambiguous initial delivery followed by reconciliation readback with known
+  saved `PRE_STATE` and `PC == PRE_STATE` -> one controlled absolute resend is
+  allowed;
+- ambiguous initial delivery with unknown `PRE_STATE` followed by valid
+  `PC != TARGET` -> `INDETERMINATE` and no controlled resend;
 - ambiguous initial delivery followed by unavailable, unknown, or conflicting
   `PC` -> `INDETERMINATE` with no resend;
 - after the controlled resend, terminal confirmation `PC == TARGET` ->
@@ -244,6 +256,7 @@ controlled resend SHALL NOT by itself establish terminal success for PCS4i.
 - **THEN** the operation reports success without sending ON again
 
 #### Scenario: OFF target still absent
+- **GIVEN** authoritative ON was captured as `PRE_STATE` before the initial OFF command
 - **WHEN** a PDU OFF command loses acknowledgement and device-specific authoritative readback shows the outlet is still on
 - **THEN** policy may send one controlled OFF command and performs no blind replay loop
 
@@ -262,10 +275,35 @@ controlled resend SHALL NOT by itself establish terminal success for PCS4i.
 
 #### Scenario: Acknowledged PCS4i command still equals PRE_STATE
 - **GIVEN** PCS4i ON/OFF command acknowledgement was received
-- **WHEN** authoritative `PC` readback still equals `PRE_STATE`
+- **AND** authoritative `PRE_STATE` was captured before the initial command
+- **WHEN** authoritative `PC` readback still equals saved `PRE_STATE`
 - **THEN** acknowledgement alone does not mean success
 - **AND** policy may perform the single controlled absolute resend
 - **AND** terminal success requires final `PC == TARGET`
+
+#### Scenario: Unknown PRE_STATE reaches target
+- **GIVEN** valid `PRE_STATE` could not be obtained before initial PCS4i command
+- **WHEN** initial command is sent
+- **AND** authoritative post-command `PC == TARGET`
+- **THEN** operation reports `SUCCESS`
+- **AND** no resend occurs
+
+#### Scenario: Unknown PRE_STATE returns non-target state
+- **GIVEN** valid `PRE_STATE` could not be obtained before initial PCS4i command
+- **WHEN** authoritative post-command `PC` returns a valid state different from `TARGET`
+- **THEN** operation reports `INDETERMINATE`
+- **AND** no controlled resend occurs
+
+#### Scenario: Controlled resend requires preserved PRE_STATE
+- **GIVEN** authoritative `PRE_STATE` was captured before initial command
+- **WHEN** post-command authoritative `PC == PRE_STATE`
+- **THEN** the single controlled resend may be performed
+
+#### Scenario: Opposite state is not implicitly PRE_STATE
+- **GIVEN** no authoritative `PRE_STATE` was captured before initial command
+- **WHEN** `TARGET` is OFF and post-command `PC` is ON
+- **THEN** ON must not automatically be treated as `PRE_STATE`
+- **AND** no controlled resend is allowed
 
 #### Scenario: Controlled resend confirmation
 - **GIVEN** policy performed the only controlled resend for a PCS4i ON/OFF operation

@@ -412,10 +412,15 @@ unchanged behavior remain intact.
 PDU control operations change power state and cannot be blindly repeated after
 an ambiguous transport outcome.
 
-For PCS4i ON/OFF, the operation records an authoritative pre-command state
-`PRE_STATE` before the first send when a valid `PC` readback is available. The
-target state `TARGET` is ON for `turn_on()` and OFF for `turn_off()`. The
-operation has these budgets for one user action:
+For PCS4i ON/OFF, the operation attempts to read and preserve authoritative
+pre-command state `PRE_STATE` through `PC` before the first state-changing
+send. Obtaining `PRE_STATE` is desirable for safe recovery, but failure to
+obtain a valid `PRE_STATE` does not by itself block the initial absolute ON or
+OFF command. If the initial command proceeds without known `PRE_STATE`, the
+operation loses the right to perform a controlled resend. No readback obtained
+after the first state-changing send may be retroactively treated as
+pre-command state. The target state `TARGET` is ON for `turn_on()` and OFF for
+`turn_off()`. The operation has these budgets for one user action:
 
 - initial command send: max 1;
 - controlled resend: max 1;
@@ -427,10 +432,10 @@ operation has these budgets for one user action:
 
 The reconciliation decision readback and the terminal confirmation readback are
 separate budgets. The single reconciliation decision decides whether the target
-already took effect, whether one controlled absolute resend is allowed, or
-whether the outcome is indeterminate. If the controlled resend is used, one
-terminal confirmation `PC` readback is still required and is not a second
-reconciliation cycle.
+already took effect, whether one controlled absolute resend is allowed because
+the readback exactly matches a known saved `PRE_STATE`, or whether the outcome
+is indeterminate. If the controlled resend is used, one terminal confirmation
+`PC` readback is still required and is not a second reconciliation cycle.
 
 Initial PCS4i ON/OFF send outcomes:
 
@@ -439,17 +444,31 @@ Initial PCS4i ON/OFF send outcomes:
 - Delivery acknowledged -> perform terminal authoritative `PC` readback even
   though acknowledgement was received.
   - `PC == TARGET` -> `SUCCESS`.
-  - `PC == PRE_STATE` -> acknowledgement alone is not success; if no controlled
-    resend has been used, send the same absolute `TARGET` command once and then
-    perform one terminal confirmation `PC` readback.
-  - `PC` unavailable, unknown, or conflicting -> `INDETERMINATE`; no resend.
+  - `PRE_STATE` is known and `PC == PRE_STATE` -> acknowledgement alone is not
+    success; if no controlled resend has been used, send the same absolute
+    `TARGET` command once and then perform one terminal confirmation `PC`
+    readback.
+  - `PRE_STATE` is unknown and `PC` is valid but `PC != TARGET` ->
+    `INDETERMINATE`; no controlled resend.
+  - `PC` unavailable, unknown, malformed, or conflicting -> `INDETERMINATE`; no
+    resend.
 - Initial delivery ambiguous -> run the one reconciliation cycle. It may perform
   at most one reconnect/recovery only if needed for authoritative `PC`
   readback, then performs one reconciliation decision readback.
   - `PC == TARGET` -> `SUCCESS`; no resend.
-  - `PC == PRE_STATE` -> one controlled absolute resend of `TARGET` is allowed,
-    followed by exactly one terminal confirmation `PC` readback.
-  - `PC` unavailable, unknown, or conflicting -> `INDETERMINATE`; no resend.
+  - `PRE_STATE` is known and `PC == PRE_STATE` -> one controlled absolute
+    resend of `TARGET` is allowed, followed by exactly one terminal confirmation
+    `PC` readback.
+  - `PRE_STATE` is unknown and `PC` is valid but `PC != TARGET` ->
+    `INDETERMINATE`; no controlled resend.
+  - `PC` unavailable, unknown, malformed, or conflicting -> `INDETERMINATE`; no
+    resend.
+
+The opposite of `TARGET` is not implicitly `PRE_STATE`. For example, if
+`TARGET` is OFF and post-command `PC` is ON, the ON state allows controlled
+resend only when ON was captured as authoritative `PRE_STATE` before the
+initial OFF send. Without that saved `PRE_STATE`, the valid non-target readback
+is `INDETERMINATE` and no controlled resend is allowed.
 
 Controlled resend terminal confirmation:
 

@@ -60,17 +60,18 @@
 
 ## 6. Command safety and capabilities
 
-- [ ] 6.1 Preserve authoritative `PRE_STATE` before the first PCS4i ON/OFF send when valid `PC` readback is available, and define `TARGET` from the requested absolute command.
+- [ ] 6.1 Attempt authoritative `PRE_STATE` readback before the first PCS4i ON/OFF send, preserve it only when valid, and define `TARGET` from the requested absolute command.
 - [ ] 6.2 Enforce PCS4i ON/OFF budgets: initial send max 1, controlled resend max 1, total state-changing sends max 2, reconciliation cycles max 1, reconciliation decision readback max 1, terminal confirmation readback after resend max 1, recursive recovery 0.
 - [ ] 6.3 After PCS4i ON/OFF acknowledgement, always perform authoritative `PC` readback; acknowledgement alone is not terminal success.
-- [ ] 6.4 If acknowledged-command `PC == TARGET`, report success; if `PC == PRE_STATE`, allow the single controlled absolute resend; if `PC` is unavailable/unknown/conflicting, report indeterminate with no resend.
+- [ ] 6.4 If acknowledged-command `PC == TARGET`, report success; if saved `PRE_STATE` is known and `PC == PRE_STATE`, allow the single controlled absolute resend; if `PRE_STATE` is unknown and valid `PC != TARGET`, report indeterminate with no resend; if `PC` is unavailable/unknown/malformed/conflicting, report indeterminate with no resend.
 - [ ] 6.5 For ambiguous PCS4i initial delivery, allow at most one reconciliation cycle with at most one reconnect/recovery if needed for `PC` readback and one reconciliation decision readback.
-- [ ] 6.6 If reconciliation decision `PC == TARGET`, report success without resend; if `PC == PRE_STATE`, allow the single controlled absolute resend; if `PC` is unavailable/unknown/conflicting, report indeterminate with no resend.
+- [ ] 6.6 If reconciliation decision `PC == TARGET`, report success without resend; if saved `PRE_STATE` is known and `PC == PRE_STATE`, allow the single controlled absolute resend; if `PRE_STATE` is unknown and valid `PC != TARGET`, report indeterminate with no resend; if `PC` is unavailable/unknown/malformed/conflicting, report indeterminate with no resend.
 - [ ] 6.7 After the controlled resend, perform exactly one terminal confirmation `PC` readback: `TARGET` -> success, `PRE_STATE` -> failure, unavailable/unknown/conflicting -> indeterminate.
-- [ ] 6.8 Ensure no further resend, reconnect, or reconciliation occurs after controlled-resend terminal confirmation.
+- [ ] 6.8 Ensure the opposite of `TARGET` is never treated as `PRE_STATE` unless that state was captured as authoritative `PRE_STATE` before the initial send.
 - [ ] 6.9 Add tests proving PCS4i REBOOT is hidden in `PDUScreen` and rejected programmatically before handler acquisition/network I/O.
-- [ ] 6.10 Add PCS4i ON/OFF tests for acknowledged mismatch, controlled resend confirmation, ambiguous initial delivery reaching target, ambiguous initial delivery staying at `PRE_STATE`, unavailable reconciliation readback, total send budget, and no success based only on resend acknowledgement.
-- [ ] 6.11 Add Aten command safety tests for ambiguous ON, ambiguous OFF, target already reached, known pre-command state permitting at most one controlled resend, unavailable/unknown/conflicting readback producing indeterminate, second ambiguous outcome after controlled resend producing indeterminate, ambiguous REBOOT never resent, reconciliation budget not exceeded, and existing Aten protocol behavior unchanged.
+- [ ] 6.10 Ensure no further resend, reconnect, or reconciliation occurs after controlled-resend terminal confirmation.
+- [ ] 6.11 Add PCS4i ON/OFF tests for acknowledged mismatch with known `PRE_STATE`, unknown `PRE_STATE` reaching target, unknown `PRE_STATE` returning valid non-target state, controlled resend requiring preserved `PRE_STATE`, opposite state not implicitly being `PRE_STATE`, controlled resend confirmation, ambiguous initial delivery reaching target, ambiguous initial delivery staying at saved `PRE_STATE`, unavailable reconciliation readback, total send budget, and no success based only on resend acknowledgement.
+- [ ] 6.12 Add Aten command safety tests for ambiguous ON, ambiguous OFF, target already reached, known pre-command state permitting at most one controlled resend, unavailable/unknown/conflicting readback producing indeterminate, second ambiguous outcome after controlled resend producing indeterminate, ambiguous REBOOT never resent, reconciliation budget not exceeded, and existing Aten protocol behavior unchanged.
 
 ## 7. GUI and regression coverage
 
