@@ -2,6 +2,10 @@
 Исключения для модуля диагностики оборудования ВКС
 """
 
+from __future__ import annotations
+
+from enum import Enum
+
 
 class DeviceError(Exception):
     """Базовое исключение для ошибок устройств"""
@@ -41,6 +45,41 @@ class DeviceNotFoundError(DeviceError):
 class ProtocolError(DeviceError):
     """Ошибка протокола"""
     pass
+
+
+class SessionInvalidError(DeviceError):
+    """An established codec session is no longer accepted by the device."""
+
+
+class CommandOutcomeUnknownError(DeviceError):
+    """A state-changing command may have reached the device without a reply."""
+
+
+class CodecFailureCategory(str, Enum):
+    """Stable retry/recovery authority for codec refresh and interactive paths."""
+
+    AUTHENTICATION = "authentication_error"
+    SESSION_INVALID = "session_invalid"
+    TRANSPORT = "connection_error"
+    PROTOCOL = "protocol_error"
+    COMMAND = "command_error"
+    UNKNOWN_COMMAND_OUTCOME = "unknown_command_outcome"
+
+
+def classify_codec_failure(error: BaseException) -> CodecFailureCategory:
+    """Classify a caught typed failure without inspecting human-readable text."""
+
+    if isinstance(error, AuthenticationError):
+        return CodecFailureCategory.AUTHENTICATION
+    if isinstance(error, SessionInvalidError):
+        return CodecFailureCategory.SESSION_INVALID
+    if isinstance(error, CommandOutcomeUnknownError):
+        return CodecFailureCategory.UNKNOWN_COMMAND_OUTCOME
+    if isinstance(error, CommandError):
+        return CodecFailureCategory.COMMAND
+    if isinstance(error, (ProtocolError, ParseError)):
+        return CodecFailureCategory.PROTOCOL
+    return CodecFailureCategory.TRANSPORT
 
 
 class CredentialConfigurationError(DeviceError):

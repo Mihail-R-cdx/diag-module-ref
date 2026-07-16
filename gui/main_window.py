@@ -14,8 +14,13 @@ from .components import EmptyState, StatusIndicator
 from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CodecFailureCategory,
+    ConnectionError,
+)
 from core.credentials import (
+    CredentialAttemptPlan,
     JsonCredentialProvider,
     resolve_request_credential_candidates,
     resolve_request_credentials,
@@ -146,6 +151,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.ui_state = UIState.IDLE
         self._request_serial = 0
         self._active_request = None
+        self._credential_attempt_plans = {}
         self.matrix_persistent_handler = None
         self.matrix_persistent_ip = None
         self.matrix_persistent_username = None
@@ -338,7 +344,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.setObjectName("ipEntry")
         self.ip_entry.setMinimumWidth(160)
         self.ip_entry.setPlaceholderText("link.ru")
-        self.ip_entry.setText("link.ru")
+        self.ip_entry.setText("192.168.1.1")
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
         
@@ -702,6 +708,52 @@ class VCSDiagnosticApp(QMainWindow):
             return 0
         return index
 
+    def _credential_attempt_plan(self, device_name, creds_list, ip_address=None):
+        """Return one finite request cursor without mutating successful-index memory."""
+        plans = self.__dict__.get("_credential_attempt_plans")
+        if plans is None:
+            plans = self._credential_attempt_plans = {}
+        key = self.get_credential_key(device_name, ip_address)
+        plan = plans.get(key)
+        candidates = tuple(creds_list or ())
+        if plan is None or plan.candidates != candidates:
+            plan = CredentialAttemptPlan(
+                candidates,
+                self.get_valid_current_credential_index(
+                    device_name, candidates, ip_address
+                ),
+            )
+            plans[key] = plan
+        return plan
+
+    def _credential_attempt_index(self, device_name, creds_list, ip_address=None):
+        return self._credential_attempt_plan(
+            device_name, creds_list, ip_address
+        ).current_index
+
+    def _discard_credential_attempt_plan(self, device_name, ip_address=None):
+        self.__dict__.get("_credential_attempt_plans", {}).pop(
+            self.get_credential_key(device_name, ip_address), None
+        )
+
+    def _advance_codec_credential_attempt(
+        self, device_name, creds_list, ip_address, current_index
+    ):
+        plans = self.__dict__.get("_credential_attempt_plans")
+        if plans is None:
+            plans = self._credential_attempt_plans = {}
+        key = self.get_credential_key(device_name, ip_address)
+        plan = plans.get(key)
+        candidates = tuple(creds_list or ())
+        if (
+            plan is None
+            or plan.candidates != candidates
+            or plan.current_index != current_index
+        ):
+            plan = CredentialAttemptPlan(candidates, current_index)
+            plans[key] = plan
+        return plan.advance_after_authentication_failure()
+
     @staticmethod
     def _credential_secrets(creds_list):
         return tuple(
@@ -904,6 +956,13 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             # Credential resolution is deliberately before ping or worker network I/O.
             self._active_request_credentials = self.device_credentials.get(device_name)
+            VCSDiagnosticApp._discard_credential_attempt_plan(
+                self, device_name, ip_address
+            )
+            VCSDiagnosticApp._credential_attempt_plan(
+                self,
+                device_name, self._active_request_credentials, ip_address
+            )
         except CredentialConfigurationError as error:
             message = str(error)
             self.set_ui_state(UIState.REQUEST_ERROR, message)
@@ -1025,7 +1084,7 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.get_valid_current_credential_index(
+        current_idx = self._credential_attempt_index(
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
@@ -1085,7 +1144,7 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
 
         # Создаем worker с текущими credentials
-        current_idx = self.get_valid_current_credential_index(
+        current_idx = self._credential_attempt_index(
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
@@ -1106,6 +1165,9 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiTE20Worker(
                 ip_address=ip_address,
                 port=80,  # TE-20 использует HTTP порт 80
+                preferred_profile=self.get_device_connection_profile(
+                    device_name, ip_address
+                ),
                 **creds,
             )
             
@@ -1144,7 +1206,7 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.get_valid_current_credential_index(
+        current_idx = self._credential_attempt_index(
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
@@ -1165,6 +1227,9 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker = HuaweiTE40Worker(
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
+                preferred_profile=self.get_device_connection_profile(
+                    device_name, ip_address
+                ),
                 **creds,
             )
             
@@ -1203,7 +1268,7 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
-        current_idx = self.get_valid_current_credential_index(
+        current_idx = self._credential_attempt_index(
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
@@ -1537,6 +1602,11 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = getattr(worker, 'current_idx', 0)
             if device_name:
                 self.set_current_credential_index(device_name, current_idx, data.get('ip_address', self.ip_entry.text()))
+                VCSDiagnosticApp._discard_credential_attempt_plan(
+                    self,
+                    device_name,
+                    data.get('ip_address', self.ip_entry.text()),
+                )
                 connection_profile = data.get('connection_profile')
                 if isinstance(connection_profile, dict) and connection_profile:
                     self.set_device_connection_profile(
@@ -1645,48 +1715,81 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = getattr(worker, 'current_idx', 0)
             
             error_message = str(error)
-            is_auth_error = self.is_authentication_error(error_type, error_message)
+            codec_error = self.is_vcs_codec_device(device_name)
+            is_auth_error = (
+                error_type == CodecFailureCategory.AUTHENTICATION.value
+                if codec_error
+                else self.is_authentication_error(error_type, error_message)
+            )
 
             # Если это ошибка аутентификации и есть еще credentials для проверки
             if is_auth_error and creds_list and current_idx < len(creds_list) - 1:
                 
                 # Переходим к следующему credentials
                 next_idx = current_idx + 1
-                self.set_current_credential_index(device_name, next_idx, getattr(worker, 'ip_address', None))
+                if codec_error:
+                    if not VCSDiagnosticApp._advance_codec_credential_attempt(
+                        self,
+                        device_name,
+                        creds_list,
+                        getattr(worker, 'ip_address', None),
+                        current_idx,
+                    ):
+                        next_idx = None
+                else:
+                    self.set_current_credential_index(
+                        device_name, next_idx, getattr(worker, 'ip_address', None)
+                    )
+
+                if next_idx is None:
+                    VCSDiagnosticApp._discard_credential_attempt_plan(
+                        self,
+                        device_name,
+                        getattr(worker, 'ip_address', None),
+                    )
+                else:
+                    print(f"Ошибка аутентификации. Пробуем следующие credentials ({next_idx + 1}/{len(creds_list)})...")
                 
-                print(f"Ошибка аутентификации. Пробуем следующие credentials ({next_idx + 1}/{len(creds_list)})...")
+                    # Скрываем текущий прогресс диалог
+                    self.hide_progress_dialog()
+                    self.set_ui_state(
+                        UIState.LOADING,
+                        f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}…",
+                    )
                 
-                # Скрываем текущий прогресс диалог
-                self.hide_progress_dialog()
-                self.set_ui_state(
-                    UIState.LOADING,
-                    f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}…",
-                )
-                
-                # Повторяем попытку с новыми credentials
-                if device_name == "Huawei TE40":
-                    self.refresh_huawei_te40(worker.ip_address)
-                elif device_name == "CloudLink Bar 310":  # Добавлено новое условие
-                    self.refresh_huawei_bar310(worker.ip_address)
-                elif device_name == "Huawei TE20":
-                    self.refresh_huawei_te20(worker.ip_address)
-                elif device_name == "Polycom RPG 310":
-                    self.refresh_polycom_rpg310(worker.ip_address)
-                elif device_name == "Extron IN1804":
-                    self.refresh_extron_in1804(worker.ip_address)
-                elif device_name == "Aten PE8208AV":  # Добавить эту ветку
-                    self.refresh_aten_pdu(worker.ip_address)
-                elif device_name == "Biamp Tesira Forte CI":
-                    self.refresh_biamp_tesira_forte_ci(worker.ip_address)
-                return
+                    # Повторяем попытку с новыми credentials
+                    if device_name == "Huawei TE40":
+                        self.refresh_huawei_te40(worker.ip_address)
+                    elif device_name == "CloudLink Bar 310":
+                        self.refresh_huawei_bar310(worker.ip_address)
+                    elif device_name == "Huawei TE20":
+                        self.refresh_huawei_te20(worker.ip_address)
+                    elif device_name == "Polycom RPG 310":
+                        self.refresh_polycom_rpg310(worker.ip_address)
+                    elif device_name == "Extron IN1804":
+                        self.refresh_extron_in1804(worker.ip_address)
+                    elif device_name == "Aten PE8208AV":
+                        self.refresh_aten_pdu(worker.ip_address)
+                    elif device_name == "Biamp Tesira Forte CI":
+                        self.refresh_biamp_tesira_forte_ci(worker.ip_address)
+                    return
                       
         
         # Если нет других credentials или ошибка не связана с аутентификацией
         self.hide_progress_dialog()
         
         error_message = str(error)
-        is_auth_error = self.is_authentication_error(error_type, error_message)
         device_name = getattr(worker, 'device_name', self.device_combo.currentText())
+        is_auth_error = (
+            error_type == CodecFailureCategory.AUTHENTICATION.value
+            if self.is_vcs_codec_device(device_name)
+            else self.is_authentication_error(error_type, error_message)
+        )
+        VCSDiagnosticApp._discard_credential_attempt_plan(
+            self,
+            device_name,
+            getattr(worker, 'ip_address', None) if worker else None,
+        )
 
         if is_auth_error and self.is_vcs_codec_device(device_name):
             user_message = "Авторизация неуспешна"
@@ -2541,7 +2644,9 @@ class VCSDiagnosticApp(QMainWindow):
 
     def closeEvent(self, event):
         codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
-        if codec_screen and hasattr(codec_screen, "reset_volume_session"):
+        if codec_screen and hasattr(codec_screen, "shutdown_interactive_controller"):
+            codec_screen.shutdown_interactive_controller()
+        elif codec_screen and hasattr(codec_screen, "reset_volume_session"):
             codec_screen.reset_volume_session()
         self.disconnect_matrix_persistent_handler()
         app = QApplication.instance()

@@ -1,35 +1,4 @@
-# request-lifecycle-and-recovery Specification
-
-## Purpose
-TBD - created by archiving change bootstrap-openspec-baseline. Update Purpose after archive.
-## Requirements
-### Requirement: Background diagnostic execution
-Network diagnostic refresh operations SHALL execute through QRunnable workers
-submitted to `QThreadPool` and SHALL return progress, status, result, error,
-connection, and completion information through worker signals. Workers SHALL
-disconnect handlers in their cleanup paths when a handler was created.
-
-#### Scenario: Worker succeeds
-- **WHEN** a device worker connects, collects status, and parses a response
-- **THEN** it emits a result for the GUI and releases its handler before emitting completion
-
-#### Scenario: Worker fails
-- **WHEN** a device worker encounters an authentication or connection exception
-- **THEN** it emits a classified error and emits completion after its cleanup path
-
-### Requirement: Request-context isolation
-The main window SHALL associate device results, errors, and completion with the
-active request context, including the selected model, IP address, target screen,
-and request identifier. It SHALL ignore callbacks from superseded requests and
-shall not let them change the current screen or refresh-button state.
-
-#### Scenario: Stale result arrives after a newer request
-- **WHEN** a prior worker emits a result after the operator has started a newer request for a different IP or screen
-- **THEN** the prior result is ignored and the newer request remains active
-
-#### Scenario: Stale completion arrives after a newer request
-- **WHEN** a prior worker emits completion while a newer request is loading
-- **THEN** the prior completion does not re-enable refresh or replace the newer state
+## MODIFIED Requirements
 
 ### Requirement: Credential retry and connection-profile memory
 The application SHALL try configured credentials in order for a supported
@@ -89,6 +58,8 @@ handler before it can be reused by the new context.
 - **WHEN** newly resolved credentials no longer match the assigned cached credential context
 - **THEN** the cached handler is invalidated before network work continues
 - **AND** queued operations carrying the superseded credential context cannot invoke it
+
+## ADDED Requirements
 
 ### Requirement: Serialized background interactive execution
 Interactive codec network work SHALL execute outside the Qt GUI thread through

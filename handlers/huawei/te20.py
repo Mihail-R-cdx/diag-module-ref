@@ -11,7 +11,13 @@ import tempfile
 from datetime import datetime
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CommandError,
+    ConnectionError,
+    ProtocolError,
+    SessionInvalidError,
+)
 from core.redaction import redact_diagnostic
 from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 
@@ -303,16 +309,9 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 self.csrf_token = token_data_parsed.get("acCSRFToken")
             else:
                 error_info = token_result.get("error", token_result.get("exception", token_result))
-                error_str = str(error_info).lower()
                 error_code = error_info.get("code") if isinstance(error_info, dict) else None
                 error_id = error_info.get("id") if isinstance(error_info, dict) else None
-                if (
-                    "authentication" in error_str
-                    or "auth" in error_str
-                    or "401" in error_str
-                    or error_code == 16781315
-                    or error_id == 100666780
-                ):
+                if error_code == 16781315 or error_id == 100666780:
                     raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {error_info}")
                 self.csrf_token = None
                 self._log_command(f"[warn] CSRF request returned unsuccessful result: {error_info}")
@@ -424,12 +423,10 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 if e.response.status_code in (401, 403):
                     raise AuthenticationError(f"HTTP {e.response.status_code}: Ошибка аутентификации при получении Session ID")
                 raise ConnectionError(f"HTTP ошибка при получении Session ID: {e}")
+            except AuthenticationError:
+                raise
             except Exception as e:
                 self._log_command(f"[error] {type(e).__name__} while requesting Session ID: {e}")
-                # Проверяем, не ошибка ли это аутентификации по тексту ошибки
-                error_str = str(e).lower()
-                if "authentication" in error_str or "401" in error_str or "403" in error_str:
-                    raise AuthenticationError(f"Ошибка аутентификации при получении Session ID: {str(e)}")
                 print(f"[WARN] Ошибка получения Session ID (не критично): {type(e).__name__}: {str(e)}")
                 self._refresh_session_id()
             
@@ -475,16 +472,9 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 else:
                     # Запрос не успешен - проверяем, не ошибка ли это аутентификации
                     error_info = token_result.get('error', token_result.get('exception', 'Unknown error'))
-                    error_str = str(error_info).lower()
                     error_code = error_info.get('code') if isinstance(error_info, dict) else None
                     error_id = error_info.get('id') if isinstance(error_info, dict) else None
-                    if (
-                        "authentication" in error_str
-                        or "auth" in error_str
-                        or "401" in error_str
-                        or error_code == 16781315
-                        or error_id == 100666780
-                    ):
+                    if error_code == 16781315 or error_id == 100666780:
                         raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {error_info}")
                     print(f"[WARN] CSRF Token запрос не успешен: {error_info}")
                     self.csrf_token = None
@@ -495,12 +485,10 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     raise AuthenticationError(f"HTTP {e.response.status_code}: Ошибка аутентификации при получении CSRF токена")
                 print(f"[WARN] HTTP ошибка при получении CSRF токена: {e}")
                 self.csrf_token = None
+            except AuthenticationError:
+                raise
             except Exception as e:
                 self._log_command(f"[error] {type(e).__name__} while requesting CSRF token: {e}")
-                # Проверяем, не ошибка ли это аутентификации
-                error_str = str(e).lower()
-                if "authentication" in error_str or "401" in error_str or "403" in error_str:
-                    raise AuthenticationError(f"Ошибка аутентификации при получении CSRF токена: {str(e)}")
                 print(f"[WARN] Ошибка получения CSRF токена: {type(e).__name__}: {str(e)}")
                 self.csrf_token = None
 
@@ -700,7 +688,9 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
 
         self._log_command(f"[response] {status_code} {response_text[:500]}")
         if status_code in (401, 403):
-            raise AuthenticationError(f"HTTP {status_code}: Ошибка аутентификации при получении журнала звонков")
+            raise SessionInvalidError(
+                f"HTTP {status_code}: established TE20 session was rejected"
+            )
         if status_code >= 400:
             raise ConnectionError(f"HTTP {status_code}: ошибка получения журнала звонков")
 
@@ -725,9 +715,10 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         if not self._connected:
             try:
                 if not self.connect():
-                    # Если не удалось подключиться, возвращаем ошибку
                     print(f"[WARN] Не удалось подключиться для команды {command}")
-                    return {'success': 0, 'error': 'Not connected', 'data': {}}
+                    raise ConnectionError(
+                        f"TE20 did not establish a session for command {command}"
+                    )
             except AuthenticationError as e:
                 # Пробрасываем AuthenticationError для обработки на верхнем уровне
                 raise
@@ -780,7 +771,9 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                     status_code = response["status_code"]
                     response_text = response["text"]
                     if status_code in (401, 403):
-                        raise AuthenticationError(f"HTTP {status_code}: Ошибка аутентификации при выполнении команды {command}")
+                        raise SessionInvalidError(
+                            f"HTTP {status_code}: established TE20 session was rejected"
+                        )
                     self._log_command(f"[response] {status_code} {response_text}")
                     print(f"Ответ {command}: {response_text[:200]}...")
                     result = self._parse_json_text(response_text)
@@ -795,10 +788,6 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                             return result
                         return result
 
-                    error_info = result.get('error', result.get('exception', ''))
-                    error_str = str(error_info).lower()
-                    if "authentication" in error_str or "auth" in error_str:
-                        raise AuthenticationError(f"Ошибка аутентификации: {error_info}")
                     print(f"[WARN] Команда {command} вернула success=0")
                     return result
 
@@ -814,8 +803,9 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 
                 # Проверяем HTTP статус код
                 if response.status_code == 401 or response.status_code == 403:
-                    # Это ошибка аутентификации
-                    raise AuthenticationError(f"HTTP {response.status_code}: Ошибка аутентификации при выполнении команды {command}")
+                    raise SessionInvalidError(
+                        f"HTTP {response.status_code}: established TE20 session was rejected"
+                    )
                 
                 response_text = self._decode_response_text(response)
                 self._log_command(f"[response] {response.status_code} {response_text}")
@@ -841,39 +831,39 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                             # Если нет поля data, возвращаем весь результат
                             return result
                     else:
-                        # Запрос не успешен - проверяем, не ошибка ли это аутентификации
-                        error_info = result.get('error', result.get('exception', ''))
-                        error_str = str(error_info).lower()
-                        if "authentication" in error_str or "auth" in error_str:
-                            raise AuthenticationError(f"Ошибка аутентификации: {error_info}")
                         print(f"[WARN] Команда {command} вернула success=0")
                         return result
                         
                 except json.JSONDecodeError:
                     print(f"[WARN] Ответ не в JSON формате: {response_text[:100]}")
-                    return {'success': 0, 'data': response_text}
+                    raise ProtocolError(
+                        f"TE20 returned malformed JSON for command {command}"
+                    )
                     
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code in (401, 403):
-                    raise AuthenticationError(f"HTTP {e.response.status_code}: Ошибка аутентификации при выполнении команды {command}")
+                    raise SessionInvalidError(
+                        f"HTTP {e.response.status_code}: established TE20 session was rejected"
+                    )
                 self._log_command(f"[error] HTTPError {command}: {str(e)}")
                 print(f"[WARN] Ошибка HTTP запроса для команды {command}: {type(e).__name__}: {str(e)}")
-                return {'success': 0, 'error': str(e), 'data': {}}
+                raise ConnectionError(
+                    f"TE20 HTTP request failed for command {command}"
+                ) from e
+            except (SessionInvalidError, ProtocolError, CommandError, ConnectionError):
+                raise
             except Exception as e:
-                # Проверяем, не ошибка ли это аутентификации
-                error_str = str(e).lower()
-                if "authentication" in error_str or "401" in str(e) or "403" in str(e):
-                    raise AuthenticationError(f"Ошибка аутентификации при выполнении команды {command}: {str(e)}")
                 self._log_command(f"[error] {type(e).__name__} {command}: {str(e)}")
                 print(f"[WARN] Ошибка выполнения команды {command}: {type(e).__name__}: {str(e)}")
-                return {'success': 0, 'error': str(e), 'data': {}}
+                raise ConnectionError(
+                    f"TE20 command transport failed for {command}"
+                ) from e
             
-        except AuthenticationError:
-            # Пробрасываем AuthenticationError дальше
+        except (AuthenticationError, SessionInvalidError, ProtocolError, CommandError, ConnectionError):
             raise
         except Exception as e:
             print(f"[WARN] Ошибка выполнения команды {command}: {type(e).__name__}: {str(e)}")
-            return {'success': 0, 'error': str(e), 'data': {}}
+            raise ConnectionError(f"TE20 command failed for {command}") from e
 
     def get_status(self) -> Dict[str, Any]:
         """Получение полного статуса устройства"""
@@ -1267,19 +1257,37 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         """Получить режим сна."""
         result = self.send_command('get_system_sleep')
         if not result or result.get('success') != 1:
-            return 'Off'
+            raise CommandError("TE20 sleep state is unavailable")
 
         data = result.get('data', {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except json.JSONDecodeError:
-                return 'Off'
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE20 sleep state is malformed") from error
 
         if not isinstance(data, dict):
-            return 'Off'
+            raise ProtocolError("TE20 sleep state is not an object")
 
         return 'On' if data.get('isSystemSleep') == 'sleep' else 'Off'
+
+    def get_live_audio_status(self) -> Dict[str, Any]:
+        """Return one authoritative sleep/audio sample for interactive polling."""
+        sleep_mode = self.get_sleep_mode()
+        if sleep_mode == "On":
+            return {"sleep_mode": sleep_mode, "audio": {}}
+        result = self.send_command("get_monitor_audio_params")
+        if not isinstance(result, dict) or result.get("success") != 1:
+            raise CommandError("TE20 live-audio read was rejected")
+        data = result.get("data", {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE20 live-audio data is malformed") from error
+        if not isinstance(data, dict):
+            raise ProtocolError("TE20 live-audio data is not an object")
+        return {"sleep_mode": sleep_mode, "audio": data}
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
@@ -1293,19 +1301,19 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
         """Получить текущий статус локальной презентации."""
         result = self.send_command('get_presentation_local')
         if not result or result.get('success') != 1:
-            return 'Stopped'
+            raise CommandError("TE20 presentation state is unavailable")
 
         data = result.get('data', {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except json.JSONDecodeError:
-                return 'Stopped'
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE20 presentation state is malformed") from error
 
         if not isinstance(data, dict):
-            return 'Stopped'
+            raise ProtocolError("TE20 presentation state is not an object")
 
-        return 'Started' if data.get('isSendAux') == 'auxOpen' else 'Stopped'
+        return 'Start' if data.get('isSendAux') == 'auxOpen' else 'Stop'
 
     def set_presentation(self, value: str) -> bool:
         command_map = {
@@ -1325,8 +1333,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
 
         # Некоторые TE20 не выставляют success=1 для команды, но меняют состояние.
         time.sleep(0.5)
-        expected_state = 'Started' if value == 'Start' else 'Stopped'
-        return self.get_presentation_status() == expected_state
+        return self.get_presentation_status() == value
 
     def set_speaker_volume(self, value: int) -> bool:
         min_value, max_value = self.get_volume_range()
@@ -1378,21 +1385,35 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             return True
 
         time.sleep(0.5)
-        audio_status = self.get_audio_status()
-        mic_mute = str(audio_status.get('mute', '')).lower()
-        if muted:
-            return mic_mute.startswith('on') or 'выключ' in mic_mute or 'muted' in mic_mute
-        return mic_mute.startswith('off') or 'включ' in mic_mute or 'unmuted' in mic_mute
+        expected_state = 'Muted' if muted else 'Unmuted'
+        return self.get_microphone_volume() == expected_state
 
     def set_microphone_volume(self, value: int) -> bool:
         # TE20 web API exposes microphone mute, not a separate microphone gain command.
         # The UI uses value 0 as muted and any positive value as unmuted.
         return self.set_microphone_mute(int(value) <= 0)
 
-    def get_microphone_volume(self) -> Optional[int]:
-        audio_status = self.get_audio_status()
-        volume = audio_status.get('microphone_volume')
-        try:
-            return int(volume)
-        except (TypeError, ValueError):
+    def get_microphone_volume(self) -> Optional[str]:
+        """Return authoritative TE20 microphone mute state for reconciliation."""
+
+        result = self.send_command('get_audio_status')
+        if not isinstance(result, dict) or result.get('success') != 1:
             return None
+
+        audio_data = result.get('data')
+        if isinstance(audio_data, str):
+            try:
+                audio_data = json.loads(audio_data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE20 audio-status data is malformed") from error
+        if not isinstance(audio_data, dict) or 'MicSwitch' not in audio_data:
+            return None
+
+        mic_switch = audio_data['MicSwitch']
+        if isinstance(mic_switch, bool):
+            return None
+        if mic_switch in (0, '0'):
+            return 'Muted'
+        if mic_switch in (1, '1'):
+            return 'Unmuted'
+        return None

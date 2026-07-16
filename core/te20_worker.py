@@ -2,7 +2,13 @@
 from PyQt5.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
 import traceback
 
-from core.exceptions import AuthenticationError, ConnectionError
+from core.codec_connection_profiles import order_codec_profiles
+from core.exceptions import (
+    AuthenticationError,
+    CodecFailureCategory,
+    ConnectionError,
+    classify_codec_failure,
+)
 from core.parser import HuaweiTE20DataParser
 from handlers.huawei.te20 import HuaweiTE20Handler
 from utils.te20_stack import inspect_te20_https_stack
@@ -25,7 +31,8 @@ class WorkerSignals(QObject):
 class HuaweiTE20Worker(QRunnable):
     """Специализированный worker для Huawei TE20."""
 
-    def __init__(self, ip_address: str, port: int = 80, username: str = None, password: str = None):
+    def __init__(self, ip_address: str, port: int = 80, username: str = None,
+                 password: str = None, preferred_profile: dict = None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -35,6 +42,7 @@ class HuaweiTE20Worker(QRunnable):
         self.is_running = True
         self.creds_list = []
         self.current_idx = 0
+        self.preferred_profile = dict(preferred_profile) if preferred_profile else None
 
     def _emit(self, signal, *args) -> bool:
         try:
@@ -57,26 +65,17 @@ class HuaweiTE20Worker(QRunnable):
         return tuple(values)
 
     def _build_unique_profiles(self) -> list[dict]:
-        connection_profiles = [
-            {"port": self.port, "use_ssl": False, "label": "HTTP:80"},
-        ]
         https_stack_info = inspect_te20_https_stack()
-        if https_stack_info["ready"]:
-            connection_profiles.append({"port": 443, "use_ssl": True, "label": "HTTPS:443"})
-        else:
+        if not https_stack_info["ready"]:
             self._log(
                 "[connect] HTTPS:443 fallback skipped: "
                 f"{https_stack_info['transport']} is not ready. {https_stack_info['warning']}"
             )
-
-        seen_profiles = set()
-        unique_profiles = []
-        for profile in connection_profiles:
-            key = (profile["port"], profile["use_ssl"])
-            if key not in seen_profiles:
-                seen_profiles.add(key)
-                unique_profiles.append(profile)
-        return unique_profiles
+        return list(order_codec_profiles(
+            "Huawei TE20",
+            self.preferred_profile,
+            te20_https_ready=bool(https_stack_info["ready"]),
+        ))
 
     @pyqtSlot()
     def run(self):
@@ -196,7 +195,11 @@ class HuaweiTE20Worker(QRunnable):
             safe_error = redact_exception(e, self._secrets())
             print(f"!!! Ошибка аутентификации в HuaweiTE20Worker: {safe_error}")
             self._log(f"[session] failed authentication: {safe_error}")
-            self._emit(self.signals.error, ("authentication_error", safe_error, redact_text(traceback.format_exc(), self._secrets())))
+            self._emit(self.signals.error, (
+                classify_codec_failure(e).value,
+                safe_error,
+                redact_text(traceback.format_exc(), self._secrets()),
+            ))
         except Exception as e:
             safe_error = redact_exception(e, self._secrets())
             print(f"!!! Ошибка в HuaweiTE20Worker: {type(e).__name__}: {safe_error}")
@@ -205,7 +208,11 @@ class HuaweiTE20Worker(QRunnable):
             except OSError:
                 pass
             self._log(f"[session] failed: {type(e).__name__}: {safe_error}")
-            self._emit(self.signals.error, ("connection_error", safe_error, redact_text(traceback.format_exc(), self._secrets())))
+            self._emit(self.signals.error, (
+                classify_codec_failure(e).value,
+                safe_error,
+                redact_text(traceback.format_exc(), self._secrets()),
+            ))
         finally:
             if handler is not None:
                 try:

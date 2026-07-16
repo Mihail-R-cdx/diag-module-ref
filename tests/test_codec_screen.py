@@ -142,22 +142,20 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         }
         self.parent_widget.current_credential_index = {"Huawei TE40": 0}
 
-        class Handler:
-            @staticmethod
-            def send_command(command):
-                self.assertEqual("get_monitor_audio_params", command)
-                return {
-                    "success": 1,
-                    "data": '{"MicValueIndex":60,"SpeakerValueIndex":220}',
-                }
+        def submit(operation, on_result=None, on_error=None):
+            self.assertEqual("get_live_audio_status", operation.method)
+            on_result(
+                {
+                    "sleep_mode": "Off",
+                    "audio": {"MicValueIndex": 60, "SpeakerValueIndex": 220},
+                },
+                {},
+            )
+            return 1
 
         with (
             patch.object(self.screen, "_is_codec_screen_active", return_value=True),
-            patch.object(
-                self.screen,
-                "_get_or_create_volume_handler",
-                return_value=Handler(),
-            ),
+            patch.object(self.screen, "_submit_interactive", side_effect=submit),
             patch.object(self.screen, "_update_monitor_audio_display") as update_display,
         ):
             self.screen.poll_te20_monitor_audio()
@@ -507,14 +505,81 @@ class CodecScreenOffscreenTest(unittest.TestCase):
         self.screen.volume_values["Громкость динамиков"] = 48
         changes = []
         self.screen.set_volume_value = (
-            lambda param_name, value: changes.append((param_name, value))
+            lambda param_name, value, **metadata: changes.append(
+                (param_name, value, metadata)
+            )
         )
 
         self.screen.adjust_volume("Громкость динамиков", "up")
 
-        self.assertEqual([("Громкость динамиков", 50)], changes)
+        self.assertEqual(
+            [
+                (
+                    "Громкость динамиков",
+                    50,
+                    {"original": 48, "relative": True},
+                )
+            ],
+            changes,
+        )
 
-    def test_polycom_control_click_wraps_command_in_progress_dialog(self):
+    def test_microphone_mute_models_submit_absolute_desired_state(self):
+        from core.interactive_session import OperationSemantic
+
+        for device_name in (
+            "Huawei TE20",
+            "Huawei TE40",
+            "Polycom RPG 310",
+        ):
+            with self.subTest(device_name=device_name, target="Muted"):
+                self._select_device(device_name)
+                submitted = []
+                self.screen._submit_interactive = (
+                    lambda operation, *_callbacks: submitted.append(operation) or 1
+                )
+
+                self.screen.set_microphone_volume(
+                    0, original=12, relative=True
+                )
+
+                operation = submitted[0]
+                self.assertEqual(OperationSemantic.DESIRED_STATE, operation.semantic)
+                self.assertEqual("Muted", operation.target)
+                self.assertEqual("Unmuted", operation.original)
+                self.assertFalse(operation.allow_set_from_any_authoritative)
+
+            with self.subTest(device_name=device_name, target="Unmuted"):
+                submitted = []
+                self.screen._submit_interactive = (
+                    lambda operation, *_callbacks: submitted.append(operation) or 1
+                )
+
+                self.screen.set_microphone_volume(
+                    1, original=0, relative=True
+                )
+
+                operation = submitted[0]
+                self.assertEqual(OperationSemantic.DESIRED_STATE, operation.semantic)
+                self.assertEqual("Unmuted", operation.target)
+                self.assertEqual("Muted", operation.original)
+
+    def test_bar310_microphone_gain_keeps_numeric_relative_policy(self):
+        from core.interactive_session import OperationSemantic
+
+        self._select_device("CloudLink Bar 310")
+        submitted = []
+        self.screen._submit_interactive = (
+            lambda operation, *_callbacks: submitted.append(operation) or 1
+        )
+
+        self.screen.set_microphone_volume(7, original=6, relative=True)
+
+        operation = submitted[0]
+        self.assertEqual(OperationSemantic.RELATIVE_AS_ABSOLUTE, operation.semantic)
+        self.assertEqual(7, operation.target)
+        self.assertEqual(6, operation.original)
+
+    def test_polycom_control_click_submits_without_modal_progress_dialog(self):
         self._select_device("Polycom RPG 310")
         calls = []
         marker = object()
@@ -532,9 +597,9 @@ class CodecScreenOffscreenTest(unittest.TestCase):
 
         self.screen.on_volume_button_clicked("Громкость динамиков", "up")
 
-        self.assertEqual("show", calls[0][0])
-        self.assertEqual("command", calls[1][0])
-        self.assertEqual(("hide", marker), calls[2])
+        self.assertEqual(
+            [("command", "Громкость динамиков", "up")], calls
+        )
 
     def test_polycom_hides_microphone_control_when_connection_is_unknown(self):
         self._select_device("Polycom RPG 310")

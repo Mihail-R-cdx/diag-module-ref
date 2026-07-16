@@ -12,7 +12,13 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from core.base_handler import BaseHuaweiCodecHandler
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CommandError,
+    ConnectionError,
+    ProtocolError,
+    SessionInvalidError,
+)
 from core.redaction import redact_diagnostic
 from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 
@@ -108,13 +114,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 self.session_cookie = True
             else:
                 print("✗ Не удалось получить сессию")
-                # Проверяем, не ошибка ли это аутентификации
-                if result and result.get('error'):
-                    error_msg = result.get('message', '')
-                    if "authentication" in error_msg.lower() or result.get('error') == 401:
-                        raise AuthenticationError(f"Ошибка аутентификации: {error_msg}")
-                # Если не удалось получить сессию без явной ошибки аутентификации - тоже считаем ошибкой
-                raise AuthenticationError("Ошибка аутентификации при получении сессии")
+                raise ProtocolError(
+                    "CloudLink Bar 310 returned an unsuccessful session response"
+                )
             
             # 2. Получаем CSRF Token
             endpoint = "action.cgi?ActionID=WEB_RequestCertificateAPI"
@@ -146,17 +148,15 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                     return True
                 else:
                     print("✗ Не удалось извлечь CSRF токен")
-                    raise AuthenticationError("Не удалось извлечь CSRF токен")
+                    raise ProtocolError("CloudLink Bar 310 returned no CSRF token")
             else:
                 error_msg = result.get('message', 'Неизвестная ошибка') if result else 'Нет ответа'
                 print(f"✗ Ошибка аутентификации: {error_msg}")
-                # Проверяем, не ошибка ли это аутентификации
-                if result and (result.get('error') == 401 or "authentication" in error_msg.lower()):
-                    raise AuthenticationError(f"Ошибка аутентификации: {error_msg}")
-                # Если ошибка не 401, но и не успешная аутентификация - тоже считаем ошибкой аутентификации
-                raise AuthenticationError(f"Ошибка аутентификации: {error_msg}")
+                raise ProtocolError(
+                    "CloudLink Bar 310 returned an unsuccessful certificate response"
+                )
                 
-        except AuthenticationError:
+        except (AuthenticationError, ProtocolError):
             # Пробрасываем AuthenticationError дальше
             raise
         except Exception as e:
@@ -175,6 +175,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         
         if self.session:
             self.session.close()
+            self.session = None
         
         self._connected = False
         self.acCSRFToken = None
@@ -269,24 +270,27 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             if response.status_code == 200:
                 # Парсим ответ
                 parsed_response = self._parse_response(response.text)
+                if parsed_response is None:
+                    raise ProtocolError("CloudLink Bar 310 returned malformed JSON")
                 return parsed_response
             else:
                 print(f"  ! HTTP ошибка {response.status_code}")
-                error_message = response.text.strip() if response.text else f"HTTP {response.status_code}"
-                return {
-                    'success': 0,
-                    'error': response.status_code,
-                    'message': error_message,
-                }
+                if response.status_code in (401, 403):
+                    login_endpoint = endpoint.endswith(
+                        ("WEB_RequestSessionIDAPI", "WEB_RequestCertificateAPI")
+                    )
+                    error_class = AuthenticationError if login_endpoint else SessionInvalidError
+                    raise error_class(
+                        f"HTTP {response.status_code}: Bar 310 request was rejected"
+                    )
+                raise CommandError(
+                    f"HTTP {response.status_code}: Bar 310 request failed"
+                )
                 
         except requests.exceptions.RequestException as e:
             self._log_command(f"[error] RequestException: {str(e)}")
             print(f"  ! Ошибка запроса: {e}")
-            return {
-                'success': 0,
-                'error': 'request_exception',
-                'message': str(e),
-            }
+            raise ConnectionError("CloudLink Bar 310 transport request failed") from e
     
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
@@ -296,8 +300,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
         """Отправить команду устройству"""
         if not self.is_connected() or not self.acCSRFToken:
-            if not self.connect():
-                return {'success': False, 'error': 'Not connected'}
+            raise ConnectionError("CloudLink Bar 310 session is not connected")
         
         endpoint = self.command_map.get(command, command)
         
@@ -310,10 +313,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         
         result = self._make_request(endpoint, data=request_data if request_data else None)
         
-        if result:
-            return result
-        else:
-            return {'success': False, 'error': 'No response'}
+        if result is None:
+            raise ProtocolError("CloudLink Bar 310 returned no response")
+        return result
 
     def _get_mic_devices_data(self) -> Dict[str, Any]:
         result = self._make_request('v1/mediacontrol/mic/devices', method='GET')
@@ -430,8 +432,8 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ConnectionError(f"Ошибка запроса журнала звонков Bar 310: {str(e)}") from e
 
         if response.status_code in (401, 403):
-            raise AuthenticationError(
-                f"HTTP {response.status_code}: ошибка аутентификации при получении журнала звонков Bar 310"
+            raise SessionInvalidError(
+                f"HTTP {response.status_code}: established Bar 310 session was rejected"
             )
         if response.status_code >= 400:
             raise ConnectionError(
@@ -747,17 +749,17 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         """Получить статус презентации"""
         result = self.send_command('get_presentation')
         if not result or result.get('success') != 1:
-            return 'Stop'
+            raise CommandError("Bar 310 presentation state is unavailable")
 
         data = result.get('data', {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except json.JSONDecodeError:
-                return 'Stop'
+            except json.JSONDecodeError as error:
+                raise ProtocolError("Bar 310 presentation state is malformed") from error
 
         if not isinstance(data, dict):
-            return 'Stop'
+            raise ProtocolError("Bar 310 presentation state is not an object")
 
         return 'Start' if data.get('isSendAux') == 'auxOpen' else 'Stop'
     
@@ -769,7 +771,8 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             if isinstance(data, dict):
                 is_sleep = data.get('isSystemSleep', 'unsleep')
                 return 'On' if is_sleep == 'sleep' else 'Off'
-        return 'Off'
+            raise ProtocolError("Bar 310 sleep state is not an object")
+        raise CommandError("Bar 310 sleep state is unavailable")
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
@@ -808,17 +811,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                     "(id 100666941, code 100687877)."
                 )
 
-        # У Bar310 ответ set-команды бывает без явного success, поэтому сверяем статус.
-        retries = 2 if value == 'Start' else 0
-        for _ in range(retries):
-            time.sleep(1.5)
-            result = self.send_command(command, payload)
-            if result and result.get('success') == 1:
-                return True
-
-            if self.get_presentation_status() == value:
-                return True
-
+        # One state-changing send only; an authoritative readback may confirm it.
         time.sleep(0.5)
         return self.get_presentation_status() == value
 

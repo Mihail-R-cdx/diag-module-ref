@@ -10,7 +10,14 @@ from urllib.request import HTTPSHandler, HTTPCookieProcessor, Request, build_ope
 
 import paramiko
 
-from core.exceptions import AuthenticationError, CommandError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CommandError,
+    CommandOutcomeUnknownError,
+    ConnectionError,
+    ProtocolError,
+    SessionInvalidError,
+)
 
 
 class PolycomRPG310Handler:
@@ -86,7 +93,7 @@ class PolycomRPG310Handler:
         if self.opener is None:
             raise ConnectionError("HTTPS session is not initialized")
         if require_auth and not self.authenticated:
-            raise AuthenticationError("Polycom HTTPS session is not authenticated")
+            raise SessionInvalidError("Polycom HTTPS session is not authenticated")
 
         url = path if path.startswith("http") else f"{self.base_url}{path}"
         body = None
@@ -113,7 +120,8 @@ class PolycomRPG310Handler:
             details = error.read().decode("utf-8", errors="replace")
             self._log_command(f"[error] HTTP {error.code} {error.reason}: {details}")
             if error.code in (401, 403):
-                raise AuthenticationError(f"HTTP {error.code}: authentication failed")
+                failure = SessionInvalidError if require_auth else AuthenticationError
+                raise failure(f"HTTP {error.code}: Polycom session was rejected")
             raise CommandError(f"HTTP {error.code} {error.reason}: {details}")
         except URLError as error:
             self._log_command(f"[error] connection: {error.reason}")
@@ -122,7 +130,7 @@ class PolycomRPG310Handler:
             self._log_command("[error] connection timeout")
             raise ConnectionError("HTTPS connection timeout")
         except json.JSONDecodeError as error:
-            raise CommandError(f"Invalid JSON response from Polycom: {error}")
+            raise ProtocolError("Polycom returned malformed JSON") from error
 
     def connect(self) -> bool:
         if not self.username or not self.password:
@@ -225,6 +233,9 @@ class PolycomRPG310Handler:
                 raise AuthenticationError("SSH authentication failed")
             self._log_command("[connect] SSH session established")
             return True
+        except AuthenticationError:
+            self._disconnect_ssh()
+            raise
         except paramiko.AuthenticationException as error:
             self._disconnect_ssh()
             raise AuthenticationError(f"SSH authentication failed: {error}")
@@ -264,7 +275,9 @@ class PolycomRPG310Handler:
             return output
         except Exception as error:
             self._log_command(f"[error] SSH {command}: {type(error).__name__}: {error}")
-            raise CommandError(f"SSH command failed '{command}': {error}")
+            raise CommandOutcomeUnknownError(
+                f"Polycom SSH command outcome is unknown for {command}"
+            ) from error
 
     def _ensure_connected(self) -> None:
         if not self.is_connected():

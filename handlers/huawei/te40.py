@@ -12,7 +12,13 @@ import traceback
 from datetime import datetime
 from typing import Dict, Any, Optional
 from core.base_handler import BaseHuaweiCodecHandler
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CommandError,
+    ConnectionError,
+    ProtocolError,
+    SessionInvalidError,
+)
 from core.redaction import redact_diagnostic
 
 class HuaweiTE40Handler(BaseHuaweiCodecHandler):
@@ -307,9 +313,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
 
         if any(value in auth_codes or str(value) in auth_code_strings for value in values):
             return True
-
-        result_text = str(result).lower()
-        return "authentication" in result_text or "auth" in result_text
+        return False
     
     def connect(self) -> bool:
         """Установка соединения с кодеком Huawei TE40"""
@@ -352,12 +356,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 if e.code == 401 or e.code == 403:
                     raise AuthenticationError(f"HTTP {e.code}: Ошибка аутентификации")
                 raise ConnectionError(f"HTTP ошибка: {e.code}")
+            except json.JSONDecodeError as e:
+                raise ProtocolError("Malformed session response from Huawei TE-40") from e
             except AuthenticationError:
                 raise
+            except ProtocolError:
+                raise
             except Exception as e:
-                safe_error = self._redact(str(e)).lower()
-                if "authentication" in safe_error or "401" in safe_error:
-                    raise AuthenticationError("Ошибка аутентификации при получении Session ID")
                 raise ConnectionError("Ошибка подключения при получении Session ID")
             
             # 2. Получаем CSRF Token
@@ -422,12 +427,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 if e.code == 401 or e.code == 403:
                     raise AuthenticationError(f"HTTP {e.code}: Ошибка аутентификации при получении CSRF токена")
                 raise ConnectionError(f"HTTP ошибка при получении CSRF токена: {e.code}")
+            except json.JSONDecodeError as e:
+                raise ProtocolError("Malformed certificate response from Huawei TE-40") from e
             except AuthenticationError:
                 raise
+            except ProtocolError:
+                raise
             except Exception as e:
-                safe_error = self._redact(str(e)).lower()
-                if "authentication" in safe_error or "401" in safe_error:
-                    raise AuthenticationError("Ошибка аутентификации при получении CSRF токена")
                 self._debug(f"Ошибка получения CSRF Token: {type(e).__name__}")
                 self.csrf_token = None
             
@@ -442,7 +448,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 self._debug("✗ Не удалось установить подключение")
                 return False
                 
-        except AuthenticationError:
+        except (AuthenticationError, ProtocolError):
             # Пробрасываем AuthenticationError дальше
             raise
         except Exception as e:
@@ -457,12 +463,16 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         self.session_id = None
         self.csrf_token = None
         self.uses_cookie_session = False
+        self.opener = None
+        try:
+            self.cookie_jar.clear()
+        except Exception:
+            self.cookie_jar = http.cookiejar.CookieJar()
     
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
         """Отправить команду устройству"""
         if not self.is_connected() or (not self.session_id and not self.uses_cookie_session):
-            if not self.connect():
-                return {'success': False, 'error': 'Not connected'}
+            raise ConnectionError("Huawei TE40 session is not connected")
         
         try:
             # Маппинг команд на ActionID
@@ -532,15 +542,29 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 self._log_response(200, result)
                 self._debug(f"Ответ {command} получен")
                 return result
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as error:
                 self._log_response(200, response_text)
                 self._debug("Получен не-JSON ответ")
-                return {}
+                raise ProtocolError(
+                    f"Huawei TE40 returned malformed JSON for {command}"
+                ) from error
             
+        except urllib.error.HTTPError as e:
+            self._log_command(f"[error] HTTP {e.code} {command}")
+            if e.code in (401, 403):
+                raise SessionInvalidError(
+                    f"HTTP {e.code}: established TE40 session was rejected"
+                ) from e
+            raise CommandError(f"HTTP {e.code}: TE40 command failed") from e
+        except urllib.error.URLError as e:
+            self._log_command(f"[error] transport {command}")
+            raise ConnectionError(f"TE40 transport failed for {command}") from e
+        except (SessionInvalidError, ProtocolError, CommandError, ConnectionError):
+            raise
         except Exception as e:
             self._log_command(f"[error] {type(e).__name__} {command}")
             self._debug(f"Ошибка выполнения команды {command}: {type(e).__name__}")
-            return {}
+            raise ConnectionError(f"TE40 command failed for {command}") from e
 
     @staticmethod
     def _format_call_start_time(raw_value: str) -> str:
@@ -1042,19 +1066,35 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         """Получить режим сна."""
         result = self.send_command('get_system_sleep')
         if not result or result.get('success') != 1:
-            return 'Off'
+            raise CommandError("TE40 sleep state is unavailable")
 
         data = result.get('data', {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except json.JSONDecodeError:
-                return 'Off'
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE40 sleep state is malformed") from error
 
         if not isinstance(data, dict):
-            return 'Off'
+            raise ProtocolError("TE40 sleep state is not an object")
 
         return 'On' if data.get('isSystemSleep') == 'sleep' else 'Off'
+
+    def get_live_audio_status(self) -> Dict[str, Any]:
+        """Return one authoritative sleep/audio sample for interactive polling."""
+        sleep_mode = self.get_sleep_mode()
+        result = self.send_command("get_monitor_audio_params")
+        if not isinstance(result, dict) or result.get("success") != 1:
+            raise CommandError("TE40 live-audio read was rejected")
+        data = result.get("data", {})
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE40 live-audio data is malformed") from error
+        if not isinstance(data, dict):
+            raise ProtocolError("TE40 live-audio data is not an object")
+        return {"sleep_mode": sleep_mode, "audio": data}
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
@@ -1068,17 +1108,17 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         """Получить текущий статус презентации."""
         result = self.send_command('get_presentation')
         if not result or result.get('success') != 1:
-            return 'Stop'
+            raise CommandError("TE40 presentation state is unavailable")
 
         data = result.get('data', {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except json.JSONDecodeError:
-                return 'Stop'
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE40 presentation state is malformed") from error
 
         if not isinstance(data, dict):
-            return 'Stop'
+            raise ProtocolError("TE40 presentation state is not an object")
 
         return 'Start' if data.get('isSendAux') == 'auxOpen' else 'Stop'
 
@@ -1167,21 +1207,35 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             return True
 
         time.sleep(0.5)
-        audio_status = self.get_audio_status()
-        mic_mute = str(audio_status.get('mute', '')).lower()
-        if muted:
-            return mic_mute.startswith('on') or 'выключ' in mic_mute or 'muted' in mic_mute
-        return mic_mute.startswith('off') or 'включ' in mic_mute or 'unmuted' in mic_mute
+        expected_state = 'Muted' if muted else 'Unmuted'
+        return self.get_microphone_volume() == expected_state
 
     def set_microphone_volume(self, value: int) -> bool:
         # TE40 web API exposes microphone mute, not a separate microphone gain command.
         # The UI uses value 0 as muted and any positive value as unmuted.
         return self.set_microphone_mute(int(value) <= 0)
 
-    def get_microphone_volume(self) -> Optional[int]:
-        audio_status = self.get_audio_status()
-        volume = audio_status.get('microphone_volume')
-        try:
-            return int(volume)
-        except (TypeError, ValueError):
+    def get_microphone_volume(self) -> Optional[str]:
+        """Return authoritative TE40 microphone mute state for reconciliation."""
+
+        result = self.send_command('get_audio_status')
+        if not isinstance(result, dict) or result.get('success') != 1:
             return None
+
+        audio_data = result.get('data')
+        if isinstance(audio_data, str):
+            try:
+                audio_data = json.loads(audio_data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE40 audio-status data is malformed") from error
+        if not isinstance(audio_data, dict) or 'MicSwitch' not in audio_data:
+            return None
+
+        mic_switch = audio_data['MicSwitch']
+        if isinstance(mic_switch, bool):
+            return None
+        if mic_switch in (0, '0'):
+            return 'Muted'
+        if mic_switch in (1, '1'):
+            return 'Unmuted'
+        return None
