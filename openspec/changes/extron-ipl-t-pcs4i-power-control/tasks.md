@@ -2,15 +2,18 @@
 
 - [ ] 1.1 Add `Extron IPL T PCS4i` to the power-control GUI category and map it to the existing `PDUScreen`.
 - [ ] 1.2 Add a device-specific PCS4i handler boundary that implements the PDU operation surface without inheriting Aten protocol behavior.
-- [ ] 1.3 Confirm and document the exact PCS4i Telnet command set, response grammar, session-ready marker, and HTTP outlet-name endpoint before implementing wire parsing.
+- [ ] 1.3 Confirm and document the exact PCS4i Telnet command set, response grammar, session-ready marker or read-only authentication probe, HTTP outlet-name endpoint, HTTP request/response format, and HTTP authentication/session mechanism before implementing wire parsing.
+- [ ] 1.4 Block implementation completion when verified PCS4i Telnet or HTTP protocol evidence is missing; do not ship guessed commands, guessed endpoints, or permanent fallback-name behavior.
 
 ## 2. PCS4i Telnet and HTTP behavior
 
 - [ ] 2.1 Implement password-only Telnet authentication with the bounded two-send state machine and phase-specific prompt-buffer handling.
 - [ ] 2.2 Add tests for initial `Password:`, initial `Password:**********************`, split prompt chunks, success after first send, success after second send, rejection after a third new prompt, and the maximum two password sends.
 - [ ] 2.3 Classify timeout, disconnect, malformed prompt flow, and unknown transport data separately from confirmed authentication rejection.
-- [ ] 2.4 Implement Telnet outlet status reads that return exactly four normalized outlet records for `PDUScreen`.
-- [ ] 2.5 Implement HTTP outlet-name enrichment only after Telnet status succeeds; fall back to `Розетка N` and preserve Telnet status when HTTP fails.
+- [ ] 2.4 Confirm authentication success only from a documented session-ready prompt, another documented non-mutating ready marker, or a verified read-only outlet-status query; prove ON/OFF/REBOOT are never used as authentication probes.
+- [ ] 2.5 Implement Telnet outlet status reads that return exactly four normalized outlet records for `PDUScreen`.
+- [ ] 2.6 Implement the verified HTTP outlet-name loading path after Telnet status succeeds; successful HTTP names replace fallback names.
+- [ ] 2.7 Fall back to `Розетка N` only for runtime HTTP connection failure, timeout, HTTP 401/403/login rejection, malformed/unsupported response, or a missing/empty name for that outlet while preserving Telnet status.
 
 ## 3. Credentials and redaction
 
@@ -18,21 +21,30 @@
 - [ ] 3.2 Ensure PCS4i workers and handlers receive only one assigned credential candidate and never advance the credential index.
 - [ ] 3.3 Add tests proving only structured confirmed `AuthenticationError` authorizes application-owned credential fallback.
 - [ ] 3.4 Add redaction tests proving the real password is absent from logs, exceptions, terminal output, GUI messages, public diagnostics, and test output.
+- [ ] 3.5 Add tests proving HTTP outlet-name failures, including HTTP 401, HTTP 403, login rejection, timeout, transport failure, and malformed response, do not advance the credential chain or change the successful credential index.
 
 ## 4. Background PDU lifecycle
 
 - [ ] 4.1 Add background PCS4i refresh execution for Telnet status and optional HTTP names; no PCS4i network I/O may run in the Qt GUI thread.
-- [ ] 4.2 Add background PDU outlet command execution for PCS4i and preferably Aten through a shared operation dispatch boundary.
-- [ ] 4.3 Recheck selected model, IP, credential context, and operation generation before handler acquisition and network I/O; drop stale queued operations.
-- [ ] 4.4 Release handlers/transports in worker cleanup paths for success, failure, and stale-drop outcomes.
-- [ ] 4.5 Ignore stale results and completions after device/IP/screen context changes.
+- [ ] 4.2 Add background PDU outlet command execution for PCS4i and Aten through a shared application-owned operation dispatch boundary.
+- [ ] 4.3 Store current PDU operation context generation in the application/composition layer, not in Qt widgets.
+- [ ] 4.4 Submit immutable operation descriptors containing operation id, generation, model, IP, non-secret credential context, operation type, outlet number when applicable, and desired command/target when applicable.
+- [ ] 4.5 Recheck captured context against the application-owned current context before handler acquisition; drop stale queued operations without handler construction, transport open, network I/O, or command send.
+- [ ] 4.6 Recheck validity immediately before first network I/O when handler acquisition and I/O are separate phases.
+- [ ] 4.7 Release handlers/transports in worker cleanup paths for success, failure, indeterminate, and stale-drop outcomes.
+- [ ] 4.8 Ignore stale results and completions after device/IP/screen/credential context changes and prove old callbacks cannot update the new context.
 
 ## 5. Command safety
 
-- [ ] 5.1 Implement ON/OFF reconciliation after ambiguous delivery: read authoritative state, report already-achieved targets, optionally send one controlled absolute target when still at the pre-command state, and otherwise report indeterminate.
-- [ ] 5.2 Implement REBOOT safety so ambiguous delivery never triggers an automatic second reboot.
-- [ ] 5.3 Add command tests for ON, OFF, and REBOOT dispatch through the device-specific PCS4i handler.
-- [ ] 5.4 Add tests for ambiguous ON/OFF reconciliation and ambiguous REBOOT non-replay.
+- [ ] 5.1 Enforce one initial command send maximum for each user PDU ON/OFF/REBOOT operation.
+- [ ] 5.2 After acknowledged success, complete with no additional command sends; after authoritative rejection, complete failure with no credential fallback and no replay.
+- [ ] 5.3 For ambiguous ON/OFF delivery, allow at most one reconciliation cycle, at most one recovery/reconnect sequence when needed for readback, and at most one authoritative outlet-state readback decision.
+- [ ] 5.4 Report success without resend when ON/OFF readback equals the requested target.
+- [ ] 5.5 Allow at most one controlled absolute ON/OFF resend when readback equals the known pre-command state; if that resend is ambiguous, report indeterminate with no further replay.
+- [ ] 5.6 Report indeterminate with zero resend when ON/OFF readback is unavailable, unknown, or conflicting.
+- [ ] 5.7 Implement REBOOT safety so ambiguous delivery has exactly zero automatic resend and a maximum of one REBOOT send for the user operation.
+- [ ] 5.8 Add command tests for ON, OFF, and REBOOT dispatch through the device-specific PCS4i handler.
+- [ ] 5.9 Add tests for the bounded reconciliation budget, second ambiguous ON/OFF outcome, ambiguous REBOOT non-replay, and no recursive recovery/reconciliation.
 
 ## 6. GUI and regression coverage
 
@@ -40,13 +52,13 @@
 - [ ] 6.2 Test that four returned PCS4i outlet records render as four rows with ON, OFF, and REBOOT controls.
 - [ ] 6.3 Test that PCS4i refresh and outlet control do not block the GUI thread.
 - [ ] 6.4 Test stale queued PCS4i refresh and command operations are dropped before network I/O.
-- [ ] 6.5 If Aten commands migrate to the background PDU command worker, add Aten ON/OFF/REBOOT dispatch, GUI-thread, stale-drop, outlet-rendering, and behavior-regression tests.
+- [ ] 6.5 Add Aten ON/OFF/REBOOT dispatch, successful refresh-after-command, GUI-thread, stale-drop before handler acquisition/network I/O, outlet-count/rendering, wire-protocol unchanged, and normal-success behavior regression tests.
 - [ ] 6.6 Verify other supported device paths are not routed through the PCS4i PDU dispatch.
 
 ## 7. Validation
 
 - [ ] 7.1 Run focused PCS4i authentication, PDU data, command safety, credential, redaction, lifecycle, and GUI tests.
-- [ ] 7.2 Run relevant Aten regression tests when the Aten command path is touched.
+- [ ] 7.2 Run Aten command migration regression tests.
 - [ ] 7.3 Run the full offline unittest suite.
 - [ ] 7.4 Run `.\openspec.cmd validate extron-ipl-t-pcs4i-power-control --strict`.
 - [ ] 7.5 Run `.\openspec.cmd validate --all --strict`.

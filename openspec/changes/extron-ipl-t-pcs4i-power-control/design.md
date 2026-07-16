@@ -31,8 +31,8 @@ network work. The PCS4i design extends those rules to PDU refresh and control.
 - Prevent stale queued PDU operations from acquiring handlers or sending network
   I/O after device/IP/credential context changes.
 - Prevent blind replay of state-changing PDU commands.
-- Decide whether the existing Aten outlet command path is part of the same
-  boundary fix and, if so, protect Aten with regression tests.
+- Move the existing Aten outlet command path to the same asynchronous PDU
+  command execution boundary and protect Aten with regression tests.
 
 **Non-Goals:**
 
@@ -105,29 +105,40 @@ from verified evidence: official protocol material, captured redacted device
 traffic, or provided test data. The architecture intentionally fixes the
 handler boundary and safety behavior without inventing command strings.
 
-### Treat HTTP outlet names as read-only enrichment
+### Implement HTTP outlet-name loading as required read-only enrichment
 
-HTTP is used only to load user-defined names for the four outlets. Name loading
-is not authoritative for outlet state and is not required for a successful
-refresh.
+HTTP is used only to load user-defined names for the four outlets. Completed
+implementation of this change SHALL include a real HTTP name-loading path for
+PCS4i. Safe fallback names are permitted only as runtime degradation after that
+implemented path is attempted and fails, or for a specific outlet whose verified
+HTTP response contains no usable non-empty name.
 
 The handler refresh flow is:
 
 1. Authenticate and read outlet state through Telnet.
 2. Build four normalized outlet records with safe fallback names:
    `Розетка 1`, `Розетка 2`, `Розетка 3`, and `Розетка 4`.
-3. Attempt HTTP name enrichment only after Telnet status is available.
+3. Attempt the implemented HTTP name enrichment path only after Telnet status is
+   available.
 4. Replace fallback names with verified non-empty HTTP names where available.
-5. If HTTP fails, times out, returns an unsupported shape, or lacks a verified
-   endpoint, return the Telnet outlet status with fallback names.
+5. If HTTP connection, timeout, authentication, malformed response, unsupported
+   response, or a missing/empty individual name prevents enrichment, return the
+   Telnet outlet status with fallback names for affected outlets.
 
 HTTP errors therefore do not erase Telnet state, do not mark the refresh as a
-failed device status read, and do not authorize credential fallback unless a
-future verified HTTP authentication phase produces a structured authentication
-failure owned by the composition layer.
+failed device status read, do not switch credentials, do not change the
+successful credential index, and do not authorize credential fallback. This
+includes HTTP 401, HTTP 403, HTTP login rejection, timeout, transport failure,
+malformed response, and unsupported response.
 
 The exact HTTP endpoint, response format, and authentication mechanism are
-unresolved. The implementation must not guess them.
+unresolved. Future implementation must confirm them from official
+documentation, confirmed protocol documentation, a redacted capture from a real
+device, user-provided data, or controlled device research before implementing
+wire parsing. If those details cannot be verified, implementation must stop as
+incomplete/blocking instead of completing the change with permanent fallback
+names or a disabled HTTP path. Future HTTP credential/session architecture, if
+needed, must be designed in a separate OpenSpec change.
 
 ### Use password-only credentials and keep fallback in the application layer
 
@@ -192,11 +203,14 @@ the first send, repeated prompt detection examines only bytes received after
 that send. After the second send, another new password prompt is a confirmed
 authentication rejection.
 
-Authentication success is established only from verified session-ready evidence
-after a password send, such as the device prompt, a valid command response, or
-another documented ready marker. A timeout waiting for the initial prompt,
-disconnect after a password send, malformed prompt flow, or unknown device text
-is a connection/session/protocol failure, not `AuthenticationError`.
+Authentication success is established only from verified non-mutating
+session-ready evidence after a password send: a documented session-ready prompt,
+another documented read-only ready marker, or, if no separate marker exists, a
+successful verified read-only outlet-status query. ON, OFF, and REBOOT must
+never be used as the first probe for authentication success. A timeout waiting
+for the initial prompt, disconnect after a password send, malformed prompt flow,
+or unknown device text is a connection/session/protocol failure, not
+`AuthenticationError`.
 
 The real password must never appear in stdout, terminal logs, GUI messages,
 exceptions, public diagnostics, or test assertions. Device-emitted asterisks
@@ -224,25 +238,42 @@ background PDU refresh/control worker
     +--> ExtronIPLTPCS4iHandler
 ```
 
+The application/composition layer owns the current PDU operation context
+generation. Qt widgets are not the authoritative source for background workers:
+workers must not inspect `device_combo`, `ip_entry`, `PDUScreen`, or other
+QWidget properties to decide whether an operation is current. The context
+identity includes at least device model, IP address, non-secret credential
+identity or candidate index, and generation number.
+
 The dispatch chooses the handler by selected device model and submits immutable
-operation descriptors containing model, IP, credential candidate index, outlet
-number, command, and request generation. The worker rechecks the generation
-before handler acquisition and before network I/O. If the selected model, IP,
-or credential context changed while the operation was queued, it drops the
-operation without opening a transport or sending a command.
+operation descriptors containing operation id, generation, model, IP,
+credential context, operation type, outlet number when applicable, and desired
+command/target when applicable. The application layer increments or replaces
+the current generation when the selected PDU context changes.
+
+Before handler acquisition, a queued worker compares the captured descriptor
+with the current application-owned context through a thread-safe, non-GUI
+validity mechanism. If the operation is stale, no handler is created, no
+transport is opened, no network I/O occurs, and no command is sent. If handler
+construction and first network I/O are separate phases, the worker performs a
+second validity check immediately before first network I/O. Results and
+callbacks are checked again at the application boundary and cannot update a
+newer context.
 
 Refresh workers return PDU data to `PDUScreen`; command workers return a
 redacted command outcome and then schedule/trigger a refresh only when the
 outcome is successful or successfully reconciled. Stale callbacks are ignored
 using the existing request-context rules.
 
-### Include Aten command path only as a GUI-thread boundary fix
+### Migrate Aten command path as part of the PDU command boundary
 
-This change may replace `control_pdu_outlet()` with the same background PDU
-command worker for both Aten PE8208AV and PCS4i. If it does, the scope is only
-to remove network I/O from the GUI thread and share the PDU operation dispatch;
-it must not change Aten's wire protocol, outlet count, credential semantics, or
-normal ON/OFF/REBOOT behavior.
+This change SHALL replace `control_pdu_outlet()` with the same application-owned
+background PDU command execution boundary for both Aten PE8208AV and PCS4i. The
+shared portion is operation dispatch, background execution, lifecycle cleanup,
+stale-operation protection, and structured command outcome. The scope is not to
+merge wire protocols: Aten remains the owner of its HTTPS/XML/API protocol, and
+PCS4i remains the owner of its Telnet status/control protocol and HTTP
+outlet-name protocol.
 
 Aten refresh already has `AtenPDUWorker`, but its command path is synchronous.
 Moving Aten commands into the background command worker requires Aten-specific
@@ -254,16 +285,19 @@ regression tests for:
 - dropping stale queued Aten commands before network I/O;
 - keeping Aten outlet rendering and outlet count behavior unchanged.
 
-If implementation discovers that migrating Aten commands would exceed the
-change's risk budget, PCS4i still must use the background worker path and the
-proposal/design must explicitly leave Aten's synchronous path as unchanged
-debt. The preferred architecture is to migrate both through the shared PDU
-command dispatch.
-
 ### Prevent blind replay of state-changing PDU commands
 
 PDU control operations change power state and cannot be blindly repeated after
 an ambiguous transport outcome.
+
+For one user-initiated PDU state-changing operation, the worker has at most one
+initial command send. If that send receives acknowledged success, the operation
+succeeds with no additional command sends. If the device authoritatively rejects
+the command, the operation fails with no credential fallback and no replay. If
+delivery is ambiguous, the operation has at most one reconciliation cycle:
+optionally one recovery/reconnect sequence only if needed for authoritative
+readback, and at most one authoritative outlet-state readback decision. Recovery
+and reconciliation must not recurse.
 
 For ON/OFF:
 
@@ -271,8 +305,10 @@ For ON/OFF:
 - if the command was sent and acknowledgement was lost, the worker must first
   perform an authoritative Telnet readback when possible;
 - if readback shows the target state, report success without resending;
-- if readback shows the known pre-command state, policy may send one controlled
-  absolute target command;
+- if readback shows the known pre-command state, policy may send at most one
+  controlled absolute target command;
+- if that controlled send is again ambiguous, report indeterminate without any
+  further replay, reconnect, or reconciliation loop;
 - if readback is unavailable or state is conflicting, report an indeterminate
   outcome and do not replay.
 
@@ -283,6 +319,7 @@ For REBOOT:
 - readback may be used only to refresh/display state, not to justify automatic
   replay;
 - ambiguous reboot delivery is reported as indeterminate with redacted details.
+- the maximum number of REBOOT sends for one user operation is exactly one.
 
 The worker must distinguish "not sent", "sent and acknowledged", "sent with
 unknown acknowledgement", "valid device rejection", and "transport/session
@@ -297,9 +334,10 @@ failure" enough for this policy to be testable.
   operation semantics only; keep Aten and PCS4i protocol parsing in separate
   handlers.
 - [Migrating Aten commands changes timing] -> preserve behavior with focused
-  Aten dispatch and UI-thread regression tests.
-- [HTTP names can fail independently] -> make names optional enrichment with
-  safe fallback names and no impact on Telnet status.
+  Aten dispatch, stale-drop, GUI-thread, and normal-behavior regression tests.
+- [HTTP names can fail independently] -> make the implemented HTTP path
+  mandatory, but constrain failures to fallback names with no impact on Telnet
+  status or credential fallback.
 - [Authentication prompt parsing can misclassify the initial asterisk prompt] ->
   track transport bytes by phase and inspect only post-send bytes for repeated
   prompts.
@@ -312,13 +350,13 @@ failure" enough for this policy to be testable.
    authentication state machine, HTTP name enrichment boundary, outlet count
    enforcement, and redaction.
 3. Add background PDU refresh/control workers or a small PDU operation
-   dispatcher that supports PCS4i and, preferably, Aten commands.
+   dispatcher that supports PCS4i and Aten commands.
 4. Route `PDUScreen` outlet actions through asynchronous command submission and
    stale-context-safe completion handling.
 5. Add offline unit tests for Telnet auth phases, outlet data normalization,
-   HTTP enrichment failure, credential ownership, lifecycle isolation,
-   state-changing command safety, GUI routing, and Aten regressions if Aten
-   command dispatch is migrated.
+   successful HTTP names, HTTP enrichment failure, credential ownership,
+   lifecycle isolation, state-changing command safety, GUI routing, and Aten
+   command regressions.
 6. Run strict OpenSpec validation, focused offline tests, the full offline
    suite, and opt-in hardware QA only when authorized.
 

@@ -126,9 +126,22 @@ same ownership model.
 PCS4i credential fallback SHALL be authorized only by a structured confirmed
 `AuthenticationError` from the Telnet session establishment state machine. The
 state machine SHALL send the assigned password no more than twice during one
-connection attempt. Timeout, disconnect, malformed prompt flow, HTTP
-name-loading failure, command rejection, and message text containing `auth`,
-`password`, `401`, or `403` SHALL NOT authorize credential advancement.
+connection attempt. Timeout, disconnect, malformed prompt flow, command
+rejection, and message text containing `auth`, `password`, `401`, or `403`
+SHALL NOT authorize credential advancement.
+
+HTTP outlet-name enrichment SHALL NOT be credential fallback authority. HTTP
+401, HTTP 403, HTTP login rejection, HTTP timeout, HTTP transport failure,
+malformed HTTP response, unsupported HTTP response, and missing or empty HTTP
+outlet names SHALL only cause fallback display names for the current refresh.
+They SHALL NOT switch the device credential, change the successful credential
+index, or advance the credential candidate chain.
+
+Before sending any PCS4i ON, OFF, or REBOOT command, the Telnet session SHALL
+be confirmed authenticated by a documented session-ready prompt, another
+documented non-mutating ready marker, or a successful verified read-only
+outlet-status query. A state-changing command response SHALL NOT be used as the
+first evidence that authentication succeeded.
 
 #### Scenario: Initial password prompt with asterisks
 - **WHEN** the initial Telnet buffer contains `Password:**********************`
@@ -150,3 +163,25 @@ name-loading failure, command rejection, and message text containing `auth`,
 #### Scenario: Password send limit
 - **WHEN** one PCS4i connection attempt runs
 - **THEN** the handler sends the assigned password no more than two times
+
+#### Scenario: Documented ready marker authenticates session
+- **WHEN** PCS4i emits a verified documented ready marker after password submission
+- **THEN** the session may be treated as authenticated before state-changing commands are allowed
+
+#### Scenario: Read-only probe authenticates session
+- **WHEN** PCS4i has no separately verified ready marker but a verified read-only outlet-status query succeeds after password submission
+- **THEN** the session may be treated as authenticated before state-changing commands are allowed
+
+#### Scenario: State-changing command is not an auth probe
+- **WHEN** PCS4i password submission has not produced a verified ready marker or successful read-only status probe
+- **THEN** ON, OFF, and REBOOT are not sent to test whether authentication succeeded
+
+#### Scenario: HTTP 401 does not advance PCS4i credentials
+- **WHEN** Telnet status succeeds and HTTP outlet-name loading returns HTTP 401 or HTTP 403
+- **THEN** the current credential candidate remains selected
+- **AND** the application does not start the next credential candidate
+
+#### Scenario: HTTP name failure uses display fallback only
+- **WHEN** HTTP outlet-name loading times out, rejects login, fails transport, returns malformed data, or returns an unsupported response
+- **THEN** PCS4i outlet display names fall back for the current refresh
+- **AND** credential fallback is not authorized

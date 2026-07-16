@@ -20,9 +20,10 @@ ambiguous transport outcomes.
   `turn_off(outlet_number)`, and `reboot(outlet_number)`.
 - Use Telnet as the authoritative PCS4i transport for connection,
   password-only authentication, outlet state reads, and outlet control.
-- Treat HTTP outlet-name loading as read-only enrichment; failure to load names
-  must not discard successful Telnet status and must fall back to safe outlet
-  names.
+- Implement HTTP outlet-name loading as a required read-only enrichment path.
+  Safe fallback names are allowed only as runtime degradation after the
+  implemented HTTP path is attempted and fails, or for individual missing or
+  empty outlet names.
 - Define a bounded Telnet password state machine with at most two password
   sends and structured `AuthenticationError` only after a confirmed repeated
   password prompt following the second send.
@@ -30,14 +31,14 @@ ambiguous transport outcomes.
   the existing `auth_mode: "password"` credential contract; handlers and
   workers receive only one assigned credential and never select the next one.
 - Move PDU refresh and outlet control for PCS4i through background worker paths
-  with request generation checks, stale queued command rejection, cleanup, and
-  redacted public outcomes.
-- Consider migrating the existing Aten outlet command path to the same
-  background PDU command worker in this change to remove the GUI-thread
-  boundary violation, with explicit Aten regression coverage.
+  with application-owned operation generation checks, stale queued command
+  rejection, cleanup, and redacted public outcomes.
+- Migrate the existing Aten outlet command path to the same application-owned
+  asynchronous PDU command execution boundary in this change, with explicit
+  Aten regression coverage and unchanged Aten wire protocol semantics.
 - Define state-changing command safety for ON, OFF, and REBOOT: no blind replay
-  after ambiguous delivery, reconciliation for absolute ON/OFF, and no
-  automatic retry for ambiguous REBOOT.
+  after ambiguous delivery, one bounded reconciliation cycle for absolute
+  ON/OFF, no recursive recovery, and no automatic retry for ambiguous REBOOT.
 
 ## Capabilities
 
@@ -59,10 +60,11 @@ ambiguous transport outcomes.
 
 ## Impact
 
-Implementation is expected to touch `gui/main_window.py`, `core/worker.py`,
-focused PDU command worker/controller code, a new PCS4i handler under
-`handlers/extron/`, `gui/screens/pdu_screen.py` only where generic PDU behavior
-needs tightening, credential resolution call sites for password-only devices,
-and offline tests. It must not add a new GUI screen, merge Aten and PCS4i
-wire-protocol implementations into one handler, or depend on live hardware for
-normal automated verification.
+Future implementation is expected to touch `gui/main_window.py`,
+`core/worker.py`, focused PDU command worker/controller code, a new PCS4i
+handler under `handlers/extron/`, `gui/screens/pdu_screen.py` only where generic
+PDU behavior needs tightening, credential resolution call sites for
+password-only devices, and offline tests. It must not add a new GUI screen,
+merge Aten and PCS4i wire-protocol implementations into one handler, disable
+HTTP outlet-name loading as a completed end state, or depend on live hardware
+for normal automated verification.

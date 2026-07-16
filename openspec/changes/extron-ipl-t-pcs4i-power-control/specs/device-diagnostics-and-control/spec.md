@@ -38,9 +38,10 @@ worker/handler outcome and SHALL not be represented as a different device.
 - **WHEN** Polycom HTTPS status succeeds but SSH enrichment fails
 - **THEN** the available HTTPS diagnostic data remains usable and the enrichment failure is reported through the worker path
 
-#### Scenario: PCS4i HTTP outlet names are unavailable
-- **WHEN** PCS4i Telnet outlet status succeeds but HTTP outlet-name enrichment fails or is not implemented from verified protocol evidence
+#### Scenario: PCS4i HTTP outlet names are unavailable at runtime
+- **WHEN** PCS4i Telnet outlet status succeeds and the implemented HTTP outlet-name path fails at runtime
 - **THEN** the worker returns the four Telnet outlet states with safe fallback outlet names
+- **AND** the HTTP failure is not represented as a failed Telnet status read or a different device
 
 ### Requirement: Limited device control
 The GUI SHALL expose only the control operations implemented by the selected
@@ -55,7 +56,7 @@ actions SHALL not be reported as successful.
 
 #### Scenario: Aten outlet action
 - **WHEN** an operator confirms an `on`, `off`, or `reboot` action for an Aten outlet
-- **THEN** the application executes the matching handler action, reports its outcome, and refreshes after success
+- **THEN** the application executes the matching handler action through the background PDU command path, reports its outcome, and refreshes after success
 
 #### Scenario: PCS4i outlet action
 - **WHEN** an operator confirms an `on`, `off`, or `reboot` action for a PCS4i outlet from 1 through 4
@@ -105,12 +106,15 @@ outside 1 through 4 before sending any command.
 - **WHEN** a caller requests PCS4i outlet 0 or outlet 5
 - **THEN** the handler rejects the request before sending any Telnet command
 
-### Requirement: PCS4i authoritative Telnet and HTTP name enrichment
+### Requirement: PCS4i authoritative Telnet and required HTTP name enrichment
 PCS4i Telnet SHALL be authoritative for connection, authentication, outlet
 state reads, and outlet control. HTTP SHALL be used only as read-only
-enrichment for the four outlet display names after Telnet status succeeds.
-When verified HTTP protocol details are unavailable or the HTTP request fails,
-the handler SHALL preserve Telnet outlet status and use safe fallback names.
+enrichment for the four outlet display names after Telnet status succeeds. A
+completed implementation SHALL include a verified HTTP name-loading path. When
+the implemented HTTP request fails at runtime, returns an unsupported or
+malformed response, or lacks a usable non-empty name for a specific outlet, the
+handler SHALL preserve Telnet outlet status and use safe fallback names for
+affected outlets.
 
 #### Scenario: Telnet controls status and power
 - **WHEN** PCS4i refresh or outlet control runs
@@ -120,10 +124,19 @@ the handler SHALL preserve Telnet outlet status and use safe fallback names.
 - **WHEN** Telnet status returns four outlets and HTTP returns verified names
 - **THEN** the handler applies the names to the corresponding outlet records
 
+#### Scenario: HTTP name loading path is mandatory
+- **WHEN** PCS4i implementation is considered complete
+- **THEN** it includes a real HTTP name-loading path whose endpoint, request format, response format, and authentication/session mechanism were verified from allowed protocol evidence
+
 #### Scenario: Missing HTTP names use fallback
 - **WHEN** an outlet name is unavailable
 - **THEN** the handler uses `Розетка N` for that outlet
 
 #### Scenario: HTTP protocol is not guessed
 - **WHEN** the HTTP endpoint, response format, or authentication mechanism has not been verified from code, official protocol material, or provided data
-- **THEN** the implementation leaves HTTP name loading disabled or conservatively failing with fallback names rather than inventing a wire protocol
+- **THEN** the implementation is incomplete/blocking rather than disabling HTTP name loading or completing with permanent fallback names
+
+#### Scenario: HTTP failure preserves Telnet status
+- **WHEN** Telnet status succeeds and HTTP connection, timeout, authentication, parsing, or unsupported-response failure prevents name enrichment
+- **THEN** the handler returns Telnet outlet state with fallback names for the affected outlets
+- **AND** the HTTP failure does not change credential selection
