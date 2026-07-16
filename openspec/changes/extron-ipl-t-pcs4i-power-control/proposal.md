@@ -30,15 +30,16 @@ ambiguous transport outcomes.
 - Keep credential fallback owned by the GUI/application composition layer using
   the existing `auth_mode: "password"` credential contract; handlers and
   workers receive only one assigned credential and never select the next one.
-- Move PDU refresh and outlet control for PCS4i through background worker paths
-  with application-owned operation generation checks, stale queued command
-  rejection, cleanup, and redacted public outcomes.
+- Move PDU refresh and outlet control for PCS4i and Aten refresh through
+  background worker paths with application-owned operation generation checks,
+  stale queued operation rejection, cleanup, and redacted public outcomes.
 - Migrate the existing Aten outlet command path to the same application-owned
   asynchronous PDU command execution boundary in this change, with explicit
   Aten regression coverage and unchanged Aten wire protocol semantics.
-- Define state-changing command safety for ON, OFF, and REBOOT: no blind replay
-  after ambiguous delivery, one bounded reconciliation cycle for absolute
-  ON/OFF, no recursive recovery, and no automatic retry for ambiguous REBOOT.
+- Define transport-neutral state-changing PDU command safety for Aten and
+  PCS4i ON, OFF, and REBOOT: no blind replay after ambiguous delivery, one
+  bounded reconciliation cycle using device-specific authoritative outlet-state
+  readback, no recursive recovery, and no automatic retry for ambiguous REBOOT.
 
 ## Capabilities
 

@@ -27,8 +27,8 @@ outcomes, and public diagnostics SHALL never expose the real assigned password.
 PCS4i protocol behavior SHALL be verified with offline tests using synthetic
 Telnet and HTTP transports. Normal automated verification SHALL not require
 live PCS4i hardware, and hardware-mutating tools SHALL remain opt-in. The
-offline suite SHALL also cover the shared PDU command boundary for Aten
-regression behavior when this change migrates Aten commands.
+offline suite SHALL also cover Aten refresh stale-generation behavior and the
+shared PDU command boundary for Aten regression behavior.
 
 #### Scenario: Telnet authentication cases are synthetic
 - **WHEN** maintainers run the offline PCS4i authentication tests
@@ -41,11 +41,15 @@ regression behavior when this change migrates Aten commands.
 
 #### Scenario: PDU command safety is offline-testable
 - **WHEN** maintainers run offline PDU command tests
-- **THEN** one initial send maximum, one reconciliation cycle maximum, one authoritative readback maximum, one controlled ON/OFF resend maximum, second ambiguous ON/OFF outcome as indeterminate, ambiguous REBOOT zero-resend behavior, and no recursive recovery are verified without sending commands to live hardware
+- **THEN** one initial send maximum, one reconciliation cycle maximum, one normalized authoritative outlet-state decision maximum, one controlled ON/OFF resend maximum, second ambiguous ON/OFF outcome as indeterminate, ambiguous REBOOT zero-resend behavior, and no recursive recovery are verified for PCS4i and Aten without sending commands to live hardware
+
+#### Scenario: Aten refresh stale generation is regression-tested
+- **WHEN** maintainers run offline Aten PDU refresh tests
+- **THEN** stale queued Aten refresh before handler acquisition, stale context before first network I/O, in-flight old refresh result isolation, and normal current Aten refresh behavior are verified
 
 #### Scenario: Aten command migration is regression-tested
 - **WHEN** maintainers run offline Aten PDU command tests
-- **THEN** Aten ON/OFF/REBOOT dispatch, successful refresh-after-command, no GUI-thread network I/O, stale queued command drop, outlet count/rendering, unchanged wire protocol, and normal successful behavior are verified
+- **THEN** Aten ON/OFF/REBOOT dispatch, ambiguous ON/OFF reconciliation, ambiguous REBOOT non-replay, successful refresh-after-command, no GUI-thread network I/O, stale queued command drop, outlet count/rendering, unchanged wire protocol, and normal successful behavior are verified
 
 #### Scenario: Hardware QA remains opt-in
 - **WHEN** PCS4i live-device verification is needed

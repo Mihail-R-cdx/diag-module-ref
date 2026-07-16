@@ -26,7 +26,7 @@ uses its HTTP profile and optionally a ready HTTPS stack; TE40 attempts HTTPS
 and falls back to HTTP; Bar 310 uses its Huawei web/API session; Polycom uses
 HTTPS status with SSH enrichment; Extron IN1804 uses its handler transport
 sequence; Aten uses its HTTPS API path; and Extron IPL T PCS4i uses Telnet for
-authoritative outlet status/control plus optional HTTP outlet-name enrichment.
+authoritative outlet status/control plus required HTTP outlet-name enrichment.
 A protocol fallback or enrichment failure SHALL be observable in the
 worker/handler outcome and SHALL not be represented as a different device.
 

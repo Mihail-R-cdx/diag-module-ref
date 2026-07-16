@@ -134,8 +134,13 @@ HTTP outlet-name enrichment SHALL NOT be credential fallback authority. HTTP
 401, HTTP 403, HTTP login rejection, HTTP timeout, HTTP transport failure,
 malformed HTTP response, unsupported HTTP response, and missing or empty HTTP
 outlet names SHALL only cause fallback display names for the current refresh.
-They SHALL NOT switch the device credential, change the successful credential
-index, or advance the credential candidate chain.
+The HTTP enrichment outcome itself SHALL NOT switch the device credential,
+advance the credential candidate chain, invalidate the assigned credential,
+roll back a successful Telnet credential, or independently commit a credential
+index. A final PCS4i refresh that successfully completes authoritative Telnet
+authentication and outlet-state acquisition MAY commit the assigned credential
+index according to the normal successful-operation contract even when HTTP
+name enrichment degrades to fallback names.
 
 Before sending any PCS4i ON, OFF, or REBOOT command, the Telnet session SHALL
 be confirmed authenticated by a documented session-ready prompt, another
@@ -185,3 +190,17 @@ first evidence that authentication succeeded.
 - **WHEN** HTTP outlet-name loading times out, rejects login, fails transport, returns malformed data, or returns an unsupported response
 - **THEN** PCS4i outlet display names fall back for the current refresh
 - **AND** credential fallback is not authorized
+
+#### Scenario: HTTP degradation does not block Telnet credential caching
+- **WHEN** PCS4i Telnet authentication succeeds and authoritative Telnet outlet status succeeds
+- **AND** HTTP outlet-name loading times out or otherwise degrades to fallback names
+- **THEN** the refresh is a successful authoritative device operation
+- **AND** the assigned Telnet credential remains eligible for normal successful-index caching
+
+#### Scenario: Later Telnet credential survives HTTP 401
+- **WHEN** candidate 0 fails with a confirmed Telnet `AuthenticationError`
+- **AND** candidate 1 authenticates over Telnet and reads authoritative outlet status successfully
+- **AND** HTTP outlet-name loading returns HTTP 401
+- **THEN** the refresh succeeds with fallback names
+- **AND** candidate 2 is not attempted
+- **AND** candidate 1 is eligible to be committed as the successful credential index

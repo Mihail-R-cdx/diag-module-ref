@@ -28,8 +28,8 @@ network work. The PCS4i design extends those rules to PDU refresh and control.
 - Make password-only authentication explicit and bounded.
 - Ensure no PCS4i Telnet connect, read, command, or HTTP request runs in the Qt
   GUI thread.
-- Prevent stale queued PDU operations from acquiring handlers or sending network
-  I/O after device/IP/credential context changes.
+- Prevent stale queued PDU refresh and command operations from acquiring
+  handlers or sending network I/O after device/IP/credential context changes.
 - Prevent blind replay of state-changing PDU commands.
 - Move the existing Aten outlet command path to the same asynchronous PDU
   command execution boundary and protect Aten with regression tests.
@@ -81,8 +81,8 @@ device-specific methods:
 
 The shared contract is the PDU operation surface, not a shared wire transport.
 The Aten handler remains the owner of the Aten HTTPS/XML/API protocol. The
-PCS4i handler owns its Telnet command parsing and optional HTTP outlet-name
-enrichment. Common code may dispatch operations to either handler through a
+PCS4i handler owns its Telnet command parsing and required HTTP outlet-name
+enrichment path. Common code may dispatch operations to either handler through a
 small PDU worker/factory boundary, but it must not force a generic Telnet/HTTP
 transport abstraction across unrelated devices.
 
@@ -219,8 +219,11 @@ are not themselves secret, but the transmitted credential is always redacted.
 ### Run PDU refresh and control outside the GUI thread
 
 PCS4i refresh and outlet control use background workers submitted through the
-same application-owned execution style as existing diagnostic workers. No
-PCS4i Telnet connect/read/write or HTTP request may run in the Qt GUI thread.
+same application-owned execution style as existing diagnostic workers. Aten
+refresh also participates in the same application-owned PDU context-generation
+contract, even if it remains implemented by `AtenPDUWorker`. No PCS4i Telnet
+connect/read/write, PCS4i HTTP request, or Aten refresh/control network I/O may
+run in the Qt GUI thread when covered by this PDU lifecycle.
 
 The preferred implementation is a generic PDU operation dispatch boundary:
 
@@ -237,6 +240,13 @@ background PDU refresh/control worker
     |
     +--> ExtronIPLTPCS4iHandler
 ```
+
+The lifecycle contract covers four PDU operation types:
+
+- PCS4i refresh;
+- Aten refresh;
+- PCS4i command;
+- Aten command.
 
 The application/composition layer owns the current PDU operation context
 generation. Qt widgets are not the authoritative source for background workers:
@@ -255,10 +265,10 @@ Before handler acquisition, a queued worker compares the captured descriptor
 with the current application-owned context through a thread-safe, non-GUI
 validity mechanism. If the operation is stale, no handler is created, no
 transport is opened, no network I/O occurs, and no command is sent. If handler
-construction and first network I/O are separate phases, the worker performs a
-second validity check immediately before first network I/O. Results and
-callbacks are checked again at the application boundary and cannot update a
-newer context.
+construction/preparation and first network I/O are separate phases, the worker
+performs a second validity check immediately before first network I/O. Results,
+errors, completions, and callbacks are checked again at the application boundary
+and cannot update a newer context.
 
 Refresh workers return PDU data to `PDUScreen`; command workers return a
 redacted command outcome and then schedule/trigger a refresh only when the
@@ -285,6 +295,14 @@ regression tests for:
 - dropping stale queued Aten commands before network I/O;
 - keeping Aten outlet rendering and outlet count behavior unchanged.
 
+Aten refresh remains allowed to use `AtenPDUWorker`, but that worker must be
+integrated into the same application-owned PDU operation-generation lifecycle.
+A queued Aten refresh captures immutable operation context, checks the
+application-owned generation before handler acquisition, is dropped without
+handler construction or network I/O when stale, performs a second validity check
+before first network I/O if handler preparation is separate from I/O, and cannot
+let an old result, error, or completion update a newer PDU context.
+
 ### Prevent blind replay of state-changing PDU commands
 
 PDU control operations change power state and cannot be blindly repeated after
@@ -295,15 +313,23 @@ initial command send. If that send receives acknowledged success, the operation
 succeeds with no additional command sends. If the device authoritatively rejects
 the command, the operation fails with no credential fallback and no replay. If
 delivery is ambiguous, the operation has at most one reconciliation cycle:
-optionally one recovery/reconnect sequence only if needed for authoritative
-readback, and at most one authoritative outlet-state readback decision. Recovery
-and reconciliation must not recurse.
+optionally one recovery/reconnect sequence only if needed for device-specific
+authoritative outlet-state readback, and at most one normalized authoritative
+outlet-state decision. Recovery and reconciliation must not recurse.
+
+The shared PDU command boundary is transport-neutral for reconciliation. It does
+not know wire-level readback details; it invokes a device-specific handler
+operation that returns normalized authoritative outlet state or a structured
+unavailable/failed outcome. PCS4i uses authoritative Telnet outlet-state
+readback. Aten PE8208AV uses its existing authoritative Aten status API/handler
+readback. No new Aten API semantics or shared transport abstraction are
+introduced.
 
 For ON/OFF:
 
 - if the command was definitely not sent, the worker may send it once;
 - if the command was sent and acknowledgement was lost, the worker must first
-  perform an authoritative Telnet readback when possible;
+  perform device-specific authoritative outlet-state readback when possible;
 - if readback shows the target state, report success without resending;
 - if readback shows the known pre-command state, policy may send at most one
   controlled absolute target command;
@@ -321,9 +347,16 @@ For REBOOT:
 - ambiguous reboot delivery is reported as indeterminate with redacted details.
 - the maximum number of REBOOT sends for one user operation is exactly one.
 
-The worker must distinguish "not sent", "sent and acknowledged", "sent with
-unknown acknowledgement", "valid device rejection", and "transport/session
-failure" enough for this policy to be testable.
+This bounded policy applies to PCS4i and Aten. For Aten ambiguous ON/OFF, the
+existing Aten status path provides authoritative readback; target already
+reached succeeds without resend, known pre-command state permits at most one
+controlled absolute resend, unavailable/unknown/conflicting readback returns
+indeterminate, and a second ambiguous outcome after controlled resend returns
+indeterminate. For Aten ambiguous REBOOT, automatic resend is zero and the
+maximum REBOOT sends for the user operation is one. The worker must distinguish
+"not sent", "sent and acknowledged", "sent with unknown acknowledgement", "valid
+device rejection", and "transport/session failure" enough for this policy to be
+testable.
 
 ## Risks / Trade-offs
 
@@ -334,7 +367,8 @@ failure" enough for this policy to be testable.
   operation semantics only; keep Aten and PCS4i protocol parsing in separate
   handlers.
 - [Migrating Aten commands changes timing] -> preserve behavior with focused
-  Aten dispatch, stale-drop, GUI-thread, and normal-behavior regression tests.
+  Aten dispatch, stale-drop, GUI-thread, reconciliation-budget, and
+  normal-behavior regression tests.
 - [HTTP names can fail independently] -> make the implemented HTTP path
   mandatory, but constrain failures to fallback names with no impact on Telnet
   status or credential fallback.
@@ -350,13 +384,14 @@ failure" enough for this policy to be testable.
    authentication state machine, HTTP name enrichment boundary, outlet count
    enforcement, and redaction.
 3. Add background PDU refresh/control workers or a small PDU operation
-   dispatcher that supports PCS4i and Aten commands.
+   dispatcher that supports PCS4i refresh, Aten refresh, PCS4i commands, and
+   Aten commands under the application-owned PDU generation contract.
 4. Route `PDUScreen` outlet actions through asynchronous command submission and
    stale-context-safe completion handling.
 5. Add offline unit tests for Telnet auth phases, outlet data normalization,
    successful HTTP names, HTTP enrichment failure, credential ownership,
-   lifecycle isolation, state-changing command safety, GUI routing, and Aten
-   command regressions.
+   lifecycle isolation, state-changing command safety, GUI routing, Aten refresh
+   stale-generation behavior, and Aten command regressions.
 6. Run strict OpenSpec validation, focused offline tests, the full offline
    suite, and opt-in hardware QA only when authorized.
 
