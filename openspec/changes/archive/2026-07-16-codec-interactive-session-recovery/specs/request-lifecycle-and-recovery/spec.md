@@ -10,7 +10,7 @@ successful credential index and connection profile for that context only after
 a final successful operation. A supported retained connection profile SHALL be
 the first transport candidate for later refresh and interactive connections.
 
-#### Scenario: Retry after refresh authentication failure
+#### Scenario: Retry after authentication failure
 - **WHEN** a current refresh worker reports a confirmed authentication failure and another credential exists
 - **THEN** the application advances its request-scoped credential cursor and starts the applicable refresh path again
 
@@ -20,7 +20,7 @@ the first transport candidate for later refresh and interactive connections.
 - **THEN** the application-owned interactive controller tries exactly that next credential
 - **AND** the handler does not select the credential
 
-#### Scenario: Successful context is retained
+#### Scenario: Successful profile retained
 - **WHEN** a refresh or interactive operation completes successfully with a credential index and connection profile
 - **THEN** subsequent actions for that device/IP use that retained credential index and supported profile first
 
