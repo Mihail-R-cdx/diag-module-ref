@@ -51,6 +51,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
                     (
                         "Extron IN1804",
                         "Aten PE8208AV",
+                        "Extron IPL T PCS4i",
                         "Biamp Tesira Forte CI",
                     )
                 )
@@ -177,6 +178,36 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
             self.parent_widget.pdu_commands,
         )
         self.assertEqual("", screen.outlets_table.styleSheet())
+
+    def test_pcs4i_pdu_renders_four_outlets_without_reboot_control(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        self.parent_widget.device_combo.setCurrentText("Extron IPL T PCS4i")
+        screen = self._track(PDUScreen(self.parent_widget))
+        screen.update_data(
+            {
+                "device_info": {
+                    "model": "IPL T PCS4i",
+                    "ip_address": "192.0.2.44",
+                    "connected": True,
+                },
+                "capabilities": {
+                    "refresh": True,
+                    "on": True,
+                    "off": True,
+                    "reboot": False,
+                },
+                "outlets": [
+                    {"number": number, "name": f"Receptacle {number}", "status": "off"}
+                    for number in range(1, 5)
+                ],
+            }
+        )
+
+        self.assertEqual(4, screen.outlets_table.rowCount())
+        self.assertIsInstance(screen.outlets_table.cellWidget(0, 3), QPushButton)
+        self.assertIsInstance(screen.outlets_table.cellWidget(0, 4), QPushButton)
+        self.assertIsNone(screen.outlets_table.cellWidget(0, 5))
 
     def test_audio_dsp_is_read_only_and_rebuilds_source_cards(self):
         from gui.components import EmptyState, SectionCard

@@ -14,6 +14,14 @@ from .components import EmptyState, StatusIndicator
 from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
+from core.pdu import (
+    COMMAND_OFF,
+    COMMAND_ON,
+    COMMAND_REBOOT,
+    REFRESH,
+    PDUOperationDescriptor,
+    ensure_pdu_operation_supported,
+)
 from core.exceptions import (
     AuthenticationError,
     CodecFailureCategory,
@@ -26,6 +34,10 @@ from core.credentials import (
     resolve_request_credentials,
 )
 from core.exceptions import CredentialConfigurationError
+from core.exceptions import (
+    CredentialFileMissingError,
+    CredentialProfileNotFoundError,
+)
 from core.redaction import redact_exception, redact_text
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
@@ -119,6 +131,7 @@ class VCSDiagnosticApp(QMainWindow):
             "Polycom RPG 310": "codec",
             "Extron IN1804": "matrix",
             "Aten PE8208AV": "pdu",
+            "Extron IPL T PCS4i": "pdu",
             "Biamp Tesira Forte CI": "audio_dsp"
         }
         
@@ -197,6 +210,21 @@ class VCSDiagnosticApp(QMainWindow):
             explicit_credentials=explicit_credentials,
         )
         return [credential.as_handler_kwargs() for credential in credentials]
+
+    @staticmethod
+    def _is_pcs4i_credentialless_fallback(device_name, error):
+        return device_name == "Extron IPL T PCS4i" and isinstance(
+            error,
+            (CredentialFileMissingError, CredentialProfileNotFoundError),
+        )
+
+    def _resolve_pdu_attempt_credentials(self, device_name, ip_address):
+        try:
+            return self.device_credentials.get(device_name)
+        except CredentialConfigurationError as error:
+            if self._is_pcs4i_credentialless_fallback(device_name, error):
+                return [{}]
+            raise
     
     def init_ui(self, params=None):
         """Инициализация интерфейса"""
@@ -306,7 +334,8 @@ class VCSDiagnosticApp(QMainWindow):
             "Audio DSP",
             "Biamp Tesira Forte CI",
             "Управление питанием",
-            "Aten PE8208AV"
+            "Aten PE8208AV",
+            "Extron IPL T PCS4i"
         ]
         
         # Добавляем элементы в combo box
@@ -955,7 +984,12 @@ class VCSDiagnosticApp(QMainWindow):
 
         try:
             # Credential resolution is deliberately before ping or worker network I/O.
-            self._active_request_credentials = self.device_credentials.get(device_name)
+            if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
+                self._active_request_credentials = self._resolve_pdu_attempt_credentials(
+                    device_name, ip_address
+                )
+            else:
+                self._active_request_credentials = self.device_credentials.get(device_name)
             VCSDiagnosticApp._discard_credential_attempt_plan(
                 self, device_name, ip_address
             )
@@ -1006,8 +1040,8 @@ class VCSDiagnosticApp(QMainWindow):
             target_screen.set_ui_state(UIState.LOADING, "Загрузка данных…")
         
         # Вызываем соответствующий метод обновления
-        if device_name == "Aten PE8208AV":
-            self.refresh_aten_pdu(ip_address)
+        if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
+            self.refresh_pdu(ip_address, device_name)
         elif device_name == "Huawei TE40":
             self.refresh_huawei_te40(ip_address)
         elif device_name == "CloudLink Bar 310":  
@@ -1375,15 +1409,21 @@ class VCSDiagnosticApp(QMainWindow):
 
     def refresh_aten_pdu(self, ip_address: str):
         """Start one Aten PDU attempt with the GUI-selected credential."""
-        print(f"=== Начинаю обновление Aten PE8208AV для {ip_address} ===")
+        self.refresh_pdu(ip_address, "Aten PE8208AV")
+
+    def refresh_pdu(self, ip_address: str, device_name: str = None):
+        """Start one model-aware PDU refresh attempt in a background worker."""
+        device_name = device_name or self.device_combo.currentText()
+        print(f"=== Начинаю обновление {device_name} для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
             QMessageBox.warning(self, "Неверный IP адрес", "Введите корректный IP адрес.")
             return
         
         # Получаем список credentials для PDU
-        device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name)
+        creds_list = getattr(self, "_active_request_credentials", None)
+        if creds_list is None:
+            creds_list = self._resolve_pdu_attempt_credentials(device_name, ip_address)
         
         # Создаем worker с текущими credentials
         current_idx = self.get_valid_current_credential_index(
@@ -1401,14 +1441,22 @@ class VCSDiagnosticApp(QMainWindow):
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
         
         try:
-            from core.worker import AtenPDUWorker
-            
-            self.current_worker = AtenPDUWorker(
+            from core.worker import PDUOperationWorker
+            descriptor = PDUOperationDescriptor(
+                operation_id=self._request_serial,
+                generation=self._request_serial,
+                model=device_name,
                 ip_address=ip_address,
-                port=443,
-                **creds,
+                operation=REFRESH,
+                credential_index=None if not creds else current_idx,
             )
-            
+
+            self.current_worker = PDUOperationWorker(
+                descriptor,
+                credentials=creds,
+                is_current=self._pdu_context_is_current,
+            )
+
             # Сохраняем информацию для повторных попыток
             self.current_worker.creds_list = creds_list
             self.current_worker.current_idx = current_idx
@@ -1419,7 +1467,7 @@ class VCSDiagnosticApp(QMainWindow):
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
-            print("Worker для Aten PDU запущен")
+            print(f"Worker для {device_name} запущен")
             
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
@@ -1431,11 +1479,23 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("Обновить данные")
     
     def control_pdu_outlet(self, outlet_num: int, command: str):
-        """Управление розеткой PDU"""
+        """Submit a PDU outlet command without blocking the GUI thread."""
         device_name = self.device_combo.currentText()
         ip_address = self.ip_entry.text().strip()
         
-        if device_name != "Aten PE8208AV":
+        if device_name not in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
+            return
+
+        operation = {
+            "on": COMMAND_ON,
+            "off": COMMAND_OFF,
+            "reboot": COMMAND_REBOOT,
+        }.get(command)
+        try:
+            ensure_pdu_operation_supported(device_name, operation)
+        except Exception as error:
+            self.set_ui_state(UIState.REQUEST_ERROR, str(error))
+            QMessageBox.warning(self, "Команда не поддерживается", str(error))
             return
 
         self.set_ui_state(
@@ -1445,71 +1505,91 @@ class VCSDiagnosticApp(QMainWindow):
         
         print(f"Управление PDU: розетка {outlet_num}, команда {command}")
         
-        # Получаем текущие credentials
-        creds_list = self.device_credentials.get(device_name, [])
+        creds_list = getattr(self, "_active_request_credentials", None)
+        if creds_list is None:
+            creds_list = self._resolve_pdu_attempt_credentials(device_name, ip_address)
         current_idx = self.get_valid_current_credential_index(
             device_name, creds_list, ip_address
         )
-        
-        if current_idx < len(creds_list):
-            creds = creds_list[current_idx]
-            
-            # Создаем обработчик для отправки команды
-            try:
-                from handlers.aten.pdu import AtenPDUHandler
-                
-                handler = AtenPDUHandler(
-                    ip_address=ip_address,
-                    port=443,
-                    username=creds['username'],
-                    password=creds['password']
-                )
-                
-                if handler.connect():
-                    if command == "on":
-                        success = handler.turn_on(outlet_num)
-                    elif command == "off":
-                        success = handler.turn_off(outlet_num)
-                    elif command == "reboot":
-                        success = handler.reboot(outlet_num)
-                    else:
-                        success = False
-                    
-                    if success:
-                        self.set_ui_state(
-                            UIState.CONNECTED,
-                            f"Команда для розетки {outlet_num} выполнена",
-                        )
-                        QMessageBox.information(
-                            self,
-                            "Успех",
-                            f"Команда '{command}' для розетки {outlet_num} выполнена"
-                        )
-                        # Обновляем данные после выполнения команды
-                        self.refresh_data()
-                    else:
-                        self.set_ui_state(
-                            UIState.REQUEST_ERROR,
-                            f"Команда для розетки {outlet_num} не выполнена",
-                        )
-                        QMessageBox.warning(
-                            self,
-                            "Ошибка",
-                            f"Не удалось выполнить команду '{command}' для розетки {outlet_num}"
-                        )
-                    
-                    handler.disconnect()
-                
-            except Exception as e:
-                self.set_ui_state(
-                    UIState.REQUEST_ERROR,
-                    f"Ошибка команды PDU: {e}",
-                )
-                QMessageBox.critical(
-                    self,
-                    "Ошибка",
-                    f"Ошибка при управлении PDU: {str(e)}"
-                )
+        if current_idx >= len(creds_list):
+            self.set_ui_state(UIState.REQUEST_ERROR, "Нет credentials для PDU")
+            return
+
+        creds = creds_list[current_idx]
+        try:
+            from core.worker import PDUOperationWorker
+            descriptor = PDUOperationDescriptor(
+                operation_id=self._request_serial + 1,
+                generation=(self._active_request or {}).get("id", self._request_serial),
+                model=device_name,
+                ip_address=ip_address,
+                operation=operation,
+                outlet_number=outlet_num,
+                credential_index=None if not creds else current_idx,
+            )
+            worker = PDUOperationWorker(
+                descriptor,
+                credentials=creds,
+                is_current=self._pdu_context_is_current,
+            )
+            worker.creds_list = creds_list
+            worker.current_idx = current_idx
+            worker.signals.result.connect(
+                lambda data, w=worker, d=descriptor: self.on_pdu_command_result(data, w, d)
+            )
+            worker.signals.error.connect(
+                lambda error, w=worker, d=descriptor: self.on_pdu_command_error(error, w, d)
+            )
+            worker.signals.finished.connect(
+                lambda w=worker, d=descriptor: self.on_pdu_command_finished(w, d)
+            )
+            self.current_worker = worker
+            self.show_progress_dialog(f"Выполнение команды {command}...")
+            QThreadPool.globalInstance().start(worker)
+        except Exception as error:
+            self._fail_request_start(error)
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при управлении PDU: {str(error)}")
+
+    def _pdu_context_is_current(self, descriptor: PDUOperationDescriptor) -> bool:
+        request = self._active_request
+        return bool(
+            request
+            and request.get("id") == descriptor.generation
+            and request.get("device") == descriptor.model
+            and request.get("ip") == descriptor.ip_address
+        )
+
+    def on_pdu_command_result(self, data, worker, descriptor):
+        if not self._pdu_context_is_current(descriptor):
+            return
+        self.hide_progress_dialog()
+        if data.get("success"):
+            self.set_ui_state(
+                UIState.CONNECTED,
+                f"Команда для розетки {data.get('outlet_number')} выполнена",
+            )
+            QMessageBox.information(
+                self,
+                "Успех",
+                f"Команда '{data.get('operation')}' для розетки {data.get('outlet_number')} выполнена",
+            )
+            self.refresh_data()
+        else:
+            self.set_ui_state(UIState.REQUEST_ERROR, "Команда PDU не выполнена")
+            QMessageBox.warning(self, "Ошибка", "Не удалось выполнить команду PDU")
+
+    def on_pdu_command_error(self, error_info, worker, descriptor):
+        if not self._pdu_context_is_current(descriptor):
+            return
+        self.hide_progress_dialog()
+        _error_type, error, _traceback_text = error_info
+        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды PDU: {error}")
+        QMessageBox.critical(self, "Ошибка", f"Ошибка при управлении PDU: {error}")
+
+    def on_pdu_command_finished(self, worker, descriptor):
+        if not self._pdu_context_is_current(descriptor):
+            return
+        self.hide_progress_dialog()
 
 
     def update_time_display(self):
@@ -1558,6 +1638,7 @@ class VCSDiagnosticApp(QMainWindow):
         worker = worker or getattr(self, "current_worker", None)
         data = dict(data)
         structured_outcome = data.pop('_outcome', None)
+        credential_used = data.pop('_credential_used', None)
         if structured_outcome == 'error':
             self.on_device_error(
                 (
@@ -1597,7 +1678,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Сбрасываем индекс на успешный credentials для этого устройства
-        if worker and not partial_update:
+        if worker and not partial_update and credential_used is not False:
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
             if device_name:

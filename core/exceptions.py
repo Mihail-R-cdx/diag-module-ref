@@ -22,6 +22,11 @@ class AuthenticationError(DeviceError):
     pass
 
 
+class CredentialRequired(DeviceError):
+    """The device requested a credential, but none was assigned for this attempt."""
+    pass
+
+
 class CommandError(DeviceError):
     """Ошибка выполнения команды на устройстве"""
     pass

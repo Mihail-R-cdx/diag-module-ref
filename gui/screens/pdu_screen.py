@@ -31,6 +31,11 @@ class PDUScreen(BaseScreen):
         self.outlet_names = [f"Розетка {number}" for number in range(1, 9)]
         self.outlets = []
         self.device_info = {}
+        self.capabilities = {
+            "on": True,
+            "off": True,
+            "reboot": True,
+        }
         super().__init__(parent)
 
     def init_ui(self):
@@ -143,6 +148,13 @@ class PDUScreen(BaseScreen):
             self.device_info = data["device_info"] or {}
             self.update_info_panel()
 
+        if "capabilities" in data and isinstance(data["capabilities"], dict):
+            self.capabilities = {
+                "on": bool(data["capabilities"].get("on", False)),
+                "off": bool(data["capabilities"].get("off", False)),
+                "reboot": bool(data["capabilities"].get("reboot", False)),
+            }
+
         if "outlets" in data:
             self.outlets = data["outlets"] or []
             for outlet in self.outlets:
@@ -183,9 +195,9 @@ class PDUScreen(BaseScreen):
         self.outlets_empty.setVisible(not self.outlets)
 
         action_specs = (
-            (3, "Вкл", "Включить", "success"),
-            (4, "Выкл", "Выключить", "danger"),
-            (5, "Перезапуск", "Перезагрузить", "secondary"),
+            (3, "on", "Вкл", "Включить", "success"),
+            (4, "off", "Выкл", "Выключить", "danger"),
+            (5, "reboot", "Перезапуск", "Перезагрузить", "secondary"),
         )
         for row, outlet in enumerate(self.outlets):
             outlet_number = outlet.get("number", row + 1)
@@ -213,7 +225,10 @@ class PDUScreen(BaseScreen):
             name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.outlets_table.setItem(row, 2, name_item)
 
-            for column, text, tooltip, role in action_specs:
+            for column, command, text, tooltip, role in action_specs:
+                if not self.capabilities.get(command, False):
+                    self.outlets_table.setItem(row, column, QTableWidgetItem(""))
+                    continue
                 button = SemanticButton(text, role, self.outlets_table)
                 button.setToolTip(tooltip)
                 button.clicked.connect(
