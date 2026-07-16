@@ -8,7 +8,9 @@ fallbacks SHALL be removed from production credential flow. A handler that
 requires authentication SHALL fail safely when needed credentials are absent;
 a handler that supports unauthenticated operation SHALL be able to run without
 credentials. Extron IPL T PCS4i SHALL use the existing password-only
-`auth_mode: "password"` contract and SHALL NOT invent a username.
+`auth_mode: "password"` contract, SHALL NOT invent a username, and SHALL allow
+the assigned credential to be absent until the Telnet protocol actually
+requests `Password`.
 
 #### Scenario: Authenticated handler receives no credentials
 - **WHEN** an authentication-required handler is selected without a valid credential object
@@ -19,8 +21,13 @@ credentials. Extron IPL T PCS4i SHALL use the existing password-only
 - **THEN** it can connect without a credential profile
 
 #### Scenario: PCS4i receives password-only credential
-- **WHEN** PCS4i refresh or control is submitted
-- **THEN** the application resolves a credential with `auth_mode: "password"` and passes only the assigned password to the worker/handler boundary
+- **WHEN** PCS4i refresh or control is submitted with an assigned credential candidate
+- **THEN** the application passes only the assigned password to the worker/handler boundary
+- **AND** no username is invented
+
+#### Scenario: PCS4i receives no assigned credential
+- **WHEN** PCS4i refresh is submitted without an assigned credential
+- **THEN** the handler may still connect and attempt a verified read-only passwordless readiness probe
 
 ### Requirement: Ordered credential candidates and authentication fallback
 The credential boundary SHALL expose an ordered sequence of request-scoped
@@ -36,7 +43,8 @@ owner of credential fallback and SHALL advance monotonically to higher
 candidate indexes without wrap-around. Each worker instance SHALL use only its
 assigned candidate, SHALL NOT change the credential index, and SHALL emit at
 most one terminal result or error. PCS4i workers and handlers SHALL follow this
-same ownership model.
+same ownership model; repeating the same assigned password for a second PCS4i
+prompt is not credential fallback.
 
 #### Scenario: Legacy provider is used
 - **WHEN** a provider implements only the existing one-candidate method
@@ -120,15 +128,96 @@ same ownership model.
 - **THEN** the handler reports a structured failure to the worker/application boundary
 - **AND** it does not inspect or attempt another credential
 
+#### Scenario: PCS4i second prompt repeats the same credential
+- **WHEN** PCS4i returns a new `Password` marker after the assigned password was sent once
+- **THEN** the handler sends the same assigned password exactly one additional time
+- **AND** it does not choose a different credential candidate
+
 ## ADDED Requirements
+
+### Requirement: PCS4i optional credential and phase-scoped password flow
+PCS4i Telnet session establishment SHALL support passwordless and
+password-protected configurations. A credential candidate MAY be assigned to a
+PCS4i attempt, but the handler SHALL NOT send it until new bytes in the current
+protocol phase contain the `Password` marker. Prompt detection SHALL depend on
+the marker `Password` in new phase bytes and SHALL NOT require a colon,
+asterisks, a specific asterisk count, or an exact prompt string.
+
+Prompt detection SHALL be scoped to the initial receive phase, post password
+send #1 phase, and post password send #2 phase. A `Password` marker observed in
+initial receive bytes SHALL NOT be reused to authorize password send #2. After
+password send #1, repeated-prompt detection SHALL inspect only bytes received
+after send #1. After password send #2, rejection detection SHALL inspect only
+bytes received after send #2.
+
+When no `Password` marker is observed, absence of a prompt SHALL NOT by itself
+prove readiness. PCS4i SHALL become ready without password only after a verified
+non-mutating SIS probe succeeds, such as `<ESC>CK<CR>` or a verified `PC`
+readback. If a `Password` marker appears and no credential was assigned, the
+handler SHALL return structured `CredentialRequired`, SHALL send no password,
+and SHALL NOT return `AuthenticationError`. If a credential was assigned, the
+handler SHALL send that same password at most twice during one connection
+attempt. A third new prompt after two sends SHALL produce structured
+`AuthenticationError`, and no third password send SHALL occur.
+
+#### Scenario: Passwordless PCS4i
+- **GIVEN** PCS4i has no configured password
+- **WHEN** connection is established
+- **AND** no `Password` marker is observed
+- **AND** a verified read-only SIS probe succeeds
+- **THEN** session becomes ready
+- **AND** zero password sends occur
+
+#### Scenario: Initial decorated Password prompt
+- **GIVEN** initial session bytes contain `Password:**********************`
+- **WHEN** prompt detection runs
+- **THEN** it is classified as one initial password prompt
+- **AND** asterisk count is ignored
+- **AND** exactly one first password send occurs when an assigned credential exists
+
+#### Scenario: Prompt without colon
+- **GIVEN** new session bytes contain `Password`
+- **WHEN** prompt detection runs
+- **THEN** it is recognized as a password prompt without requiring `:` or `*`
+
+#### Scenario: Second Password prompt
+- **GIVEN** assigned password was sent once
+- **WHEN** new post-send bytes contain `Password`
+- **THEN** the same assigned password is sent exactly one additional time
+
+#### Scenario: Third prompt forbidden
+- **GIVEN** the same assigned password has already been sent twice
+- **WHEN** new post-send bytes again contain `Password`
+- **THEN** a structured `AuthenticationError` is returned
+- **AND** no third password send occurs
+
+#### Scenario: Initial prompt cannot be reused
+- **GIVEN** initial receive buffer contained `Password`
+- **WHEN** password #1 is sent
+- **THEN** repeated-prompt detection examines only bytes received after password #1
+- **AND** the initial `Password` occurrence cannot trigger password #2
+
+#### Scenario: Passwordless session with candidate assigned
+- **GIVEN** application assigned a credential candidate
+- **AND** PCS4i never requested `Password`
+- **AND** read-only session probe succeeds
+- **THEN** the credential was not used
+- **AND** successful credential index is not updated
+
+#### Scenario: Password required but no assigned credential
+- **GIVEN** PCS4i requests `Password`
+- **AND** no credential was assigned
+- **THEN** return structured `CredentialRequired`
+- **AND** do not return `AuthenticationError`
+- **AND** send no password
 
 ### Requirement: PCS4i Telnet authentication retry authority
 PCS4i credential fallback SHALL be authorized only by a structured confirmed
-`AuthenticationError` from the Telnet session establishment state machine. The
-state machine SHALL send the assigned password no more than twice during one
-connection attempt. Timeout, disconnect, malformed prompt flow, command
-rejection, and message text containing `auth`, `password`, `401`, or `403`
-SHALL NOT authorize credential advancement.
+`AuthenticationError` from the Telnet session establishment state machine after
+an actually sent assigned password is rejected. Timeout, disconnect, malformed
+prompt flow, command rejection, `CredentialRequired`, passwordless success, and
+message text containing `auth`, `password`, `401`, or `403` SHALL NOT authorize
+credential advancement.
 
 HTTP outlet-name enrichment SHALL NOT be credential fallback authority. HTTP
 401, HTTP 403, HTTP login rejection, HTTP timeout, HTTP transport failure,
@@ -139,30 +228,18 @@ advance the credential candidate chain, invalidate the assigned credential,
 roll back a successful Telnet credential, or independently commit a credential
 index. A final PCS4i refresh that successfully completes authoritative Telnet
 authentication and outlet-state acquisition MAY commit the assigned credential
-index according to the normal successful-operation contract even when HTTP
-name enrichment degrades to fallback names.
+index according to the normal successful-operation contract only if that
+credential was actually used, or if the existing application contract permits a
+successful passwordless operation with no credential use to complete without
+changing credential memory.
 
-Before sending any PCS4i ON, OFF, or REBOOT command, the Telnet session SHALL
-be confirmed authenticated by a documented session-ready prompt, another
-documented non-mutating ready marker, or a successful verified read-only
-outlet-status query. A state-changing command response SHALL NOT be used as the
-first evidence that authentication succeeded.
-
-#### Scenario: Initial password prompt with asterisks
-- **WHEN** the initial Telnet buffer contains `Password:**********************`
-- **THEN** the handler treats it as the initial password prompt
-- **AND** it does not count it as a repeated prompt after the first password send
-
-#### Scenario: Repeated prompt after first send
-- **WHEN** new transport bytes received after the first password send contain a new `Password:` prompt
-- **THEN** the handler may send the same assigned password a second time
-
-#### Scenario: Repeated prompt after second send
-- **WHEN** new transport bytes received after the second password send contain another `Password:` prompt
-- **THEN** the handler reports a confirmed `AuthenticationError`
+Before sending any PCS4i ON or OFF command, the Telnet session SHALL be
+confirmed ready by documented login-ready evidence or a successful verified
+read-only SIS probe. A state-changing command response SHALL NOT be used as the
+first evidence that authentication/session readiness succeeded.
 
 #### Scenario: Timeout is not retry authority
-- **WHEN** PCS4i times out before the initial password prompt or disconnects without confirmed rejection
+- **WHEN** PCS4i times out before readiness or disconnects without confirmed credential rejection
 - **THEN** the application does not advance to the next credential
 
 #### Scenario: Password send limit
@@ -170,16 +247,16 @@ first evidence that authentication succeeded.
 - **THEN** the handler sends the assigned password no more than two times
 
 #### Scenario: Documented ready marker authenticates session
-- **WHEN** PCS4i emits a verified documented ready marker after password submission
+- **WHEN** PCS4i emits verified `Login Administrator` or `Login User` evidence after password submission
 - **THEN** the session may be treated as authenticated before state-changing commands are allowed
 
 #### Scenario: Read-only probe authenticates session
-- **WHEN** PCS4i has no separately verified ready marker but a verified read-only outlet-status query succeeds after password submission
-- **THEN** the session may be treated as authenticated before state-changing commands are allowed
+- **WHEN** PCS4i has no separately verified ready marker but a verified read-only SIS probe succeeds
+- **THEN** the session may be treated as ready before state-changing commands are allowed
 
 #### Scenario: State-changing command is not an auth probe
-- **WHEN** PCS4i password submission has not produced a verified ready marker or successful read-only status probe
-- **THEN** ON, OFF, and REBOOT are not sent to test whether authentication succeeded
+- **WHEN** PCS4i password submission or passwordless connect has not produced verified ready evidence
+- **THEN** ON and OFF are not sent to test whether authentication succeeded
 
 #### Scenario: HTTP 401 does not advance PCS4i credentials
 - **WHEN** Telnet status succeeds and HTTP outlet-name loading returns HTTP 401 or HTTP 403
@@ -191,11 +268,11 @@ first evidence that authentication succeeded.
 - **THEN** PCS4i outlet display names fall back for the current refresh
 - **AND** credential fallback is not authorized
 
-#### Scenario: HTTP degradation does not block Telnet credential caching
+#### Scenario: HTTP degradation does not block Telnet success
 - **WHEN** PCS4i Telnet authentication succeeds and authoritative Telnet outlet status succeeds
 - **AND** HTTP outlet-name loading times out or otherwise degrades to fallback names
 - **THEN** the refresh is a successful authoritative device operation
-- **AND** the assigned Telnet credential remains eligible for normal successful-index caching
+- **AND** HTTP degradation does not authorize another credential candidate
 
 #### Scenario: Later Telnet credential survives HTTP 401
 - **WHEN** candidate 0 fails with a confirmed Telnet `AuthenticationError`

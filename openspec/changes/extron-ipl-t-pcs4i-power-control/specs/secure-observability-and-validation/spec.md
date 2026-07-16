@@ -5,8 +5,9 @@ Handler command logging and worker error handling SHALL redact known usernames,
 passwords, authentication tokens, sensitive request payloads, and sensitive
 response bodies before they are emitted to terminal/debug output. New tests and
 new documentation SHALL use synthetic credentials only. PCS4i Telnet
-authentication, Telnet commands, HTTP outlet-name enrichment, PDU command
-outcomes, and public diagnostics SHALL never expose the real assigned password.
+authentication, Telnet SIS commands, HTTP outlet-name enrichment, PDU command
+outcomes, unsupported-operation outcomes, and public diagnostics SHALL never
+expose the real assigned password.
 
 #### Scenario: Handler logs a credential-bearing request
 - **WHEN** a supported Huawei, Polycom, Aten, or PCS4i handler records a request containing credentials or a token
@@ -21,6 +22,10 @@ outcomes, and public diagnostics SHALL never expose the real assigned password.
 - **THEN** public diagnostics may include the device-emitted asterisks only when useful
 - **AND** the actual password sent by the application remains redacted everywhere
 
+#### Scenario: PCS4i password is not logged during second send
+- **WHEN** PCS4i requires the same assigned password to be sent a second time
+- **THEN** no stdout, debug log, GUI message, exception, public diagnostic, test assertion, or validation report contains the password value
+
 ## ADDED Requirements
 
 ### Requirement: PCS4i offline protocol validation
@@ -32,16 +37,25 @@ shared PDU command boundary for Aten regression behavior.
 
 #### Scenario: Telnet authentication cases are synthetic
 - **WHEN** maintainers run the offline PCS4i authentication tests
-- **THEN** the tests cover prompt chunking, two-send limits, documented ready-marker success, read-only-probe success, rejection, timeout, disconnect, and the rule that ON/OFF/REBOOT are not authentication probes using synthetic transport data
+- **THEN** the tests cover passwordless readiness, prompt chunking, decorated prompt, prompt without colon, phase-scoped repeated prompt detection, same-password second send, two-send limit, `CredentialRequired`, `AuthenticationError`, timeout, disconnect, and the rule that ON/OFF are not authentication probes using synthetic transport data
+
+#### Scenario: Telnet SIS cases are synthetic
+- **WHEN** maintainers run offline PCS4i SIS tests
+- **THEN** the tests cover model query, firmware query, security-level query, `PC` returning OFF, `PC` returning ON, `PS` not being interpreted as power, outlet numbers outside 1..4 rejected before network I/O, ON command grammar, OFF command grammar, and authoritative `PC` readback after state-changing operation
 
 #### Scenario: HTTP name loading cases are synthetic
 - **WHEN** maintainers run the offline PCS4i HTTP name-loading tests
-- **THEN** the tests cover successful HTTP names replacing fallback names and runtime HTTP failures preserving Telnet status with fallback names
+- **THEN** the tests cover successful `xName1` through `xName4` replacing fallback names, one missing name falling back per outlet, malformed response, HTTP unavailable, HTTP 401/403, verified no-auth device behavior, and runtime HTTP failures preserving Telnet status with fallback names
 - **AND** HTTP 401, HTTP 403, login rejection, timeout, transport failure, malformed response, and unsupported response do not authorize credential fallback
 
-#### Scenario: PDU command safety is offline-testable
-- **WHEN** maintainers run offline PDU command tests
-- **THEN** one initial send maximum, one reconciliation cycle maximum, one normalized authoritative outlet-state decision maximum, one controlled ON/OFF resend maximum, second ambiguous ON/OFF outcome as indeterminate, ambiguous REBOOT zero-resend behavior, and no recursive recovery are verified for PCS4i and Aten without sending commands to live hardware
+#### Scenario: PCS4i command safety is offline-testable
+- **WHEN** maintainers run offline PCS4i PDU command tests
+- **THEN** one initial ON/OFF send maximum, authoritative `PC` final readback, one reconciliation cycle maximum, one normalized authoritative outlet-state decision maximum, one controlled ON/OFF resend maximum, second ambiguous ON/OFF outcome as indeterminate, and no recursive recovery are verified without sending commands to live hardware
+
+#### Scenario: PCS4i REBOOT unsupported is offline-testable
+- **WHEN** maintainers run offline PCS4i capability and dispatch tests
+- **THEN** PCS4i REBOOT is absent from `PDUScreen` controls
+- **AND** programmatic PCS4i REBOOT is rejected before handler acquisition and before any Telnet or HTTP network I/O
 
 #### Scenario: Aten refresh stale generation is regression-tested
 - **WHEN** maintainers run offline Aten PDU refresh tests

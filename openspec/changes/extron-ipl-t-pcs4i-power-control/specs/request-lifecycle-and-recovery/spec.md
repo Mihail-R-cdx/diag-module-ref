@@ -5,8 +5,8 @@ Network diagnostic refresh operations SHALL execute through QRunnable workers
 submitted to `QThreadPool` and SHALL return progress, status, result, error,
 connection, and completion information through worker signals. Workers SHALL
 disconnect handlers in their cleanup paths when a handler was created. PDU
-refresh paths, including Extron IPL T PCS4i Telnet status reads and optional
-HTTP outlet-name enrichment, SHALL follow this background execution boundary.
+refresh paths, including Extron IPL T PCS4i Telnet status reads and HTTP
+outlet-name enrichment, SHALL follow this background execution boundary.
 
 #### Scenario: Worker succeeds
 - **WHEN** a device worker connects, collects status, and parses a response
@@ -25,13 +25,14 @@ The main window SHALL associate device results, errors, completions, and PDU
 command outcomes with the active request context, including the selected model,
 IP address, target screen, credential context, and request identifier. It SHALL
 ignore callbacks from superseded requests and shall not let them change the
-current screen, outlet table, command state, or refresh-button state.
+current screen, outlet table, command state, credential memory, or
+refresh-button state.
 
-For PDU operations, including PCS4i refresh, Aten refresh, PCS4i commands, and
-Aten commands, the application/composition layer SHALL own the current
-operation context generation. Background workers SHALL NOT read Qt widgets,
-including `device_combo`, `ip_entry`, `PDUScreen`, or other QWidget properties,
-to decide whether a PDU operation is current.
+For PDU operations, including PCS4i refresh, PCS4i ON/OFF commands, Aten
+refresh, and Aten ON/OFF/REBOOT commands, the application/composition layer
+SHALL own the current operation context generation. Background workers SHALL
+NOT read Qt widgets, including `device_combo`, `ip_entry`, `PDUScreen`, or
+other QWidget properties, to decide whether a PDU operation is current.
 
 #### Scenario: Stale result arrives after a newer request
 - **WHEN** a prior worker emits a result after the operator has started a newer request for a different IP or screen
@@ -58,8 +59,9 @@ unknown delivery outcome; it SHALL first perform an authoritative readback and
 then confirm the target, issue at most one absolute desired-state command when
 the observed state permits it, or return an indeterminate/conflict outcome.
 Relative volume and toggle intent SHALL never be sent twice as a relative
-operation. PDU ON/OFF and REBOOT commands SHALL follow the same no-blind-replay
-safety rule and the bounded PDU reconciliation budget.
+operation. PCS4i ON/OFF commands and Aten ON/OFF/REBOOT commands SHALL follow
+the bounded PDU safety rules. PCS4i has no REBOOT replay or recovery behavior
+because PCS4i REBOOT is unsupported.
 
 #### Scenario: Read-only operation loses its session
 - **WHEN** live polling, status, sleep, volume, presentation, Huawei call-log reading, or PDU outlet status reading fails because the session is invalid
@@ -90,10 +92,10 @@ safety rule and the bounded PDU reconciliation budget.
 - **AND** that cycle includes at most one recovery/reconnect sequence when needed for device-specific authoritative outlet-state readback and at most one normalized authoritative outlet-state decision
 - **AND** recovery or reconciliation does not recurse
 
-#### Scenario: Ambiguous PCS4i reboot is not replayed
-- **WHEN** a PCS4i reboot command may have reached the device but acknowledgement is lost
-- **THEN** the application does not automatically send another reboot command
-- **AND** it reports an indeterminate outcome with redacted details
+#### Scenario: PCS4i ON/OFF recovery uses PC readback
+- **WHEN** a PCS4i ON or OFF command has ambiguous delivery
+- **THEN** reconciliation uses PCS4i Telnet `PC` readback as authoritative outlet-state evidence
+- **AND** unavailable, unknown, or conflicting readback returns indeterminate without blind resend
 
 ## ADDED Requirements
 
@@ -102,12 +104,12 @@ PDU outlet control operations for Extron IPL T PCS4i and Aten PE8208AV SHALL
 execute outside the Qt GUI thread through a shared application-owned background
 PDU command execution boundary. The shared boundary SHALL own operation
 dispatch, background execution, lifecycle cleanup, stale-operation protection,
-and structured command outcomes. Device-specific handlers SHALL remain
-separate, and the boundary SHALL NOT merge Aten wire protocol, PCS4i Telnet
-protocol, or PCS4i HTTP protocol.
+model-capability validation, and structured command outcomes. Device-specific
+handlers SHALL remain separate, and the boundary SHALL NOT merge Aten wire
+protocol, PCS4i Telnet protocol, or PCS4i HTTP protocol.
 
 #### Scenario: PCS4i command is slow
-- **WHEN** a PCS4i outlet command blocks on Telnet network I/O
+- **WHEN** a PCS4i outlet ON or OFF command blocks on Telnet network I/O
 - **THEN** the Qt event loop remains responsive while the command runs in the background
 
 #### Scenario: Aten command path is migrated
@@ -116,22 +118,26 @@ protocol, or PCS4i HTTP protocol.
 - **AND** Aten network I/O does not run on the Qt GUI thread
 
 #### Scenario: PDU command worker cleans up
-- **WHEN** a PDU command succeeds, fails, or reports an indeterminate result
+- **WHEN** a PDU command succeeds, fails, reports unsupported, or reports an indeterminate result
 - **THEN** the worker releases the handler/transport before emitting completion
 
-### Requirement: PDU queued operation staleness
+### Requirement: PDU queued operation staleness and capability validation
 PDU refresh and command workers SHALL carry an immutable operation descriptor
 with operation id, generation, model, IP address, non-secret credential context,
 operation type, outlet number when applicable, and desired command/target when
-applicable. This applies to PCS4i refresh, Aten refresh, PCS4i commands, and
-Aten commands. The application/composition layer SHALL own the current PDU
-generation and increment or replace it when relevant PDU context changes. A
-queued operation SHALL recheck the captured descriptor against the current
-application-owned context immediately before handler acquisition. When handler
-construction/preparation and first network I/O are separate phases, it SHALL
-also recheck immediately before first network I/O. A stale queued operation
-SHALL be dropped without creating a handler, opening Telnet, HTTP, or Aten
-transport, or sending a command.
+applicable. This applies to PCS4i refresh, PCS4i ON/OFF commands, Aten refresh,
+and Aten ON/OFF/REBOOT commands. The application/composition layer SHALL own
+the current PDU generation and increment or replace it when relevant PDU
+context changes.
+
+Application dispatch SHALL validate that the selected model supports the
+requested operation before handler acquisition. A queued operation SHALL recheck
+the captured descriptor against the current application-owned context
+immediately before handler acquisition. When handler construction/preparation
+and first network I/O are separate phases, it SHALL also recheck immediately
+before first network I/O. A stale queued operation SHALL be dropped without
+creating a handler, opening Telnet, HTTP, or Aten transport, or sending a
+command.
 
 #### Scenario: Stale PCS4i refresh is dropped
 - **WHEN** a PCS4i refresh is queued and the selected device or IP changes before it starts network work
@@ -162,23 +168,31 @@ transport, or sending a command.
 - **WHEN** PDU network I/O was already in flight when the context changed
 - **THEN** its result cannot update the current screen or authorize later stale queued PDU work
 
+#### Scenario: PCS4i REBOOT rejected before network I/O
+- **GIVEN** a PCS4i REBOOT operation is submitted programmatically
+- **WHEN** application dispatch validates model capability
+- **THEN** the operation is rejected as unsupported
+- **AND** rejection happens before handler acquisition
+- **AND** rejection happens before any Telnet or HTTP network I/O
+
 ### Requirement: PDU state-changing command safety
-The application SHALL treat PDU ON, OFF, and REBOOT operations as
-state-changing. It SHALL not blindly repeat a command after an ambiguous
-transport outcome. ON/OFF MAY use device-specific authoritative outlet-state
-readback to reconcile an ambiguous outcome within one bounded reconciliation
-cycle; REBOOT SHALL not be automatically replayed when first delivery is
-uncertain.
+The application SHALL treat supported PDU state-changing operations as unsafe
+to blindly repeat after an ambiguous transport outcome. For PCS4i, supported
+state-changing operations are ON and OFF only. For Aten, supported
+state-changing operations are ON, OFF, and REBOOT. ON/OFF MAY use
+device-specific authoritative outlet-state readback to reconcile an ambiguous
+outcome within one bounded reconciliation cycle. Aten REBOOT SHALL not be
+automatically replayed when first delivery is uncertain.
 
 For one user PDU state-changing operation, the application SHALL send at most
-one initial command. Acknowledged success SHALL complete successfully with no
-additional command sends. Authoritative device rejection SHALL complete failure
-with no credential fallback and no command replay. Ambiguous delivery SHALL
-allow at most one reconciliation cycle, at most one normalized authoritative
-outlet-state decision, and no recursive recovery/reconciliation. ON/OFF MAY
-perform at most one controlled absolute resend only when device-specific
-readback authoritatively shows the known pre-command state. REBOOT SHALL have a
-maximum of one send. The shared PDU command boundary SHALL call a
+one initial command. Acknowledged success SHALL complete successfully only after
+any required device-specific final-state confirmation. Authoritative device
+rejection SHALL complete failure with no credential fallback and no command
+replay. Ambiguous delivery SHALL allow at most one reconciliation cycle, at most
+one normalized authoritative outlet-state decision, and no recursive
+recovery/reconciliation. ON/OFF MAY perform at most one controlled absolute
+resend only when device-specific readback authoritatively shows the known
+pre-command state. The shared PDU command boundary SHALL call a
 device-specific handler readback operation and SHALL NOT encode PCS4i Telnet or
 Aten status API wire details.
 
@@ -199,9 +213,9 @@ Aten status API wire details.
 - **WHEN** a PDU ON or OFF command has ambiguous delivery and device-specific authoritative readback is unavailable, unknown, or conflicting
 - **THEN** the operation reports indeterminate and does not resend the command
 
-#### Scenario: REBOOT delivery is ambiguous
-- **WHEN** a PDU REBOOT command has ambiguous delivery
-- **THEN** the application does not automatically send a second REBOOT
+#### Scenario: PCS4i acknowledged ON/OFF uses final PC readback
+- **WHEN** PCS4i ON or OFF command acknowledgement is received
+- **THEN** final success is based on authoritative Telnet `PC` readback
 
 #### Scenario: Aten ON/OFF uses existing authoritative status
 - **WHEN** an Aten ON or OFF command has ambiguous delivery
@@ -214,6 +228,6 @@ Aten status API wire details.
 - **AND** the user operation sends REBOOT at most once
 
 #### Scenario: PDU command rejection is final
-- **WHEN** a PDU ON, OFF, or REBOOT command receives an authoritative device rejection
+- **WHEN** a supported PDU state-changing command receives an authoritative device rejection
 - **THEN** the operation reports failure
 - **AND** it does not advance credentials or replay the command
