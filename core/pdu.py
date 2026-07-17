@@ -63,6 +63,10 @@ def normalize_pdu_credentials(model: str, credentials: Mapping[str, Any]) -> dic
     return raw
 
 
+def normalize_pdu_credential_candidates(model: str, credentials: Any) -> list[dict[str, Any]]:
+    return [normalize_pdu_credentials(model, credential) for credential in (credentials or ())]
+
+
 def build_pdu_handler(model: str, ip_address: str, credentials: Mapping[str, Any]):
     credentials = normalize_pdu_credentials(model, credentials)
     if model == "Aten PE8208AV":
@@ -161,6 +165,7 @@ def execute_pdu_command(
             "outlet_number": descriptor.outlet_number,
             "ip_address": descriptor.ip_address,
             "device_name": descriptor.model,
+            "_credential_used": bool(getattr(handler, "credential_used", False)),
         }
     finally:
         disconnect_quietly(handler)

@@ -165,6 +165,22 @@ class PDUOperationContractTests(unittest.TestCase):
 
         self.assertEqual("indeterminate_outcome", errors[0][0])
 
+    def test_pcs4i_command_worker_boundary_is_password_only(self):
+        from core.worker import PDUOperationWorker
+
+        worker = PDUOperationWorker(
+            self.descriptor(operation=COMMAND_ON),
+            credentials={
+                "username": "invented-user",
+                "password": "synthetic-password",
+            },
+            is_current=lambda _descriptor: True,
+        )
+
+        self.assertEqual({"password": "synthetic-password"}, worker.credentials)
+        self.assertIsNone(worker.username)
+        self.assertEqual("synthetic-password", worker.password)
+
 
 if __name__ == "__main__":
     unittest.main()

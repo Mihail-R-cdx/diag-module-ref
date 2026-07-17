@@ -1,7 +1,7 @@
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -12,7 +12,7 @@ except ImportError:
     QApplication = None
 
 from core.exceptions import CredentialProfileNotFoundError
-from core.pdu import COMMAND_ON, PDUOperationDescriptor
+from core.pdu import COMMAND_OFF, COMMAND_ON, PDUOperationDescriptor
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
@@ -132,6 +132,143 @@ class PDUGuiCompositionTests(unittest.TestCase):
         critical.assert_not_called()
         warning.assert_called_once()
         self.assertIn("Не удалось достоверно определить итог команды", warning.call_args.args[2])
+
+    def test_pcs4i_on_auth_failure_retries_same_command_next_candidate(self):
+        self._assert_pcs4i_command_auth_retry(COMMAND_ON, 2)
+
+    def test_pcs4i_off_auth_failure_retries_same_command_next_candidate(self):
+        self._assert_pcs4i_command_auth_retry(COMMAND_OFF, 3)
+
+    def _assert_pcs4i_command_auth_retry(self, command, outlet_number):
+        descriptor = PDUOperationDescriptor(
+            operation_id=42,
+            generation=9,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=command,
+            outlet_number=outlet_number,
+            credential_index=0,
+            credential_context=self.window._pdu_context_token(),
+        )
+        self.window._active_request = {
+            "id": 9,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": descriptor.credential_context,
+        }
+        worker = SimpleNamespace(
+            device_name="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            current_idx=0,
+            creds_list=[
+                {"password": "synthetic-password-a"},
+                {"password": "synthetic-password-b"},
+            ],
+        )
+        self.window.current_worker = worker
+        self.window.hide_progress_dialog = Mock()
+        started = []
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.on_pdu_command_error(
+                ("authentication_error", "rejected", ""),
+                worker,
+                descriptor,
+            )
+
+        self.assertEqual(1, len(started))
+        retry = started[0]
+        self.assertEqual(42, retry.descriptor.operation_id)
+        self.assertEqual(command, retry.descriptor.operation)
+        self.assertEqual(outlet_number, retry.descriptor.outlet_number)
+        self.assertEqual(1, retry.current_idx)
+        self.assertEqual({"password": "synthetic-password-b"}, retry.credentials)
+        self.assertNotIn("username", retry.credentials)
+        self.assertEqual({}, self.window.current_credential_index)
+
+    def test_pcs4i_command_indeterminate_does_not_retry_credentials(self):
+        descriptor = PDUOperationDescriptor(
+            operation_id=1,
+            generation=3,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_context=self.window._pdu_context_token(),
+        )
+        self.window._active_request = {
+            "id": 3,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": descriptor.credential_context,
+        }
+        worker = SimpleNamespace(
+            device_name="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            current_idx=0,
+            creds_list=[{"password": "a"}, {"password": "b"}],
+        )
+        self.window.current_worker = worker
+        self.window.hide_progress_dialog = Mock()
+
+        with patch.object(QThreadPool.globalInstance(), "start") as start, \
+                patch.object(QMessageBox, "warning"):
+            self.window.on_pdu_command_error(
+                ("indeterminate_outcome", "unknown", ""),
+                worker,
+                descriptor,
+            )
+
+        start.assert_not_called()
+        self.assertNotIn("Extron IPL T PCS4i|192.0.2.44", self.window._credential_attempt_plans)
+
+    def test_ip_change_invalidates_queued_pdu_operation(self):
+        self.window._pdu_context_revision = 10
+        self.window._active_request = {
+            "id": 7,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": 10,
+        }
+        descriptor = PDUOperationDescriptor(
+            operation_id=1,
+            generation=7,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_context=10,
+        )
+
+        self.window.ip_entry.setText("192.0.2.45")
+
+        self.assertFalse(self.window._pdu_context_is_current(descriptor))
+
+    def test_same_credentials_list_mutation_invalidates_old_descriptor(self):
+        creds = [{"password": "old"}]
+        self.window._active_request_credentials = creds
+        self.window._pdu_context_revision = 20
+        self.window._active_request = {
+            "id": 8,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": 20,
+        }
+        descriptor = PDUOperationDescriptor(
+            operation_id=1,
+            generation=8,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_context=20,
+        )
+
+        creds.insert(0, {"password": "new"})
+        self.window._invalidate_pdu_context()
+        self.window._active_request["credential_context"] = self.window._pdu_context_token()
+
+        self.assertFalse(self.window._pdu_context_is_current(descriptor))
 
     @staticmethod
     def _missing_mapping(**_kwargs):

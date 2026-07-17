@@ -7,7 +7,7 @@ import warnings
 import time
 from typing import Optional, List, Dict, Any
 from core.base_handler import ProtocolHandler
-from core.exceptions import AuthenticationError, CommandOutcomeUnknownError, ConnectionError, ParseError
+from core.exceptions import AuthenticationError, CommandError, CommandOutcomeUnknownError, ConnectionError, ParseError
 from core.redaction import redact_data
 
 warnings.filterwarnings('ignore')
@@ -367,8 +367,10 @@ class AtenPDUHandler(ProtocolHandler):
     def _send_outlet_command_once(self, outlet_number: int, command: str) -> None:
         data = {"index": outlet_number, "method": command}
         resp = self._api_request("POST", "/api/outlet/relay", data=data)
-        if resp is None or resp.status_code != 200:
+        if resp is None:
             raise CommandOutcomeUnknownError("Aten command delivery acknowledgement is unknown.")
+        if resp.status_code != 200:
+            raise CommandError("Aten device rejected the outlet command.")
 
     def _set_absolute_outlet_state(self, outlet_number: int, target_on: bool) -> bool:
         pre_state = self._try_read_outlet_power_state(outlet_number)

@@ -23,6 +23,7 @@ from core.pdu import (
     PDUOperationDescriptor,
     execute_pdu_command,
     execute_pdu_refresh,
+    normalize_pdu_credentials,
 )
 import traceback
 import builtins
@@ -779,7 +780,7 @@ class PDUOperationWorker(QRunnable):
         self.device_name = descriptor.model
         self.operation = descriptor.operation
         self.outlet_number = descriptor.outlet_number
-        self.credentials = dict(credentials or {})
+        self.credentials = normalize_pdu_credentials(descriptor.model, credentials or {})
         self.username = self.credentials.get("username")
         self.password = self.credentials.get("password")
         self.current_idx = descriptor.credential_index or 0
