@@ -271,11 +271,13 @@ class PDUScreen(BaseScreen):
     @pyqtSlot(int, str)
     def on_outlet_control(self, outlet_num, command):
         self.set_outlet_command_state(outlet_num, command, True)
+        submitted = False
         try:
             if self.parent and hasattr(self.parent, "control_pdu_outlet"):
-                self.parent.control_pdu_outlet(outlet_num, command)
+                submitted = bool(self.parent.control_pdu_outlet(outlet_num, command))
         finally:
-            self.set_outlet_command_state(outlet_num, command, False)
+            if not submitted:
+                self.set_outlet_command_state(outlet_num, command, False)
 
     def set_outlet_command_state(self, outlet_num, command, busy):
         """Disable only the controls for the outlet being changed."""

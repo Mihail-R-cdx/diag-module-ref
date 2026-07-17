@@ -156,6 +156,8 @@ class ExtronIPLTPCS4iHandler:
         post_state = self._try_read_power_state(outlet_number)
         if post_state is target_on:
             return True
+        if post_state is None:
+            raise CommandOutcomeUnknownError("PCS4i final state is indeterminate.")
         if pre_state is None:
             raise CommandOutcomeUnknownError("PCS4i final state is indeterminate.")
         if post_state is pre_state:

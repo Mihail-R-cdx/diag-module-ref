@@ -158,6 +158,28 @@ class ExtronPCS4iSISTests(unittest.TestCase):
         self.assertEqual(2, transport.sent.count(ESC + b"1*0PC\r"))
         self.assertEqual(3, transport.sent.count(ESC + b"1PC\r"))
 
+    def test_known_pre_state_with_unavailable_post_readback_is_indeterminate(self):
+        handler, transport = self.connected_handler(
+            [b"1\r\n", b"Cpn1 Ppc0\r\n", b"garbled\r\n"]
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            handler.turn_off(1)
+
+        self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
+        self.assertEqual(2, transport.sent.count(ESC + b"1PC\r"))
+
+    def test_ambiguous_initial_send_with_unavailable_post_readback_is_indeterminate(self):
+        handler, transport = self.connected_handler(
+            [b"1\r\n", b"garbled\r\n", b"garbled\r\n"]
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            handler.turn_off(1)
+
+        self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
+        self.assertEqual(2, transport.sent.count(ESC + b"1PC\r"))
+
     def test_ambiguous_controlled_resend_still_performs_terminal_readback(self):
         handler, transport = self.connected_handler(
             [b"1\r\n", b"Cpn1 Ppc0\r\n", b"1\r\n", b"garbled\r\n", b"0\r\n"]

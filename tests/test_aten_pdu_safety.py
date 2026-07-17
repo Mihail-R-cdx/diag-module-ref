@@ -40,6 +40,17 @@ class AtenPDUSafetyTests(unittest.TestCase):
         self.assertEqual(2, handler._send_outlet_command_once.call_count)
         self.assertEqual(3, handler._try_read_outlet_power_state.call_count)
 
+    def test_known_pre_state_with_unavailable_post_readback_is_indeterminate(self):
+        handler = self.handler()
+        handler._try_read_outlet_power_state = Mock(side_effect=[False, None])
+        handler._send_outlet_command_once = Mock()
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            handler.turn_on(1)
+
+        handler._send_outlet_command_once.assert_called_once_with(1, "on")
+        self.assertEqual(2, handler._try_read_outlet_power_state.call_count)
+
     def test_unknown_pre_state_does_not_resend(self):
         handler = self.handler()
         handler._try_read_outlet_power_state = Mock(side_effect=[None, None])
@@ -61,6 +72,19 @@ class AtenPDUSafetyTests(unittest.TestCase):
             handler.turn_on(1)
 
         handler._send_outlet_command_once.assert_called_once_with(1, "on")
+
+    def test_ambiguous_initial_send_with_unavailable_post_readback_is_indeterminate(self):
+        handler = self.handler()
+        handler._try_read_outlet_power_state = Mock(side_effect=[False, None])
+        handler._send_outlet_command_once = Mock(
+            side_effect=CommandOutcomeUnknownError("lost ack")
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            handler.turn_on(1)
+
+        handler._send_outlet_command_once.assert_called_once_with(1, "on")
+        self.assertEqual(2, handler._try_read_outlet_power_state.call_count)
 
     def test_reboot_success_is_one_send_without_readback_recovery(self):
         handler = self.handler()

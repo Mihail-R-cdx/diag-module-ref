@@ -384,6 +384,8 @@ class AtenPDUHandler(ProtocolHandler):
         post_state = self._try_read_outlet_power_state(outlet_number)
         if post_state is target_on:
             return True
+        if post_state is None:
+            raise CommandOutcomeUnknownError("Aten command outcome is indeterminate.")
         if post_state is not None and post_state is not target_on and pre_state is None:
             if initial_ambiguous:
                 raise CommandOutcomeUnknownError("Aten command outcome is indeterminate.")
