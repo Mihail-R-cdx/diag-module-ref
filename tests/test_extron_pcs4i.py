@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from core.exceptions import AuthenticationError, CommandOutcomeUnknownError, CredentialRequired
 from handlers.extron.pcs4i import ESC, ExtronIPLTPCS4iHandler
@@ -240,26 +241,69 @@ class ExtronPCS4iSISTests(unittest.TestCase):
             ExtronIPLTPCS4iHandler.parse_http_outlet_names(body),
         )
 
-    def test_production_http_name_path_remains_unconfirmed(self):
-        self.assertIsNone(ExtronIPLTPCS4iHandler.HTTP_NAME_PATH)
+    def test_http_name_parser_maps_real_evidence_xname_representation(self):
+        body = """
+        <script>
+        xName1='123';
+        xName2='VCS';
+        xName3='Transmitter';
+        xName4='Receptacle 4';
+        </script>
+        """
+
+        self.assertEqual(
+            {1: "123", 2: "VCS", 3: "Transmitter", 4: "Receptacle 4"},
+            ExtronIPLTPCS4iHandler.parse_http_outlet_names(body),
+        )
+
+    def test_production_http_name_path_is_confirmed_status_page(self):
+        self.assertEqual("/nortxe_status.html", ExtronIPLTPCS4iHandler.HTTP_NAME_PATH)
+
+    def test_get_outlets_status_requests_confirmed_production_http_name_path(self):
+        requested = []
+        body = """
+        <script>
+        xName1='123';
+        xName2='VCS';
+        xName3='Transmitter';
+        xName4='Receptacle 4';
+        </script>
+        """
+        handler, transport = self.connected_handler(
+            [b"1\r\n", b"0\r\n", b"1\r\n", b"0\r\n"],
+            http_get=lambda path, _timeout: requested.append(path) or body,
+        )
+
+        outlets = handler.get_outlets_status()
+
+        self.assertEqual(["/nortxe_status.html"], requested)
+        self.assertEqual(["on", "off", "on", "off"], [item["status"] for item in outlets])
+        self.assertEqual(
+            ["123", "VCS", "Transmitter", "Receptacle 4"],
+            [item["name"] for item in outlets],
+        )
+        self.assertEqual(
+            [ESC + b"1PC\r", ESC + b"2PC\r", ESC + b"3PC\r", ESC + b"4PC\r"],
+            transport.sent,
+        )
 
     def test_partial_http_names_keep_per_outlet_russian_fallback(self):
         body = """
         <script>
-        var xName1 = "Codec";
-        var xName3 = "Display";
+        xName1='Display';
+        xName2='';
+        xName3='Codec';
         </script>
         """
         handler, _transport = self.connected_handler(
             [b"1\r\n", b"0\r\n", b"1\r\n", b"0\r\n"],
-            http_name_path="/confirmed",
             http_get=lambda _path, _timeout: body,
         )
 
         outlets = handler.get_outlets_status()
 
         self.assertEqual(
-            ["Codec", "Розетка 2", "Display", "Розетка 4"],
+            ["Display", "Розетка 2", "Codec", "Розетка 4"],
             [item["name"] for item in outlets],
         )
 
@@ -269,7 +313,6 @@ class ExtronPCS4iSISTests(unittest.TestCase):
 
         handler, _transport = self.connected_handler(
             [b"1\r\n", b"0\r\n", b"1\r\n", b"0\r\n"],
-            http_name_path="/confirmed",
             http_get=failing_http,
         )
 
@@ -280,6 +323,39 @@ class ExtronPCS4iSISTests(unittest.TestCase):
             ["Розетка 1", "Розетка 2", "Розетка 3", "Розетка 4"],
             [item["name"] for item in outlets],
         )
+
+    def test_http_401_and_403_keep_telnet_status_without_credential_fallback(self):
+        class Response:
+            def __init__(self, status_code):
+                self.status_code = status_code
+                self.text = "xName1='Should not be used';"
+
+            def raise_for_status(self):
+                raise AssertionError("401/403 should not raise into credential fallback")
+
+        for status_code in (401, 403):
+            with self.subTest(status_code=status_code):
+                handler, transport = self.connected_handler(
+                    [b"1\r\n", b"0\r\n", b"1\r\n", b"0\r\n"],
+                )
+
+                with patch("handlers.extron.pcs4i.requests.get", return_value=Response(status_code)) as get:
+                    outlets = handler.get_outlets_status()
+
+                get.assert_called_once_with(
+                    "http://192.0.2.44/nortxe_status.html",
+                    timeout=handler.timeout,
+                )
+                self.assertEqual(["on", "off", "on", "off"], [item["status"] for item in outlets])
+                self.assertEqual(
+                    ["Розетка 1", "Розетка 2", "Розетка 3", "Розетка 4"],
+                    [item["name"] for item in outlets],
+                )
+                self.assertFalse(handler.credential_used)
+                self.assertEqual(
+                    [ESC + b"1PC\r", ESC + b"2PC\r", ESC + b"3PC\r", ESC + b"4PC\r"],
+                    transport.sent,
+                )
 
 
 if __name__ == "__main__":

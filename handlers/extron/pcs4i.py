@@ -46,7 +46,7 @@ class ExtronIPLTPCS4iHandler:
 
     OUTLET_COUNT = 4
     MODEL = "Extron IPL T PCS4i"
-    HTTP_NAME_PATH: Optional[str] = None
+    HTTP_NAME_PATH: Optional[str] = "/nortxe_status.html"
 
     def __init__(
         self,
