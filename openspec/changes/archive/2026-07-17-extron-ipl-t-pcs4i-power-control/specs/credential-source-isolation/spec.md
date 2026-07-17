@@ -141,6 +141,8 @@ prompt is not credential fallback.
 - **THEN** the handler sends the same assigned password exactly one additional time
 - **AND** it does not choose a different credential candidate
 
+## ADDED Requirements
+
 ### Requirement: PCS4i application credentialless attempt composition
 When PCS4i has an explicit credential, explicit profile, or mapped credential
 chain, the application/composition layer SHALL build the normal ordered
@@ -203,8 +205,6 @@ authentication-required devices.
 - **WHEN** no required credential, profile, or mapping is available
 - **THEN** application composition reports a safe configuration error before network I/O
 - **AND** it does not create a credentialless attempt
-
-## ADDED Requirements
 
 ### Requirement: PCS4i optional credential and phase-scoped password flow
 PCS4i Telnet session establishment SHALL support passwordless and
