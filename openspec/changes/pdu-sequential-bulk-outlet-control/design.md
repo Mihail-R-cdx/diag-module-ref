@@ -68,15 +68,22 @@ workers and not repeated GUI submissions of individual commands.
 
 The bulk context is immutable and includes at least operation id, generation,
 model, IP address, non-secret credential context, assigned credential index
-when any, bulk target (`ON` or `OFF`), and the ordered outlet sequence captured
-from the current PDU data.
+when any, bulk target (`ON` or `OFF`), structured mutation state, and the
+normalized ordered outlet identity sequence captured from the current PDU data.
 
 ### Build outlet order from current records
 
 Bulk dispatch uses the currently available outlet records for the active PDU
-screen/context. It sorts by outlet number ascending. It does not assume eight
-outlets for Aten or four outlets for every device except insofar as the current
-handler has returned that many records.
+screen/context, but it does not store mutable outlet dictionaries in the
+execution descriptor. The composition layer extracts outlet identities such as
+outlet numbers, validates them, rejects missing/malformed identities, rejects
+duplicates before any state-changing network I/O, and captures an immutable
+ordered outlet identity sequence sorted by outlet number ascending.
+
+Duplicate outlets are never silently de-duplicated. Later mutation of GUI
+outlet records cannot change the captured execution sequence. The sequence
+does not assume eight outlets for Aten or four outlets for every device except
+insofar as the current handler has returned valid unique records.
 
 PCS4i therefore processes four outlets when the current PCS4i refresh result
 contains four records. Aten processes however many valid outlet records the
@@ -122,6 +129,10 @@ the next outlet. There is no additional wait after the final outlet.
 The delay must run outside the Qt GUI thread. `time.sleep(1)` or equivalent
 blocking waits in GUI callbacks are forbidden.
 
+No inter-outlet delay runs after a terminal failure because no next outlet will
+start. If stale validation fails before the next outlet, the sequence stops
+without waiting and without starting that outlet.
+
 ### Fail fast with structured partial results
 
 If an outlet sub-operation ends with command rejection, indeterminate outcome,
@@ -132,28 +143,42 @@ Completed outlets are not repeated. Completed outlets are not rolled back.
 The bulk operation is not transactional.
 
 The terminal result contains enough non-secret structure for the GUI to report
-full completion or partial completion, the outlet that stopped the sequence
-when applicable, and the count/list of successfully completed outlets. The
-result must not contain credentials or transport secrets.
+full success, partial terminal failure, stale termination before mutation, or
+stale termination after completed outlet sub-operations. It identifies the
+outlet that stopped the sequence when applicable and the count/list of
+successfully completed outlets. The GUI must not infer these categories from
+user-facing text. The result must not contain credentials or transport secrets.
 
 After any terminal completion, full or partial, the application schedules a
-refresh of the current PDU state if the context is still current.
+refresh of the current PDU state if the context is still current. Stale
+termination for an old context must not initiate refresh of a newer context.
 
 ### Keep credential ownership in the application layer
 
 The application/composition layer assigns one credential for a bulk sequence
 attempt. The worker and handler do not iterate credential candidates.
 
-Credential fallback is allowed only before the first state-changing send, and
-only after a structured confirmed `AuthenticationError` where retry is safe.
-After the first state-changing outlet command has been sent or may have been
-sent, the application must not restart the entire bulk sequence with another
-credential, repeat already completed outlets, or begin again from outlet 1.
+Credential fallback is allowed only when both conditions are true:
 
-Successful credential memory is updated only after a truly successful terminal
-outcome according to the existing policy. PCS4i keeps its existing rule: when a
-credential was assigned but the device operated passwordless and the credential
-was not used, that credential index is not saved as successful.
+- failure classification is a structured confirmed `AuthenticationError`;
+- structured execution state proves that no state-changing outlet send was
+  attempted or could have been delivered.
+
+The application must not decide retry safety from `successful_outlets == []`,
+stopping outlet, error strings, exception text, HTTP status substrings, or lack
+of success. If the first send was invoked, could have been transmitted, or has
+an ambiguous outcome, mutation is considered started and credential fallback is
+forbidden. After the first state-changing outlet command has been sent or may
+have been sent, the application must not restart the entire bulk sequence with
+another credential, repeat already completed outlets, or begin again from
+outlet 1.
+
+Successful credential memory is updated only after a fully successful bulk
+terminal outcome according to the existing policy. Partial completion,
+terminal failure, and stale termination do not save a new successful credential
+index. PCS4i keeps its existing rule: when a credential was assigned but the
+device operated passwordless and the credential was not used, that credential
+index is not saved as successful even after full bulk success.
 
 ### Validate staleness before start and between outlets
 
@@ -181,6 +206,15 @@ controls are disabled for that PDU context. The screen must not submit a second
 bulk operation or a concurrent individual PDU mutation through the same screen.
 Controls are restored only by a terminal callback that matches the current
 context.
+
+The busy/lock state is scoped to the PDU context generation or token that
+started the bulk operation, not globally to the reusable `PDUScreen` widget.
+When the application activates a new PDU context, the new context establishes
+its own control state independently of the superseded context. A superseded
+bulk operation cannot keep the new context locked. A stale callback from the
+old context cannot unlock, relock, or otherwise alter controls owned by the new
+context, including a new context that has already started its own bulk
+operation.
 
 ### Preserve model capabilities
 

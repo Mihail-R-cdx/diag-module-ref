@@ -9,6 +9,29 @@ IPL T PCS4i bulk on/off actions. Unsupported device actions SHALL not be
 reported as successful. PCS4i REBOOT SHALL be unsupported and SHALL NOT be
 exposed to the operator as an individual or bulk operation.
 
+#### Scenario: Extron routing action
+- **WHEN** an operator selects an actionable Extron input/output-1 cell with a connected handler
+- **THEN** the handler is asked to route that input to output 1 and the screen schedules a status refresh
+
+#### Scenario: Aten outlet action
+- **WHEN** an operator confirms an `on`, `off`, or `reboot` action for an Aten outlet
+- **THEN** the application executes the matching handler action through the background PDU command path, reports its outcome, and refreshes after success
+
+#### Scenario: PCS4i outlet action
+- **WHEN** an operator confirms an `on` or `off` action for a PCS4i outlet from 1 through 4
+- **THEN** the application executes the matching PCS4i handler action through the background PDU command path and reports its outcome
+
+#### Scenario: PCS4i reboot is not available
+- **GIVEN** selected device is Extron IPL T PCS4i
+- **WHEN** `PDUScreen` renders supported outlet controls
+- **THEN** ON is available
+- **AND** OFF is available
+- **AND** REBOOT is not available to the operator
+
+#### Scenario: Unsupported SIP update
+- **WHEN** a codec handler does not implement SIP server update
+- **THEN** the operation reports an unsupported or failed outcome rather than claiming the setting changed
+
 #### Scenario: Bulk action uses supported individual capability
 - **GIVEN** the selected PDU model supports individual ON and OFF operations
 - **WHEN** the shared PDU screen renders bulk controls
@@ -31,6 +54,33 @@ Control rendering SHALL use selected-model capabilities rather than assuming
 all PDU models expose the same operation set. The same screen SHALL render
 bulk controls `Выкл всё` and `Вкл всё` under the outlet table when the selected
 model supports the corresponding individual OFF or ON operation.
+
+Bulk busy/lock state SHALL be owned by the PDU context generation or token that
+started the bulk sequence. When the application activates a new PDU context,
+that new context SHALL establish its own control state independently of any
+superseded context. A superseded bulk operation SHALL NOT keep the new context
+locked, and a stale callback from the old context SHALL NOT unlock, relock, or
+otherwise change controls owned by the new context.
+
+#### Scenario: PCS4i uses existing PDU screen
+- **WHEN** an operator refreshes `Extron IPL T PCS4i`
+- **THEN** the application displays the existing `PDUScreen`
+- **AND** no PCS4i-specific screen is created
+
+#### Scenario: PCS4i renders four outlets
+- **WHEN** the PCS4i worker returns four outlet records
+- **THEN** `PDUScreen` displays exactly four outlet rows
+- **AND** each row exposes ON and OFF controls only
+
+#### Scenario: Aten remains on the same PDU screen
+- **WHEN** an operator refreshes `Aten PE8208AV`
+- **THEN** the application continues to display Aten outlet data on `PDUScreen` with its existing behavior
+
+#### Scenario: Aten capabilities are preserved
+- **GIVEN** selected device is a supported Aten PDU
+- **WHEN** operator controls an outlet
+- **THEN** existing ON/OFF/REBOOT capabilities remain available
+- **AND** PCS4i capability restrictions do not alter Aten protocol semantics
 
 #### Scenario: Bulk controls appear on the shared PDU screen
 - **WHEN** an operator refreshes a supported PDU and outlet records are shown
@@ -62,6 +112,18 @@ model supports the corresponding individual OFF or ON operation.
 - **AND** individual outlet control buttons are disabled
 - **AND** the screen cannot submit a second bulk operation or a parallel individual PDU command
 
+#### Scenario: Context switch while bulk active
+- **GIVEN** Aten bulk is active and its controls are locked
+- **WHEN** operator switches to a new PCS4i context
+- **THEN** the new PCS4i context does not inherit the old Aten bulk lock
+- **AND** old Aten callbacks cannot change the PCS4i control state
+
+#### Scenario: Stale completion cannot unlock new active bulk
+- **GIVEN** old context bulk becomes stale
+- **AND** a new context starts its own bulk operation
+- **WHEN** old bulk completion arrives
+- **THEN** it does not unlock controls owned by the new bulk operation
+
 ## ADDED Requirements
 
 ### Requirement: Sequential bulk PDU outlet control
@@ -72,6 +134,13 @@ sub-operations. The sequence SHALL process the actual current outlet records
 in ascending outlet-number order, SHALL start the first outlet immediately,
 SHALL wait one second after each completed outlet sub-operation before
 starting the next one, and SHALL NOT wait after the final outlet.
+
+Bulk dispatch SHALL capture a normalized immutable ordered outlet identity
+sequence from the current outlet records before background execution starts.
+The descriptor SHALL store outlet identities such as outlet numbers, not
+mutable GUI/data dictionaries. Missing, malformed, or duplicate outlet
+identities SHALL be rejected before any state-changing network I/O. Duplicate
+outlets SHALL NOT be silently de-duplicated.
 
 The bulk sequence SHALL run outside the Qt GUI thread. It SHALL use the
 existing safe absolute PDU ON/OFF state-changing policy for each outlet
@@ -93,6 +162,21 @@ and SHALL NOT replay already completed outlets because a later outlet failed.
 - **AND** each outlet sub-operation requests ON through the safe absolute outlet policy
 - **AND** no Aten eight-outlet fallback is used
 
+#### Scenario: Duplicate outlet number
+- **GIVEN** current outlet records contain a duplicate outlet identity
+- **WHEN** bulk dispatch validates the sequence
+- **THEN** the bulk operation is rejected before state-changing network I/O
+- **AND** no duplicate is silently removed
+
+#### Scenario: Malformed outlet number
+- **GIVEN** one outlet record has missing or invalid outlet identity
+- **WHEN** bulk dispatch validates the sequence
+- **THEN** the operation is rejected before state-changing network I/O
+
+#### Scenario: Immutable capture
+- **WHEN** a bulk sequence is submitted
+- **THEN** later mutation of GUI outlet records does not change the captured execution sequence
+
 #### Scenario: Delay outside GUI thread
 - **WHEN** a bulk operation includes slow device work and inter-outlet delays
 - **THEN** the Qt event loop remains responsive
@@ -101,6 +185,14 @@ and SHALL NOT replay already completed outlets because a later outlet failed.
 #### Scenario: No delay after final outlet
 - **WHEN** the last outlet sub-operation in a bulk sequence completes
 - **THEN** the sequence produces its terminal result without an additional inter-outlet delay
+
+#### Scenario: No delay after terminal failure
+- **WHEN** an outlet sub-operation fails terminally
+- **THEN** the sequence stops without waiting one second for an outlet that will not start
+
+#### Scenario: No delay before stale stop
+- **WHEN** stale validation fails before the next outlet sub-operation
+- **THEN** the sequence stops without waiting and without starting the next outlet
 
 #### Scenario: Fail-fast
 - **WHEN** outlet N completes with a terminal failure or indeterminate outcome
@@ -122,6 +214,11 @@ and SHALL NOT replay already completed outlets because a later outlet failed.
 - **THEN** the terminal result identifies that completion was partial
 - **AND** it identifies the stopping outlet and the number of successful outlets
 - **AND** it does not include credentials or transport secrets
+
+#### Scenario: Structured terminal result categories
+- **WHEN** a bulk sequence terminates
+- **THEN** the result distinguishes full success, partial terminal failure, stale termination before mutation, and stale termination after completed outlet sub-operations by structured fields
+- **AND** the GUI does not infer those categories from user-facing text
 
 #### Scenario: Refresh after completion
 - **WHEN** a bulk sequence reaches full or partial terminal completion
