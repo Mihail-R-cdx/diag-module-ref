@@ -496,6 +496,7 @@ class VCSDiagnosticApp(QMainWindow):
             "device": device_name,
             "ip": ip_address,
             "screen": screen,
+            "credential_context": id(getattr(self, "_active_request_credentials", None)),
         }
         self.set_ui_state(
             UIState.LOADING,
@@ -503,6 +504,13 @@ class VCSDiagnosticApp(QMainWindow):
             screen,
         )
         return self._active_request
+
+    def _next_pdu_operation_id(self):
+        self._pdu_operation_serial = self.__dict__.get(
+            "_pdu_operation_serial",
+            self._request_serial,
+        ) + 1
+        return self._pdu_operation_serial
 
     def _request_is_current(self, request_id, worker=None):
         request = self._active_request
@@ -1472,12 +1480,13 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             from core.worker import PDUOperationWorker
             descriptor = PDUOperationDescriptor(
-                operation_id=self._request_serial,
+                operation_id=self._next_pdu_operation_id(),
                 generation=self._request_serial,
                 model=device_name,
                 ip_address=ip_address,
                 operation=REFRESH,
                 credential_index=None if not creds else current_idx,
+                credential_context=id(creds_list),
             )
 
             self.current_worker = PDUOperationWorker(
@@ -1548,13 +1557,14 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             from core.worker import PDUOperationWorker
             descriptor = PDUOperationDescriptor(
-                operation_id=self._request_serial + 1,
+                operation_id=self._next_pdu_operation_id(),
                 generation=(self._active_request or {}).get("id", self._request_serial),
                 model=device_name,
                 ip_address=ip_address,
                 operation=operation,
                 outlet_number=outlet_num,
                 credential_index=None if not creds else current_idx,
+                credential_context=id(creds_list),
             )
             worker = PDUOperationWorker(
                 descriptor,
@@ -1586,6 +1596,7 @@ class VCSDiagnosticApp(QMainWindow):
             and request.get("id") == descriptor.generation
             and request.get("device") == descriptor.model
             and request.get("ip") == descriptor.ip_address
+            and request.get("credential_context") == descriptor.credential_context
         )
 
     def on_pdu_command_result(self, data, worker, descriptor):
@@ -1612,6 +1623,14 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self.hide_progress_dialog()
         _error_type, error, _traceback_text = error_info
+        if _error_type == "indeterminate_outcome":
+            message = (
+                "Не удалось достоверно определить итог команды. "
+                "Проверьте состояние устройства перед повторной операцией."
+            )
+            self.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(self, "Итог команды неизвестен", message)
+            return
         self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды PDU: {error}")
         QMessageBox.critical(self, "Ошибка", f"Ошибка при управлении PDU: {error}")
 

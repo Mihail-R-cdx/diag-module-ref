@@ -7,7 +7,7 @@ import warnings
 import time
 from typing import Optional, List, Dict, Any
 from core.base_handler import ProtocolHandler
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import AuthenticationError, CommandOutcomeUnknownError, ConnectionError, ParseError
 from core.redaction import redact_data
 
 warnings.filterwarnings('ignore')
@@ -339,6 +339,70 @@ class AtenPDUHandler(ProtocolHandler):
         print(f"DEBUG: Final outlets: {outlets}")  # Отладка
         return outlets
 
+    @staticmethod
+    def _normalize_outlet_power_state(status: Any) -> Optional[bool]:
+        normalized = str(status).strip().lower()
+        if normalized in {"on", "1", "true"}:
+            return True
+        if normalized in {"off", "0", "false"}:
+            return False
+        return None
+
+    def read_outlet_power_state(self, outlet_number: int) -> bool:
+        """Read one outlet state through the existing Aten authoritative status endpoint."""
+        for outlet in self.get_outlets_status():
+            if outlet.get("number") == outlet_number:
+                state = self._normalize_outlet_power_state(outlet.get("status"))
+                if state is None:
+                    raise ParseError("Aten outlet state is malformed.")
+                return state
+        raise ParseError("Aten outlet state is unavailable.")
+
+    def _try_read_outlet_power_state(self, outlet_number: int) -> Optional[bool]:
+        try:
+            return self.read_outlet_power_state(outlet_number)
+        except Exception:
+            return None
+
+    def _send_outlet_command_once(self, outlet_number: int, command: str) -> None:
+        data = {"index": outlet_number, "method": command}
+        resp = self._api_request("POST", "/api/outlet/relay", data=data)
+        if resp is None or resp.status_code != 200:
+            raise CommandOutcomeUnknownError("Aten command delivery acknowledgement is unknown.")
+
+    def _set_absolute_outlet_state(self, outlet_number: int, target_on: bool) -> bool:
+        pre_state = self._try_read_outlet_power_state(outlet_number)
+        command = "on" if target_on else "off"
+        initial_ambiguous = False
+        try:
+            self._send_outlet_command_once(outlet_number, command)
+        except CommandOutcomeUnknownError:
+            initial_ambiguous = True
+
+        post_state = self._try_read_outlet_power_state(outlet_number)
+        if post_state is target_on:
+            return True
+        if post_state is not None and post_state is not target_on and pre_state is None:
+            if initial_ambiguous:
+                raise CommandOutcomeUnknownError("Aten command outcome is indeterminate.")
+            return False
+        if pre_state is None:
+            raise CommandOutcomeUnknownError("Aten command outcome is indeterminate.")
+        if post_state is pre_state:
+            try:
+                self._send_outlet_command_once(outlet_number, command)
+            except CommandOutcomeUnknownError:
+                pass
+            terminal_state = self._try_read_outlet_power_state(outlet_number)
+            if terminal_state is target_on:
+                return True
+            if terminal_state is pre_state:
+                return False
+            raise CommandOutcomeUnknownError("Aten terminal confirmation is indeterminate.")
+        if initial_ambiguous:
+            raise CommandOutcomeUnknownError("Aten command outcome is indeterminate.")
+        return False
+
     def set_outlet_state(self, outlet_number: int, command: str) -> bool:
         """
         Управление розеткой
@@ -358,10 +422,13 @@ class AtenPDUHandler(ProtocolHandler):
         if command not in valid_commands:
             raise ValueError(f"Недопустимая команда. Используйте: {valid_commands}")
         
-        data = {"index": outlet_number, "method": command}
-        resp = self._api_request("POST", "/api/outlet/relay", data=data)
-        
-        return resp is not None and resp.status_code == 200
+        if command == "on":
+            return self._set_absolute_outlet_state(outlet_number, True)
+        if command == "off":
+            return self._set_absolute_outlet_state(outlet_number, False)
+
+        self._send_outlet_command_once(outlet_number, command)
+        return True
     
     def turn_on(self, outlet_number: int) -> bool:
         """Включить розетку"""

@@ -29,6 +29,7 @@ class PDUOperationDescriptor:
     operation: str
     outlet_number: Optional[int] = None
     credential_index: Optional[int] = None
+    credential_context: Optional[int] = None
 
 
 def pdu_capabilities(model: str) -> frozenset[str]:
@@ -50,15 +51,28 @@ def ensure_pdu_operation_supported(model: str, operation: str) -> None:
         raise CommandError(f"{model} does not support PDU operation {operation!r}.")
 
 
+def validate_pdu_outlet(model: str, outlet_number: int) -> None:
+    if model == "Extron IPL T PCS4i" and outlet_number not in range(1, 5):
+        raise CommandError("PCS4i outlet number must be in range 1..4.")
+
+
+def normalize_pdu_credentials(model: str, credentials: Mapping[str, Any]) -> dict[str, Any]:
+    raw = dict(credentials or {})
+    if model == "Extron IPL T PCS4i":
+        return {"password": raw["password"]} if raw.get("password") else {}
+    return raw
+
+
 def build_pdu_handler(model: str, ip_address: str, credentials: Mapping[str, Any]):
+    credentials = normalize_pdu_credentials(model, credentials)
     if model == "Aten PE8208AV":
         from handlers.aten.pdu import AtenPDUHandler
 
-        return AtenPDUHandler(ip_address=ip_address, port=443, **dict(credentials))
+        return AtenPDUHandler(ip_address=ip_address, port=443, **credentials)
     if model == "Extron IPL T PCS4i":
         from handlers.extron.pcs4i import ExtronIPLTPCS4iHandler
 
-        return ExtronIPLTPCS4iHandler(ip_address=ip_address, **dict(credentials))
+        return ExtronIPLTPCS4iHandler(ip_address=ip_address, **credentials)
     raise CommandError(f"Unsupported PDU model: {model}")
 
 
@@ -82,7 +96,11 @@ def execute_pdu_refresh(
     if not is_current(descriptor):
         return {"_outcome": "stale", "operation": REFRESH}
 
-    handler = handler_factory(descriptor.model, descriptor.ip_address, credentials)
+    handler = handler_factory(
+        descriptor.model,
+        descriptor.ip_address,
+        normalize_pdu_credentials(descriptor.model, credentials),
+    )
     try:
         if not is_current(descriptor):
             return {"_outcome": "stale", "operation": REFRESH}
@@ -115,10 +133,15 @@ def execute_pdu_command(
     ensure_pdu_operation_supported(descriptor.model, descriptor.operation)
     if descriptor.outlet_number is None:
         raise CommandError("PDU outlet command requires an outlet number.")
+    validate_pdu_outlet(descriptor.model, descriptor.outlet_number)
     if not is_current(descriptor):
         return {"_outcome": "stale", "operation": descriptor.operation}
 
-    handler = handler_factory(descriptor.model, descriptor.ip_address, credentials)
+    handler = handler_factory(
+        descriptor.model,
+        descriptor.ip_address,
+        normalize_pdu_credentials(descriptor.model, credentials),
+    )
     try:
         if not is_current(descriptor):
             return {"_outcome": "stale", "operation": descriptor.operation}

@@ -159,15 +159,20 @@ class ExtronIPLTPCS4iHandler:
         if pre_state is None:
             raise CommandOutcomeUnknownError("PCS4i final state is indeterminate.")
         if post_state is pre_state:
+            resend_ambiguous = False
             try:
                 self._send_power_command(outlet_number, target_on)
-            except CommandOutcomeUnknownError as error:
-                raise CommandOutcomeUnknownError("PCS4i controlled resend outcome is indeterminate.") from error
+            except CommandOutcomeUnknownError:
+                resend_ambiguous = True
             terminal_state = self._try_read_power_state(outlet_number)
             if terminal_state is target_on:
                 return True
             if terminal_state is pre_state:
                 return False
+            if resend_ambiguous:
+                raise CommandOutcomeUnknownError(
+                    "PCS4i controlled resend acknowledgement was ambiguous and terminal confirmation is indeterminate."
+                )
             raise CommandOutcomeUnknownError("PCS4i terminal confirmation is indeterminate.")
         if ambiguous:
             raise CommandOutcomeUnknownError("PCS4i delivery was ambiguous and readback was not the target.")

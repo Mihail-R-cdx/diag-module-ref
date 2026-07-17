@@ -13,6 +13,7 @@ from core.codec_connection_profiles import order_codec_profiles
 from .exceptions import (
     AuthenticationError,
     CommandError,
+    CommandOutcomeUnknownError,
     ConnectionError,
     CredentialRequired,
     classify_codec_failure,
@@ -815,6 +816,8 @@ class PDUOperationWorker(QRunnable):
             _emit_error(self, "credential_required", error, trace=False)
         except AuthenticationError as error:
             _emit_error(self, "authentication_error", error, trace=False)
+        except CommandOutcomeUnknownError as error:
+            _emit_error(self, "indeterminate_outcome", error, trace=False)
         except CommandError as error:
             _emit_error(self, "unsupported_operation", error, trace=False)
         except ConnectionError as error:
