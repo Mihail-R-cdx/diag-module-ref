@@ -15,11 +15,14 @@ from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
 from core.pdu import (
+    BULK_COMMAND_OFF,
+    BULK_COMMAND_ON,
     COMMAND_OFF,
     COMMAND_ON,
     COMMAND_REBOOT,
     REFRESH,
     PDUOperationDescriptor,
+    build_pdu_bulk_outlet_sequence,
     ensure_pdu_operation_supported,
     normalize_pdu_credential_candidates,
 )
@@ -514,6 +517,10 @@ class VCSDiagnosticApp(QMainWindow):
         self._pdu_context_revision = self.__dict__.get("_pdu_context_revision", 0) + 1
         if self.__dict__.get("_active_request") is not None:
             self._active_request["credential_context"] = self._pdu_context_revision
+        self.__dict__.pop("_active_pdu_bulk_context", None)
+        screen = getattr(self, "screens", {}).get("pdu")
+        if screen is not None and hasattr(screen, "clear_bulk_operation_state"):
+            screen.clear_bulk_operation_state()
 
     def _on_credential_configuration_changed(self, device_name=None):
         self._invalidate_pdu_context()
@@ -1656,6 +1663,13 @@ class VCSDiagnosticApp(QMainWindow):
         
         if device_name not in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
             return False
+        if self._is_current_pdu_bulk_active():
+            QMessageBox.warning(
+                self,
+                "Команда PDU занята",
+                "Дождитесь завершения групповой операции PDU.",
+            )
+            return False
 
         operation = {
             "on": COMMAND_ON,
@@ -1800,6 +1814,10 @@ class VCSDiagnosticApp(QMainWindow):
             and request.get("credential_index") == descriptor.credential_index
         )
 
+    def _is_current_pdu_bulk_active(self) -> bool:
+        descriptor = self.__dict__.get("_active_pdu_bulk_context")
+        return bool(descriptor and self._pdu_context_is_current(descriptor))
+
     def _set_pdu_command_busy(self, descriptor: PDUOperationDescriptor, busy: bool) -> None:
         screen = getattr(self, "screens", {}).get("pdu")
         if screen is None or descriptor.outlet_number is None:
@@ -1808,6 +1826,274 @@ class VCSDiagnosticApp(QMainWindow):
         if setter is None:
             return
         setter(descriptor.outlet_number, descriptor.operation, busy)
+
+    def _set_pdu_bulk_busy(self, descriptor: PDUOperationDescriptor, busy: bool) -> None:
+        screen = getattr(self, "screens", {}).get("pdu")
+        if screen is None:
+            return
+        if busy:
+            self._active_pdu_bulk_context = descriptor
+            if hasattr(screen, "set_bulk_operation_state"):
+                screen.set_bulk_operation_state(descriptor.operation_id, True)
+            return
+        if self.__dict__.get("_active_pdu_bulk_context") == descriptor:
+            self.__dict__.pop("_active_pdu_bulk_context", None)
+        if hasattr(screen, "set_bulk_operation_state"):
+            screen.set_bulk_operation_state(descriptor.operation_id, False)
+
+    def control_pdu_outlets_bulk(self, command: str):
+        device_name = self.device_combo.currentText()
+        ip_address = self.ip_entry.text().strip()
+        if device_name not in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
+            return False
+        if self._is_current_pdu_bulk_active():
+            QMessageBox.warning(
+                self,
+                "Команда PDU занята",
+                "Дождитесь завершения текущей групповой операции PDU.",
+            )
+            return False
+
+        operation = {"on": BULK_COMMAND_ON, "off": BULK_COMMAND_OFF}.get(command)
+        if operation is None:
+            return False
+        try:
+            ensure_pdu_operation_supported(device_name, operation)
+            outlet_sequence = build_pdu_bulk_outlet_sequence(
+                device_name,
+                getattr(self.screens.get("pdu"), "outlets", []),
+            )
+        except Exception as error:
+            self.set_ui_state(UIState.REQUEST_ERROR, str(error))
+            QMessageBox.warning(self, "Групповая команда недоступна", str(error))
+            return False
+
+        creds_list = getattr(self, "_active_request_credentials", None)
+        if creds_list is None:
+            creds_list = self._resolve_pdu_attempt_credentials(device_name, ip_address)
+        else:
+            creds_list = normalize_pdu_credential_candidates(device_name, creds_list)
+            self._active_request_credentials = creds_list
+
+        operation_id = self._next_pdu_operation_id()
+        if self._is_pcs4i_device(device_name):
+            current_idx = self._credential_attempt_index(
+                device_name, creds_list, ip_address, operation_id
+            )
+        else:
+            current_idx = self.get_valid_current_credential_index(
+                device_name, creds_list, ip_address
+            )
+        if current_idx >= len(creds_list):
+            self.set_ui_state(UIState.REQUEST_ERROR, "Нет credentials для PDU")
+            return False
+
+        creds = creds_list[current_idx]
+        credential_index = None if not creds else current_idx
+        self._set_active_pdu_credential_context(
+            device_name,
+            ip_address,
+            credential_index,
+        )
+
+        descriptor = None
+        try:
+            from core.worker import PDUOperationWorker
+
+            descriptor = PDUOperationDescriptor(
+                operation_id=operation_id,
+                generation=(self._active_request or {}).get("id", self._request_serial),
+                model=device_name,
+                ip_address=ip_address,
+                operation=operation,
+                credential_index=credential_index,
+                credential_context=self._pdu_context_token(),
+                outlet_sequence=outlet_sequence,
+            )
+            worker = PDUOperationWorker(
+                descriptor,
+                credentials=creds,
+                is_current=self._pdu_context_is_current,
+            )
+            worker.creds_list = creds_list
+            worker.current_idx = current_idx
+            worker.device_name = device_name
+            worker.signals.result.connect(
+                lambda data, w=worker, d=descriptor: self.on_pdu_bulk_result(data, w, d)
+            )
+            worker.signals.error.connect(
+                lambda error, w=worker, d=descriptor: self.on_pdu_bulk_error(error, w, d)
+            )
+            worker.signals.finished.connect(
+                lambda w=worker, d=descriptor: self.on_pdu_bulk_finished(w, d)
+            )
+            self.current_worker = worker
+            self._set_pdu_bulk_busy(descriptor, True)
+            self.set_ui_state(
+                UIState.COMMAND,
+                "Выполнение групповой команды PDU…",
+            )
+            self.show_progress_dialog("Выполнение групповой команды PDU...")
+            QThreadPool.globalInstance().start(worker)
+            return True
+        except Exception as error:
+            if descriptor is not None:
+                self._set_pdu_bulk_busy(descriptor, False)
+            self._fail_request_start(error)
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при групповой команде PDU: {str(error)}")
+            return False
+
+    def _start_pdu_bulk_retry_worker(
+        self,
+        *,
+        descriptor,
+        creds_list,
+        current_idx,
+    ):
+        from core.worker import PDUOperationWorker
+
+        creds = creds_list[current_idx]
+        credential_index = None if not creds else current_idx
+        self._set_active_pdu_credential_context(
+            descriptor.model,
+            descriptor.ip_address,
+            credential_index,
+        )
+        retry_descriptor = PDUOperationDescriptor(
+            operation_id=descriptor.operation_id,
+            generation=descriptor.generation,
+            model=descriptor.model,
+            ip_address=descriptor.ip_address,
+            operation=descriptor.operation,
+            credential_index=credential_index,
+            credential_context=self._pdu_context_token(),
+            outlet_sequence=descriptor.outlet_sequence,
+        )
+        worker = PDUOperationWorker(
+            retry_descriptor,
+            credentials=creds,
+            is_current=self._pdu_context_is_current,
+        )
+        worker.creds_list = creds_list
+        worker.current_idx = current_idx
+        worker.device_name = descriptor.model
+        worker.signals.result.connect(
+            lambda data, w=worker, d=retry_descriptor: self.on_pdu_bulk_result(data, w, d)
+        )
+        worker.signals.error.connect(
+            lambda error, w=worker, d=retry_descriptor: self.on_pdu_bulk_error(error, w, d)
+        )
+        worker.signals.finished.connect(
+            lambda w=worker, d=retry_descriptor: self.on_pdu_bulk_finished(w, d)
+        )
+        self.current_worker = worker
+        self._set_pdu_bulk_busy(retry_descriptor, True)
+        self.show_progress_dialog("Выполнение групповой команды PDU...")
+        QThreadPool.globalInstance().start(worker)
+
+    def on_pdu_bulk_result(self, data, worker, descriptor):
+        if not self._pdu_context_is_current(descriptor):
+            return
+        self.hide_progress_dialog()
+        self._set_pdu_bulk_busy(descriptor, False)
+        if descriptor.model == "Extron IPL T PCS4i":
+            self._discard_credential_attempt_plan(
+                descriptor.model,
+                descriptor.ip_address,
+                descriptor.operation_id,
+            )
+        if data.get("success"):
+            if (
+                descriptor.model == "Extron IPL T PCS4i"
+                and data.get("_credential_used") is True
+                and descriptor.credential_index is not None
+            ):
+                self.set_current_credential_index(
+                    descriptor.model,
+                    descriptor.credential_index,
+                    descriptor.ip_address,
+                )
+            completed = len(data.get("successful_outlets") or ())
+            self.set_ui_state(UIState.CONNECTED, f"Групповая команда PDU выполнена: {completed}")
+            QMessageBox.information(
+                self,
+                "Успех",
+                f"Групповая команда выполнена для {completed} розеток.",
+            )
+            self.refresh_data()
+            return
+
+        terminal_state = data.get("terminal_state")
+        completed = len(data.get("successful_outlets") or ())
+        stopping_outlet = data.get("stopping_outlet")
+        if terminal_state in {"partial_failure", "failure_before_completion"}:
+            message = (
+                f"Групповая команда остановлена на розетке {stopping_outlet}. "
+                f"Успешно обработано: {completed}."
+            )
+            self.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(self, "Групповая команда остановлена", message)
+            if completed or data.get("state_changing_send_attempted"):
+                self.refresh_data()
+            return
+
+        message = "Групповая команда PDU не была завершена."
+        self.set_ui_state(UIState.REQUEST_ERROR, message)
+        QMessageBox.warning(self, "Групповая команда PDU", message)
+
+    def on_pdu_bulk_error(self, error_info, worker, descriptor):
+        if not self._pdu_context_is_current(descriptor):
+            return
+        self.hide_progress_dialog()
+        error_type = error_info[0]
+        error = error_info[1]
+        metadata = error_info[3] if len(error_info) > 3 and isinstance(error_info[3], dict) else {}
+        if (
+            descriptor.model == "Extron IPL T PCS4i"
+            and error_type == CodecFailureCategory.AUTHENTICATION.value
+            and metadata.get("state_changing_send_attempted") is False
+        ):
+            creds_list = normalize_pdu_credential_candidates(
+                descriptor.model,
+                getattr(worker, "creds_list", []),
+            )
+            current_idx = getattr(worker, "current_idx", 0)
+            next_idx = self._advance_request_credential_attempt(
+                descriptor.model,
+                creds_list,
+                descriptor.ip_address,
+                current_idx,
+                descriptor.operation_id,
+            )
+            if next_idx is not None:
+                self.set_ui_state(
+                    UIState.LOADING,
+                    f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}...",
+                )
+                self._set_pdu_bulk_busy(descriptor, False)
+                self._start_pdu_bulk_retry_worker(
+                    descriptor=descriptor,
+                    creds_list=creds_list,
+                    current_idx=next_idx,
+                )
+                return
+        if descriptor.model == "Extron IPL T PCS4i":
+            self._discard_credential_attempt_plan(
+                descriptor.model,
+                descriptor.ip_address,
+                descriptor.operation_id,
+            )
+        self._set_pdu_bulk_busy(descriptor, False)
+        self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка групповой команды PDU: {error}")
+        QMessageBox.critical(self, "Ошибка", f"Ошибка групповой команды PDU: {error}")
+
+    def on_pdu_bulk_finished(self, worker, descriptor):
+        if worker is not getattr(self, "current_worker", None):
+            return
+        if not self._pdu_context_is_current(descriptor):
+            return
+        self.hide_progress_dialog()
+        self._set_pdu_bulk_busy(descriptor, False)
 
     def on_pdu_command_result(self, data, worker, descriptor):
         if not self._pdu_context_is_current(descriptor):

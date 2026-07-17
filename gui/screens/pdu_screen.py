@@ -26,6 +26,7 @@ class PDUScreen(BaseScreen):
     """Aten outlet status and control screen."""
 
     outlet_control_signal = pyqtSignal(int, str)
+    bulk_control_signal = pyqtSignal(str)
 
     def __init__(self, parent=None):
         self.outlet_names = [f"Розетка {number}" for number in range(1, 9)]
@@ -36,6 +37,8 @@ class PDUScreen(BaseScreen):
             "off": True,
             "reboot": True,
         }
+        self.bulk_busy = False
+        self.bulk_context = None
         super().__init__(parent)
 
     def init_ui(self):
@@ -60,6 +63,7 @@ class PDUScreen(BaseScreen):
         self.scroll_area.setWidget(self.content)
         root_layout.addWidget(self.scroll_area)
         self.outlet_control_signal.connect(self.on_outlet_control)
+        self.bulk_control_signal.connect(self.on_bulk_control)
 
     def create_info_panel(self, parent_layout):
         self.info_group = SectionCard(
@@ -128,6 +132,26 @@ class PDUScreen(BaseScreen):
         self.outlets_group.add_widget(self.outlets_empty)
         self.outlets_table.setVisible(False)
         parent_layout.addWidget(self.outlets_group, 1)
+        self.create_bulk_controls(parent_layout)
+
+    def create_bulk_controls(self, parent_layout):
+        self.bulk_widget = QWidget(self)
+        bulk_layout = QHBoxLayout(self.bulk_widget)
+        bulk_layout.setContentsMargins(0, 0, 0, 0)
+        bulk_layout.addStretch(1)
+
+        self.btn_bulk_off = SemanticButton("Выкл всё", "danger", self.bulk_widget)
+        self.btn_bulk_off.setToolTip("Выключить все доступные розетки по очереди")
+        self.btn_bulk_off.clicked.connect(lambda: self.on_bulk_button_click("off"))
+        bulk_layout.addWidget(self.btn_bulk_off)
+
+        self.btn_bulk_on = SemanticButton("Вкл всё", "success", self.bulk_widget)
+        self.btn_bulk_on.setToolTip("Включить все доступные розетки по очереди")
+        self.btn_bulk_on.clicked.connect(lambda: self.on_bulk_button_click("on"))
+        bulk_layout.addWidget(self.btn_bulk_on)
+
+        parent_layout.addWidget(self.bulk_widget)
+        self._sync_bulk_controls()
 
     def clear_data(self):
         self.device_info = {}
@@ -139,6 +163,9 @@ class PDUScreen(BaseScreen):
         self.outlets_table.setRowCount(0)
         self.outlets_table.setVisible(False)
         self.outlets_empty.setVisible(True)
+        self.bulk_busy = False
+        self.bulk_context = None
+        self._sync_bulk_controls()
 
     def update_data(self, data):
         if not data:
@@ -155,6 +182,7 @@ class PDUScreen(BaseScreen):
                 "reboot": bool(data["capabilities"].get("reboot", False)),
             }
             self._sync_capability_columns()
+            self._sync_bulk_controls()
 
         if "outlets" in data:
             self.outlets = data["outlets"] or []
@@ -166,6 +194,7 @@ class PDUScreen(BaseScreen):
                     if 0 <= index < len(self.outlet_names):
                         self.outlet_names[index] = name
             self.update_outlets_table()
+            self._sync_bulk_controls()
 
     def update_info_panel(self):
         for field in ("model", "ip_address", "firmware"):
@@ -233,6 +262,7 @@ class PDUScreen(BaseScreen):
                     continue
                 button = SemanticButton(text, role, self.outlets_table)
                 button.setToolTip(tooltip)
+                button.setEnabled(not self.bulk_busy)
                 button.clicked.connect(
                     lambda checked=False, r=row, action=column:
                     self.on_outlet_button_click(r, action)
@@ -241,9 +271,63 @@ class PDUScreen(BaseScreen):
 
             self.outlets_table.setRowHeight(row, 44)
         self.outlets_table.viewport().update()
+        self._sync_bulk_controls()
 
     def _sync_capability_columns(self):
         self.outlets_table.setColumnHidden(5, not self.capabilities.get("reboot", False))
+
+    def _sync_bulk_controls(self):
+        if not hasattr(self, "btn_bulk_on"):
+            return
+        has_outlets = bool(self.outlets)
+        self.btn_bulk_on.setEnabled(
+            has_outlets and self.capabilities.get("on", False) and not self.bulk_busy
+        )
+        self.btn_bulk_off.setEnabled(
+            has_outlets and self.capabilities.get("off", False) and not self.bulk_busy
+        )
+
+    def _set_individual_controls_enabled(self, enabled):
+        for row in range(self.outlets_table.rowCount()):
+            for column in (3, 4, 5):
+                button = self.outlets_table.cellWidget(row, column)
+                if isinstance(button, SemanticButton):
+                    button.setEnabled(enabled)
+
+    def set_bulk_operation_state(self, context, busy):
+        if busy:
+            self.bulk_context = context
+            self.bulk_busy = True
+        elif self.bulk_context == context:
+            self.bulk_context = None
+            self.bulk_busy = False
+        else:
+            return
+        self._set_individual_controls_enabled(not self.bulk_busy)
+        self._sync_bulk_controls()
+
+    def clear_bulk_operation_state(self):
+        self.bulk_context = None
+        self.bulk_busy = False
+        self._set_individual_controls_enabled(True)
+        self._sync_bulk_controls()
+
+    def on_bulk_button_click(self, command):
+        if self.bulk_busy:
+            return
+        prompts = {
+            "off": "Выключить все розетки по очереди?",
+            "on": "Включить все розетки по очереди?",
+        }
+        reply = QMessageBox.question(
+            self,
+            "Подтверждение",
+            prompts.get(command, "Выполнить групповую команду?"),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.bulk_control_signal.emit(command)
 
     def on_outlet_button_click(self, row, action):
         outlet_num = row + 1
@@ -275,6 +359,8 @@ class PDUScreen(BaseScreen):
 
     @pyqtSlot(int, str)
     def on_outlet_control(self, outlet_num, command):
+        if self.bulk_busy:
+            return
         self.set_outlet_command_state(outlet_num, command, True)
         submitted = False
         try:
@@ -298,7 +384,17 @@ class PDUScreen(BaseScreen):
                 button.set_loading(True, "Выполнение…")
             else:
                 button.set_loading(False)
-                button.setEnabled(not busy)
+                button.setEnabled(not busy and not self.bulk_busy)
+
+    @pyqtSlot(str)
+    def on_bulk_control(self, command):
+        submitted = False
+        try:
+            if self.parent and hasattr(self.parent, "control_pdu_outlets_bulk"):
+                submitted = bool(self.parent.control_pdu_outlets_bulk(command))
+        finally:
+            if not submitted:
+                self.clear_bulk_operation_state()
 
     def refresh(self):
         if self.parent and hasattr(self.parent, "refresh_data"):
