@@ -1,8 +1,5 @@
-# secure-observability-and-validation Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change bootstrap-openspec-baseline. Update Purpose after archive.
-## Requirements
 ### Requirement: Redacted protocol diagnostics
 Handler command logging and worker error handling SHALL redact known usernames,
 passwords, authentication tokens, sensitive request payloads, and sensitive
@@ -29,25 +26,7 @@ expose the real assigned password.
 - **WHEN** PCS4i requires the same assigned password to be sent a second time
 - **THEN** no stdout, debug log, GUI message, exception, public diagnostic, test assertion, or validation report contains the password value
 
-### Requirement: Offline verification boundary
-The repository SHALL keep normal automated verification offline. Hardware
-network probes and device-mutating tools SHALL remain opt-in and SHALL not be
-required for the offline test suite.
-
-#### Scenario: Offline validation
-- **WHEN** maintainers run `python -m unittest discover -s tests -p "test_*.py"`
-- **THEN** the suite exercises repository tests without requiring live AV equipment
-
-### Requirement: OpenSpec change completion
-A future OpenSpec change SHALL be ready to archive only when its required
-artifacts, requirements, scenarios, implementation status, strict OpenSpec
-validation, relevant offline tests, and documentation checks agree. The change
-SHALL explicitly describe any runtime behavior change and SHALL not hide
-unrelated fixes outside its scope.
-
-#### Scenario: Completed future change
-- **WHEN** a change has completed its required artifacts and implementation
-- **THEN** maintainers can validate it with `openspec validate --all --strict` and archive it through the standard OpenSpec command
+## ADDED Requirements
 
 ### Requirement: PCS4i offline protocol validation
 PCS4i protocol behavior SHALL be verified with offline tests using synthetic

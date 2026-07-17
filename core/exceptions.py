@@ -22,9 +22,22 @@ class AuthenticationError(DeviceError):
     pass
 
 
+class CredentialRequired(DeviceError):
+    """The device requested a credential, but none was assigned for this attempt."""
+    pass
+
+
 class CommandError(DeviceError):
     """Ошибка выполнения команды на устройстве"""
     pass
+
+
+class UnsupportedOperationError(CommandError):
+    """The requested operation is not supported by the selected device."""
+
+
+class CommandRejectedError(CommandError):
+    """The device authoritatively rejected the requested command."""
 
 
 class TimeoutError(DeviceError):

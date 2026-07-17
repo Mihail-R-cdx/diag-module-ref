@@ -12,8 +12,20 @@ from handlers.extron.in1804 import ExtronIN1804Handler
 from core.codec_connection_profiles import order_codec_profiles
 from .exceptions import (
     AuthenticationError,
+    CommandError,
+    CommandOutcomeUnknownError,
+    CommandRejectedError,
     ConnectionError,
+    CredentialRequired,
+    UnsupportedOperationError,
     classify_codec_failure,
+)
+from core.pdu import (
+    REFRESH,
+    PDUOperationDescriptor,
+    execute_pdu_command,
+    execute_pdu_refresh,
+    normalize_pdu_credentials,
 )
 import traceback
 import builtins
@@ -752,6 +764,80 @@ class ExtronIN1804Worker(QRunnable):
                 self.handler.disconnect()
             self.signals.finished.emit()
             
+
+
+class PDUOperationWorker(QRunnable):
+    """Background refresh/control worker for model-aware PDU operations."""
+
+    def __init__(
+        self,
+        descriptor: PDUOperationDescriptor,
+        credentials: Optional[Dict] = None,
+        is_current=None,
+        handler_factory=None,
+    ):
+        super().__init__()
+        self.descriptor = descriptor
+        self.ip_address = descriptor.ip_address
+        self.device_name = descriptor.model
+        self.operation = descriptor.operation
+        self.outlet_number = descriptor.outlet_number
+        self.credentials = normalize_pdu_credentials(descriptor.model, credentials or {})
+        self.username = self.credentials.get("username")
+        self.password = self.credentials.get("password")
+        self.current_idx = descriptor.credential_index or 0
+        self.creds_list = []
+        self.is_current = is_current or (lambda _descriptor: True)
+        self.handler_factory = handler_factory
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            self.signals.progress.emit(10)
+            if self.operation == REFRESH:
+                self.signals.status.emit("Получение статуса PDU...")
+                result = execute_pdu_refresh(
+                    descriptor=self.descriptor,
+                    credentials=self.credentials,
+                    is_current=self.is_current,
+                    **self._factory_kwargs(),
+                )
+            else:
+                self.signals.status.emit("Выполнение команды PDU...")
+                result = execute_pdu_command(
+                    descriptor=self.descriptor,
+                    credentials=self.credentials,
+                    is_current=self.is_current,
+                    **self._factory_kwargs(),
+                )
+            self.signals.progress.emit(100)
+            if result.get("_outcome") == "stale":
+                return
+            self.signals.result.emit(redact_data(result, _worker_secrets(self)))
+        except CredentialRequired as error:
+            _emit_error(self, "credential_required", error, trace=False)
+        except AuthenticationError as error:
+            _emit_error(self, "authentication_error", error, trace=False)
+        except UnsupportedOperationError as error:
+            _emit_error(self, "unsupported_operation", error, trace=False)
+        except CommandRejectedError as error:
+            _emit_error(self, "command_failed", error, trace=False)
+        except CommandOutcomeUnknownError as error:
+            _emit_error(self, "indeterminate_outcome", error, trace=False)
+        except CommandError as error:
+            _emit_error(self, "command_failed", error, trace=False)
+        except ConnectionError as error:
+            _emit_error(self, "connection_error", error, trace=False)
+        except Exception as error:
+            _emit_error(self, "connection_error", error)
+        finally:
+            self.signals.finished.emit()
+
+    def _factory_kwargs(self):
+        if self.handler_factory is None:
+            return {}
+        return {"handler_factory": self.handler_factory}
 
 
 class AtenPDUWorker(QRunnable):

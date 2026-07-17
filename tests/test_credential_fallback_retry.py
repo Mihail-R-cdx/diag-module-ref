@@ -1,9 +1,15 @@
 import unittest
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from PyQt5.QtWidgets import QMessageBox
 
+from core.pdu import (
+    COMMAND_ON,
+    PDUOperationDescriptor,
+    execute_pdu_command,
+)
 from gui.main_window import VCSDiagnosticApp
 from gui.ui_states import UIState
 
@@ -458,6 +464,417 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                     self.assertNotIn(secret, terminal_text)
                     self.assertNotIn(secret, public_text)
                 self.assertIn("<redacted>", terminal_text)
+
+
+class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
+    def make_window(self):
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window._active_request = {"id": 1, "screen": None}
+        window.current_credential_index = {}
+        window.current_worker = None
+        window.device_combo = SimpleNamespace(currentText=lambda: "Extron IPL T PCS4i")
+        window.ip_entry = SimpleNamespace(text=lambda: "192.0.2.44")
+        window.hide_progress_dialog = Mock()
+        window.show_progress_dialog = Mock()
+        window.set_ui_state = Mock()
+        window.set_current_credential_index = Mock()
+        window.refresh_pdu = Mock()
+        window.refresh_btn = Mock()
+        window.screens = {}
+        window.current_screen_type = None
+        window.progress_dialog = None
+        window.suppress_success_message_once = False
+        window.update_time_display = Mock()
+        window.set_device_connection_profile = Mock()
+        window.validate_ip_address = Mock(return_value=True)
+        window._pdu_context_is_current = Mock(return_value=True)
+        window._request_serial = 1
+        window.is_vcs_codec_device = lambda _device: False
+        return window
+
+    def worker(self, index=0, total=3):
+        return SimpleNamespace(
+            device_name="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            current_idx=index,
+            creds_list=[
+                {"password": f"synthetic-password-{item}"}
+                for item in range(total)
+            ],
+        )
+
+    def context_window(self):
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window._active_request = {
+            "id": 1,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "screen": None,
+            "credential_context": 10,
+            "credential_index": None,
+        }
+        window._pdu_context_revision = 10
+        window._credential_attempt_plans = {}
+        window.current_credential_index = {}
+        window.current_worker = None
+        window.screens = {
+            "pdu": SimpleNamespace(set_outlet_command_state=Mock())
+        }
+        window.hide_progress_dialog = Mock()
+        window.refresh_data = Mock()
+        window.set_ui_state = Mock()
+        window.set_current_credential_index = Mock()
+        window.is_vcs_codec_device = lambda _device: False
+        return window
+
+    def pdu_descriptor(self, index, operation_id=501):
+        return PDUOperationDescriptor(
+            operation_id=operation_id,
+            generation=1,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_index=index,
+            credential_context=10,
+        )
+
+    def activate_pdu_candidate(self, window, index):
+        descriptor = self.pdu_descriptor(index)
+        window._set_active_pdu_credential_context(
+            descriptor.model,
+            descriptor.ip_address,
+            descriptor.credential_index,
+        )
+        return descriptor
+
+    def test_first_candidate_auth_failure_starts_second_without_persisting(self):
+        window = self.make_window()
+        worker = self.worker(index=0, total=3)
+        window.current_worker = worker
+
+        window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
+
+        window.set_current_credential_index.assert_not_called()
+        window.refresh_pdu.assert_called_once_with("192.0.2.44", "Extron IPL T PCS4i")
+        self.assertEqual(
+            1,
+            window._credential_attempt_plans[
+                "Extron IPL T PCS4i|192.0.2.44"
+            ].current_index,
+        )
+
+        success_worker = self.worker(index=1, total=3)
+        window.current_worker = success_worker
+        with patch.object(QMessageBox, "information"):
+            window.on_device_data_received(
+                {
+                    "ip_address": "192.0.2.44",
+                    "status": "ok",
+                    "_credential_used": True,
+                },
+                success_worker,
+                1,
+            )
+
+        window.set_current_credential_index.assert_called_once_with(
+            "Extron IPL T PCS4i", 1, "192.0.2.44"
+        )
+
+    def test_old_candidate_descriptor_is_stale_after_fallback_advances_context(self):
+        window = self.context_window()
+        creds = self.worker(total=2).creds_list
+        old_descriptor = self.activate_pdu_candidate(window, 0)
+        self.assertTrue(window._pdu_context_is_current(old_descriptor))
+
+        next_index = window._advance_request_credential_attempt(
+            "Extron IPL T PCS4i",
+            creds,
+            "192.0.2.44",
+            0,
+            old_descriptor.operation_id,
+        )
+        retry_descriptor = self.pdu_descriptor(next_index, old_descriptor.operation_id)
+        window._set_active_pdu_credential_context(
+            retry_descriptor.model,
+            retry_descriptor.ip_address,
+            retry_descriptor.credential_index,
+        )
+        acquired = []
+
+        result = execute_pdu_command(
+            descriptor=old_descriptor,
+            credentials=creds[0],
+            is_current=window._pdu_context_is_current,
+            handler_factory=lambda *_args: acquired.append(True),
+        )
+
+        self.assertEqual({"_outcome": "stale", "operation": COMMAND_ON}, result)
+        self.assertEqual([], acquired)
+
+    def test_retry_candidate_descriptor_remains_current_with_same_operation_id(self):
+        window = self.context_window()
+        creds = self.worker(total=2).creds_list
+        old_descriptor = self.activate_pdu_candidate(window, 0)
+        next_index = window._advance_request_credential_attempt(
+            "Extron IPL T PCS4i",
+            creds,
+            "192.0.2.44",
+            0,
+            old_descriptor.operation_id,
+        )
+        retry_descriptor = self.pdu_descriptor(next_index, old_descriptor.operation_id)
+        window._set_active_pdu_credential_context(
+            retry_descriptor.model,
+            retry_descriptor.ip_address,
+            retry_descriptor.credential_index,
+        )
+
+        self.assertTrue(window._pdu_context_is_current(retry_descriptor))
+        self.assertEqual(old_descriptor.operation_id, retry_descriptor.operation_id)
+        window.set_current_credential_index.assert_not_called()
+
+    def test_same_index_credential_replacement_invalidates_old_descriptor_before_handler(self):
+        window = self.context_window()
+        old_descriptor = self.activate_pdu_candidate(window, 0)
+        self.assertTrue(window._pdu_context_is_current(old_descriptor))
+
+        window._invalidate_pdu_context()
+        replacement_descriptor = PDUOperationDescriptor(
+            operation_id=old_descriptor.operation_id,
+            generation=old_descriptor.generation,
+            model=old_descriptor.model,
+            ip_address=old_descriptor.ip_address,
+            operation=old_descriptor.operation,
+            outlet_number=old_descriptor.outlet_number,
+            credential_index=0,
+            credential_context=window._pdu_context_token(),
+        )
+        window._set_active_pdu_credential_context(
+            replacement_descriptor.model,
+            replacement_descriptor.ip_address,
+            replacement_descriptor.credential_index,
+        )
+        acquired = []
+
+        result = execute_pdu_command(
+            descriptor=old_descriptor,
+            credentials={"password": "old-password"},
+            is_current=window._pdu_context_is_current,
+            handler_factory=lambda *_args: acquired.append(True),
+        )
+
+        self.assertEqual({"_outcome": "stale", "operation": COMMAND_ON}, result)
+        self.assertEqual([], acquired)
+        self.assertTrue(window._pdu_context_is_current(replacement_descriptor))
+
+    def test_pdu_descriptor_has_no_secret_derived_credential_identity(self):
+        secret = "synthetic-password-secret"
+        descriptor = PDUOperationDescriptor(
+            operation_id=1,
+            generation=1,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_index=0,
+            credential_context=42,
+        )
+        descriptor_text = repr(descriptor)
+
+        self.assertNotIn("credential_identity", descriptor.__dict__)
+        self.assertNotIn(secret, descriptor_text)
+        self.assertNotIn(hashlib.sha256(secret.encode("utf-8")).hexdigest(), descriptor_text)
+
+    def test_successful_candidate_context_makes_old_queued_candidate_stale(self):
+        window = self.context_window()
+        old_descriptor = self.activate_pdu_candidate(window, 0)
+        successful_descriptor = self.pdu_descriptor(1, operation_id=777)
+        window._set_active_pdu_credential_context(
+            successful_descriptor.model,
+            successful_descriptor.ip_address,
+            successful_descriptor.credential_index,
+        )
+        acquired = []
+
+        result = execute_pdu_command(
+            descriptor=old_descriptor,
+            credentials={"password": "synthetic-password-0"},
+            is_current=window._pdu_context_is_current,
+            handler_factory=lambda *_args: acquired.append(True),
+        )
+
+        self.assertEqual({"_outcome": "stale", "operation": COMMAND_ON}, result)
+        self.assertEqual([], acquired)
+
+    def test_stale_command_callbacks_do_not_mutate_new_credential_context(self):
+        window = self.context_window()
+        old_descriptor = self.activate_pdu_candidate(window, 0)
+        current_descriptor = self.pdu_descriptor(1, operation_id=old_descriptor.operation_id)
+        window._set_active_pdu_credential_context(
+            current_descriptor.model,
+            current_descriptor.ip_address,
+            current_descriptor.credential_index,
+        )
+        worker = SimpleNamespace(current_idx=0, creds_list=self.worker(total=2).creds_list)
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "information") as information, \
+                patch.object(QMessageBox, "warning") as warning, \
+                patch.object(QMessageBox, "critical") as critical:
+            window.on_pdu_command_result(
+                {
+                    "success": True,
+                    "operation": COMMAND_ON,
+                    "outlet_number": 1,
+                    "_credential_used": True,
+                },
+                worker,
+                old_descriptor,
+            )
+            window.on_pdu_command_error(
+                ("authentication_error", "stale rejected", ""),
+                worker,
+                old_descriptor,
+            )
+            window.on_pdu_command_finished(worker, old_descriptor)
+
+        window.set_current_credential_index.assert_not_called()
+        window.refresh_data.assert_not_called()
+        window.hide_progress_dialog.assert_not_called()
+        information.assert_not_called()
+        warning.assert_not_called()
+        critical.assert_not_called()
+
+    def test_all_pcs4i_candidates_fail_once_without_wraparound_or_persist(self):
+        window = self.make_window()
+        attempts = [0]
+        first_worker = self.worker(index=0, total=3)
+        window.current_worker = first_worker
+
+        def start_next(_ip_address, _device_name):
+            next_index = window._credential_attempt_plans[
+                "Extron IPL T PCS4i|192.0.2.44"
+            ].current_index
+            attempts.append(next_index)
+            window.current_worker = self.worker(index=next_index, total=3)
+
+        window.refresh_pdu.side_effect = start_next
+        window.on_device_error(("authentication_error", "bad 0", ""), first_worker, 1)
+        second_worker = window.current_worker
+        window.on_device_error(("authentication_error", "bad 1", ""), second_worker, 1)
+        third_worker = window.current_worker
+
+        with patch.object(QMessageBox, "warning") as warning:
+            window.on_device_error(("authentication_error", "bad 2", ""), third_worker, 1)
+
+        self.assertEqual([0, 1, 2], attempts)
+        self.assertEqual(2, window.refresh_pdu.call_count)
+        warning.assert_called_once()
+        window.set_current_credential_index.assert_not_called()
+
+    def test_pcs4i_non_auth_structured_error_stops_fallback(self):
+        window = self.make_window()
+        worker = self.worker(index=0, total=3)
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(
+                ("connection_error", "auth password 401 403 transport text", ""),
+                worker,
+                1,
+            )
+
+        window.refresh_pdu.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+
+    def test_pcs4i_credential_required_does_not_trigger_fallback(self):
+        window = self.make_window()
+        worker = self.worker(index=0, total=3)
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(("credential_required", "Password requested", ""), worker, 1)
+
+        window.refresh_pdu.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+
+    def test_pcs4i_protocol_error_with_misleading_auth_text_is_not_retry_authority(self):
+        window = self.make_window()
+        worker = self.worker(index=0, total=3)
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(
+                ("protocol_error", "malformed auth password 401 403", ""),
+                worker,
+                1,
+            )
+
+        window.refresh_pdu.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+
+    def test_pcs4i_passwordless_success_with_assigned_candidate_does_not_persist(self):
+        window = self.make_window()
+        worker = self.worker(index=1, total=3)
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "information"):
+            window.on_device_data_received(
+                {
+                    "ip_address": "192.0.2.44",
+                    "status": "ok",
+                    "_credential_used": False,
+                },
+                worker,
+                1,
+            )
+
+        window.set_current_credential_index.assert_not_called()
+
+    def test_pcs4i_successful_used_credential_is_persisted_after_success(self):
+        window = self.make_window()
+        first_worker = self.worker(index=0, total=3)
+        window.current_worker = first_worker
+        window.on_device_error(("authentication_error", "bad 0", ""), first_worker, 1)
+        window.set_current_credential_index.assert_not_called()
+
+        success_worker = self.worker(index=1, total=3)
+        window.current_worker = success_worker
+        with patch.object(QMessageBox, "information"):
+            window.on_device_data_received(
+                {
+                    "ip_address": "192.0.2.44",
+                    "status": "ok",
+                    "_credential_used": True,
+                },
+                success_worker,
+                1,
+            )
+
+        window.set_current_credential_index.assert_called_once_with(
+            "Extron IPL T PCS4i", 1, "192.0.2.44"
+        )
+        self.assertEqual(1, window.refresh_pdu.call_count)
+
+    def test_pcs4i_refresh_pdu_uses_existing_attempt_plan_after_fallback(self):
+        window = self.make_window()
+        window._active_request_credentials = self.worker(total=3).creds_list
+        first_worker = self.worker(index=0, total=3)
+        window.current_worker = first_worker
+        window.on_device_error(("authentication_error", "bad 0", ""), first_worker, 1)
+        started = []
+
+        with patch("gui.main_window.QThreadPool.globalInstance") as pool:
+            pool.return_value.start.side_effect = started.append
+            VCSDiagnosticApp.refresh_pdu(window, "192.0.2.44", "Extron IPL T PCS4i")
+
+        self.assertEqual(1, len(started))
+        next_worker = started[0]
+        self.assertEqual(1, next_worker.current_idx)
+        self.assertEqual({"password": "synthetic-password-1"}, next_worker.credentials)
+        self.assertEqual(1, next_worker.descriptor.credential_index)
+        window.set_current_credential_index.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -31,6 +31,11 @@ class PDUScreen(BaseScreen):
         self.outlet_names = [f"Розетка {number}" for number in range(1, 9)]
         self.outlets = []
         self.device_info = {}
+        self.capabilities = {
+            "on": True,
+            "off": True,
+            "reboot": True,
+        }
         super().__init__(parent)
 
     def init_ui(self):
@@ -143,6 +148,14 @@ class PDUScreen(BaseScreen):
             self.device_info = data["device_info"] or {}
             self.update_info_panel()
 
+        if "capabilities" in data and isinstance(data["capabilities"], dict):
+            self.capabilities = {
+                "on": bool(data["capabilities"].get("on", False)),
+                "off": bool(data["capabilities"].get("off", False)),
+                "reboot": bool(data["capabilities"].get("reboot", False)),
+            }
+            self._sync_capability_columns()
+
         if "outlets" in data:
             self.outlets = data["outlets"] or []
             for outlet in self.outlets:
@@ -181,11 +194,12 @@ class PDUScreen(BaseScreen):
         self.outlets_table.setRowCount(len(self.outlets))
         self.outlets_table.setVisible(bool(self.outlets))
         self.outlets_empty.setVisible(not self.outlets)
+        self._sync_capability_columns()
 
         action_specs = (
-            (3, "Вкл", "Включить", "success"),
-            (4, "Выкл", "Выключить", "danger"),
-            (5, "Перезапуск", "Перезагрузить", "secondary"),
+            (3, "on", "Вкл", "Включить", "success"),
+            (4, "off", "Выкл", "Выключить", "danger"),
+            (5, "reboot", "Перезапуск", "Перезагрузить", "secondary"),
         )
         for row, outlet in enumerate(self.outlets):
             outlet_number = outlet.get("number", row + 1)
@@ -210,10 +224,13 @@ class PDUScreen(BaseScreen):
             )
             outlet_name = outlet.get("name") or default_name
             name_item = QTableWidgetItem(str(outlet_name).strip())
-            name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            name_item.setTextAlignment(Qt.AlignCenter)
             self.outlets_table.setItem(row, 2, name_item)
 
-            for column, text, tooltip, role in action_specs:
+            for column, command, text, tooltip, role in action_specs:
+                if not self.capabilities.get(command, False):
+                    self.outlets_table.setItem(row, column, QTableWidgetItem(""))
+                    continue
                 button = SemanticButton(text, role, self.outlets_table)
                 button.setToolTip(tooltip)
                 button.clicked.connect(
@@ -224,6 +241,9 @@ class PDUScreen(BaseScreen):
 
             self.outlets_table.setRowHeight(row, 44)
         self.outlets_table.viewport().update()
+
+    def _sync_capability_columns(self):
+        self.outlets_table.setColumnHidden(5, not self.capabilities.get("reboot", False))
 
     def on_outlet_button_click(self, row, action):
         outlet_num = row + 1
@@ -256,11 +276,13 @@ class PDUScreen(BaseScreen):
     @pyqtSlot(int, str)
     def on_outlet_control(self, outlet_num, command):
         self.set_outlet_command_state(outlet_num, command, True)
+        submitted = False
         try:
             if self.parent and hasattr(self.parent, "control_pdu_outlet"):
-                self.parent.control_pdu_outlet(outlet_num, command)
+                submitted = bool(self.parent.control_pdu_outlet(outlet_num, command))
         finally:
-            self.set_outlet_command_state(outlet_num, command, False)
+            if not submitted:
+                self.set_outlet_command_state(outlet_num, command, False)
 
     def set_outlet_command_state(self, outlet_num, command, busy):
         """Disable only the controls for the outlet being changed."""
