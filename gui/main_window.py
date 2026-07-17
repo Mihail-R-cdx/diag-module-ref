@@ -1908,6 +1908,18 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Итог команды неизвестен", message)
             self._set_pdu_command_busy(descriptor, False)
             return
+        if _error_type == "command_failed":
+            if descriptor.model == "Extron IPL T PCS4i":
+                self._discard_credential_attempt_plan(
+                    descriptor.model,
+                    descriptor.ip_address,
+                    descriptor.operation_id,
+                )
+            message = "Команда PDU была отклонена устройством или не достигла запрошенного состояния."
+            self.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(self, "Команда PDU не выполнена", message)
+            self._set_pdu_command_busy(descriptor, False)
+            return
         if descriptor.model == "Extron IPL T PCS4i":
             self._discard_credential_attempt_plan(
                 descriptor.model,

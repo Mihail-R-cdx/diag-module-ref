@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
-from core.exceptions import CommandError
+from core.exceptions import (
+    CommandError,
+    CommandOutcomeUnknownError,
+    CommandRejectedError,
+    UnsupportedOperationError,
+)
 
 
 COMMAND_ON = "on"
@@ -48,12 +53,12 @@ def pdu_result_capabilities(model: str) -> dict[str, bool]:
 
 def ensure_pdu_operation_supported(model: str, operation: str) -> None:
     if operation not in pdu_capabilities(model):
-        raise CommandError(f"{model} does not support PDU operation {operation!r}.")
+        raise UnsupportedOperationError(f"{model} does not support PDU operation {operation!r}.")
 
 
 def validate_pdu_outlet(model: str, outlet_number: int) -> None:
     if model == "Extron IPL T PCS4i" and outlet_number not in range(1, 5):
-        raise CommandError("PCS4i outlet number must be in range 1..4.")
+        raise UnsupportedOperationError("PCS4i outlet number must be in range 1..4.")
 
 
 def normalize_pdu_credentials(model: str, credentials: Mapping[str, Any]) -> dict[str, Any]:
@@ -87,6 +92,82 @@ def disconnect_quietly(handler: Any) -> None:
             disconnect()
         except Exception:
             pass
+
+
+def _read_outlet_power_state(handler: Any, outlet_number: int) -> bool:
+    read = getattr(handler, "read_outlet_power_state", None)
+    if callable(read):
+        return bool(read(outlet_number))
+
+    for outlet in handler.get_outlets_status():
+        if outlet.get("number") == outlet_number:
+            status = str(outlet.get("status")).strip().lower()
+            if status in {"on", "1", "true"}:
+                return True
+            if status in {"off", "0", "false"}:
+                return False
+            break
+    raise CommandOutcomeUnknownError("PDU outlet state is unavailable.")
+
+
+def _try_read_outlet_power_state(handler: Any, outlet_number: int) -> Optional[bool]:
+    try:
+        return _read_outlet_power_state(handler, outlet_number)
+    except Exception:
+        return None
+
+
+def _send_outlet_command_once(handler: Any, outlet_number: int, operation: str) -> None:
+    send = getattr(handler, "send_outlet_command_once", None)
+    if callable(send):
+        send(outlet_number, operation)
+        return
+
+    if operation == COMMAND_ON:
+        handler.turn_on(outlet_number)
+    elif operation == COMMAND_OFF:
+        handler.turn_off(outlet_number)
+    elif operation == COMMAND_REBOOT:
+        handler.reboot(outlet_number)
+    else:
+        raise UnsupportedOperationError(f"Unsupported PDU operation: {operation}")
+
+
+def _execute_absolute_outlet_policy(handler: Any, outlet_number: int, operation: str) -> bool:
+    target_on = operation == COMMAND_ON
+    pre_state = _try_read_outlet_power_state(handler, outlet_number)
+
+    try:
+        _send_outlet_command_once(handler, outlet_number, operation)
+    except CommandOutcomeUnknownError:
+        pass
+
+    post_state = _try_read_outlet_power_state(handler, outlet_number)
+    if post_state is target_on:
+        return True
+    if post_state is None:
+        raise CommandOutcomeUnknownError("PDU command outcome is indeterminate.")
+    if pre_state is None:
+        raise CommandOutcomeUnknownError("PDU command outcome is indeterminate.")
+    if post_state is pre_state:
+        try:
+            _send_outlet_command_once(handler, outlet_number, operation)
+        except CommandOutcomeUnknownError:
+            pass
+
+        terminal_state = _try_read_outlet_power_state(handler, outlet_number)
+        if terminal_state is target_on:
+            return True
+        if terminal_state is pre_state:
+            raise CommandRejectedError("PDU command did not reach the requested state.")
+        raise CommandOutcomeUnknownError("PDU terminal confirmation is indeterminate.")
+
+    raise CommandOutcomeUnknownError("PDU command outcome is indeterminate.")
+
+
+def _execute_reboot_policy(handler: Any, outlet_number: int) -> bool:
+    _send_outlet_command_once(handler, outlet_number, COMMAND_REBOOT)
+    return True
 
 
 def execute_pdu_refresh(
@@ -150,14 +231,16 @@ def execute_pdu_command(
         if not is_current(descriptor):
             return {"_outcome": "stale", "operation": descriptor.operation}
         handler.connect()
-        if descriptor.operation == COMMAND_ON:
-            success = handler.turn_on(descriptor.outlet_number)
-        elif descriptor.operation == COMMAND_OFF:
-            success = handler.turn_off(descriptor.outlet_number)
+        if descriptor.operation in (COMMAND_ON, COMMAND_OFF):
+            success = _execute_absolute_outlet_policy(
+                handler,
+                descriptor.outlet_number,
+                descriptor.operation,
+            )
         elif descriptor.operation == COMMAND_REBOOT:
-            success = handler.reboot(descriptor.outlet_number)
+            success = _execute_reboot_policy(handler, descriptor.outlet_number)
         else:
-            raise CommandError(f"Unsupported PDU operation: {descriptor.operation}")
+            raise UnsupportedOperationError(f"Unsupported PDU operation: {descriptor.operation}")
         return {
             "action": "pdu_command",
             "success": bool(success),

@@ -156,13 +156,13 @@ class ExtronPCS4iSISTests(unittest.TestCase):
 
     def test_on_uses_exact_command_and_final_pc_readback(self):
         handler, transport = self.connected_handler(
-            [b"0\r\n", b"Cpn1 Ppc1\r\n", b"1\r\n"]
+            [b"Cpn1 Ppc1\r\n", b"1\r\n"]
         )
 
         self.assertTrue(handler.turn_on(1))
 
         self.assertEqual(
-            [ESC + b"1PC\r", ESC + b"1*1PC\r", ESC + b"1PC\r"],
+            [ESC + b"1*1PC\r", ESC + b"1PC\r"],
             transport.sent,
         )
 
@@ -174,57 +174,56 @@ class ExtronPCS4iSISTests(unittest.TestCase):
 
         self.assertEqual([], transport.sent)
 
-    def test_unknown_pre_state_forbids_controlled_resend(self):
+    def test_unconfirmed_acknowledgement_is_ambiguous_without_resend(self):
         handler, transport = self.connected_handler(
-            [b"bad\r\n", b"Cpn1 Ppc0\r\n", b"1\r\n"]
+            [b"bad\r\n"]
         )
 
         with self.assertRaises(CommandOutcomeUnknownError):
-            handler.turn_off(1)
+            handler.send_outlet_command_once(1, "off")
 
         self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
+        self.assertEqual(0, transport.sent.count(ESC + b"1PC\r"))
 
-    def test_known_pre_state_allows_one_controlled_resend_with_terminal_readback(self):
+    def test_off_uses_exact_command_acknowledgement(self):
         handler, transport = self.connected_handler(
-            [b"1\r\n", b"Cpn1 Ppc0\r\n", b"1\r\n", b"Cpn1 Ppc0\r\n", b"0\r\n"]
+            [b"Cpn1 Ppc0\r\n"]
+        )
+
+        handler.send_outlet_command_once(1, "off")
+
+        self.assertEqual([ESC + b"1*0PC\r"], transport.sent)
+
+    def test_read_outlet_power_state_reports_malformed_pc(self):
+        handler, transport = self.connected_handler(
+            [b"garbled\r\n"]
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            handler.send_outlet_command_once(1, "off")
+
+        self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
+        self.assertEqual(0, transport.sent.count(ESC + b"1PC\r"))
+
+    def test_turn_off_reads_final_pc_after_acknowledged_send(self):
+        handler, transport = self.connected_handler(
+            [b"Cpn1 Ppc0\r\n", b"0\r\n"]
         )
 
         self.assertTrue(handler.turn_off(1))
 
-        self.assertEqual(2, transport.sent.count(ESC + b"1*0PC\r"))
-        self.assertEqual(3, transport.sent.count(ESC + b"1PC\r"))
+        self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
+        self.assertEqual(1, transport.sent.count(ESC + b"1PC\r"))
 
-    def test_known_pre_state_with_unavailable_post_readback_is_indeterminate(self):
+    def test_handler_does_not_own_controlled_resend_policy(self):
         handler, transport = self.connected_handler(
-            [b"1\r\n", b"Cpn1 Ppc0\r\n", b"garbled\r\n"]
+            [b"Cpn1 Ppc0\r\n"]
         )
 
-        with self.assertRaises(CommandOutcomeUnknownError):
-            handler.turn_off(1)
+        handler.send_outlet_command_once(1, "off")
 
         self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
-        self.assertEqual(2, transport.sent.count(ESC + b"1PC\r"))
-
-    def test_ambiguous_initial_send_with_unavailable_post_readback_is_indeterminate(self):
-        handler, transport = self.connected_handler(
-            [b"1\r\n", b"garbled\r\n", b"garbled\r\n"]
-        )
-
-        with self.assertRaises(CommandOutcomeUnknownError):
-            handler.turn_off(1)
-
-        self.assertEqual(1, transport.sent.count(ESC + b"1*0PC\r"))
-        self.assertEqual(2, transport.sent.count(ESC + b"1PC\r"))
-
-    def test_ambiguous_controlled_resend_still_performs_terminal_readback(self):
-        handler, transport = self.connected_handler(
-            [b"1\r\n", b"Cpn1 Ppc0\r\n", b"1\r\n", b"garbled\r\n", b"0\r\n"]
-        )
-
-        self.assertTrue(handler.turn_off(1))
-
-        self.assertEqual(2, transport.sent.count(ESC + b"1*0PC\r"))
-        self.assertEqual(3, transport.sent.count(ESC + b"1PC\r"))
+        self.assertEqual(0, transport.sent.count(ESC + b"1PC\r"))
 
     def test_http_name_parser_maps_confirmed_xname_representation(self):
         body = """

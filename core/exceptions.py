@@ -32,6 +32,14 @@ class CommandError(DeviceError):
     pass
 
 
+class UnsupportedOperationError(CommandError):
+    """The requested operation is not supported by the selected device."""
+
+
+class CommandRejectedError(CommandError):
+    """The device authoritatively rejected the requested command."""
+
+
 class TimeoutError(DeviceError):
     """Ошибка таймаута"""
     pass

@@ -1,7 +1,13 @@
 import unittest
 
-from core.exceptions import CommandError, CommandOutcomeUnknownError
+from core.exceptions import (
+    AuthenticationError,
+    CommandError,
+    CommandOutcomeUnknownError,
+    CommandRejectedError,
+)
 from core.pdu import (
+    COMMAND_OFF,
     COMMAND_ON,
     COMMAND_REBOOT,
     REFRESH,
@@ -10,6 +16,36 @@ from core.pdu import (
     execute_pdu_refresh,
     pdu_result_capabilities,
 )
+
+
+class ScriptedPDUHandler:
+    def __init__(self, reads=(), sends=(), connect_error=None):
+        self.reads = list(reads)
+        self.sends = list(sends)
+        self.connect_error = connect_error
+        self.read_count = 0
+        self.sent_commands = []
+        self.disconnected = False
+
+    def connect(self):
+        if self.connect_error is not None:
+            raise self.connect_error
+
+    def disconnect(self):
+        self.disconnected = True
+
+    def read_outlet_power_state(self, outlet_number):
+        self.read_count += 1
+        value = self.reads.pop(0)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    def send_outlet_command_once(self, outlet_number, operation):
+        self.sent_commands.append((outlet_number, operation))
+        value = self.sends.pop(0) if self.sends else None
+        if isinstance(value, BaseException):
+            raise value
 
 
 class PDUOperationContractTests(unittest.TestCase):
@@ -22,6 +58,14 @@ class PDUOperationContractTests(unittest.TestCase):
             operation=operation,
             outlet_number=1 if operation != REFRESH else None,
             credential_index=0,
+        )
+
+    def command_result(self, handler, model="Extron IPL T PCS4i", operation=COMMAND_ON):
+        return execute_pdu_command(
+            descriptor=self.descriptor(model=model, operation=operation),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: handler,
         )
 
     def test_pcs4i_capabilities_hide_reboot_and_keep_on_off(self):
@@ -164,6 +208,178 @@ class PDUOperationContractTests(unittest.TestCase):
         worker.run()
 
         self.assertEqual("indeterminate_outcome", errors[0][0])
+
+    def test_command_worker_emits_structured_command_failure_outcome(self):
+        from core.worker import PDUOperationWorker
+
+        worker = PDUOperationWorker(
+            self.descriptor(operation=COMMAND_ON),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: ScriptedPDUHandler(
+                reads=[False],
+                sends=[CommandRejectedError("rejected")],
+            ),
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("command_failed", errors[0][0])
+
+    def test_command_worker_keeps_unsupported_operation_distinct(self):
+        from core.worker import PDUOperationWorker
+
+        worker = PDUOperationWorker(
+            self.descriptor(operation=COMMAND_REBOOT),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: ScriptedPDUHandler(),
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("unsupported_operation", errors[0][0])
+        self.assertIn("does not support", errors[0][1])
+
+    def test_command_worker_keeps_authentication_outcome_distinct(self):
+        from core.worker import PDUOperationWorker
+
+        worker = PDUOperationWorker(
+            self.descriptor(operation=COMMAND_ON),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: ScriptedPDUHandler(
+                connect_error=AuthenticationError("bad credential")
+            ),
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("authentication_error", errors[0][0])
+
+    def test_known_pre_state_acknowledged_success_uses_one_send(self):
+        handler = ScriptedPDUHandler(reads=[False, True], sends=[None])
+
+        result = self.command_result(handler, operation=COMMAND_ON)
+
+        self.assertTrue(result["success"])
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+        self.assertEqual(2, handler.read_count)
+
+    def test_known_pre_state_permits_one_controlled_resend(self):
+        handler = ScriptedPDUHandler(reads=[True, True, False], sends=[None, None])
+
+        result = self.command_result(handler, operation=COMMAND_OFF)
+
+        self.assertTrue(result["success"])
+        self.assertEqual([(1, COMMAND_OFF), (1, COMMAND_OFF)], handler.sent_commands)
+        self.assertEqual(3, handler.read_count)
+
+    def test_unknown_pre_state_valid_non_target_is_indeterminate_without_resend(self):
+        handler = ScriptedPDUHandler(
+            reads=[CommandOutcomeUnknownError("no pre-state"), True],
+            sends=[None],
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            self.command_result(handler, operation=COMMAND_OFF)
+
+        self.assertEqual([(1, COMMAND_OFF)], handler.sent_commands)
+        self.assertEqual(2, handler.read_count)
+
+    def test_unavailable_post_readback_is_indeterminate_without_resend(self):
+        handler = ScriptedPDUHandler(
+            reads=[False, CommandOutcomeUnknownError("bad post-state")],
+            sends=[None],
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            self.command_result(handler, operation=COMMAND_ON)
+
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+        self.assertEqual(2, handler.read_count)
+
+    def test_ambiguous_initial_delivery_reaches_target_without_resend(self):
+        handler = ScriptedPDUHandler(
+            reads=[False, True],
+            sends=[CommandOutcomeUnknownError("lost ack")],
+        )
+
+        result = self.command_result(handler, operation=COMMAND_ON)
+
+        self.assertTrue(result["success"])
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+        self.assertEqual(2, handler.read_count)
+
+    def test_ambiguous_initial_delivery_remaining_pre_state_gets_one_resend(self):
+        handler = ScriptedPDUHandler(
+            reads=[True, True, False],
+            sends=[CommandOutcomeUnknownError("lost ack"), None],
+        )
+
+        result = self.command_result(handler, operation=COMMAND_OFF)
+
+        self.assertTrue(result["success"])
+        self.assertEqual([(1, COMMAND_OFF), (1, COMMAND_OFF)], handler.sent_commands)
+        self.assertEqual(3, handler.read_count)
+
+    def test_ambiguous_controlled_resend_still_runs_terminal_confirmation(self):
+        handler = ScriptedPDUHandler(
+            reads=[True, True, False],
+            sends=[None, CommandOutcomeUnknownError("lost ack")],
+        )
+
+        result = self.command_result(handler, operation=COMMAND_OFF)
+
+        self.assertTrue(result["success"])
+        self.assertEqual([(1, COMMAND_OFF), (1, COMMAND_OFF)], handler.sent_commands)
+        self.assertEqual(3, handler.read_count)
+
+    def test_device_rejection_is_failure_without_readback_driven_replay(self):
+        handler = ScriptedPDUHandler(
+            reads=[False],
+            sends=[CommandRejectedError("rejected")],
+        )
+
+        with self.assertRaises(CommandRejectedError):
+            self.command_result(handler, operation=COMMAND_ON)
+
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+        self.assertEqual(1, handler.read_count)
+
+    def test_aten_reboot_success_is_one_send_without_readback(self):
+        handler = ScriptedPDUHandler(sends=[None])
+
+        result = self.command_result(
+            handler,
+            model="Aten PE8208AV",
+            operation=COMMAND_REBOOT,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual([(1, COMMAND_REBOOT)], handler.sent_commands)
+        self.assertEqual(0, handler.read_count)
+
+    def test_ambiguous_aten_reboot_is_not_replayed(self):
+        handler = ScriptedPDUHandler(
+            sends=[CommandOutcomeUnknownError("lost ack")]
+        )
+
+        with self.assertRaises(CommandOutcomeUnknownError):
+            self.command_result(
+                handler,
+                model="Aten PE8208AV",
+                operation=COMMAND_REBOOT,
+            )
+
+        self.assertEqual([(1, COMMAND_REBOOT)], handler.sent_commands)
+        self.assertEqual(0, handler.read_count)
 
     def test_pcs4i_command_worker_boundary_is_password_only(self):
         from core.worker import PDUOperationWorker

@@ -14,8 +14,10 @@ from .exceptions import (
     AuthenticationError,
     CommandError,
     CommandOutcomeUnknownError,
+    CommandRejectedError,
     ConnectionError,
     CredentialRequired,
+    UnsupportedOperationError,
     classify_codec_failure,
 )
 from core.pdu import (
@@ -817,10 +819,14 @@ class PDUOperationWorker(QRunnable):
             _emit_error(self, "credential_required", error, trace=False)
         except AuthenticationError as error:
             _emit_error(self, "authentication_error", error, trace=False)
+        except UnsupportedOperationError as error:
+            _emit_error(self, "unsupported_operation", error, trace=False)
+        except CommandRejectedError as error:
+            _emit_error(self, "command_failed", error, trace=False)
         except CommandOutcomeUnknownError as error:
             _emit_error(self, "indeterminate_outcome", error, trace=False)
         except CommandError as error:
-            _emit_error(self, "unsupported_operation", error, trace=False)
+            _emit_error(self, "command_failed", error, trace=False)
         except ConnectionError as error:
             _emit_error(self, "connection_error", error, trace=False)
         except Exception as error:

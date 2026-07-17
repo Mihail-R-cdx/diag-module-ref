@@ -13,6 +13,7 @@ from core.exceptions import (
     AuthenticationError,
     CommandError,
     CommandOutcomeUnknownError,
+    CommandRejectedError,
     ConnectionError,
     CredentialRequired,
     ParseError,
@@ -137,48 +138,12 @@ class ExtronIPLTPCS4iHandler:
         return outlets
 
     def turn_on(self, outlet_number: int) -> bool:
-        return self._set_power_state(outlet_number, True)
+        self.send_outlet_command_once(outlet_number, "on")
+        return self.read_outlet_power_state(outlet_number)
 
     def turn_off(self, outlet_number: int) -> bool:
-        return self._set_power_state(outlet_number, False)
-
-    def _set_power_state(self, outlet_number: int, target_on: bool) -> bool:
-        self._require_connected()
-        self._validate_outlet(outlet_number)
-        pre_state = self._try_read_power_state(outlet_number)
-
-        ambiguous = False
-        try:
-            self._send_power_command(outlet_number, target_on)
-        except CommandOutcomeUnknownError:
-            ambiguous = True
-
-        post_state = self._try_read_power_state(outlet_number)
-        if post_state is target_on:
-            return True
-        if post_state is None:
-            raise CommandOutcomeUnknownError("PCS4i final state is indeterminate.")
-        if pre_state is None:
-            raise CommandOutcomeUnknownError("PCS4i final state is indeterminate.")
-        if post_state is pre_state:
-            resend_ambiguous = False
-            try:
-                self._send_power_command(outlet_number, target_on)
-            except CommandOutcomeUnknownError:
-                resend_ambiguous = True
-            terminal_state = self._try_read_power_state(outlet_number)
-            if terminal_state is target_on:
-                return True
-            if terminal_state is pre_state:
-                return False
-            if resend_ambiguous:
-                raise CommandOutcomeUnknownError(
-                    "PCS4i controlled resend acknowledgement was ambiguous and terminal confirmation is indeterminate."
-                )
-            raise CommandOutcomeUnknownError("PCS4i terminal confirmation is indeterminate.")
-        if ambiguous:
-            raise CommandOutcomeUnknownError("PCS4i delivery was ambiguous and readback was not the target.")
-        return False
+        self.send_outlet_command_once(outlet_number, "off")
+        return not self.read_outlet_power_state(outlet_number)
 
     def _establish_session(self) -> None:
         password_sends = 0
@@ -244,6 +209,21 @@ class ExtronIPLTPCS4iHandler:
             return self._read_power_state(outlet_number)
         except Exception:
             return None
+
+    def read_outlet_power_state(self, outlet_number: int) -> bool:
+        self._require_connected()
+        return self._read_power_state(outlet_number)
+
+    def send_outlet_command_once(self, outlet_number: int, operation: str) -> None:
+        self._require_connected()
+        self._validate_outlet(outlet_number)
+        if operation == "on":
+            self._send_power_command(outlet_number, True)
+            return
+        if operation == "off":
+            self._send_power_command(outlet_number, False)
+            return
+        raise CommandRejectedError("PCS4i does not support the requested outlet command.")
 
     def get_threshold_state(self, outlet_number: int) -> str:
         self._validate_outlet(outlet_number)
