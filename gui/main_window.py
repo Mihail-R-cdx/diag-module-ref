@@ -768,6 +768,16 @@ class VCSDiagnosticApp(QMainWindow):
     def _advance_codec_credential_attempt(
         self, device_name, creds_list, ip_address, current_index
     ):
+        return (
+            self._advance_request_credential_attempt(
+                device_name, creds_list, ip_address, current_index
+            )
+            is not None
+        )
+
+    def _advance_request_credential_attempt(
+        self, device_name, creds_list, ip_address, current_index
+    ):
         plans = self.__dict__.get("_credential_attempt_plans")
         if plans is None:
             plans = self._credential_attempt_plans = {}
@@ -781,7 +791,21 @@ class VCSDiagnosticApp(QMainWindow):
         ):
             plan = CredentialAttemptPlan(candidates, current_index)
             plans[key] = plan
-        return plan.advance_after_authentication_failure()
+        if not plan.advance_after_authentication_failure():
+            return None
+        return plan.current_index
+
+    @staticmethod
+    def _is_pcs4i_device(device_name):
+        return device_name == "Extron IPL T PCS4i"
+
+    def _uses_request_scoped_credential_retry(self, device_name):
+        return self.is_vcs_codec_device(device_name) or self._is_pcs4i_device(device_name)
+
+    def _is_structured_retry_authentication_error(self, device_name, error_type, error_message):
+        if self.is_vcs_codec_device(device_name) or self._is_pcs4i_device(device_name):
+            return error_type == CodecFailureCategory.AUTHENTICATION.value
+        return self.is_authentication_error(error_type, error_message)
 
     @staticmethod
     def _credential_secrets(creds_list):
@@ -1426,9 +1450,14 @@ class VCSDiagnosticApp(QMainWindow):
             creds_list = self._resolve_pdu_attempt_credentials(device_name, ip_address)
         
         # Создаем worker с текущими credentials
-        current_idx = self.get_valid_current_credential_index(
-            device_name, creds_list, ip_address
-        )
+        if self._is_pcs4i_device(device_name):
+            current_idx = self._credential_attempt_index(
+                device_name, creds_list, ip_address
+            )
+        else:
+            current_idx = self.get_valid_current_credential_index(
+                device_name, creds_list, ip_address
+            )
         creds = creds_list[current_idx]
         
         
@@ -1796,11 +1825,11 @@ class VCSDiagnosticApp(QMainWindow):
             current_idx = getattr(worker, 'current_idx', 0)
             
             error_message = str(error)
-            codec_error = self.is_vcs_codec_device(device_name)
-            is_auth_error = (
-                error_type == CodecFailureCategory.AUTHENTICATION.value
-                if codec_error
-                else self.is_authentication_error(error_type, error_message)
+            uses_request_plan = VCSDiagnosticApp._uses_request_scoped_credential_retry(
+                self, device_name
+            )
+            is_auth_error = VCSDiagnosticApp._is_structured_retry_authentication_error(
+                self, device_name, error_type, error_message
             )
 
             # Если это ошибка аутентификации и есть еще credentials для проверки
@@ -1808,15 +1837,14 @@ class VCSDiagnosticApp(QMainWindow):
                 
                 # Переходим к следующему credentials
                 next_idx = current_idx + 1
-                if codec_error:
-                    if not VCSDiagnosticApp._advance_codec_credential_attempt(
+                if uses_request_plan:
+                    next_idx = VCSDiagnosticApp._advance_request_credential_attempt(
                         self,
                         device_name,
                         creds_list,
                         getattr(worker, 'ip_address', None),
                         current_idx,
-                    ):
-                        next_idx = None
+                    )
                 else:
                     self.set_current_credential_index(
                         device_name, next_idx, getattr(worker, 'ip_address', None)
@@ -1851,6 +1879,8 @@ class VCSDiagnosticApp(QMainWindow):
                         self.refresh_extron_in1804(worker.ip_address)
                     elif device_name == "Aten PE8208AV":
                         self.refresh_aten_pdu(worker.ip_address)
+                    elif device_name == "Extron IPL T PCS4i":
+                        self.refresh_pdu(worker.ip_address, device_name)
                     elif device_name == "Biamp Tesira Forte CI":
                         self.refresh_biamp_tesira_forte_ci(worker.ip_address)
                     return
@@ -1861,10 +1891,8 @@ class VCSDiagnosticApp(QMainWindow):
         
         error_message = str(error)
         device_name = getattr(worker, 'device_name', self.device_combo.currentText())
-        is_auth_error = (
-            error_type == CodecFailureCategory.AUTHENTICATION.value
-            if self.is_vcs_codec_device(device_name)
-            else self.is_authentication_error(error_type, error_message)
+        is_auth_error = VCSDiagnosticApp._is_structured_retry_authentication_error(
+            self, device_name, error_type, error_message
         )
         VCSDiagnosticApp._discard_credential_attempt_plan(
             self,
