@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
@@ -30,6 +32,7 @@ class PDUOperationDescriptor:
     outlet_number: Optional[int] = None
     credential_index: Optional[int] = None
     credential_context: Optional[int] = None
+    credential_identity: Optional[str] = None
 
 
 def pdu_capabilities(model: str) -> frozenset[str]:
@@ -65,6 +68,24 @@ def normalize_pdu_credentials(model: str, credentials: Mapping[str, Any]) -> dic
 
 def normalize_pdu_credential_candidates(model: str, credentials: Any) -> list[dict[str, Any]]:
     return [normalize_pdu_credentials(model, credential) for credential in (credentials or ())]
+
+
+def pdu_credential_identity(
+    model: str,
+    credentials: Mapping[str, Any],
+    credential_index: Optional[int],
+) -> str:
+    normalized = normalize_pdu_credentials(model, credentials)
+    if not normalized:
+        return f"{credential_index}:none"
+    material = json.dumps(
+        normalized,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(material).hexdigest()
+    keys = ",".join(sorted(normalized))
+    return f"{credential_index}:{keys}:{digest}"
 
 
 def build_pdu_handler(model: str, ip_address: str, credentials: Mapping[str, Any]):

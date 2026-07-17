@@ -22,6 +22,7 @@ from core.pdu import (
     PDUOperationDescriptor,
     ensure_pdu_operation_supported,
     normalize_pdu_credential_candidates,
+    pdu_credential_identity,
 )
 from core.exceptions import (
     AuthenticationError,
@@ -518,6 +519,21 @@ class VCSDiagnosticApp(QMainWindow):
     def _pdu_context_token(self):
         return self.__dict__.get("_pdu_context_revision", 0)
 
+    def _set_active_pdu_credential_context(
+        self,
+        device_name,
+        ip_address,
+        credential_index,
+        credential_identity,
+    ):
+        request = self.__dict__.get("_active_request")
+        if not request:
+            return
+        if request.get("device") != device_name or request.get("ip") != ip_address:
+            return
+        request["credential_index"] = credential_index
+        request["credential_identity"] = credential_identity
+
     def _begin_request(self, device_name, ip_address, screen):
         self._request_serial += 1
         self._active_request = {
@@ -526,6 +542,8 @@ class VCSDiagnosticApp(QMainWindow):
             "ip": ip_address,
             "screen": screen,
             "credential_context": self.__dict__.get("_pdu_context_revision", 0),
+            "credential_index": None,
+            "credential_identity": None,
         }
         self.set_ui_state(
             UIState.LOADING,
@@ -1157,7 +1175,6 @@ class VCSDiagnosticApp(QMainWindow):
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
-
         if hasattr(self, 'refresh_btn'):
             self.refresh_btn.setEnabled(False)
             self.refresh_btn.setText("Connecting...")
@@ -1203,8 +1220,6 @@ class VCSDiagnosticApp(QMainWindow):
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
-        
-        
         # Отключаем кнопку
         if hasattr(self, 'refresh_btn'):
             self.refresh_btn.setEnabled(False)
@@ -1531,6 +1546,16 @@ class VCSDiagnosticApp(QMainWindow):
         
         try:
             from core.worker import PDUOperationWorker
+            self._set_active_pdu_credential_context(
+                device_name,
+                ip_address,
+                None if not creds else current_idx,
+                pdu_credential_identity(
+                    device_name,
+                    creds,
+                    None if not creds else current_idx,
+                ),
+            )
             descriptor = PDUOperationDescriptor(
                 operation_id=self._next_pdu_operation_id(),
                 generation=self._request_serial,
@@ -1539,6 +1564,11 @@ class VCSDiagnosticApp(QMainWindow):
                 operation=REFRESH,
                 credential_index=None if not creds else current_idx,
                 credential_context=self._pdu_context_token(),
+                credential_identity=pdu_credential_identity(
+                    device_name,
+                    creds,
+                    None if not creds else current_idx,
+                ),
             )
 
             self.current_worker = PDUOperationWorker(
@@ -1657,6 +1687,18 @@ class VCSDiagnosticApp(QMainWindow):
             return False
 
         creds = creds_list[current_idx]
+        credential_index = None if not creds else current_idx
+        credential_identity = pdu_credential_identity(
+            device_name,
+            creds,
+            credential_index,
+        )
+        self._set_active_pdu_credential_context(
+            device_name,
+            ip_address,
+            credential_index,
+            credential_identity,
+        )
         try:
             from core.worker import PDUOperationWorker
             descriptor = PDUOperationDescriptor(
@@ -1666,8 +1708,9 @@ class VCSDiagnosticApp(QMainWindow):
                 ip_address=ip_address,
                 operation=operation,
                 outlet_number=outlet_num,
-                credential_index=None if not creds else current_idx,
+                credential_index=credential_index,
                 credential_context=self._pdu_context_token(),
+                credential_identity=credential_identity,
             )
             worker = PDUOperationWorker(
                 descriptor,
@@ -1705,6 +1748,18 @@ class VCSDiagnosticApp(QMainWindow):
         from core.worker import PDUOperationWorker
 
         creds = creds_list[current_idx]
+        credential_index = None if not creds else current_idx
+        credential_identity = pdu_credential_identity(
+            descriptor.model,
+            creds,
+            credential_index,
+        )
+        self._set_active_pdu_credential_context(
+            descriptor.model,
+            descriptor.ip_address,
+            credential_index,
+            credential_identity,
+        )
         retry_descriptor = PDUOperationDescriptor(
             operation_id=descriptor.operation_id,
             generation=descriptor.generation,
@@ -1712,8 +1767,9 @@ class VCSDiagnosticApp(QMainWindow):
             ip_address=descriptor.ip_address,
             operation=descriptor.operation,
             outlet_number=descriptor.outlet_number,
-            credential_index=None if not creds else current_idx,
+            credential_index=credential_index,
             credential_context=self._pdu_context_token(),
+            credential_identity=credential_identity,
         )
         worker = PDUOperationWorker(
             retry_descriptor,
@@ -1746,6 +1802,8 @@ class VCSDiagnosticApp(QMainWindow):
             and request.get("device") == descriptor.model
             and request.get("ip") == descriptor.ip_address
             and request.get("credential_context") == descriptor.credential_context
+            and request.get("credential_index") == descriptor.credential_index
+            and request.get("credential_identity") == descriptor.credential_identity
         )
 
     def _set_pdu_command_busy(self, descriptor: PDUOperationDescriptor, busy: bool) -> None:
