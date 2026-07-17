@@ -266,6 +266,75 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         self.window.on_worker_finished.assert_not_called()
 
+    def test_refresh_pdu_production_binding_ignores_stale_result_and_error(self):
+        started = []
+        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
+        self.window._begin_request(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+            self.window.screens["pdu"],
+        )
+        self.window._active_request_credentials = [{}]
+        self.window.show_progress_dialog = Mock()
+        self.window.on_device_data_received = Mock()
+        self.window.on_device_error = Mock()
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.refresh_pdu("192.0.2.44", "Extron IPL T PCS4i")
+
+        self.assertEqual(1, len(started))
+        worker = started[0]
+        self.window._invalidate_pdu_context()
+        self.window._active_request["credential_context"] = self.window._pdu_context_token()
+
+        worker.signals.result.emit({"outlets": [], "ip_address": "192.0.2.44"})
+        worker.signals.error.emit(("authentication_error", "stale", ""))
+        QApplication.processEvents()
+
+        self.window.on_device_data_received.assert_not_called()
+        self.window.on_device_error.assert_not_called()
+        self.assertEqual(1, len(started))
+
+    def test_biamp_refresh_uses_generic_worker_binding(self):
+        started = []
+        self.window.device_combo.setCurrentText("Biamp Tesira Forte CI")
+        self.window.device_credentials["Biamp Tesira Forte CI"] = [
+            {"username": "synthetic-user", "password": "synthetic-password"}
+        ]
+        self.window.show_progress_dialog = Mock()
+        self.window.show_codec_poll_terminal = Mock()
+        self.window._bind_worker = Mock()
+        self.window._bind_pdu_refresh_worker = Mock(
+            side_effect=AssertionError("Biamp refresh must not use PDU binding")
+        )
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.refresh_biamp_tesira_forte_ci("192.0.2.46")
+
+        self.window._bind_worker.assert_called_once_with(started[0])
+        self.window._bind_pdu_refresh_worker.assert_not_called()
+        self.assertEqual(1, len(started))
+
+    def test_huawei_bar310_refresh_uses_generic_worker_binding(self):
+        started = []
+        self.window.device_combo.setCurrentText("CloudLink Bar 310")
+        self.window.device_credentials["CloudLink Bar 310"] = [
+            {"username": "synthetic-user", "password": "synthetic-password"}
+        ]
+        self.window.show_progress_dialog = Mock()
+        self.window.show_codec_poll_terminal = Mock()
+        self.window._bind_worker = Mock()
+        self.window._bind_pdu_refresh_worker = Mock(
+            side_effect=AssertionError("Bar 310 refresh must not use PDU binding")
+        )
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.refresh_huawei_bar310("192.0.2.47")
+
+        self.window._bind_worker.assert_called_once_with(started[0])
+        self.window._bind_pdu_refresh_worker.assert_not_called()
+        self.assertEqual(1, len(started))
+
     def test_pcs4i_command_plan_is_discarded_after_indeterminate_operation(self):
         creds = [{"password": "a"}, {"password": "b"}]
         self.window.set_current_credential_index("Extron IPL T PCS4i", 0, "192.0.2.44")

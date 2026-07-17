@@ -1174,7 +1174,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.current_idx = current_idx
             self.current_worker.device_name = device_name
 
-            self._bind_pdu_refresh_worker(self.current_worker, descriptor)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
 
             QThreadPool.globalInstance().start(self.current_worker)
@@ -1230,7 +1230,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self._bind_pdu_refresh_worker(self.current_worker, descriptor)
+            self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
             
             # Запускаем
@@ -1553,7 +1553,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.device_name = device_name
             
             # Подключаем сигналы
-            self._bind_worker(self.current_worker)
+            self._bind_pdu_refresh_worker(self.current_worker, descriptor)
             
             # Запускаем
             QThreadPool.globalInstance().start(self.current_worker)
