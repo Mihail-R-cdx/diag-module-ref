@@ -224,7 +224,7 @@ class PDUScreen(BaseScreen):
             )
             outlet_name = outlet.get("name") or default_name
             name_item = QTableWidgetItem(str(outlet_name).strip())
-            name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            name_item.setTextAlignment(Qt.AlignCenter)
             self.outlets_table.setItem(row, 2, name_item)
 
             for column, command, text, tooltip, role in action_specs:

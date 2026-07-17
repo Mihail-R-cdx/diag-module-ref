@@ -235,6 +235,24 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         self.assertFalse(screen.outlets_table.isColumnHidden(5))
         self.assertIsInstance(screen.outlets_table.cellWidget(0, 5), QPushButton)
 
+    def test_pdu_outlet_name_column_is_center_aligned(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = self._track(PDUScreen(self.parent_widget))
+        screen.update_data(
+            {
+                "outlets": [
+                    {"number": 1, "name": "Codec", "status": "on"},
+                ]
+            }
+        )
+
+        name_item = screen.outlets_table.item(0, 2)
+        self.assertIsNotNone(name_item)
+        alignment = int(name_item.textAlignment())
+        self.assertTrue(alignment & int(Qt.AlignHCenter))
+        self.assertTrue(alignment & int(Qt.AlignVCenter))
+
     def test_audio_dsp_is_read_only_and_rebuilds_source_cards(self):
         from gui.components import EmptyState, SectionCard
         from gui.screens.audio_dsp_screen import AudioDSPScreen
