@@ -17,6 +17,7 @@ from core.pdu import (
     COMMAND_ON,
     PDUOperationDescriptor,
     REFRESH,
+    execute_pdu_command,
 )
 
 
@@ -500,6 +501,110 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.window._active_request["credential_context"] = self.window._pdu_context_token()
 
         self.assertFalse(self.window._pdu_context_is_current(descriptor))
+
+    def test_pdu_credential_replacement_discards_cached_credentials_for_new_command(self):
+        old_credential = {"password": "credential-a"}
+        new_credential = {"password": "credential-b"}
+        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.show_progress_dialog = lambda _message: None
+        self.window._request_serial = 8
+        self.window._pdu_context_revision = 20
+        self.window._active_request_credentials = [old_credential]
+        self.window._active_request = {
+            "id": 8,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": 20,
+            "credential_index": 0,
+        }
+        old_descriptor = PDUOperationDescriptor(
+            operation_id=1,
+            generation=8,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_index=0,
+            credential_context=20,
+        )
+        self.window._credential_attempt_plan(
+            "Extron IPL T PCS4i",
+            [old_credential],
+            "192.0.2.44",
+            old_descriptor.operation_id,
+        )
+
+        self.window.device_credentials["Extron IPL T PCS4i"] = [new_credential]
+
+        acquired = []
+        result = execute_pdu_command(
+            descriptor=old_descriptor,
+            credentials=old_credential,
+            is_current=self.window._pdu_context_is_current,
+            handler_factory=lambda *_args: acquired.append(True),
+        )
+        self.assertEqual({"_outcome": "stale", "operation": COMMAND_ON}, result)
+        self.assertEqual([], acquired)
+        self.assertNotIn("_active_request_credentials", self.window.__dict__)
+        self.assertNotIn(
+            "Extron IPL T PCS4i|192.0.2.44|operation:1",
+            self.window._credential_attempt_plans,
+        )
+
+        started = []
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.assertTrue(self.window.control_pdu_outlet(1, "on"))
+
+        self.assertEqual(1, len(started))
+        worker = started[0]
+        self.assertTrue(self.window._pdu_context_is_current(worker.descriptor))
+        self.assertEqual(new_credential, worker.credentials)
+        self.assertNotEqual(old_credential, worker.credentials)
+
+    def test_pdu_credential_chain_replacement_discards_obsolete_attempt_plan(self):
+        old_chain = [{"password": "credential-a"}, {"password": "credential-b"}]
+        new_chain = [{"password": "credential-c"}, {"password": "credential-d"}]
+        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.show_progress_dialog = lambda _message: None
+        self.window.validate_ip_address = lambda _ip: True
+        self.window._active_request_credentials = old_chain
+        self.window._credential_attempt_plan(
+            "Extron IPL T PCS4i",
+            old_chain,
+            "192.0.2.44",
+        )
+        self.window._advance_request_credential_attempt(
+            "Extron IPL T PCS4i",
+            old_chain,
+            "192.0.2.44",
+            0,
+        )
+        self.assertEqual(
+            1,
+            self.window._credential_attempt_plans[
+                "Extron IPL T PCS4i|192.0.2.44"
+            ].current_index,
+        )
+
+        self.window.device_credentials["Extron IPL T PCS4i"] = new_chain
+
+        self.assertNotIn("_active_request_credentials", self.window.__dict__)
+        self.assertNotIn(
+            "Extron IPL T PCS4i|192.0.2.44",
+            self.window._credential_attempt_plans,
+        )
+        started = []
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.refresh_pdu("192.0.2.44", "Extron IPL T PCS4i")
+
+        self.assertEqual(1, len(started))
+        worker = started[0]
+        self.assertEqual(new_chain, worker.creds_list)
+        self.assertEqual(new_chain[0], worker.credentials)
+        self.assertEqual(0, worker.current_idx)
+        self.assertNotIn(worker.credentials, old_chain)
 
     @staticmethod
     def _missing_mapping(**_kwargs):

@@ -110,12 +110,12 @@ class RequestCredentialStore(dict):
 
     def __setitem__(self, key, value):
         super().__setitem__(key, value)
-        if hasattr(self.owner, "_invalidate_pdu_context"):
-            self.owner._invalidate_pdu_context()
+        if hasattr(self.owner, "_on_credential_configuration_changed"):
+            self.owner._on_credential_configuration_changed(key)
 
     def setdefault(self, key, default=None):
-        if key not in self and hasattr(self.owner, "_invalidate_pdu_context"):
-            self.owner._invalidate_pdu_context()
+        if key not in self and hasattr(self.owner, "_on_credential_configuration_changed"):
+            self.owner._on_credential_configuration_changed(key)
         return super().setdefault(key, default)
 
 class VCSDiagnosticApp(QMainWindow):
@@ -514,6 +514,29 @@ class VCSDiagnosticApp(QMainWindow):
         self._pdu_context_revision = self.__dict__.get("_pdu_context_revision", 0) + 1
         if self.__dict__.get("_active_request") is not None:
             self._active_request["credential_context"] = self._pdu_context_revision
+
+    def _on_credential_configuration_changed(self, device_name=None):
+        self._invalidate_pdu_context()
+        if not self._is_pdu_device(device_name):
+            return
+        self.__dict__.pop("_active_request_credentials", None)
+        self._discard_obsolete_pdu_credential_attempt_plans(device_name)
+
+    @staticmethod
+    def _is_pdu_device(device_name):
+        return device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}
+
+    def _discard_obsolete_pdu_credential_attempt_plans(self, device_name=None):
+        plans = self.__dict__.get("_credential_attempt_plans")
+        if not plans:
+            return
+        if device_name is None:
+            plans.clear()
+            return
+        prefix = f"{device_name}|"
+        for key in list(plans):
+            if key == device_name or key.startswith(prefix):
+                plans.pop(key, None)
 
     def _pdu_context_token(self):
         return self.__dict__.get("_pdu_context_revision", 0)
@@ -2384,7 +2407,7 @@ class VCSDiagnosticApp(QMainWindow):
                 if not exists:
                     # Добавляем новый пароль в начало списка
                     self.device_credentials[device_name].insert(0, new_credential)
-                    self._invalidate_pdu_context()
+                    self._on_credential_configuration_changed(device_name)
                     
                     # Сбрасываем индекс на новый credentials
                     self.current_credential_index[device_name] = 0
@@ -2409,7 +2432,7 @@ class VCSDiagnosticApp(QMainWindow):
                         if cred['password'] == password:
                             # Перемещаем в начало
                             self.device_credentials[device_name].insert(0, self.device_credentials[device_name].pop(i))
-                            self._invalidate_pdu_context()
+                            self._on_credential_configuration_changed(device_name)
                             self.current_credential_index[device_name] = 0
                             break
             else:
@@ -2509,7 +2532,7 @@ class VCSDiagnosticApp(QMainWindow):
 
         if existing_index is None:
             creds_list.insert(0, new_credential)
-            self._invalidate_pdu_context()
+            self._on_credential_configuration_changed(device_name)
             message_title = "Успех"
             message_text = (
                 f"Credentials для {device_name} успешно сохранены\n"
@@ -2518,7 +2541,7 @@ class VCSDiagnosticApp(QMainWindow):
             )
         else:
             creds_list.insert(0, creds_list.pop(existing_index))
-            self._invalidate_pdu_context()
+            self._on_credential_configuration_changed(device_name)
             message_title = "Информация"
             message_text = (
                 f"Такие credentials для {device_name} уже есть в списке\n"
