@@ -30,13 +30,14 @@ class FakeTelnetTransport:
         self.closed = True
 
 
-def make_handler(responses, password=None):
+def make_handler(responses, password=None, **handler_kwargs):
     transport = FakeTelnetTransport(responses)
     handler = ExtronIPLTPCS4iHandler(
         "192.0.2.44",
         password=password,
         timeout=0.01,
         transport_factory=lambda *_args: transport,
+        **handler_kwargs,
     )
     return handler, transport
 
@@ -90,10 +91,41 @@ class ExtronPCS4iAuthenticationTests(unittest.TestCase):
 
         self.assertEqual([b"secret-pass\r"], transport.sent)
 
+    def test_readiness_probe_prompt_after_first_send_uses_second_password_send(self):
+        handler, transport = make_handler(
+            [b"Password:", b"", b"Password:", b"12\r\n"],
+            password="secret-pass",
+        )
+
+        self.assertTrue(handler.connect())
+
+        self.assertEqual(2, transport.sent.count(b"secret-pass\r"))
+        self.assertEqual([b"secret-pass\r", ESC + b"CK\r", b"secret-pass\r"], transport.sent)
+
+    def test_readiness_probe_third_prompt_is_authentication_error(self):
+        handler, transport = make_handler(
+            [b"Password:", b"Password:", b"", b"Password:"],
+            password="secret-pass",
+        )
+
+        with self.assertRaises(AuthenticationError):
+            handler.connect()
+
+        self.assertEqual(2, transport.sent.count(b"secret-pass\r"))
+        self.assertEqual([b"secret-pass\r", b"secret-pass\r", ESC + b"CK\r"], transport.sent)
+
+    def test_credentialless_readiness_probe_prompt_requires_credential(self):
+        handler, transport = make_handler([b"", b"Password:"])
+
+        with self.assertRaises(CredentialRequired):
+            handler.connect()
+
+        self.assertEqual([ESC + b"CK\r"], transport.sent)
+
 
 class ExtronPCS4iSISTests(unittest.TestCase):
-    def connected_handler(self, responses):
-        handler, transport = make_handler([b"", b"12\r\n"] + responses)
+    def connected_handler(self, responses, **handler_kwargs):
+        handler, transport = make_handler([b"", b"12\r\n"] + responses, **handler_kwargs)
         handler.connect()
         transport.sent.clear()
         return handler, transport
@@ -106,6 +138,10 @@ class ExtronPCS4iSISTests(unittest.TestCase):
         outlets = handler.get_outlets_status()
 
         self.assertEqual(["on", "off", "on", "off"], [item["status"] for item in outlets])
+        self.assertEqual(
+            ["Розетка 1", "Розетка 2", "Розетка 3", "Розетка 4"],
+            [item["name"] for item in outlets],
+        )
         self.assertEqual(
             [ESC + b"1PC\r", ESC + b"2PC\r", ESC + b"3PC\r", ESC + b"4PC\r"],
             transport.sent,
@@ -207,6 +243,44 @@ class ExtronPCS4iSISTests(unittest.TestCase):
 
     def test_production_http_name_path_remains_unconfirmed(self):
         self.assertIsNone(ExtronIPLTPCS4iHandler.HTTP_NAME_PATH)
+
+    def test_partial_http_names_keep_per_outlet_russian_fallback(self):
+        body = """
+        <script>
+        var xName1 = "Codec";
+        var xName3 = "Display";
+        </script>
+        """
+        handler, _transport = self.connected_handler(
+            [b"1\r\n", b"0\r\n", b"1\r\n", b"0\r\n"],
+            http_name_path="/confirmed",
+            http_get=lambda _path, _timeout: body,
+        )
+
+        outlets = handler.get_outlets_status()
+
+        self.assertEqual(
+            ["Codec", "Розетка 2", "Display", "Розетка 4"],
+            [item["name"] for item in outlets],
+        )
+
+    def test_http_name_failure_keeps_telnet_status_successful_with_fallback_names(self):
+        def failing_http(_path, _timeout):
+            raise RuntimeError("HTTP unavailable")
+
+        handler, _transport = self.connected_handler(
+            [b"1\r\n", b"0\r\n", b"1\r\n", b"0\r\n"],
+            http_name_path="/confirmed",
+            http_get=failing_http,
+        )
+
+        outlets = handler.get_outlets_status()
+
+        self.assertEqual(["on", "off", "on", "off"], [item["status"] for item in outlets])
+        self.assertEqual(
+            ["Розетка 1", "Розетка 2", "Розетка 3", "Розетка 4"],
+            [item["name"] for item in outlets],
+        )
 
 
 if __name__ == "__main__":

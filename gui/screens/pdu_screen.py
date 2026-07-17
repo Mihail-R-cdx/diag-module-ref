@@ -154,6 +154,7 @@ class PDUScreen(BaseScreen):
                 "off": bool(data["capabilities"].get("off", False)),
                 "reboot": bool(data["capabilities"].get("reboot", False)),
             }
+            self._sync_capability_columns()
 
         if "outlets" in data:
             self.outlets = data["outlets"] or []
@@ -193,6 +194,7 @@ class PDUScreen(BaseScreen):
         self.outlets_table.setRowCount(len(self.outlets))
         self.outlets_table.setVisible(bool(self.outlets))
         self.outlets_empty.setVisible(not self.outlets)
+        self._sync_capability_columns()
 
         action_specs = (
             (3, "on", "Вкл", "Включить", "success"),
@@ -239,6 +241,9 @@ class PDUScreen(BaseScreen):
 
             self.outlets_table.setRowHeight(row, 44)
         self.outlets_table.viewport().update()
+
+    def _sync_capability_columns(self):
+        self.outlets_table.setColumnHidden(5, not self.capabilities.get("reboot", False))
 
     def on_outlet_button_click(self, row, action):
         outlet_num = row + 1

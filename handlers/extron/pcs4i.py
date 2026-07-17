@@ -128,7 +128,7 @@ class ExtronIPLTPCS4iHandler:
                 {
                     "number": number,
                     "status": "on" if power_on else "off",
-                    "name": f"Receptacle {number}",
+                    "name": f"Розетка {number}",
                 }
             )
         for number, name in self._load_http_outlet_names().items():
@@ -181,38 +181,32 @@ class ExtronIPLTPCS4iHandler:
         return False
 
     def _establish_session(self) -> None:
-        initial = self._read_phase()
-        if self._has_password_prompt(initial):
-            self._password_flow()
-            return
-        try:
-            self._verified_readiness_probe()
-        except CredentialRequired:
-            self._password_flow()
+        password_sends = 0
+        phase = self._read_phase()
 
-    def _password_flow(self) -> None:
-        if not self.password:
-            raise CredentialRequired("PCS4i requested Password but no password was assigned.")
-        self._send_password()
-        post_first = self._read_phase()
-        if self._has_password_prompt(post_first):
-            self._send_password()
-            post_second = self._read_phase()
-            if self._has_password_prompt(post_second):
-                raise AuthenticationError("PCS4i rejected the assigned password.")
-            if not self._phase_has_ready_evidence(post_second):
-                self._verified_readiness_probe()
-            return
-        if not self._phase_has_ready_evidence(post_first):
-            self._verified_readiness_probe()
+        while True:
+            if self._has_password_prompt(phase):
+                if password_sends >= 2:
+                    raise AuthenticationError("PCS4i rejected the assigned password.")
+                if not self.password:
+                    raise CredentialRequired("PCS4i requested Password but no password was assigned.")
+                self._send_password()
+                password_sends += 1
+                phase = self._read_phase()
+                continue
 
-    def _verified_readiness_probe(self) -> None:
+            if self._phase_has_ready_evidence(phase):
+                return
+
+            phase = self._readiness_probe_phase()
+
+    def _readiness_probe_phase(self) -> bytes:
         response = self._query_raw(ESC + b"CK" + CR)
-        if self._has_password_prompt(response):
-            raise CredentialRequired("PCS4i requested Password during readiness probe.")
-        text = self._clean_text(response)
-        if not re.search(r"\b(11|12)\b", text):
+        if self._has_password_prompt(response) or self._phase_has_ready_evidence(response):
+            return response
+        if not re.search(r"\b(11|12)\b", self._clean_text(response)):
             raise ProtocolError("PCS4i readiness probe did not return a security level.")
+        return response
 
     def _send_password(self) -> None:
         self.credential_used = True

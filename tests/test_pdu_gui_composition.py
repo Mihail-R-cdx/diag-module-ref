@@ -161,7 +161,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "ip": "192.0.2.44",
             "credential_context": descriptor.credential_context,
             "credential_index": descriptor.credential_index,
-            "credential_identity": descriptor.credential_identity,
         }
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
@@ -209,7 +208,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "ip": "192.0.2.44",
             "credential_context": descriptor.credential_context,
             "credential_index": descriptor.credential_index,
-            "credential_identity": descriptor.credential_identity,
         }
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
@@ -461,7 +459,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "ip": "192.0.2.44",
             "credential_context": 10,
             "credential_index": None,
-            "credential_identity": None,
         }
         descriptor = PDUOperationDescriptor(
             operation_id=1,
@@ -487,7 +484,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "ip": "192.0.2.44",
             "credential_context": 20,
             "credential_index": None,
-            "credential_identity": None,
         }
         descriptor = PDUOperationDescriptor(
             operation_id=1,
@@ -516,7 +512,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "ip": descriptor.ip_address,
             "credential_context": descriptor.credential_context,
             "credential_index": descriptor.credential_index,
-            "credential_identity": descriptor.credential_identity,
         }
 
     @staticmethod

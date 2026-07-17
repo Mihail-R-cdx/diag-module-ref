@@ -205,9 +205,35 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         )
 
         self.assertEqual(4, screen.outlets_table.rowCount())
+        self.assertTrue(screen.outlets_table.isColumnHidden(5))
         self.assertIsInstance(screen.outlets_table.cellWidget(0, 3), QPushButton)
         self.assertIsInstance(screen.outlets_table.cellWidget(0, 4), QPushButton)
         self.assertIsNone(screen.outlets_table.cellWidget(0, 5))
+
+    def test_pdu_reboot_column_tracks_model_capabilities(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = self._track(PDUScreen(self.parent_widget))
+        aten_data = {
+            "capabilities": {"refresh": True, "on": True, "off": True, "reboot": True},
+            "outlets": [{"number": 1, "name": "Outlet 1", "status": "off"}],
+        }
+        pcs4i_data = {
+            "capabilities": {"refresh": True, "on": True, "off": True, "reboot": False},
+            "outlets": [{"number": 1, "name": "Розетка 1", "status": "off"}],
+        }
+
+        screen.update_data(aten_data)
+        self.assertFalse(screen.outlets_table.isColumnHidden(5))
+        self.assertIsInstance(screen.outlets_table.cellWidget(0, 5), QPushButton)
+
+        screen.update_data(pcs4i_data)
+        self.assertTrue(screen.outlets_table.isColumnHidden(5))
+        self.assertIsNone(screen.outlets_table.cellWidget(0, 5))
+
+        screen.update_data(aten_data)
+        self.assertFalse(screen.outlets_table.isColumnHidden(5))
+        self.assertIsInstance(screen.outlets_table.cellWidget(0, 5), QPushButton)
 
     def test_audio_dsp_is_read_only_and_rebuilds_source_cards(self):
         from gui.components import EmptyState, SectionCard
