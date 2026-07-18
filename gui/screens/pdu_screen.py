@@ -39,6 +39,10 @@ class PDUScreen(BaseScreen):
         }
         self.bulk_busy = False
         self.bulk_context = None
+        self.bulk_records_current = False
+        self.mutation_busy = False
+        self.mutation_context = None
+        self.mutation_kind = None
         super().__init__(parent)
 
     def init_ui(self):
@@ -165,6 +169,10 @@ class PDUScreen(BaseScreen):
         self.outlets_empty.setVisible(True)
         self.bulk_busy = False
         self.bulk_context = None
+        self.bulk_records_current = False
+        self.mutation_busy = False
+        self.mutation_context = None
+        self.mutation_kind = None
         self._sync_bulk_controls()
 
     def update_data(self, data):
@@ -186,6 +194,7 @@ class PDUScreen(BaseScreen):
 
         if "outlets" in data:
             self.outlets = data["outlets"] or []
+            self.bulk_records_current = True
             for outlet in self.outlets:
                 number = outlet.get("number")
                 name = outlet.get("name")
@@ -262,7 +271,7 @@ class PDUScreen(BaseScreen):
                     continue
                 button = SemanticButton(text, role, self.outlets_table)
                 button.setToolTip(tooltip)
-                button.setEnabled(not self.bulk_busy)
+                button.setEnabled(not self.mutation_busy)
                 button.clicked.connect(
                     lambda checked=False, r=row, action=column:
                     self.on_outlet_button_click(r, action)
@@ -280,11 +289,12 @@ class PDUScreen(BaseScreen):
         if not hasattr(self, "btn_bulk_on"):
             return
         has_outlets = bool(self.outlets)
+        controls_ready = has_outlets and self.bulk_records_current and not self.mutation_busy
         self.btn_bulk_on.setEnabled(
-            has_outlets and self.capabilities.get("on", False) and not self.bulk_busy
+            controls_ready and self.capabilities.get("on", False)
         )
         self.btn_bulk_off.setEnabled(
-            has_outlets and self.capabilities.get("off", False) and not self.bulk_busy
+            controls_ready and self.capabilities.get("off", False)
         )
 
     def _set_individual_controls_enabled(self, enabled):
@@ -294,26 +304,45 @@ class PDUScreen(BaseScreen):
                 if isinstance(button, SemanticButton):
                     button.setEnabled(enabled)
 
-    def set_bulk_operation_state(self, context, busy):
+    def set_bulk_records_current(self, current):
+        self.bulk_records_current = bool(current)
+        self._sync_bulk_controls()
+
+    def set_pdu_mutation_state(self, context, kind, busy):
         if busy:
-            self.bulk_context = context
-            self.bulk_busy = True
-        elif self.bulk_context == context:
+            self.mutation_context = context
+            self.mutation_kind = kind
+            self.mutation_busy = True
+            self.bulk_context = context if kind == "bulk" else None
+            self.bulk_busy = kind == "bulk"
+        elif self.mutation_context == context:
+            self.mutation_context = None
+            self.mutation_kind = None
+            self.mutation_busy = False
             self.bulk_context = None
             self.bulk_busy = False
         else:
             return
-        self._set_individual_controls_enabled(not self.bulk_busy)
+        self._set_individual_controls_enabled(not self.mutation_busy)
         self._sync_bulk_controls()
 
-    def clear_bulk_operation_state(self):
+    def clear_pdu_mutation_state(self):
+        self.mutation_context = None
+        self.mutation_kind = None
+        self.mutation_busy = False
         self.bulk_context = None
         self.bulk_busy = False
         self._set_individual_controls_enabled(True)
         self._sync_bulk_controls()
 
+    def set_bulk_operation_state(self, context, busy):
+        self.set_pdu_mutation_state(context, "bulk", busy)
+
+    def clear_bulk_operation_state(self):
+        self.clear_pdu_mutation_state()
+
     def on_bulk_button_click(self, command):
-        if self.bulk_busy:
+        if self.mutation_busy:
             return
         prompts = {
             "off": "Выключить все розетки по очереди?",
@@ -359,7 +388,7 @@ class PDUScreen(BaseScreen):
 
     @pyqtSlot(int, str)
     def on_outlet_control(self, outlet_num, command):
-        if self.bulk_busy:
+        if self.mutation_busy:
             return
         self.set_outlet_command_state(outlet_num, command, True)
         submitted = False
@@ -384,7 +413,7 @@ class PDUScreen(BaseScreen):
                 button.set_loading(True, "Выполнение…")
             else:
                 button.set_loading(False)
-                button.setEnabled(not busy and not self.bulk_busy)
+                button.setEnabled(not busy and not self.mutation_busy)
 
     @pyqtSlot(str)
     def on_bulk_control(self, command):

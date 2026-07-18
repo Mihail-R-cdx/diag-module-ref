@@ -127,6 +127,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "credential_context": 10,
         }
         self.window.hide_progress_dialog = lambda: None
+        self.window.refresh_data = Mock()
 
         with patch.object(QMessageBox, "warning") as warning, patch.object(
             QMessageBox, "critical"
@@ -140,6 +141,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         critical.assert_not_called()
         warning.assert_called_once()
         self.assertIn("Не удалось достоверно определить итог команды", warning.call_args.args[2])
+        self.window.refresh_data.assert_called_once()
 
     def test_pcs4i_on_auth_failure_retries_same_command_next_candidate(self):
         self._assert_pcs4i_command_auth_retry(COMMAND_ON, 2)
@@ -180,7 +182,12 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
             self.window.on_pdu_command_error(
-                ("authentication_error", "rejected", ""),
+                (
+                    "authentication_error",
+                    "rejected",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
                 worker,
                 descriptor,
             )
@@ -220,6 +227,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
+        self.window.refresh_data = Mock()
 
         with patch.object(QThreadPool.globalInstance(), "start") as start, \
                 patch.object(QMessageBox, "warning"):
@@ -230,7 +238,51 @@ class PDUGuiCompositionTests(unittest.TestCase):
             )
 
         start.assert_not_called()
+        self.window.refresh_data.assert_called_once()
         self.assertNotIn("Extron IPL T PCS4i|192.0.2.44", self.window._credential_attempt_plans)
+
+    def test_pcs4i_command_auth_after_possible_send_does_not_retry_or_advance(self):
+        descriptor = PDUOperationDescriptor(
+            operation_id=43,
+            generation=10,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_index=0,
+            credential_context=self.window._pdu_context_token(),
+        )
+        self._activate_pdu_request(descriptor)
+        worker = SimpleNamespace(
+            device_name="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            current_idx=0,
+            creds_list=[{"password": "a"}, {"password": "b"}],
+        )
+        self.window.current_worker = worker
+        self.window.hide_progress_dialog = Mock()
+        self.window.refresh_data = Mock()
+
+        with patch.object(QThreadPool.globalInstance(), "start") as start, \
+                patch.object(QMessageBox, "critical"):
+            self.window.on_pdu_command_error(
+                (
+                    "authentication_error",
+                    "post-send auth",
+                    "",
+                    {"state_changing_send_attempted": True},
+                ),
+                worker,
+                descriptor,
+            )
+
+        start.assert_not_called()
+        self.window.refresh_data.assert_called_once()
+        self.assertNotIn(
+            "Extron IPL T PCS4i|192.0.2.44|operation:43",
+            self.window._credential_attempt_plans,
+        )
+        self.assertEqual({}, self.window.current_credential_index)
 
     def test_stale_pdu_refresh_result_is_ignored_after_context_change(self):
         descriptor = self._pdu_descriptor(REFRESH, operation_id=10, generation=4, context=30)
@@ -361,6 +413,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         descriptor = self._pdu_descriptor(COMMAND_ON, operation_id=101, generation=7, context=60)
         self._activate_pdu_request(descriptor)
         self.window.hide_progress_dialog = Mock()
+        self.window.refresh_data = Mock()
 
         with patch.object(QMessageBox, "warning"):
             self.window.on_pdu_command_error(
@@ -382,6 +435,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
                 102,
             ),
         )
+        self.window.refresh_data.assert_called_once()
 
     def test_pcs4i_success_persists_used_candidate_for_next_operation(self):
         self.window.set_current_credential_index("Extron IPL T PCS4i", 0, "192.0.2.44")
@@ -445,7 +499,12 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         with patch.object(QThreadPool.globalInstance(), "start") as start:
             self.window.on_pdu_command_error(
-                ("authentication_error", "rejected", ""),
+                (
+                    "authentication_error",
+                    "rejected",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
                 worker,
                 descriptor,
             )
@@ -622,11 +681,14 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "credential_index": None,
         }
         screen = self.window.screens["pdu"]
-        screen.update_data(
-            {
-                "capabilities": {"on": True, "off": True, "reboot": False},
-                "outlets": [{"number": 2, "status": "off"}, {"number": 1, "status": "off"}],
-            }
+        self._mark_pdu_outlets_current(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+            12,
+            self.window._pdu_context_token(),
+            None,
+            [{"number": 2, "status": "off"}, {"number": 1, "status": "off"}],
+            {"on": True, "off": True, "reboot": False},
         )
 
         with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
@@ -656,8 +718,14 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "credential_context": self.window._pdu_context_token(),
             "credential_index": None,
         }
-        self.window.screens["pdu"].update_data(
-            {"capabilities": {"on": True, "off": True}, "outlets": [{"number": 1}]}
+        self._mark_pdu_outlets_current(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+            13,
+            self.window._pdu_context_token(),
+            None,
+            [{"number": 1}],
+            {"on": True, "off": True},
         )
 
         with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
@@ -668,6 +736,73 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         self.assertEqual(1, len(started))
         self.assertEqual(2, warning.call_count)
+
+    def test_individual_command_lock_blocks_bulk_command(self):
+        started = []
+        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.show_progress_dialog = Mock()
+        self.window._active_request_credentials = [{}]
+        self.window._active_request = {
+            "id": 31,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": self.window._pdu_context_token(),
+            "credential_index": None,
+        }
+        self._mark_pdu_outlets_current(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+            31,
+            self.window._pdu_context_token(),
+            None,
+            [{"number": 1}],
+            {"on": True, "off": True},
+        )
+        screen = self.window.screens["pdu"]
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "warning") as warning:
+            self.assertTrue(self.window.control_pdu_outlet(1, "on"))
+            self.assertFalse(self.window.control_pdu_outlets_bulk("off"))
+
+        self.assertEqual(1, len(started))
+        warning.assert_called_once()
+        self.assertFalse(screen.btn_bulk_on.isEnabled())
+        self.assertFalse(screen.btn_bulk_off.isEnabled())
+
+    def test_stale_outlet_context_after_ip_change_blocks_bulk_dispatch(self):
+        started = []
+        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.show_progress_dialog = Mock()
+        self.window._active_request_credentials = [{}]
+        self.window._active_request = {
+            "id": 32,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": self.window._pdu_context_token(),
+            "credential_index": None,
+        }
+        self._mark_pdu_outlets_current(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+            32,
+            self.window._pdu_context_token(),
+            None,
+            [{"number": 1}],
+            {"on": True, "off": True},
+        )
+
+        self.window.ip_entry.setText("192.0.2.45")
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "warning") as warning:
+            self.assertFalse(self.window.control_pdu_outlets_bulk("on"))
+
+        self.assertEqual([], started)
+        warning.assert_called_once()
+        self.assertFalse(self.window.screens["pdu"].btn_bulk_on.isEnabled())
 
     def test_bulk_button_asks_one_confirmation_dialog(self):
         screen = self.window.screens["pdu"]
@@ -700,6 +835,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
+        self.window.refresh_data = Mock()
 
         with patch.object(QThreadPool.globalInstance(), "start") as start:
             self.window.on_pdu_bulk_error(
@@ -718,6 +854,64 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.assertEqual(BULK_COMMAND_ON, retry.descriptor.operation)
         self.assertEqual((1, 2), retry.descriptor.outlet_sequence)
         self.assertEqual(1, retry.current_idx)
+
+    def test_aten_bulk_auth_retry_uses_next_candidate_and_persists_only_full_success(self):
+        self.window.set_current_credential_index("Aten PE8208AV", 0, "192.0.2.45")
+        descriptor = PDUOperationDescriptor(
+            operation_id=177,
+            generation=34,
+            model="Aten PE8208AV",
+            ip_address="192.0.2.45",
+            operation=BULK_COMMAND_ON,
+            credential_index=0,
+            credential_context=self.window._pdu_context_token(),
+            outlet_sequence=(1, 2),
+        )
+        self._activate_pdu_request(descriptor)
+        worker = SimpleNamespace(
+            device_name="Aten PE8208AV",
+            ip_address="192.0.2.45",
+            current_idx=0,
+            creds_list=[
+                {"username": "u", "password": "a"},
+                {"username": "u", "password": "b"},
+            ],
+        )
+        self.window.current_worker = worker
+        self.window.hide_progress_dialog = Mock()
+
+        with patch.object(QThreadPool.globalInstance(), "start") as start:
+            self.window.on_pdu_bulk_error(
+                (
+                    "authentication_error",
+                    "rejected",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
+                worker,
+                descriptor,
+            )
+
+        start.assert_called_once()
+        retry = start.call_args.args[0]
+        self.assertEqual(1, retry.current_idx)
+        self.assertEqual(0, self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"))
+
+        self._activate_pdu_request(retry.descriptor)
+        self.window.refresh_data = Mock()
+        with patch.object(QMessageBox, "information"):
+            self.window.on_pdu_bulk_result(
+                {
+                    "success": True,
+                    "successful_outlets": (1, 2),
+                    "terminal_state": "full_success",
+                },
+                retry,
+                retry.descriptor,
+            )
+
+        self.assertEqual(1, self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"))
+        self.window.refresh_data.assert_called_once()
 
     def test_bulk_auth_error_after_possible_send_does_not_retry(self):
         descriptor = PDUOperationDescriptor(
@@ -739,6 +933,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
+        self.window.refresh_data = Mock()
 
         with patch.object(QThreadPool.globalInstance(), "start") as start, \
                 patch.object(QMessageBox, "critical"):
@@ -754,6 +949,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
             )
 
         start.assert_not_called()
+        self.window.refresh_data.assert_called_once()
 
     def test_bulk_success_persists_used_credential_but_partial_does_not(self):
         self.window.set_current_credential_index("Extron IPL T PCS4i", 0, "192.0.2.44")
@@ -845,6 +1041,33 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "credential_context": descriptor.credential_context,
             "credential_index": descriptor.credential_index,
         }
+
+    def _mark_pdu_outlets_current(
+        self,
+        model,
+        ip_address,
+        generation,
+        context,
+        credential_index,
+        outlets,
+        capabilities=None,
+    ):
+        descriptor = PDUOperationDescriptor(
+            operation_id=0,
+            generation=generation,
+            model=model,
+            ip_address=ip_address,
+            operation=REFRESH,
+            credential_index=credential_index,
+            credential_context=context,
+        )
+        self.window._remember_pdu_outlet_context({"outlets": outlets}, descriptor)
+        self.window.screens["pdu"].update_data(
+            {
+                "capabilities": capabilities or {"on": True, "off": True},
+                "outlets": [dict(outlet) for outlet in outlets],
+            }
+        )
 
     @staticmethod
     def _pdu_descriptor(

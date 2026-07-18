@@ -518,9 +518,16 @@ class VCSDiagnosticApp(QMainWindow):
         if self.__dict__.get("_active_request") is not None:
             self._active_request["credential_context"] = self._pdu_context_revision
         self.__dict__.pop("_active_pdu_bulk_context", None)
+        self.__dict__.pop("_active_pdu_mutation_context", None)
+        self.__dict__.pop("_current_pdu_outlet_context", None)
         screen = getattr(self, "screens", {}).get("pdu")
-        if screen is not None and hasattr(screen, "clear_bulk_operation_state"):
-            screen.clear_bulk_operation_state()
+        if screen is not None:
+            if hasattr(screen, "clear_pdu_mutation_state"):
+                screen.clear_pdu_mutation_state()
+            elif hasattr(screen, "clear_bulk_operation_state"):
+                screen.clear_bulk_operation_state()
+            if hasattr(screen, "set_bulk_records_current"):
+                screen.set_bulk_records_current(False)
 
     def _on_credential_configuration_changed(self, device_name=None):
         self._invalidate_pdu_context()
@@ -571,6 +578,10 @@ class VCSDiagnosticApp(QMainWindow):
             "credential_context": self.__dict__.get("_pdu_context_revision", 0),
             "credential_index": None,
         }
+        if VCSDiagnosticApp._is_pdu_device(device_name):
+            self.__dict__.pop("_current_pdu_outlet_context", None)
+            if screen is not None and hasattr(screen, "set_bulk_records_current"):
+                screen.set_bulk_records_current(False)
         self.set_ui_state(
             UIState.LOADING,
             f"Подключение к {device_name} ({ip_address})…",
@@ -1634,6 +1645,7 @@ class VCSDiagnosticApp(QMainWindow):
     def on_pdu_refresh_result(self, data, worker, descriptor):
         if not self._pdu_context_is_current(descriptor):
             return
+        self._remember_pdu_outlet_context(data, descriptor)
         self.on_device_data_received(data, worker, descriptor.generation)
 
     def on_pdu_refresh_error(self, error_info, worker, descriptor):
@@ -1663,11 +1675,11 @@ class VCSDiagnosticApp(QMainWindow):
         
         if device_name not in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
             return False
-        if self._is_current_pdu_bulk_active():
+        if self._is_current_pdu_mutation_active():
             QMessageBox.warning(
                 self,
                 "Команда PDU занята",
-                "Дождитесь завершения групповой операции PDU.",
+                "Дождитесь завершения текущей операции PDU.",
             )
             return False
 
@@ -1716,6 +1728,7 @@ class VCSDiagnosticApp(QMainWindow):
             ip_address,
             credential_index,
         )
+        descriptor = None
         try:
             from core.worker import PDUOperationWorker
             descriptor = PDUOperationDescriptor(
@@ -1747,9 +1760,14 @@ class VCSDiagnosticApp(QMainWindow):
             )
             self.current_worker = worker
             self.show_progress_dialog(f"Выполнение команды {command}...")
+            self._set_pdu_command_busy(descriptor, True)
+            self._set_pdu_mutation_busy(descriptor, "individual", True)
             QThreadPool.globalInstance().start(worker)
             return True
         except Exception as error:
+            if descriptor is not None:
+                self._set_pdu_command_busy(descriptor, False)
+                self._set_pdu_mutation_busy(descriptor, "individual", False)
             self._fail_request_start(error)
             QMessageBox.critical(self, "Ошибка", f"Ошибка при управлении PDU: {str(error)}")
             return False
@@ -1801,6 +1819,8 @@ class VCSDiagnosticApp(QMainWindow):
         self.show_progress_dialog(
             f"Выполнение команды {descriptor.operation}..."
         )
+        self._set_pdu_command_busy(retry_descriptor, True)
+        self._set_pdu_mutation_busy(retry_descriptor, "individual", True)
         QThreadPool.globalInstance().start(worker)
 
     def _pdu_context_is_current(self, descriptor: PDUOperationDescriptor) -> bool:
@@ -1813,6 +1833,65 @@ class VCSDiagnosticApp(QMainWindow):
             and request.get("credential_context") == descriptor.credential_context
             and request.get("credential_index") == descriptor.credential_index
         )
+
+    def _remember_pdu_outlet_context(self, data, descriptor: PDUOperationDescriptor) -> None:
+        if "outlets" not in (data or {}):
+            return
+        self.__dict__["_current_pdu_outlet_context"] = {
+            "descriptor": descriptor,
+            "outlets": tuple(dict(outlet) for outlet in (data.get("outlets") or ())),
+        }
+        screen = getattr(self, "screens", {}).get("pdu")
+        if screen is not None and hasattr(screen, "set_bulk_records_current"):
+            screen.set_bulk_records_current(True)
+
+    def _current_pdu_outlet_records(self, device_name: str, ip_address: str):
+        context = self.__dict__.get("_current_pdu_outlet_context")
+        if not context:
+            return None
+        descriptor = context.get("descriptor")
+        if not isinstance(descriptor, PDUOperationDescriptor):
+            return None
+        if descriptor.model != device_name or descriptor.ip_address != ip_address:
+            return None
+        if not self._pdu_context_is_current(descriptor):
+            return None
+        return context.get("outlets")
+
+    def _is_current_pdu_mutation_active(self) -> bool:
+        context = self.__dict__.get("_active_pdu_mutation_context")
+        descriptor = context.get("descriptor") if isinstance(context, dict) else None
+        return bool(descriptor and self._pdu_context_is_current(descriptor))
+
+    def _set_pdu_mutation_busy(
+        self,
+        descriptor: PDUOperationDescriptor,
+        kind: str,
+        busy: bool,
+    ) -> None:
+        screen = getattr(self, "screens", {}).get("pdu")
+        if busy:
+            self.__dict__["_active_pdu_mutation_context"] = {
+                "descriptor": descriptor,
+                "kind": kind,
+            }
+            if kind == "bulk":
+                self._active_pdu_bulk_context = descriptor
+            if screen is not None and hasattr(screen, "set_pdu_mutation_state"):
+                screen.set_pdu_mutation_state(descriptor.operation_id, kind, True)
+            elif kind == "bulk" and screen is not None and hasattr(screen, "set_bulk_operation_state"):
+                screen.set_bulk_operation_state(descriptor.operation_id, True)
+            return
+
+        context = self.__dict__.get("_active_pdu_mutation_context")
+        if isinstance(context, dict) and context.get("descriptor") == descriptor:
+            self.__dict__.pop("_active_pdu_mutation_context", None)
+        if kind == "bulk" and self.__dict__.get("_active_pdu_bulk_context") == descriptor:
+            self.__dict__.pop("_active_pdu_bulk_context", None)
+        if screen is not None and hasattr(screen, "set_pdu_mutation_state"):
+            screen.set_pdu_mutation_state(descriptor.operation_id, kind, False)
+        elif kind == "bulk" and screen is not None and hasattr(screen, "set_bulk_operation_state"):
+            screen.set_bulk_operation_state(descriptor.operation_id, False)
 
     def _is_current_pdu_bulk_active(self) -> bool:
         descriptor = self.__dict__.get("_active_pdu_bulk_context")
@@ -1828,29 +1907,18 @@ class VCSDiagnosticApp(QMainWindow):
         setter(descriptor.outlet_number, descriptor.operation, busy)
 
     def _set_pdu_bulk_busy(self, descriptor: PDUOperationDescriptor, busy: bool) -> None:
-        screen = getattr(self, "screens", {}).get("pdu")
-        if screen is None:
-            return
-        if busy:
-            self._active_pdu_bulk_context = descriptor
-            if hasattr(screen, "set_bulk_operation_state"):
-                screen.set_bulk_operation_state(descriptor.operation_id, True)
-            return
-        if self.__dict__.get("_active_pdu_bulk_context") == descriptor:
-            self.__dict__.pop("_active_pdu_bulk_context", None)
-        if hasattr(screen, "set_bulk_operation_state"):
-            screen.set_bulk_operation_state(descriptor.operation_id, False)
+        self._set_pdu_mutation_busy(descriptor, "bulk", busy)
 
     def control_pdu_outlets_bulk(self, command: str):
         device_name = self.device_combo.currentText()
         ip_address = self.ip_entry.text().strip()
         if device_name not in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
             return False
-        if self._is_current_pdu_bulk_active():
+        if self._is_current_pdu_mutation_active():
             QMessageBox.warning(
                 self,
                 "Команда PDU занята",
-                "Дождитесь завершения текущей групповой операции PDU.",
+                "Дождитесь завершения текущей операции PDU.",
             )
             return False
 
@@ -1859,9 +1927,12 @@ class VCSDiagnosticApp(QMainWindow):
             return False
         try:
             ensure_pdu_operation_supported(device_name, operation)
+            outlet_records = self._current_pdu_outlet_records(device_name, ip_address)
+            if outlet_records is None:
+                raise ValueError("Список розеток PDU устарел. Обновите статус устройства.")
             outlet_sequence = build_pdu_bulk_outlet_sequence(
                 device_name,
-                getattr(self.screens.get("pdu"), "outlets", []),
+                outlet_records,
             )
         except Exception as error:
             self.set_ui_state(UIState.REQUEST_ERROR, str(error))
@@ -1876,14 +1947,9 @@ class VCSDiagnosticApp(QMainWindow):
             self._active_request_credentials = creds_list
 
         operation_id = self._next_pdu_operation_id()
-        if self._is_pcs4i_device(device_name):
-            current_idx = self._credential_attempt_index(
-                device_name, creds_list, ip_address, operation_id
-            )
-        else:
-            current_idx = self.get_valid_current_credential_index(
-                device_name, creds_list, ip_address
-            )
+        current_idx = self._credential_attempt_index(
+            device_name, creds_list, ip_address, operation_id
+        )
         if current_idx >= len(creds_list):
             self.set_ui_state(UIState.REQUEST_ERROR, "Нет credentials для PDU")
             return False
@@ -1996,16 +2062,20 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self.hide_progress_dialog()
         self._set_pdu_bulk_busy(descriptor, False)
-        if descriptor.model == "Extron IPL T PCS4i":
-            self._discard_credential_attempt_plan(
-                descriptor.model,
-                descriptor.ip_address,
-                descriptor.operation_id,
-            )
+        self._discard_credential_attempt_plan(
+            descriptor.model,
+            descriptor.ip_address,
+            descriptor.operation_id,
+        )
         if data.get("success"):
             if (
-                descriptor.model == "Extron IPL T PCS4i"
-                and data.get("_credential_used") is True
+                (
+                    descriptor.model == "Aten PE8208AV"
+                    or (
+                        descriptor.model == "Extron IPL T PCS4i"
+                        and data.get("_credential_used") is True
+                    )
+                )
                 and descriptor.credential_index is not None
             ):
                 self.set_current_credential_index(
@@ -2040,6 +2110,8 @@ class VCSDiagnosticApp(QMainWindow):
         message = "Групповая команда PDU не была завершена."
         self.set_ui_state(UIState.REQUEST_ERROR, message)
         QMessageBox.warning(self, "Групповая команда PDU", message)
+        if data.get("state_changing_send_attempted"):
+            self.refresh_data()
 
     def on_pdu_bulk_error(self, error_info, worker, descriptor):
         if not self._pdu_context_is_current(descriptor):
@@ -2049,8 +2121,7 @@ class VCSDiagnosticApp(QMainWindow):
         error = error_info[1]
         metadata = error_info[3] if len(error_info) > 3 and isinstance(error_info[3], dict) else {}
         if (
-            descriptor.model == "Extron IPL T PCS4i"
-            and error_type == CodecFailureCategory.AUTHENTICATION.value
+            error_type == CodecFailureCategory.AUTHENTICATION.value
             and metadata.get("state_changing_send_attempted") is False
         ):
             creds_list = normalize_pdu_credential_candidates(
@@ -2077,15 +2148,16 @@ class VCSDiagnosticApp(QMainWindow):
                     current_idx=next_idx,
                 )
                 return
-        if descriptor.model == "Extron IPL T PCS4i":
-            self._discard_credential_attempt_plan(
-                descriptor.model,
-                descriptor.ip_address,
-                descriptor.operation_id,
-            )
+        self._discard_credential_attempt_plan(
+            descriptor.model,
+            descriptor.ip_address,
+            descriptor.operation_id,
+        )
         self._set_pdu_bulk_busy(descriptor, False)
         self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка групповой команды PDU: {error}")
         QMessageBox.critical(self, "Ошибка", f"Ошибка групповой команды PDU: {error}")
+        if metadata.get("state_changing_send_attempted"):
+            self.refresh_data()
 
     def on_pdu_bulk_finished(self, worker, descriptor):
         if worker is not getattr(self, "current_worker", None):
@@ -2100,6 +2172,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self.hide_progress_dialog()
         self._set_pdu_command_busy(descriptor, False)
+        self._set_pdu_mutation_busy(descriptor, "individual", False)
         if data.get("success"):
             if (
                 descriptor.model == "Extron IPL T PCS4i"
@@ -2141,15 +2214,20 @@ class VCSDiagnosticApp(QMainWindow):
                 )
             self.set_ui_state(UIState.REQUEST_ERROR, "Команда PDU не выполнена")
             QMessageBox.warning(self, "Ошибка", "Не удалось выполнить команду PDU")
+            if data.get("state_changing_send_attempted"):
+                self.refresh_data()
 
     def on_pdu_command_error(self, error_info, worker, descriptor):
         if not self._pdu_context_is_current(descriptor):
             return
         self.hide_progress_dialog()
-        _error_type, error, _traceback_text = error_info
+        _error_type = error_info[0]
+        error = error_info[1]
+        metadata = error_info[3] if len(error_info) > 3 and isinstance(error_info[3], dict) else {}
         if (
             descriptor.model == "Extron IPL T PCS4i"
             and _error_type == CodecFailureCategory.AUTHENTICATION.value
+            and metadata.get("state_changing_send_attempted") is False
         ):
             creds_list = normalize_pdu_credential_candidates(
                 descriptor.model,
@@ -2168,6 +2246,8 @@ class VCSDiagnosticApp(QMainWindow):
                     UIState.LOADING,
                     f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}...",
                 )
+                self._set_pdu_command_busy(descriptor, False)
+                self._set_pdu_mutation_busy(descriptor, "individual", False)
                 self._start_pdu_command_retry_worker(
                     descriptor=descriptor,
                     creds_list=creds_list,
@@ -2193,6 +2273,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.set_ui_state(UIState.REQUEST_ERROR, message)
             QMessageBox.warning(self, "Итог команды неизвестен", message)
             self._set_pdu_command_busy(descriptor, False)
+            self._set_pdu_mutation_busy(descriptor, "individual", False)
+            self.refresh_data()
             return
         if _error_type == "command_failed":
             if descriptor.model == "Extron IPL T PCS4i":
@@ -2205,6 +2287,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.set_ui_state(UIState.REQUEST_ERROR, message)
             QMessageBox.warning(self, "Команда PDU не выполнена", message)
             self._set_pdu_command_busy(descriptor, False)
+            self._set_pdu_mutation_busy(descriptor, "individual", False)
+            self.refresh_data()
             return
         if descriptor.model == "Extron IPL T PCS4i":
             self._discard_credential_attempt_plan(
@@ -2215,6 +2299,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды PDU: {error}")
         QMessageBox.critical(self, "Ошибка", f"Ошибка при управлении PDU: {error}")
         self._set_pdu_command_busy(descriptor, False)
+        self._set_pdu_mutation_busy(descriptor, "individual", False)
+        if metadata.get("state_changing_send_attempted"):
+            self.refresh_data()
 
     def on_pdu_command_finished(self, worker, descriptor):
         if worker is not getattr(self, "current_worker", None):
@@ -2223,6 +2310,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self.hide_progress_dialog()
         self._set_pdu_command_busy(descriptor, False)
+        self._set_pdu_mutation_busy(descriptor, "individual", False)
 
 
     def update_time_display(self):
@@ -2412,7 +2500,9 @@ class VCSDiagnosticApp(QMainWindow):
             return
         if worker:
             worker._device_error_handled_request = active_request_id
-        error_type, error, traceback_text = error_info
+        error_type = error_info[0]
+        error = error_info[1]
+        traceback_text = error_info[2] if len(error_info) > 2 else ""
         creds_list = getattr(worker, 'creds_list', []) if worker else []
         error = redact_exception(
             error,

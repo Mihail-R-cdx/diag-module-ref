@@ -834,18 +834,15 @@ class PDUOperationWorker(QRunnable):
         except CredentialRequired as error:
             _emit_error(self, "credential_required", error, trace=False)
         except AuthenticationError as error:
-            if self.operation in (BULK_COMMAND_ON, BULK_COMMAND_OFF):
-                message, _details = _safe_error(error, _worker_secrets(self))
-                self.signals.error.emit(
-                    (
-                        "authentication_error",
-                        message,
-                        "",
-                        {"state_changing_send_attempted": False},
-                    )
+            message, _details = _safe_error(error, _worker_secrets(self))
+            self.signals.error.emit(
+                (
+                    "authentication_error",
+                    message,
+                    "",
+                    {"state_changing_send_attempted": False},
                 )
-            else:
-                _emit_error(self, "authentication_error", error, trace=False)
+            )
         except UnsupportedOperationError as error:
             _emit_error(self, "unsupported_operation", error, trace=False)
         except CommandRejectedError as error:

@@ -541,6 +541,27 @@ class PDUOperationContractTests(unittest.TestCase):
         self.assertEqual("authentication_error", errors[0][0])
         self.assertEqual({"state_changing_send_attempted": False}, errors[0][3])
 
+    def test_command_worker_post_send_auth_is_indeterminate_not_retryable_auth(self):
+        from core.worker import PDUOperationWorker
+
+        handler = ScriptedPDUHandler(
+            reads=[False, AuthenticationError("post-send credential failure")],
+            sends=[None],
+        )
+        worker = PDUOperationWorker(
+            self.descriptor(operation=COMMAND_ON),
+            credentials={"password": "synthetic-password"},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: handler,
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("indeterminate_outcome", errors[0][0])
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+
     def test_bulk_worker_pre_send_auth_error_carries_zero_send_metadata(self):
         from core.worker import PDUOperationWorker
 

@@ -302,18 +302,35 @@ def execute_pdu_command(
         descriptor.ip_address,
         normalize_pdu_credentials(descriptor.model, credentials),
     )
+    tracker = _MutationTrackingHandler(handler)
     try:
         if not is_current(descriptor):
             return {"_outcome": "stale", "operation": descriptor.operation}
         handler.connect()
         if descriptor.operation in (COMMAND_ON, COMMAND_OFF):
-            success = _execute_absolute_outlet_policy(
-                handler,
-                descriptor.outlet_number,
-                descriptor.operation,
-            )
+            try:
+                success = _execute_absolute_outlet_policy(
+                    tracker,
+                    descriptor.outlet_number,
+                    descriptor.operation,
+                )
+            except AuthenticationError as error:
+                if tracker.state_changing_send_attempted:
+                    raise CommandOutcomeUnknownError(
+                        "PDU authentication failed after a state-changing command; "
+                        "outcome is indeterminate."
+                    ) from error
+                raise
         elif descriptor.operation == COMMAND_REBOOT:
-            success = _execute_reboot_policy(handler, descriptor.outlet_number)
+            try:
+                success = _execute_reboot_policy(tracker, descriptor.outlet_number)
+            except AuthenticationError as error:
+                if tracker.state_changing_send_attempted:
+                    raise CommandOutcomeUnknownError(
+                        "PDU authentication failed after a state-changing command; "
+                        "outcome is indeterminate."
+                    ) from error
+                raise
         else:
             raise UnsupportedOperationError(f"Unsupported PDU operation: {descriptor.operation}")
         return {
@@ -324,6 +341,7 @@ def execute_pdu_command(
             "ip_address": descriptor.ip_address,
             "device_name": descriptor.model,
             "_credential_used": bool(getattr(handler, "credential_used", False)),
+            "state_changing_send_attempted": tracker.state_changing_send_attempted,
         }
     finally:
         disconnect_quietly(handler)
