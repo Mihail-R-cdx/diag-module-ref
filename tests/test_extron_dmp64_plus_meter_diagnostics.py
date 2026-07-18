@@ -594,7 +594,7 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
                 self.closed = False
                 FakeHandler.instances.append(self)
 
-            def connect(self):
+            def connect(self, cancellation=None):
                 return True
 
             def get_meter_snapshot(self, _cancellation):
@@ -645,7 +645,7 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
             def __init__(self, **_kwargs):
                 self.closed = False
 
-            def connect(self):
+            def connect(self, cancellation=None):
                 return True
 
             def get_meter_snapshot(self, _cancellation):
@@ -676,7 +676,7 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
             def __init__(self, **_kwargs):
                 self.count = 0
 
-            def connect(self):
+            def connect(self, cancellation=None):
                 return True
 
             def get_meter_snapshot(self, _cancellation):
@@ -717,7 +717,7 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
             def __init__(self, **_kwargs):
                 pass
 
-            def connect(self):
+            def connect(self, cancellation=None):
                 return True
 
             def get_meter_snapshot(self, _cancellation):
@@ -758,7 +758,7 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
             def __init__(self, **_kwargs):
                 self.closed = False
 
-            def connect(self):
+            def connect(self, cancellation=None):
                 raise DMPUnsupportedModel("Unsupported Extron DMP 64 Plus variant: DMP 64 Plus Future X")
 
             def disconnect(self):
@@ -776,6 +776,82 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
         worker.run()
 
         self.assertEqual("unsupported_device", errors[0][0])
+
+    def test_worker_passes_cancellation_token_to_handler_connect(self):
+        from core.dmp64_plus import DMPCancellationToken
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        token = DMPCancellationToken()
+
+        class FakeHandler:
+            instances = []
+
+            def __init__(self, **_kwargs):
+                self.connect_tokens = []
+                FakeHandler.instances.append(self)
+
+            def connect(self, cancellation=None):
+                self.connect_tokens.append(cancellation)
+                return True
+
+            def get_meter_snapshot(self, _cancellation):
+                return {
+                    "device_info": {"model": "Extron DMP 64 Plus", "ip_address": "192.0.2.64"},
+                    "meter_sections": [{"title": "Inputs", "channels": [{"available": True}]}],
+                    "attempted_oids": list(range(10)),
+                    "complete": True,
+                    "ip_address": "192.0.2.64",
+                    "model": "Extron DMP 64 Plus",
+                    "type": "audio_dsp",
+                }
+
+            def disconnect(self):
+                pass
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            cancellation=token,
+            handler_factory=FakeHandler,
+            max_cycles=1,
+        )
+
+        worker.run()
+
+        self.assertEqual([token], FakeHandler.instances[0].connect_tokens)
+
+    def test_worker_internal_type_error_does_not_retry_connect(self):
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        class TypeErrorHandler:
+            instances = []
+
+            def __init__(self, **_kwargs):
+                self.connect_count = 0
+                self.disconnect_count = 0
+                TypeErrorHandler.instances.append(self)
+
+            def connect(self, cancellation=None):
+                self.connect_count += 1
+                raise TypeError("synthetic internal programming error")
+
+            def disconnect(self):
+                self.disconnect_count += 1
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            handler_factory=TypeErrorHandler,
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual(1, TypeErrorHandler.instances[0].connect_count)
+        self.assertEqual("transport_session_failure", errors[0][0])
 
     def test_worker_cancellation_before_handler_acquisition_creates_no_handler(self):
         from core.dmp64_plus import DMPCancellationToken

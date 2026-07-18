@@ -46,50 +46,33 @@ does not approve, archive, merge, or delete the change.
 
 ## Review-Finding Fixes
 
-Independent review returned another `CHANGES REQUIRED` verdict on starting SHA
-`4b46978878f04a246c23af7c135b79bd3474ba46`. This corrective implementation
-pass resolves the remaining findings without changing the approved
-architecture:
+Independent review returned `CHANGES REQUIRED` on starting SHA
+`6f4dc8a9d87d0795e95626569a84b8caa2cb8019`. This corrective implementation
+pass resolves the remaining process/validation and code-quality findings
+without changing the approved architecture:
 
-- Meter transaction matching now terminates only on `[012]*<digits>` or
-  structured `E<digits>` SIS errors. Unsafe untagged frames such as `9*bad`,
-  `123*foo`, `Unrelated*Frame`, and wrong recovery ACKs are ignored for the
-  active meter read.
-- Any session created before model discovery is closed on identity timeout,
-  identity transport failure, unsupported model, cancellation, or unexpected
-  exception. The handler does not drop `self.session` before cleanup.
-- Identity transaction correlation now accepts only DMP model-like identity
-  frames, while ignoring banners, unrelated SIS frames, and PTY echo. Unknown
-  DMP model-like identities are discovered and then rejected by exact supported
-  variant validation.
-- The application-owned cancellation token is passed into handler connection
-  and identity discovery, with checkpoints before SSH acquisition, after
-  session creation, before `1I`, during bounded transaction wait, and after
-  identity response before polling.
-- `parse_meter_payload()` now classifies every structured `E<digits>` frame as
-  `sis_protocol_error` with the exact code, not only `E13`.
-- Strict OpenSpec validation was rerun successfully through the repository
-  wrapper after adding a process-local Node directory to `PATH`.
+- The DMP worker now calls the production handler contract directly as
+  `handler.connect(self.cancellation)`. The previous broad `TypeError`
+  compatibility fallback was removed so an internal `TypeError` cannot trigger
+  a second connection attempt.
+- DMP worker test doubles now implement `connect(cancellation=None)` where
+  applicable.
+- Focused regression coverage verifies that the worker passes the exact
+  cancellation token into `handler.connect()` and that an internal
+  `TypeError` is reported through the normal worker error path after exactly
+  one `connect()` call.
+- Strict OpenSpec validation was rerun in a complete repository-supported
+  Node/npm environment after `npm ci`.
 
 ## Review-Finding Files Changed
 
-- `core/dmp64_plus.py`
-- `handlers/extron/dmp64_plus.py`
 - `core/worker.py`
-- `gui/main_window.py`
 - `tests/test_extron_dmp64_plus_meter_diagnostics.py`
 - `openspec/changes/extron-dmp64-plus-meter-diagnostics/implementation-report.md`
 
 ## Production Files Changed
 
-- `core/dmp64_plus.py`
-- `handlers/extron/dmp64_plus.py`
 - `core/worker.py`
-- `gui/main_window.py`
-- `gui/screens/audio_dsp_screen.py`
-- `handlers/extron/__init__.py`
-- `core/factory.py`
-- `credentials.example.json`
 
 ## Tests Added/Changed
 
@@ -102,16 +85,17 @@ Runtime and dependency restoration:
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -> Python 3.12.9
 DIAG_NODE_HOME                                                   -> not set
-node --version                                                   -> v24.15.0
-npm --version                                                    -> unavailable in this environment
-npm ci                                                           -> not run; node_modules already present
+Node source                                                      -> portable Node v20.19.0, process-local PATH only
+node --version                                                   -> v20.19.0
+npm --version                                                    -> 10.8.2
+npm ci                                                           -> added 79 packages, audited 80, 0 vulnerabilities
 ```
 
 Focused offline tests:
 
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_extron_dmp64_plus_meter_diagnostics.py"
-                                                                  -> 43 passed
+                                                                  -> 45 passed
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest tests.test_biamp_tesira_forte_ci_audio_signal_status tests.test_credential_fallback_retry tests.test_pdu_gui_composition
                                                                   -> 68 passed
 ```
@@ -120,7 +104,7 @@ Full offline suite:
 
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py"
-                                                                  -> 355 passed
+                                                                  -> 357 passed
 ```
 
 OpenSpec validation:
@@ -135,16 +119,17 @@ Corrective implementation-session validation on 2026-07-18:
 
 ```text
 git fetch origin                                                  -> passed
-git rev-parse HEAD                                                -> 4b46978878f04a246c23af7c135b79bd3474ba46
-git rev-parse origin/agent/extron-dmp64-plus-meter-diagnostics    -> 4b46978878f04a246c23af7c135b79bd3474ba46
+git rev-parse HEAD                                                -> 6f4dc8a9d87d0795e95626569a84b8caa2cb8019
+git rev-parse origin/agent/extron-dmp64-plus-meter-diagnostics    -> 6f4dc8a9d87d0795e95626569a84b8caa2cb8019
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_extron_dmp64_plus_meter_diagnostics.py"
-                                                                  -> 43 passed
+                                                                  -> 45 passed
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest tests.test_biamp_tesira_forte_ci_audio_signal_status tests.test_credential_fallback_retry tests.test_pdu_gui_composition
                                                                   -> 68 passed
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py"
-                                                                  -> 355 passed
-node --version                                                    -> v24.15.0
-npm --version                                                     -> unavailable
+                                                                  -> 357 passed
+node --version                                                    -> v20.19.0
+npm --version                                                     -> 10.8.2
+npm ci                                                           -> added 79 packages, audited 80, 0 vulnerabilities
 .\openspec.cmd validate extron-dmp64-plus-meter-diagnostics --strict
                                                                   -> Change is valid
 .\openspec.cmd validate --all --strict                            -> 7 passed, 0 failed
@@ -161,9 +146,6 @@ git diff --check                                                  -> clean
 
 - No live DMP hardware verification was run in this implementation session.
   The normal automated suite remains fully offline as required.
-- `npm` was not available in this environment. `npm ci` was not run because
-  `node_modules` was already present, and strict OpenSpec validation passed
-  through the repository-local wrapper with process-local Node `v24.15.0`.
 
 ## Implementation Status
 

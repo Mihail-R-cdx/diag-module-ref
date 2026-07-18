@@ -766,10 +766,7 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
                 password=self.password,
             )
             self.cancellation.raise_if_cancelled()
-            try:
-                handler.connect(self.cancellation)
-            except TypeError:
-                handler.connect()
+            handler.connect(self.cancellation)
             self.signals.connected.emit()
 
             cycles = 0
