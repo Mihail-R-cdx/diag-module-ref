@@ -13,7 +13,16 @@ from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
 from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
-from core.worker import HuaweiTE40Worker, HuaweiBar310Worker, HuaweiTE20Worker, PolycomRPG310Worker, CodecSipFixWorker, BiampTesiraForteCIWorker
+from core.worker import (
+    HuaweiTE40Worker,
+    HuaweiBar310Worker,
+    HuaweiTE20Worker,
+    PolycomRPG310Worker,
+    CodecSipFixWorker,
+    BiampTesiraForteCIWorker,
+    ExtronDMP64PlusMeterWorker,
+)
+from core.dmp64_plus import DMPCancellationToken
 from core.pdu import (
     BULK_COMMAND_OFF,
     BULK_COMMAND_ON,
@@ -146,7 +155,8 @@ class VCSDiagnosticApp(QMainWindow):
             "Extron IN1804": "matrix",
             "Aten PE8208AV": "pdu",
             "Extron IPL T PCS4i": "pdu",
-            "Biamp Tesira Forte CI": "audio_dsp"
+            "Biamp Tesira Forte CI": "audio_dsp",
+            "Extron DMP 64 Plus": "audio_dsp",
         }
         
         self.matrix_params = {
@@ -180,6 +190,8 @@ class VCSDiagnosticApp(QMainWindow):
         self._pdu_context_revision = 0
         self._active_request = None
         self._credential_attempt_plans = {}
+        self._dmp_context_revision = 0
+        self._dmp_cancel_token = None
         self.matrix_persistent_handler = None
         self.matrix_persistent_ip = None
         self.matrix_persistent_username = None
@@ -351,6 +363,7 @@ class VCSDiagnosticApp(QMainWindow):
             "Extron IN1804",
             "Audio DSP",
             "Biamp Tesira Forte CI",
+            "Extron DMP 64 Plus",
             "Управление питанием",
             "Aten PE8208AV",
             "Extron IPL T PCS4i"
@@ -381,6 +394,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.device_combo.currentTextChanged.connect(
             lambda _text: self._invalidate_pdu_context()
         )
+        self.device_combo.currentTextChanged.connect(
+            lambda _text: self._cancel_dmp_context()
+        )
         self.device_combo.installEventFilter(self)
         
         device_label = QLabel("Устройство")
@@ -397,6 +413,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.setText("192.168.1.1")
         self.ip_entry.textChanged.connect(
             lambda _text: self._invalidate_pdu_context()
+        )
+        self.ip_entry.textChanged.connect(
+            lambda _text: self._cancel_dmp_context()
         )
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
@@ -555,6 +574,21 @@ class VCSDiagnosticApp(QMainWindow):
     def _pdu_context_token(self):
         return self.__dict__.get("_pdu_context_revision", 0)
 
+    def _cancel_dmp_context(self):
+        token = self.__dict__.get("_dmp_cancel_token")
+        if token is not None:
+            token.cancel()
+        self._dmp_context_revision = self.__dict__.get("_dmp_context_revision", 0) + 1
+
+    def _begin_dmp_context(self):
+        self._cancel_dmp_context()
+        token = DMPCancellationToken()
+        self._dmp_cancel_token = token
+        return self.__dict__.get("_dmp_context_revision", 0), token
+
+    def _is_dmp_device(self, device_name):
+        return device_name == "Extron DMP 64 Plus"
+
     def _set_active_pdu_credential_context(
         self,
         device_name,
@@ -671,6 +705,7 @@ class VCSDiagnosticApp(QMainWindow):
     
     def on_device_change(self, device_name):
         """Обработка изменения выбранного устройства"""
+        self._cancel_dmp_context()
         codec_screen = self.screens.get("codec") if hasattr(self, 'screens') else None
         if codec_screen and hasattr(codec_screen, 'reset_volume_session'):
             codec_screen.reset_volume_session()
@@ -912,10 +947,18 @@ class VCSDiagnosticApp(QMainWindow):
         return device_name == "Extron IPL T PCS4i"
 
     def _uses_request_scoped_credential_retry(self, device_name):
-        return self.is_vcs_codec_device(device_name) or self._is_pcs4i_device(device_name)
+        return (
+            self.is_vcs_codec_device(device_name)
+            or self._is_pcs4i_device(device_name)
+            or self._is_dmp_device(device_name)
+        )
 
     def _is_structured_retry_authentication_error(self, device_name, error_type, error_message):
-        if self.is_vcs_codec_device(device_name) or self._is_pcs4i_device(device_name):
+        if (
+            self.is_vcs_codec_device(device_name)
+            or self._is_pcs4i_device(device_name)
+            or self._is_dmp_device(device_name)
+        ):
             return error_type == CodecFailureCategory.AUTHENTICATION.value
         return self.is_authentication_error(error_type, error_message)
 
@@ -1190,6 +1233,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_extron_in1804(ip_address)            
         elif device_name == "Biamp Tesira Forte CI":
             self.refresh_biamp_tesira_forte_ci(ip_address)
+        elif device_name == "Extron DMP 64 Plus":
+            self.refresh_extron_dmp64_plus(ip_address)
         elif device_type == "matrix":
             self.refresh_matrix_data(ip_address)
         else:
@@ -1238,6 +1283,57 @@ class VCSDiagnosticApp(QMainWindow):
             if hasattr(self, 'refresh_btn'):
                 self.refresh_btn.setEnabled(True)
                 self.refresh_btn.setText("РћР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ")
+
+    def refresh_extron_dmp64_plus(self, ip_address: str):
+        """Start a new authoritative Extron DMP 64 Plus meter polling context."""
+        if not self.validate_ip_address(ip_address):
+            QMessageBox.warning(self, "Invalid IP", "Enter a valid IP address.")
+            return
+
+        device_name = "Extron DMP 64 Plus"
+        creds_list = self.device_credentials.get(device_name)
+        current_idx = self._credential_attempt_index(
+            device_name, creds_list, ip_address
+        )
+        creds = creds_list[current_idx]
+        _generation, cancellation = self._begin_dmp_context()
+
+        if hasattr(self, 'refresh_btn'):
+            self.refresh_btn.setEnabled(False)
+            self.refresh_btn.setText("Подключение...")
+
+        self.show_progress_dialog(
+            f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})..."
+        )
+        self.show_codec_poll_terminal(
+            device_name,
+            ip_address,
+            current_idx + 1,
+            len(creds_list),
+            reset=(current_idx == 0),
+        )
+
+        try:
+            self.current_worker = ExtronDMP64PlusMeterWorker(
+                ip_address=ip_address,
+                cancellation=cancellation,
+                **creds,
+            )
+            self.current_worker.creds_list = creds_list
+            self.current_worker.current_idx = current_idx
+            self.current_worker.device_name = device_name
+
+            self._bind_worker(self.current_worker)
+            self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
+
+            QThreadPool.globalInstance().start(self.current_worker)
+        except Exception as e:
+            cancellation.cancel()
+            self._fail_request_start(e)
+            QMessageBox.critical(self, "Error", f"Could not create worker: {str(e)}")
+            if hasattr(self, 'refresh_btn'):
+                self.refresh_btn.setEnabled(True)
+                self.refresh_btn.setText("Обновить данные")
 
 
     def refresh_huawei_bar310(self, ip_address: str):
@@ -2360,6 +2456,7 @@ class VCSDiagnosticApp(QMainWindow):
         data = dict(data)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
+        continuous_update = bool(data.pop('_continuous_update', False))
         if structured_outcome == 'error':
             self.on_device_error(
                 (
@@ -2465,6 +2562,12 @@ class VCSDiagnosticApp(QMainWindow):
             "Соединение установлено; данные обновлены",
         )
 
+        if continuous_update:
+            if hasattr(self, 'refresh_btn'):
+                self.refresh_btn.setEnabled(True)
+                self.refresh_btn.setText("Обновить данные")
+            return
+
         if getattr(self, 'suppress_success_message_once', False):
             self.suppress_success_message_once = False
             return
@@ -2512,6 +2615,8 @@ class VCSDiagnosticApp(QMainWindow):
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
         elif worker and getattr(worker, 'device_name', None) == "Huawei TE20":
             self.finish_te20_terminal(f"Опрос завершён с ошибкой: {error}")
+        elif worker and getattr(worker, 'device_name', None) == "Extron DMP 64 Plus":
+            self.finish_codec_terminal(f"Опрос завершён с ошибкой: {error}")
         
         # Проверяем, есть ли текущий worker и нужно ли пробовать другие credentials
         if worker:
@@ -2577,6 +2682,8 @@ class VCSDiagnosticApp(QMainWindow):
                         self.refresh_pdu(worker.ip_address, device_name)
                     elif device_name == "Biamp Tesira Forte CI":
                         self.refresh_biamp_tesira_forte_ci(worker.ip_address)
+                    elif device_name == "Extron DMP 64 Plus":
+                        self.refresh_extron_dmp64_plus(worker.ip_address)
                     return
                       
         
@@ -3483,6 +3590,7 @@ class VCSDiagnosticApp(QMainWindow):
         dialog.activateWindow()
 
     def closeEvent(self, event):
+        self._cancel_dmp_context()
         codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
         if codec_screen and hasattr(codec_screen, "shutdown_interactive_controller"):
             codec_screen.shutdown_interactive_controller()

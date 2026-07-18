@@ -40,7 +40,7 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
 
     def test_every_selectable_device_switches_to_its_expected_screen(self):
         selectable_devices = tuple(self.window.device_to_screen)
-        self.assertEqual(8, len(selectable_devices))
+        self.assertEqual(9, len(selectable_devices))
 
         for device_name in selectable_devices:
             with self.subTest(device=device_name):
