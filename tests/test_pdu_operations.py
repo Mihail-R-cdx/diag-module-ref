@@ -7,11 +7,15 @@ from core.exceptions import (
     CommandRejectedError,
 )
 from core.pdu import (
+    BULK_COMMAND_OFF,
+    BULK_COMMAND_ON,
     COMMAND_OFF,
     COMMAND_ON,
     COMMAND_REBOOT,
     REFRESH,
     PDUOperationDescriptor,
+    build_pdu_bulk_outlet_sequence,
+    execute_pdu_bulk,
     execute_pdu_command,
     execute_pdu_refresh,
     pdu_result_capabilities,
@@ -60,6 +64,17 @@ class PDUOperationContractTests(unittest.TestCase):
             credential_index=0,
         )
 
+    def bulk_descriptor(self, model="Extron IPL T PCS4i", operation=BULK_COMMAND_ON, sequence=(1, 2)):
+        return PDUOperationDescriptor(
+            operation_id=2,
+            generation=10,
+            model=model,
+            ip_address="192.0.2.44",
+            operation=operation,
+            credential_index=0,
+            outlet_sequence=tuple(sequence),
+        )
+
     def command_result(self, handler, model="Extron IPL T PCS4i", operation=COMMAND_ON):
         return execute_pdu_command(
             descriptor=self.descriptor(model=model, operation=operation),
@@ -70,7 +85,14 @@ class PDUOperationContractTests(unittest.TestCase):
 
     def test_pcs4i_capabilities_hide_reboot_and_keep_on_off(self):
         self.assertEqual(
-            {"refresh": True, "on": True, "off": True, "reboot": False},
+            {
+                "refresh": True,
+                "on": True,
+                "off": True,
+                "reboot": False,
+                "bulk_on": True,
+                "bulk_off": True,
+            },
             pdu_result_capabilities("Extron IPL T PCS4i"),
         )
         self.assertTrue(pdu_result_capabilities("Aten PE8208AV")["reboot"])
@@ -396,6 +418,168 @@ class PDUOperationContractTests(unittest.TestCase):
         self.assertEqual({"password": "synthetic-password"}, worker.credentials)
         self.assertIsNone(worker.username)
         self.assertEqual("synthetic-password", worker.password)
+
+    def test_bulk_sequence_is_built_from_records_in_strict_order(self):
+        records = [{"number": 3}, {"number": 1}, {"number": 2}]
+
+        self.assertEqual(
+            (1, 2, 3),
+            build_pdu_bulk_outlet_sequence("Aten PE8208AV", records),
+        )
+
+    def test_bulk_duplicate_outlet_is_rejected_before_handler_acquisition(self):
+        acquired = []
+        descriptor = self.bulk_descriptor(sequence=(1, 1))
+
+        with self.assertRaises(CommandError):
+            execute_pdu_bulk(
+                descriptor=descriptor,
+                credentials={},
+                is_current=lambda _descriptor: True,
+                handler_factory=lambda *_args: acquired.append(True),
+            )
+
+        self.assertEqual([], acquired)
+
+    def test_bulk_malformed_outlet_record_is_rejected_before_descriptor_capture(self):
+        with self.assertRaises(CommandError):
+            build_pdu_bulk_outlet_sequence("Aten PE8208AV", [{"number": "2"}])
+
+    def test_bulk_sequence_capture_is_immutable_after_record_mutation(self):
+        records = [{"number": 2}, {"number": 1}]
+        sequence = build_pdu_bulk_outlet_sequence("Aten PE8208AV", records)
+
+        records[0]["number"] = 8
+
+        self.assertEqual((1, 2), sequence)
+
+    def test_bulk_on_uses_existing_policy_for_each_outlet_with_inter_outlet_delay(self):
+        handler = ScriptedPDUHandler(
+            reads=[False, True, False, True, False, True],
+            sends=[None, None, None],
+        )
+        delays = []
+
+        result = execute_pdu_bulk(
+            descriptor=self.bulk_descriptor(
+                model="Aten PE8208AV",
+                operation=BULK_COMMAND_ON,
+                sequence=(3, 1, 2),
+            ),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: handler,
+            delay=delays.append,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual((1, 2, 3), result["outlet_sequence"])
+        self.assertEqual((1, 2, 3), result["successful_outlets"])
+        self.assertEqual([(1, COMMAND_ON), (2, COMMAND_ON), (3, COMMAND_ON)], handler.sent_commands)
+        self.assertEqual([1.0, 1.0], delays)
+
+    def test_bulk_off_fail_fast_reports_partial_without_replay_or_rollback(self):
+        handler = ScriptedPDUHandler(
+            reads=[True, False, True],
+            sends=[None, CommandRejectedError("rejected")],
+        )
+        delays = []
+
+        result = execute_pdu_bulk(
+            descriptor=self.bulk_descriptor(operation=BULK_COMMAND_OFF, sequence=(1, 2, 3)),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: handler,
+            delay=delays.append,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("partial_failure", result["terminal_state"])
+        self.assertEqual((1,), result["successful_outlets"])
+        self.assertEqual(2, result["stopping_outlet"])
+        self.assertEqual([(1, COMMAND_OFF), (2, COMMAND_OFF)], handler.sent_commands)
+        self.assertEqual([1.0], delays)
+
+    def test_bulk_stale_between_outlets_stops_before_delay_and_next_command(self):
+        handler = ScriptedPDUHandler(reads=[False, True], sends=[None])
+        delays = []
+        calls = []
+
+        def is_current(_descriptor):
+            calls.append(True)
+            return len(calls) < 3
+
+        result = execute_pdu_bulk(
+            descriptor=self.bulk_descriptor(sequence=(1, 2)),
+            credentials={},
+            is_current=is_current,
+            handler_factory=lambda *_args: handler,
+            delay=delays.append,
+        )
+
+        self.assertEqual("stale_after_partial_completion", result["terminal_state"])
+        self.assertEqual((1,), result["successful_outlets"])
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+        self.assertEqual([], delays)
+
+    def test_bulk_worker_auth_error_carries_zero_send_metadata(self):
+        from core.worker import PDUOperationWorker
+
+        worker = PDUOperationWorker(
+            self.bulk_descriptor(sequence=(1, 2)),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: ScriptedPDUHandler(
+                connect_error=AuthenticationError("bad credential")
+            ),
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("authentication_error", errors[0][0])
+        self.assertEqual({"state_changing_send_attempted": False}, errors[0][3])
+
+    def test_command_worker_post_send_auth_is_indeterminate_not_retryable_auth(self):
+        from core.worker import PDUOperationWorker
+
+        handler = ScriptedPDUHandler(
+            reads=[False, AuthenticationError("post-send credential failure")],
+            sends=[None],
+        )
+        worker = PDUOperationWorker(
+            self.descriptor(operation=COMMAND_ON),
+            credentials={"password": "synthetic-password"},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: handler,
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("indeterminate_outcome", errors[0][0])
+        self.assertEqual([(1, COMMAND_ON)], handler.sent_commands)
+
+    def test_bulk_worker_pre_send_auth_error_carries_zero_send_metadata(self):
+        from core.worker import PDUOperationWorker
+
+        worker = PDUOperationWorker(
+            self.bulk_descriptor(sequence=(1, 2)),
+            credentials={},
+            is_current=lambda _descriptor: True,
+            handler_factory=lambda *_args: ScriptedPDUHandler(
+                reads=[AuthenticationError("bad credential")]
+            ),
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("authentication_error", errors[0][0])
+        self.assertEqual({"state_changing_send_attempted": False}, errors[0][3])
 
 
 if __name__ == "__main__":

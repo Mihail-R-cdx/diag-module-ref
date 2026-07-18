@@ -235,6 +235,51 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         self.assertFalse(screen.outlets_table.isColumnHidden(5))
         self.assertIsInstance(screen.outlets_table.cellWidget(0, 5), QPushButton)
 
+    def test_pdu_bulk_buttons_align_with_action_columns_and_keep_command_mapping(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = self._track(PDUScreen(self.parent_widget))
+        aten_data = {
+            "capabilities": {"refresh": True, "on": True, "off": True, "reboot": True},
+            "outlets": [{"number": 1, "name": "Outlet 1", "status": "off"}],
+        }
+        pcs4i_data = {
+            "capabilities": {"refresh": True, "on": True, "off": True, "reboot": False},
+            "outlets": [{"number": 1, "name": "Receptacle 1", "status": "off"}],
+        }
+
+        screen.update_data(aten_data)
+        action_width = screen.ACTION_BUTTON_WIDTH
+        on_button = screen.outlets_table.cellWidget(0, 3)
+        off_button = screen.outlets_table.cellWidget(0, 4)
+        reboot_button = screen.outlets_table.cellWidget(0, 5)
+
+        self.assertEqual(0, screen.bulk_layout.horizontalSpacing())
+        self.assertIs(screen.bulk_layout.itemAtPosition(0, 3).widget(), screen.btn_bulk_on)
+        self.assertIs(screen.bulk_layout.itemAtPosition(0, 4).widget(), screen.btn_bulk_off)
+        for button in (on_button, off_button, screen.btn_bulk_on, screen.btn_bulk_off):
+            self.assertEqual(action_width, button.minimumWidth())
+            self.assertEqual(action_width, button.maximumWidth())
+        self.assertEqual(action_width, reboot_button.minimumWidth())
+        self.assertEqual(action_width, screen.outlets_table.columnWidth(3))
+        self.assertEqual(action_width, screen.outlets_table.columnWidth(4))
+        self.assertEqual(action_width, screen.outlets_table.columnWidth(5))
+
+        captured = []
+        screen.bulk_control_signal.connect(captured.append)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+            screen.btn_bulk_on.click()
+            screen.btn_bulk_off.click()
+        self.assertEqual(["on", "off"], captured)
+
+        screen.update_data(pcs4i_data)
+        self.assertTrue(screen.outlets_table.isColumnHidden(5))
+        self.assertIs(screen.bulk_layout.itemAtPosition(0, 3).widget(), screen.btn_bulk_on)
+        self.assertIs(screen.bulk_layout.itemAtPosition(0, 4).widget(), screen.btn_bulk_off)
+        self.assertEqual(action_width, screen.outlets_table.columnWidth(3))
+        self.assertEqual(action_width, screen.outlets_table.columnWidth(4))
+        self.assertEqual(0, screen.bulk_layout.columnMinimumWidth(5))
+
     def test_pdu_outlet_name_column_is_center_aligned(self):
         from gui.screens.pdu_screen import PDUScreen
 
