@@ -1,10 +1,12 @@
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QMessageBox,
     QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -27,6 +29,7 @@ class PDUScreen(BaseScreen):
 
     outlet_control_signal = pyqtSignal(int, str)
     bulk_control_signal = pyqtSignal(str)
+    ACTION_BUTTON_WIDTH = 128
 
     def __init__(self, parent=None):
         self.outlet_names = [f"Розетка {number}" for number in range(1, 9)]
@@ -122,9 +125,11 @@ class PDUScreen(BaseScreen):
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        for column in (3, 4, 5):
+            self.outlets_table.setColumnWidth(column, self.ACTION_BUTTON_WIDTH)
 
         self.outlets_group.add_widget(self.outlets_table, 1)
         self.outlets_empty = EmptyState(
@@ -135,26 +140,31 @@ class PDUScreen(BaseScreen):
         )
         self.outlets_group.add_widget(self.outlets_empty)
         self.outlets_table.setVisible(False)
+        self.create_bulk_controls()
         parent_layout.addWidget(self.outlets_group, 1)
-        self.create_bulk_controls(parent_layout)
 
-    def create_bulk_controls(self, parent_layout):
-        self.bulk_widget = QWidget(self)
-        bulk_layout = QHBoxLayout(self.bulk_widget)
-        bulk_layout.setContentsMargins(0, 0, 0, 0)
-        bulk_layout.addStretch(1)
-
-        self.btn_bulk_off = SemanticButton("Выкл всё", "danger", self.bulk_widget)
-        self.btn_bulk_off.setToolTip("Выключить все доступные розетки по очереди")
-        self.btn_bulk_off.clicked.connect(lambda: self.on_bulk_button_click("off"))
-        bulk_layout.addWidget(self.btn_bulk_off)
+    def create_bulk_controls(self):
+        self.bulk_widget = QWidget(self.outlets_group)
+        self.bulk_layout = QGridLayout(self.bulk_widget)
+        self.bulk_layout.setContentsMargins(0, 0, 0, 0)
+        self.bulk_layout.setHorizontalSpacing(SPACING["sm"])
+        self.bulk_layout.setVerticalSpacing(0)
+        self.bulk_layout.setColumnStretch(2, 1)
 
         self.btn_bulk_on = SemanticButton("Вкл всё", "success", self.bulk_widget)
         self.btn_bulk_on.setToolTip("Включить все доступные розетки по очереди")
         self.btn_bulk_on.clicked.connect(lambda: self.on_bulk_button_click("on"))
-        bulk_layout.addWidget(self.btn_bulk_on)
+        self._configure_action_button(self.btn_bulk_on)
+        self.bulk_layout.addWidget(self.btn_bulk_on, 0, 3, alignment=Qt.AlignCenter)
 
-        parent_layout.addWidget(self.bulk_widget)
+        self.btn_bulk_off = SemanticButton("Выкл всё", "danger", self.bulk_widget)
+        self.btn_bulk_off.setToolTip("Выключить все доступные розетки по очереди")
+        self.btn_bulk_off.clicked.connect(lambda: self.on_bulk_button_click("off"))
+        self._configure_action_button(self.btn_bulk_off)
+        self.bulk_layout.addWidget(self.btn_bulk_off, 0, 4, alignment=Qt.AlignCenter)
+
+        self.outlets_group.add_widget(self.bulk_widget)
+        self._sync_bulk_layout_columns()
         self._sync_bulk_controls()
 
     def clear_data(self):
@@ -271,6 +281,7 @@ class PDUScreen(BaseScreen):
                     continue
                 button = SemanticButton(text, role, self.outlets_table)
                 button.setToolTip(tooltip)
+                self._configure_action_button(button)
                 button.setEnabled(not self.mutation_busy)
                 button.clicked.connect(
                     lambda checked=False, r=row, action=column:
@@ -280,10 +291,29 @@ class PDUScreen(BaseScreen):
 
             self.outlets_table.setRowHeight(row, 44)
         self.outlets_table.viewport().update()
+        self._sync_bulk_layout_columns()
         self._sync_bulk_controls()
 
     def _sync_capability_columns(self):
         self.outlets_table.setColumnHidden(5, not self.capabilities.get("reboot", False))
+        for column in (3, 4, 5):
+            self.outlets_table.setColumnWidth(column, self.ACTION_BUTTON_WIDTH)
+        self._sync_bulk_layout_columns()
+
+    def _configure_action_button(self, button):
+        button.setFixedWidth(self.ACTION_BUTTON_WIDTH)
+        button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+
+    def _sync_bulk_layout_columns(self):
+        if not hasattr(self, "bulk_layout"):
+            return
+        for column in range(self.outlets_table.columnCount()):
+            hidden = self.outlets_table.isColumnHidden(column)
+            width = 0 if hidden else self.outlets_table.columnWidth(column)
+            if column in (3, 4) or (column == 5 and not hidden):
+                width = self.ACTION_BUTTON_WIDTH
+            self.bulk_layout.setColumnMinimumWidth(column, width)
+            self.bulk_layout.setColumnStretch(column, 1 if column == 2 else 0)
 
     def _sync_bulk_controls(self):
         if not hasattr(self, "btn_bulk_on"):
