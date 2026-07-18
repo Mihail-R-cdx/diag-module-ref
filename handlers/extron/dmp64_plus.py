@@ -7,8 +7,10 @@ from typing import Any, Callable
 from core.dmp64_plus import (
     DMPCancellationToken,
     DMPTransportSession,
+    DMPUnsupportedModel,
     SIS_PORT,
     build_meter_snapshot,
+    is_supported_dmp64_plus_variant,
     require_assigned_credentials,
 )
 from core.exceptions import AuthenticationError, ConnectionError
@@ -35,6 +37,7 @@ class ExtronDMP64PlusHandler:
         self.timeout = timeout
         self.transport_factory = transport_factory or _ParamikoDMPSession.open
         self.session: DMPTransportSession | None = None
+        self.discovered_model: str | None = None
 
     def connect(self) -> bool:
         require_assigned_credentials(self.username, self.password)
@@ -46,9 +49,18 @@ class ExtronDMP64PlusHandler:
                 password=self.password,
                 timeout=self.timeout,
             )
+            self.discovered_model = self.session.read_model_identity()
+            if not is_supported_dmp64_plus_variant(self.discovered_model):
+                raise DMPUnsupportedModel(
+                    "Unsupported Extron DMP 64 Plus variant: "
+                    f"{self.discovered_model or '<empty>'}"
+                )
             return True
         except AuthenticationError:
             self.session = None
+            raise
+        except DMPUnsupportedModel:
+            self.disconnect()
             raise
         except Exception as error:
             self.session = None
@@ -63,6 +75,7 @@ class ExtronDMP64PlusHandler:
         return build_meter_snapshot(
             self.session,
             ip_address=self.ip_address,
+            discovered_model=self.discovered_model,
             cancellation=cancellation,
         )
 
@@ -143,4 +156,4 @@ def _looks_like_paramiko_authentication(error: BaseException) -> bool:
     )
 
 
-__all__ = ["ExtronDMP64PlusHandler"]
+__all__ = ["DMPUnsupportedModel", "ExtronDMP64PlusHandler"]

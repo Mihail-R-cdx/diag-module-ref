@@ -59,6 +59,10 @@ class DMPSessionPoisoned(ConnectionError):
     """The SIS stream can no longer safely map untagged meter payloads."""
 
 
+class DMPUnsupportedModel(ConnectionError):
+    """The connected SIS endpoint is not one of the supported DMP variants."""
+
+
 class DMPCancellationToken:
     """Small thread-safe cancellation handle owned by the composition layer."""
 
@@ -89,6 +93,10 @@ def build_read_command(oid: int) -> bytes:
 
 def build_recovery_command(oid: int) -> bytes:
     return ESC + f"V{int(oid)}*2AU".encode("ascii") + CR
+
+
+def build_identity_command() -> bytes:
+    return b"1I" + CR
 
 
 def dbfs_from_raw_meter(raw_meter: int) -> float:
@@ -137,6 +145,13 @@ def _clean_command_echo(command: bytes) -> str:
     return _clean_frame(command.rstrip(CR + b"\n"))
 
 
+def _echo_comparison_text(frame: str | bytes) -> str:
+    clean = _clean_frame(frame)
+    if clean.startswith("^["):
+        return clean[2:]
+    return clean
+
+
 class DMPStreamFramer:
     """Frame CR/LF-delimited PTY stream data and filter command echo."""
 
@@ -160,7 +175,7 @@ class DMPStreamFramer:
             raw_frame = self._buffer[:split_at]
             self._buffer = self._buffer[split_at + 1 :]
             clean = _clean_frame(raw_frame)
-            if not clean or (echo and clean == echo):
+            if not clean or (echo and _echo_comparison_text(raw_frame) == echo):
                 continue
             frames.append(clean)
         return frames
@@ -182,7 +197,8 @@ class DMPTransportSession:
         self.transaction_timeout = transaction_timeout
         self.sleep_interval = sleep_interval
         self.framer = DMPStreamFramer()
-        self.recovered_oids: set[int] = set()
+        self.recovery_attempted_oids: set[int] = set()
+        self.recovered_oids = self.recovery_attempted_oids
         self.poisoned = False
         self.sent_commands: list[bytes] = []
 
@@ -201,28 +217,43 @@ class DMPTransportSession:
         return parsed
 
     def recover_meter(self, oid: int, cancellation: DMPCancellationToken | None = None) -> dict[str, Any]:
+        if self.poisoned:
+            raise DMPSessionPoisoned("DMP SIS session is unsafe after a transaction timeout.")
+        oid = int(oid)
+        if oid in self.recovery_attempted_oids:
+            return {"kind": "recovery_budget_exhausted", "oid": oid, "available": False}
         expected = f"DsV{int(oid)}*2"
         frame = self._transaction(
             build_recovery_command(oid),
             lambda clean: clean == expected or _is_sis_error(clean),
             cancellation,
+            before_send=lambda: self.recovery_attempted_oids.add(oid),
         )
         if frame == expected:
-            self.recovered_oids.add(int(oid))
             return {"kind": "recovery_ack", "oid": int(oid), "available": False}
         return {"kind": "sis_protocol_error", "code": frame, "available": False}
+
+    def read_model_identity(self, cancellation: DMPCancellationToken | None = None) -> str:
+        return self._transaction(
+            build_identity_command(),
+            lambda clean: bool(clean) and not _is_sis_error(clean),
+            cancellation,
+        )
 
     def _transaction(
         self,
         command: bytes,
         is_expected: Callable[[str], bool],
         cancellation: DMPCancellationToken | None,
+        before_send: Callable[[], Any] | None = None,
     ) -> str:
         if self.poisoned:
             raise DMPSessionPoisoned("DMP SIS session is unsafe after a transaction timeout.")
         if cancellation is not None:
             cancellation.raise_if_cancelled()
 
+        if before_send is not None:
+            before_send()
         self._send(command)
         deadline = time.monotonic() + self.transaction_timeout
         while time.monotonic() < deadline:
@@ -262,13 +293,14 @@ def _is_sis_error(frame: str) -> bool:
 def _is_meter_terminal(frame: str) -> bool:
     if frame.startswith("DsV"):
         return False
-    return _is_sis_error(frame) or re.fullmatch(r"\S+\*\S+", frame) is not None
+    return _is_sis_error(frame) or re.fullmatch(r"\d+\*\S+", frame) is not None
 
 
 def build_meter_snapshot(
     session: DMPTransportSession,
     *,
     ip_address: str,
+    discovered_model: str | None = None,
     cancellation: DMPCancellationToken | None = None,
 ) -> dict[str, Any]:
     channels_by_section: dict[str, list[dict[str, Any]]] = {"Inputs": [], "Outputs": []}
@@ -293,7 +325,7 @@ def build_meter_snapshot(
 
     return {
         "device_info": {
-            "model": SELECTOR_MODEL,
+            "model": discovered_model or SELECTOR_MODEL,
             "manufacturer": MANUFACTURER,
             "ip_address": ip_address,
         },

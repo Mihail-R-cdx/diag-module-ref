@@ -636,6 +636,21 @@ class VCSDiagnosticApp(QMainWindow):
             return False
         return worker is None or worker is getattr(self, "current_worker", None)
 
+    def _dmp_callback_is_current(self, worker=None):
+        if worker is None or getattr(worker, "device_name", None) != "Extron DMP 64 Plus":
+            return True
+        context = getattr(worker, "dmp_context", None)
+        if not isinstance(context, dict):
+            return False
+        request = self.__dict__.get("_active_request") or {}
+        return (
+            context.get("generation") == self.__dict__.get("_dmp_context_revision", 0)
+            and context.get("token") is self.__dict__.get("_dmp_cancel_token")
+            and context.get("worker") is worker
+            and request.get("device") == context.get("model")
+            and request.get("ip") == context.get("ip")
+        )
+
     def _bind_worker(self, worker):
         """Bind worker signals to the request that created it."""
         if self._active_request is None:
@@ -1296,7 +1311,7 @@ class VCSDiagnosticApp(QMainWindow):
             device_name, creds_list, ip_address
         )
         creds = creds_list[current_idx]
-        _generation, cancellation = self._begin_dmp_context()
+        generation, cancellation = self._begin_dmp_context()
 
         if hasattr(self, 'refresh_btn'):
             self.refresh_btn.setEnabled(False)
@@ -1322,6 +1337,14 @@ class VCSDiagnosticApp(QMainWindow):
             self.current_worker.creds_list = creds_list
             self.current_worker.current_idx = current_idx
             self.current_worker.device_name = device_name
+            self.current_worker.dmp_context = {
+                "generation": generation,
+                "model": device_name,
+                "ip": ip_address,
+                "token": cancellation,
+                "worker": self.current_worker,
+                "credential_index": current_idx,
+            }
 
             self._bind_worker(self.current_worker)
             self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
@@ -2453,6 +2476,8 @@ class VCSDiagnosticApp(QMainWindow):
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
         worker = worker or getattr(self, "current_worker", None)
+        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
+            return
         data = dict(data)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
@@ -2593,6 +2618,8 @@ class VCSDiagnosticApp(QMainWindow):
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
         worker = worker or getattr(self, "current_worker", None)
+        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
+            return
         active_request_id = request_id
         if active_request_id is None:
             active_request_id = (self._active_request or {}).get("id")
@@ -2744,6 +2771,8 @@ class VCSDiagnosticApp(QMainWindow):
         """Обработка обновления прогресса"""
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
+        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
+            return
         if self.progress_dialog is not None:
             try:
                 if self.progress_dialog.maximum() == 0:
@@ -2771,6 +2800,8 @@ class VCSDiagnosticApp(QMainWindow):
         """Обработка обновления статуса"""
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
+        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
+            return
         if hasattr(self, 'progress_dialog') and self.progress_dialog:
             self.progress_dialog.setLabelText(status)
         if self.ui_state in {UIState.LOADING, UIState.COMMAND}:
@@ -2780,6 +2811,8 @@ class VCSDiagnosticApp(QMainWindow):
     def on_worker_finished(self, worker=None, request_id=None):
         """Обработка завершения работы Worker"""
         if request_id is not None and not self._request_is_current(request_id, worker):
+            return
+        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
             return
         self.hide_progress_dialog()
         

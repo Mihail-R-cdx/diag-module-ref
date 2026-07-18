@@ -1,6 +1,7 @@
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QRunnable
 from typing import Dict, Optional
 import traceback
+import time
 from core.parser import HuaweiTE40DataParser
 from core.parser import HuaweiBar310DataParser
 from core.parser import ExtronIN1804DataParser
@@ -9,6 +10,7 @@ from core.dmp64_plus import (
     DMPCancelled,
     DMPCancellationToken,
     DMPTransactionTimeout,
+    DMPUnsupportedModel,
     SELECTOR_MODEL as DMP64_PLUS_MODEL,
     SIS_PORT as DMP64_PLUS_PORT,
     wait_cancelable,
@@ -769,6 +771,7 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
 
             cycles = 0
             while not self.cancellation.is_cancelled():
+                cycle_started = time.monotonic()
                 self.cancellation.raise_if_cancelled()
                 self.signals.status.emit("Чтение meter snapshot DMP...")
                 self.signals.progress.emit(40)
@@ -789,11 +792,14 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
 
                 if self.max_cycles is not None and cycles >= self.max_cycles:
                     break
-                wait_cancelable(self.cancellation, self.poll_interval)
+                remaining_wait = max(0.0, self.poll_interval - (time.monotonic() - cycle_started))
+                wait_cancelable(self.cancellation, remaining_wait)
         except DMPCancelled:
             pass
         except AuthenticationError as exc:
             _emit_error(self, "authentication_error", exc, trace=False)
+        except DMPUnsupportedModel as exc:
+            _emit_error(self, "unsupported_device", exc, trace=False)
         except DMPTransactionTimeout as exc:
             _emit_error(self, "transport_session_failure", exc, trace=False)
         except ConnectionError as exc:

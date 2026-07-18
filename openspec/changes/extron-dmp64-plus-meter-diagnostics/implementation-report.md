@@ -44,6 +44,41 @@ does not approve, archive, merge, or delete the change.
   `DMP 64 Plus C AT`, `DMP 64 Plus C V`, and `DMP 64 Plus C V AT`; unknown
   substring variants are not accepted.
 
+## Review-Finding Fixes
+
+Independent review returned `CHANGES REQUIRED` for six findings. This
+implementation update resolves them without changing the approved architecture:
+
+- Recovery budget is now consumed when the session attempts to send the
+  state-changing `*2` command, not only after a successful ACK. SIS errors,
+  timeouts, and poisoned-session paths cannot replay `*2` on the same session.
+- Meter transaction matching no longer treats arbitrary `*` frames as terminal
+  meter responses. It accepts structured SIS errors and narrow digit-prefixed
+  meter-like candidates, so frames such as `Unrelated*Frame` cannot shift OID
+  mapping.
+- DMP workers now carry an application-owned context containing generation,
+  model, IP, token, worker identity, and credential index. DMP result, error,
+  progress, status, and finished callbacks validate that context before UI,
+  credential, or fallback side effects.
+- Poll cadence now treats `poll_interval` as the target period between snapshot
+  cycles. A slow cycle receives no extra unconditional one-second sleep, while
+  a fast cycle waits only the remaining cancelable duration.
+- Production DMP connection now performs read-only identity discovery with
+  `1I\r` after SSH/SIS session acquisition and rejects models outside the exact
+  supported variant set before meter polling begins.
+- PTY echo filtering now recognizes both literal ESC echo and the live-device
+  printable `^[` representation for command-echo comparison, including
+  fragmented reads.
+
+## Review-Finding Files Changed
+
+- `core/dmp64_plus.py`
+- `handlers/extron/dmp64_plus.py`
+- `core/worker.py`
+- `gui/main_window.py`
+- `tests/test_extron_dmp64_plus_meter_diagnostics.py`
+- `openspec/changes/extron-dmp64-plus-meter-diagnostics/implementation-report.md`
+
 ## Production Files Changed
 
 - `core/dmp64_plus.py`
@@ -75,7 +110,7 @@ Focused offline tests:
 
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_extron_dmp64_plus_meter_diagnostics.py"
-                                                                  -> 20 passed
+                                                                  -> 32 passed
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest tests.test_biamp_tesira_forte_ci_audio_signal_status tests.test_credential_fallback_retry tests.test_pdu_gui_composition
                                                                   -> 68 passed
 ```
@@ -95,6 +130,22 @@ OpenSpec validation:
 .\openspec.cmd validate --all --strict                            -> 7 passed, 0 failed
 ```
 
+Corrective implementation-session validation on 2026-07-18:
+
+```text
+git fetch origin                                                  -> passed
+git rev-parse origin/agent/extron-dmp64-plus-meter-diagnostics    -> c6918c16a14c39433f91f649018cfd667563a251
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_extron_dmp64_plus_meter_diagnostics.py"
+                                                                  -> 32 passed
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py"
+                                                                  -> 344 passed
+git diff --check                                                  -> clean
+node --version                                                    -> blocked: node not found in PATH
+npm --version                                                     -> blocked: npm not found in PATH
+.\openspec.cmd validate extron-dmp64-plus-meter-diagnostics --strict
+                                                                  -> blocked: "node" is not recognized
+```
+
 Git hygiene:
 
 ```text
@@ -105,9 +156,10 @@ git diff --check                                                  -> clean
 
 - No live DMP hardware verification was run in this implementation session.
   The normal automated suite remains fully offline as required.
-- Runtime DMP discovered-model querying is not added; the implementation
-  exposes an explicit supported-variant boundary helper and keeps user-facing
-  dispatch on `Extron DMP 64 Plus`.
+- Corrective OpenSpec strict validation could not be rerun in this environment
+  because Node/npm were not available through PATH or `DIAG_NODE_HOME`; the
+  repository-local `openspec.cmd` failed before validation with `"node" is not
+  recognized`.
 
 ## Implementation Status
 

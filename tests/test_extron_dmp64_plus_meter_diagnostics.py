@@ -48,6 +48,7 @@ class DMPProtocolTests(unittest.TestCase):
         from core.dmp64_plus import (
             INPUT_OIDS,
             OUTPUT_OIDS,
+            build_identity_command,
             build_read_command,
             build_recovery_command,
         )
@@ -55,6 +56,7 @@ class DMPProtocolTests(unittest.TestCase):
         self.assertEqual((40000, 40001, 40002, 40003, 40004, 40005), INPUT_OIDS)
         self.assertEqual((60000, 60001, 60002, 60003), OUTPUT_OIDS)
         self.assertNotIn(40100, INPUT_OIDS)
+        self.assertEqual(b"1I\r", build_identity_command())
         self.assertEqual(b"\x1bV40004AU\r", build_read_command(40004))
         self.assertEqual(b"\x1bV40004*2AU\r", build_recovery_command(40004))
 
@@ -98,10 +100,30 @@ class DMPProtocolTests(unittest.TestCase):
         frames = framer.feed(b"1060\rE13\n", command_echo=b"\x1bV40004AU\r")
         self.assertEqual(["1*1060", "E13"], frames)
 
+    def test_framer_filters_printable_pty_escape_echo_from_live_fixture(self):
+        from core.dmp64_plus import DMPStreamFramer
+
+        framer = DMPStreamFramer()
+        frames = framer.feed(
+            b"^[V40004AU\r\n2*457\r\r\n",
+            command_echo=b"\x1bV40004AU\r",
+        )
+
+        self.assertEqual(["2*457"], frames)
+
+    def test_framer_filters_fragmented_printable_pty_escape_echo(self):
+        from core.dmp64_plus import DMPStreamFramer
+
+        framer = DMPStreamFramer()
+        self.assertEqual([], framer.feed(b"^[V400", command_echo=b"\x1bV40004AU\r"))
+        frames = framer.feed(b"04AU\r\n2*457\r", command_echo=b"\x1bV40004AU\r")
+
+        self.assertEqual(["2*457"], frames)
+
     def test_transaction_ignores_unrelated_frames_until_expected_payload(self):
         from core.dmp64_plus import DMPTransportSession
 
-        channel = FakeChannel([b"DsV40005*2\r", b"1*1060\r"])
+        channel = FakeChannel([b"Unrelated*Frame\r", b"DsV40005*2\r", b"1*1060\r"])
         session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
 
         parsed = session.read_meter(40004)
@@ -119,6 +141,47 @@ class DMPProtocolTests(unittest.TestCase):
 
         self.assertEqual("recovery_ack", parsed["kind"])
         self.assertIn(40004, session.recovered_oids)
+
+    def test_recovery_budget_is_consumed_after_sis_error_not_only_ack(self):
+        from core.dmp64_plus import DMPTransportSession, build_meter_snapshot
+
+        cycle_one = [b"0*0\r", b"E13\r"]
+        cycle_one.extend([b"1*100\r"] * 9)
+        cycle_two = [b"0*0\r"]
+        cycle_two.extend([b"1*100\r"] * 9)
+        channel = FakeChannel(cycle_one + cycle_two)
+        session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
+
+        first = build_meter_snapshot(session, ip_address="192.0.2.64")
+        second = build_meter_snapshot(session, ip_address="192.0.2.64")
+
+        self.assertTrue(first["complete"])
+        self.assertTrue(second["complete"])
+        self.assertEqual(1, channel.sent.count(b"\x1bV40000*2AU\r"))
+        self.assertIn(40000, session.recovery_attempted_oids)
+
+    def test_recovery_timeout_consumes_budget_and_poisons_session(self):
+        from core.dmp64_plus import DMPSessionPoisoned, DMPTransactionTimeout, DMPTransportSession
+
+        channel = FakeChannel([])
+        session = DMPTransportSession(channel, transaction_timeout=0.005, sleep_interval=0.001)
+
+        with self.assertRaises(DMPTransactionTimeout):
+            session.recover_meter(40000)
+        self.assertIn(40000, session.recovery_attempted_oids)
+        with self.assertRaises(DMPSessionPoisoned):
+            session.recover_meter(40000)
+
+    def test_model_identity_query_filters_echo_and_returns_supported_variant(self):
+        from core.dmp64_plus import DMPTransportSession
+
+        channel = FakeChannel([b"1I\r", b"DMP 64 Plus C V AT\r"])
+        session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
+
+        model = session.read_model_identity()
+
+        self.assertEqual("DMP 64 Plus C V AT", model)
+        self.assertEqual([b"1I\r"], channel.sent)
 
     def test_timeout_poisons_session_and_prevents_next_oid_or_delayed_shift(self):
         from core.dmp64_plus import DMPSessionPoisoned, DMPTransactionTimeout, DMPTransportSession
@@ -269,6 +332,72 @@ class DMPProtocolTests(unittest.TestCase):
         self.assertIn(("channel_close",), calls)
         self.assertIn(("client_close",), calls)
 
+    def test_handler_validates_supported_model_before_meter_polling(self):
+        from handlers.extron.dmp64_plus import ExtronDMP64PlusHandler
+
+        class FakeSession:
+            def __init__(self):
+                self.closed = False
+
+            def read_model_identity(self):
+                return "DMP 64 Plus C"
+
+            def close(self):
+                self.closed = True
+
+        sessions = []
+
+        def factory(**_kwargs):
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        handler = ExtronDMP64PlusHandler(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            transport_factory=factory,
+        )
+
+        self.assertTrue(handler.connect())
+        self.assertEqual("DMP 64 Plus C", handler.discovered_model)
+        handler.disconnect()
+        self.assertTrue(sessions[0].closed)
+
+    def test_handler_rejects_unknown_substring_model_without_polling(self):
+        from core.dmp64_plus import DMPUnsupportedModel
+        from handlers.extron.dmp64_plus import ExtronDMP64PlusHandler
+
+        class FakeSession:
+            def __init__(self):
+                self.closed = False
+                self.meter_polled = False
+
+            def read_model_identity(self):
+                return "DMP 64 Plus Future X"
+
+            def close(self):
+                self.closed = True
+
+        sessions = []
+
+        def factory(**_kwargs):
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        handler = ExtronDMP64PlusHandler(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            transport_factory=factory,
+        )
+
+        with self.assertRaises(DMPUnsupportedModel):
+            handler.connect()
+        self.assertTrue(sessions[0].closed)
+        self.assertFalse(sessions[0].meter_polled)
+
 
 class DMPWorkerLifecycleTests(unittest.TestCase):
     def test_worker_caches_credential_only_on_first_accepted_complete_snapshot(self):
@@ -355,6 +484,114 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual("transport_session_failure", errors[0][0])
         self.assertIn("<redacted>", errors[0][1])
         self.assertNotIn("synthetic-password", errors[0][1])
+
+    def test_worker_cadence_does_not_add_wait_after_slow_cycle(self):
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        class FakeHandler:
+            def __init__(self, **_kwargs):
+                self.count = 0
+
+            def connect(self):
+                return True
+
+            def get_meter_snapshot(self, _cancellation):
+                self.count += 1
+                return {
+                    "device_info": {"model": "Extron DMP 64 Plus", "ip_address": "192.0.2.64"},
+                    "meter_sections": [{"title": "Inputs", "channels": [{"available": True}]}],
+                    "attempted_oids": list(range(10)),
+                    "complete": True,
+                    "ip_address": "192.0.2.64",
+                    "model": "Extron DMP 64 Plus",
+                    "type": "audio_dsp",
+                }
+
+            def disconnect(self):
+                pass
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            handler_factory=FakeHandler,
+            max_cycles=2,
+            poll_interval=1.0,
+        )
+
+        waits = []
+        with patch("core.worker.time.monotonic", side_effect=[0.0, 1.07, 2.0]):
+            with patch("core.worker.wait_cancelable", side_effect=lambda _token, seconds: waits.append(seconds)):
+                worker.run()
+
+        self.assertEqual([0.0], waits)
+
+    def test_worker_cadence_waits_only_remaining_fast_cycle_duration(self):
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        class FakeHandler:
+            def __init__(self, **_kwargs):
+                pass
+
+            def connect(self):
+                return True
+
+            def get_meter_snapshot(self, _cancellation):
+                return {
+                    "device_info": {"model": "Extron DMP 64 Plus", "ip_address": "192.0.2.64"},
+                    "meter_sections": [{"title": "Inputs", "channels": [{"available": True}]}],
+                    "attempted_oids": list(range(10)),
+                    "complete": True,
+                    "ip_address": "192.0.2.64",
+                    "model": "Extron DMP 64 Plus",
+                    "type": "audio_dsp",
+                }
+
+            def disconnect(self):
+                pass
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            handler_factory=FakeHandler,
+            max_cycles=2,
+            poll_interval=1.0,
+        )
+
+        waits = []
+        with patch("core.worker.time.monotonic", side_effect=[0.0, 0.25, 1.0]):
+            with patch("core.worker.wait_cancelable", side_effect=lambda _token, seconds: waits.append(seconds)):
+                worker.run()
+
+        self.assertEqual([0.75], waits)
+
+    def test_worker_reports_unsupported_model_without_auth_fallback_category(self):
+        from core.dmp64_plus import DMPUnsupportedModel
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        class UnsupportedHandler:
+            def __init__(self, **_kwargs):
+                self.closed = False
+
+            def connect(self):
+                raise DMPUnsupportedModel("Unsupported Extron DMP 64 Plus variant: DMP 64 Plus Future X")
+
+            def disconnect(self):
+                self.closed = True
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            handler_factory=UnsupportedHandler,
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("unsupported_device", errors[0][0])
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
@@ -452,10 +689,19 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.assertEqual("Extron DMP 64 Plus", first_worker.device_name)
 
     def test_dmp_timeout_text_does_not_advance_credential_chain(self):
+        from core.dmp64_plus import DMPCancellationToken
         from gui.main_window import VCSDiagnosticApp
 
         window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        window._active_request = {"id": 1, "screen": None}
+        token = DMPCancellationToken()
+        window._active_request = {
+            "id": 1,
+            "screen": None,
+            "device": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+        }
+        window._dmp_context_revision = 1
+        window._dmp_cancel_token = token
         window.current_credential_index = {}
         window.current_worker = None
         window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
@@ -478,6 +724,13 @@ class DMPGuiIntegrationTests(unittest.TestCase):
                 {"username": "synthetic-user-b", "password": "synthetic-password-b"},
             ],
         )
+        worker.dmp_context = {
+            "generation": 1,
+            "model": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+            "token": token,
+            "worker": worker,
+        }
         window.current_worker = worker
 
         with patch.object(QMessageBox, "critical"):
@@ -491,10 +744,19 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         window.set_current_credential_index.assert_not_called()
 
     def test_dmp_structured_authentication_failure_advances_request_plan(self):
+        from core.dmp64_plus import DMPCancellationToken
         from gui.main_window import VCSDiagnosticApp
 
         window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        window._active_request = {"id": 1, "screen": None}
+        token = DMPCancellationToken()
+        window._active_request = {
+            "id": 1,
+            "screen": None,
+            "device": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+        }
+        window._dmp_context_revision = 1
+        window._dmp_cancel_token = token
         window.current_credential_index = {}
         window.current_worker = None
         window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
@@ -517,6 +779,13 @@ class DMPGuiIntegrationTests(unittest.TestCase):
                 {"username": "synthetic-user-b", "password": "synthetic-password-b"},
             ],
         )
+        worker.dmp_context = {
+            "generation": 1,
+            "model": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+            "token": token,
+            "worker": worker,
+        }
         window.current_worker = worker
 
         window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
@@ -561,6 +830,106 @@ class DMPGuiIntegrationTests(unittest.TestCase):
 
         window.set_current_credential_index.assert_not_called()
         window._active_request["screen"].update_data.assert_not_called()
+
+    def test_stale_dmp_generation_same_request_worker_does_not_cache_or_render(self):
+        from core.dmp64_plus import DMPCancellationToken
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        screen = Mock()
+        current_token = DMPCancellationToken()
+        old_token = DMPCancellationToken()
+        window._active_request = {
+            "id": 1,
+            "screen": screen,
+            "device": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+        }
+        window._dmp_context_revision = 2
+        window._dmp_cancel_token = current_token
+        window.current_credential_index = {}
+        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
+        window.hide_progress_dialog = Mock()
+        window.set_ui_state = Mock()
+        window.set_current_credential_index = Mock()
+        worker = SimpleNamespace(
+            device_name="Extron DMP 64 Plus",
+            ip_address="192.0.2.64",
+            current_idx=0,
+            creds_list=[{"username": "synthetic-user", "password": "synthetic-password"}],
+        )
+        worker.dmp_context = {
+            "generation": 1,
+            "model": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+            "token": old_token,
+            "worker": worker,
+        }
+        window.current_worker = worker
+
+        window.on_device_data_received(
+            {
+                "_continuous_update": True,
+                "_credential_used": True,
+                "ip_address": "192.0.2.64",
+                "meter_sections": [{"title": "Inputs", "channels": [{"available": True}]}],
+            },
+            worker,
+            1,
+        )
+
+        window.hide_progress_dialog.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+        screen.update_data.assert_not_called()
+
+    def test_stale_dmp_error_and_finished_same_request_worker_are_ignored(self):
+        from core.dmp64_plus import DMPCancellationToken
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        current_token = DMPCancellationToken()
+        old_token = DMPCancellationToken()
+        window._active_request = {
+            "id": 1,
+            "screen": None,
+            "device": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+        }
+        window._dmp_context_revision = 2
+        window._dmp_cancel_token = current_token
+        window.current_credential_index = {}
+        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
+        window.hide_progress_dialog = Mock()
+        window.finish_codec_terminal = Mock()
+        window.set_ui_state = Mock()
+        window.set_current_credential_index = Mock()
+        window.refresh_extron_dmp64_plus = Mock()
+        window.refresh_btn = Mock()
+        worker = SimpleNamespace(
+            device_name="Extron DMP 64 Plus",
+            ip_address="192.0.2.64",
+            current_idx=0,
+            creds_list=[
+                {"username": "synthetic-user-a", "password": "synthetic-password-a"},
+                {"username": "synthetic-user-b", "password": "synthetic-password-b"},
+            ],
+        )
+        worker.dmp_context = {
+            "generation": 1,
+            "model": "Extron DMP 64 Plus",
+            "ip": "192.0.2.64",
+            "token": old_token,
+            "worker": worker,
+        }
+        window.current_worker = worker
+
+        window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
+        window.on_worker_finished(worker, 1)
+
+        window.refresh_extron_dmp64_plus.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+        window.hide_progress_dialog.assert_not_called()
+        window.refresh_btn.setEnabled.assert_not_called()
 
     def test_close_event_cancels_active_dmp_context(self):
         from PyQt5.QtGui import QCloseEvent
