@@ -17,6 +17,12 @@ credential. Timeout, disconnect, PTY echo, SIS `E13`, malformed meter payload,
 containing authentication-like substrings SHALL NOT authorize credential
 advancement.
 
+A DMP SIS transaction timeout, including meter-read timeout and recovery-
+acknowledgement timeout, SHALL be treated as a structured transport/session
+failure and SHALL NOT be reclassified as `AuthenticationError` or equivalent
+credential rejection. It SHALL NOT advance the credential chain, select another
+candidate, wrap candidate order, or change successful credential memory.
+
 Successful credential index for DMP SHALL be saved at most once for the
 current session acquisition attempt and only after the first accepted complete
 ten-OID polling cycle. For DMP, this is the long-lived polling equivalent of a
@@ -55,6 +61,11 @@ credential memory.
 - **WHEN** DMP polling receives `E13`, `0*0`, malformed meter payload, timeout, PTY echo, or per-OID unavailable data
 - **THEN** the application does not advance to another credential because of that data
 
+#### Scenario: Transaction timeout does not advance DMP credential chain
+- **WHEN** a DMP meter read or recovery acknowledgement times out
+- **THEN** the application does not advance to the next credential candidate
+- **AND** the DMP handler and worker do not select or attempt another credential
+
 #### Scenario: SSH login alone does not cache DMP credential
 - **WHEN** DMP SSH/SIS session acquisition succeeds
 - **AND** no complete ten-OID polling cycle has been accepted by the active context
@@ -63,6 +74,10 @@ credential memory.
 #### Scenario: One channel result does not cache DMP credential
 - **WHEN** one DMP OID produces a valid meter sample
 - **AND** the ten-OID polling cycle has not completed and been accepted
+- **THEN** no successful credential index is saved
+
+#### Scenario: Timed-out cycle does not cache DMP credential
+- **WHEN** a DMP polling cycle is abandoned because a SIS transaction times out before the first accepted complete ten-OID cycle
 - **THEN** no successful credential index is saved
 
 #### Scenario: First accepted complete snapshot caches DMP credential once

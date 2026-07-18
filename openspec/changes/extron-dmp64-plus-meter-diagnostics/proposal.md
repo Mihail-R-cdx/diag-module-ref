@@ -32,6 +32,9 @@ per second, with observed sequential polling around 1.07 seconds.
   no overlapping workers, explicit cancellation checkpoints, bounded network
   waits, resource cleanup, repeat-Refresh semantics, stale-context protection,
   and application-owned credential fallback.
+- Treat any DMP SIS transaction timeout as a session-level desynchronization
+  boundary: abandon the current polling cycle, close the SSH/SIS session, and
+  require a later fresh session before any further DMP meter polling.
 - Add offline testability requirements for protocol, scale, recovery,
   lifecycle, stale handling, structured errors, and secret redaction.
 

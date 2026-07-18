@@ -161,6 +161,14 @@ depend on an infinite blocking `recv()`. The architecture does not require an
 instant hard interruption of an already blocked socket/channel call, but the
 worker must reach the next cancellation checkpoint within bounded time.
 
+Any DMP SIS transaction timeout SHALL terminate the current polling session as
+a structured session/transport failure. The worker SHALL NOT start the next
+OID request or next polling cycle on that session after timeout. It SHALL
+abandon the current cycle, close the SSH channel/client/session through the
+background cleanup path, and emit terminal error/completion only after cleanup.
+A later DMP polling context may establish a fresh SSH/SIS session with clean
+stream and transaction state through the normal application-owned lifecycle.
+
 #### Scenario: One active DMP polling context
 - **WHEN** DMP meter diagnostics are active for one model/IP context
 - **THEN** exactly one DMP polling worker/session context owns the repeated meter snapshots for that context
@@ -177,6 +185,12 @@ worker must reach the next cancellation checkpoint within bounded time.
 - **WHEN** one DMP OID is unavailable or malformed but the SSH session remains usable
 - **THEN** that channel is marked unavailable
 - **AND** successful channels in the same snapshot remain usable
+
+#### Scenario: Transaction timeout is not partial snapshot success
+- **WHEN** a DMP SIS transaction times out before all ten OIDs complete
+- **THEN** the current polling cycle is abandoned as a session-level failure
+- **AND** it is not emitted as a successful complete snapshot
+- **AND** it does not continue to remaining OIDs on the same session
 
 #### Scenario: Stop when leaving DMP context
 - **WHEN** the operator changes model, changes IP, leaves the DMP screen, starts a new DMP context, or closes the application
@@ -204,6 +218,16 @@ worker must reach the next cancellation checkpoint within bounded time.
 - **WHEN** cancellation is requested while a DMP SSH/SIS read is already waiting
 - **THEN** the read may finish or time out within the bounded transaction timeout
 - **AND** the worker checks cancellation before any next DMP network I/O
+
+#### Scenario: Timeout cleanup releases DMP session
+- **WHEN** a DMP SIS transaction times out
+- **THEN** the worker closes the SSH channel, SSH client/session, and related transport resources on the owning background lane
+- **AND** terminal error/completion is emitted only after cleanup
+
+#### Scenario: Later fresh session starts clean
+- **WHEN** a later DMP polling context starts after a previous transaction timeout
+- **THEN** it establishes a new SSH/SIS session
+- **AND** it starts with clean stream, transaction, and session-scoped recovery state
 
 #### Scenario: No next cycle after cancellation
 - **WHEN** cancellation is observed after a polling cycle completes

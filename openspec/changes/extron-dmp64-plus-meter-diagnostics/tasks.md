@@ -35,6 +35,13 @@
 - [ ] Match recovery acknowledgements to the same current OID.
 - [ ] Prevent unrelated, unsolicited, or leftover frames from shifting channel
   results.
+- [ ] Treat any DMP SIS transaction timeout as poisoning the current SIS
+  session: abandon the current polling cycle, close SSH/channel/session
+  resources, and require a later fresh session before further DMP meter
+  polling.
+- [ ] Do not drain/clean/reuse a DMP SIS stream after transaction timeout.
+- [ ] Do not send the next OID or publish a successful complete snapshot after
+  transaction timeout on the current session.
 - [ ] Stop/cancel polling on model change, IP change, leaving the DMP screen,
   starting a new DMP context, and application close.
 - [ ] Check cancellation before handler/session acquisition, each full polling
@@ -49,6 +56,8 @@
 - [ ] Drop queued stale work before handler acquisition/network I/O where possible.
 - [ ] Ignore stale in-flight callbacks.
 - [ ] Keep credential fallback in the application/composition layer.
+- [ ] Do not treat DMP transaction timeout as credential failure, credential
+  fallback authorization, or successful credential-memory evidence.
 - [ ] Save credential memory at most once after the first accepted complete
   ten-OID polling cycle.
 - [ ] Accept supported discovered variants `DMP 64 Plus C`,
@@ -73,7 +82,15 @@
 - [ ] Unsolicited frame before expected meter payload.
 - [ ] Recovery ack for wrong OID before correct `DsV<OID>*2`.
 - [ ] Expected response timeout.
+- [ ] Meter-read timeout abandons the current SIS session.
+- [ ] Recovery acknowledgement timeout abandons the current SIS session.
+- [ ] No next OID request is sent after transaction timeout on the same
+  session.
+- [ ] Delayed untagged meter response after timeout cannot become another
+  OID's result because the old session is not reused.
+- [ ] Timed-out polling cycle is not emitted as a successful complete snapshot.
 - [ ] Leftover/unrelated frame does not become next OID meter result.
+- [ ] `E13` and `0*0` remain distinct from transaction timeout.
 - [ ] Clean payload parsing independent of line position.
 - [ ] `1*NNN`, `2*NNN`, `0*0`, `E13`, and malformed payloads.
 - [ ] dBFS conversion and scale normalization.
@@ -92,6 +109,9 @@
 - [ ] Cancellation during bounded wait.
 - [ ] No next cycle after cancellation.
 - [ ] SSH resources released on all DMP terminal paths.
+- [ ] SSH resources released after DMP transaction timeout.
+- [ ] Later polling after transaction timeout starts with a fresh session and
+  clean transaction state.
 - [ ] Repeat Refresh does not leave two active authoritative polling contexts.
 - [ ] Application close cleans up DMP session.
 - [ ] Context switch by model, IP, screen, and app close.
@@ -104,6 +124,8 @@
 - [ ] Stale complete snapshot does not cache DMP credential.
 - [ ] Repeated snapshots do not repeatedly alter credential memory.
 - [ ] Session-level failure before first accepted snapshot does not cache DMP credential.
+- [ ] Transaction timeout does not advance the DMP credential chain.
+- [ ] Timed-out DMP cycle does not cache the assigned credential.
 - [ ] Supported DMP variants are accepted.
 - [ ] Unknown DMP variant is not accepted solely by substring matching.
 - [ ] Secret redaction.

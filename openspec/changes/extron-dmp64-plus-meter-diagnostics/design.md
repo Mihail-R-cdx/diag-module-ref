@@ -131,6 +131,27 @@ leftover unrelated frame must not be carried forward as the next OID's meter
 result. The transaction boundary is responsible for preventing silent channel
 shifting across sequential OID reads.
 
+Because ordinary DMP meter payloads such as `1*457` and `2*1060` are untagged
+and contain no OID, any DMP SIS transaction timeout poisons the current SIS
+session. After timeout, the worker must not send the next OID request, must not
+try to drain/clean the stream and continue using the same session, and must not
+publish the interrupted polling cycle as a successful complete snapshot. The
+current polling cycle terminates with a structured session/transport failure,
+then the SSH channel/client/session are closed through the normal background
+cleanup path.
+
+This rule applies to meter-read timeout and recovery-acknowledgement timeout.
+`E13` remains different: if it is received as the terminal response for the
+current transaction, the response boundary is known and the session is not
+desynchronized merely because of that SIS protocol outcome. Likewise, `0*0` is
+a received meter response and continues to use the bounded one-shot recovery
+contract.
+
+Further polling after a transaction timeout requires a fully new SSH/SIS
+session with clean stream/transaction state. The timeout is not an
+authentication failure, does not authorize credential fallback, and does not
+change successful credential memory.
+
 ### Query physical meter OIDs
 
 Current physical OIDs:
@@ -198,6 +219,14 @@ pipelining or sub-second optimization is required in this change.
 Partial channel failure does not destroy the whole snapshot if the session is
 usable. Transport-wide failure, authentication failure, and session loss are
 session-level outcomes.
+
+Transaction timeout is session-level. A cycle interrupted by timeout is not a
+complete ten-OID cycle even if earlier OIDs in that cycle had valid samples or
+per-channel unavailable outcomes. It does not pass the credential success gate
+and must not be emitted as a new successful complete snapshot. The GUI may keep
+the last previously accepted snapshot or show a session-level error according
+to the existing error contract; this architecture does not add new UI scope for
+timeout recovery.
 
 ### Manage cancellation, lifecycle, and stale context
 

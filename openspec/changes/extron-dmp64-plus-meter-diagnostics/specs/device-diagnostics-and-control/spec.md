@@ -173,6 +173,27 @@ transaction timeout, the transaction SHALL end with structured timeout or
 transport outcome, and leftover/unrelated frames SHALL NOT be consumed as the
 next OID's meter result.
 
+Any DMP SIS transaction timeout SHALL make the current SIS session
+desynchronized and unsafe for further DMP meter polling. After a meter-read
+timeout or recovery-acknowledgement timeout, the implementation SHALL NOT send
+the next OID request on that SSH/SIS session, SHALL NOT continue the current
+polling cycle, SHALL NOT attempt to drain/clean the stream and reuse that same
+session, and SHALL NOT publish the interrupted cycle as a successful complete
+snapshot. It SHALL close the SSH channel/client/session through the normal
+background cleanup path and report a structured session/transport failure.
+
+`E13` SHALL remain distinct from transaction timeout. If `E13` is received as
+the terminal response for the current transaction, the response boundary is
+known and the session is not considered desynchronized solely because of that
+SIS protocol outcome. `0*0` SHALL also remain distinct from transaction timeout:
+it is a received meter response and continues to use the existing conditional
+one-shot `*2` recovery contract.
+
+Further DMP polling after transaction timeout SHALL require a fully new
+SSH/SIS session with clean stream and transaction state. Timeout SHALL NOT be
+authentication failure, SHALL NOT authorize credential fallback, and SHALL NOT
+change successful credential memory.
+
 #### Scenario: Unrelated frame before expected payload
 - **WHEN** a DMP meter-read transaction for OID `40004` receives an unrelated clean frame before `1*1060`
 - **THEN** the unrelated frame does not complete the transaction
@@ -190,12 +211,30 @@ next OID's meter result.
 
 #### Scenario: Expected response timeout
 - **WHEN** the expected meter payload or SIS error for the current transaction is not received before the bounded transaction timeout
-- **THEN** the transaction ends as structured timeout or transport outcome
+- **THEN** the current SIS session is treated as unsafe for further DMP meter polling
+- **AND** no next OID request is sent on that session
+- **AND** the session is closed through the background cleanup path
 - **AND** a random unrelated frame is not treated as success
 
 #### Scenario: Leftover frame cannot shift channel result
-- **WHEN** an unrelated or leftover frame remains after one OID transaction
-- **THEN** it is not used as the next OID's meter result
+- **WHEN** an untagged meter response arrives after a timed-out meter-read transaction
+- **THEN** it cannot be consumed by another OID transaction on the same session
+- **AND** no next OID transaction is started on that session
+
+#### Scenario: Recovery acknowledgement timeout abandons session
+- **WHEN** recovery acknowledgement `DsV40004*2` is not received before the bounded transaction timeout
+- **THEN** the current SIS session is treated as unsafe for further DMP meter polling
+- **AND** no recovery retry read or next OID read is sent on that session
+
+#### Scenario: E13 is not timeout
+- **WHEN** the current meter-read transaction receives `E13` as its terminal response
+- **THEN** the transaction completes as a structured SIS protocol outcome
+- **AND** the session is not considered desynchronized solely because `E13` was received
+
+#### Scenario: 0*0 is not timeout
+- **WHEN** the current meter-read transaction receives `0*0`
+- **THEN** the transaction has received a meter response
+- **AND** the existing conditional one-shot recovery contract applies
 
 ### Requirement: Extron DMP 64 Plus meter recovery budget
 DMP meter recovery SHALL be conditional and bounded. After a direct read

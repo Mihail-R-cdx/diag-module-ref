@@ -44,18 +44,23 @@ Offline tests SHALL cover stream buffering/framing, PTY echo filtering,
 serialized transaction correlation, fragmented reads, multiple frames in one
 read, unrelated/unsolicited frames before expected responses, wrong recovery
 acknowledgement before correct acknowledgement, expected response timeout,
+meter-read timeout session abandonment, recovery-acknowledgement timeout
+session abandonment, no next OID after timeout, delayed untagged response
+safety after timeout, timed-out cycle no successful snapshot,
 leftover-frame isolation, clean SIS payload parsing, valid `1*NNN` and
 `2*NNN` samples, `0*0`, `E13`, malformed payloads, dBFS conversion,
 `-60 dB .. +12 dB` normalization, clamping, unavailable bar rendering,
 one-shot `*2` recovery, no repeated recovery every polling cycle, partial
 snapshots, worker cancellation checkpoints, bounded wait cancellation,
-resource cleanup, repeat Refresh context replacement, credential success gate,
-supported variant recognition, structured authentication failure, secret
-redaction, and absence of GUI-thread network I/O.
+resource cleanup after cancellation and timeout, later fresh session clean
+state, repeat Refresh context replacement, credential success gate, timeout
+no credential fallback/cache, supported variant recognition, structured
+authentication failure, secret redaction, and absence of GUI-thread network
+I/O.
 
 #### Scenario: DMP transport tests are synthetic
 - **WHEN** maintainers run offline DMP transport tests
-- **THEN** PTY echo filtering, fragmented SSH reads, multiple logical frames in one read, unrelated frames before expected payload, unsolicited frames before expected payload, wrong recovery acknowledgement, expected response timeout, and leftover-frame isolation are verified without live hardware
+- **THEN** PTY echo filtering, fragmented SSH reads, multiple logical frames in one read, unrelated frames before expected payload, unsolicited frames before expected payload, wrong recovery acknowledgement, expected response timeout, meter-read timeout session abandonment, recovery-acknowledgement timeout session abandonment, no next OID after timeout, delayed untagged response safety after timeout, and leftover-frame isolation are verified without live hardware
 
 #### Scenario: DMP parser tests are synthetic
 - **WHEN** maintainers run offline DMP parser tests
@@ -67,11 +72,11 @@ redaction, and absence of GUI-thread network I/O.
 
 #### Scenario: DMP lifecycle tests are offline
 - **WHEN** maintainers run offline DMP worker/controller tests
-- **THEN** cancellation before handler acquisition, cancellation between OIDs, cancellation before `*2`, cancellation during bounded wait, no next cycle after cancellation, SSH resource release, repeat Refresh context replacement, application-close cleanup, stale-result suppression, context switch behavior, partial snapshot behavior, structured errors, and GUI-thread isolation are verified without live DMP hardware
+- **THEN** cancellation before handler acquisition, cancellation between OIDs, cancellation before `*2`, cancellation during bounded wait, no next cycle after cancellation, timed-out cycle no successful snapshot, SSH resource release after cancellation and timeout, later fresh session clean state, repeat Refresh context replacement, application-close cleanup, stale-result suppression, context switch behavior, partial snapshot behavior, structured errors, and GUI-thread isolation are verified without live DMP hardware
 
 #### Scenario: DMP credential success tests are offline
 - **WHEN** maintainers run offline DMP credential tests
-- **THEN** SSH-login-only no-cache, one-channel-result no-cache, first accepted complete snapshot caches once, complete snapshot with per-channel unavailable may cache, stale complete snapshot no-cache, repeated snapshots no repeated credential-memory mutation, and session-level failure before first accepted snapshot no-cache are verified without live DMP hardware
+- **THEN** SSH-login-only no-cache, one-channel-result no-cache, first accepted complete snapshot caches once, complete snapshot with per-channel unavailable may cache, stale complete snapshot no-cache, repeated snapshots no repeated credential-memory mutation, session-level failure before first accepted snapshot no-cache, timed-out cycle no-cache, and transaction timeout no credential-chain advancement are verified without live DMP hardware
 
 #### Scenario: DMP variant-boundary tests are offline
 - **WHEN** maintainers run offline DMP model discovery tests
