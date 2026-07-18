@@ -147,7 +147,7 @@ class PDUScreen(BaseScreen):
         self.bulk_widget = QWidget(self.outlets_group)
         self.bulk_layout = QGridLayout(self.bulk_widget)
         self.bulk_layout.setContentsMargins(0, 0, 0, 0)
-        self.bulk_layout.setHorizontalSpacing(SPACING["sm"])
+        self.bulk_layout.setHorizontalSpacing(0)
         self.bulk_layout.setVerticalSpacing(0)
         self.bulk_layout.setColumnStretch(2, 1)
 

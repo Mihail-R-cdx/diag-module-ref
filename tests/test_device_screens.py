@@ -254,6 +254,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         off_button = screen.outlets_table.cellWidget(0, 4)
         reboot_button = screen.outlets_table.cellWidget(0, 5)
 
+        self.assertEqual(0, screen.bulk_layout.horizontalSpacing())
         self.assertIs(screen.bulk_layout.itemAtPosition(0, 3).widget(), screen.btn_bulk_on)
         self.assertIs(screen.bulk_layout.itemAtPosition(0, 4).widget(), screen.btn_bulk_off)
         for button in (on_button, off_button, screen.btn_bulk_on, screen.btn_bulk_off):
