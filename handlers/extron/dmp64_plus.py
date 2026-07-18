@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from core.dmp64_plus import (
+    DMPCancelled,
     DMPCancellationToken,
     DMPTransportSession,
     DMPUnsupportedModel,
@@ -39,8 +40,10 @@ class ExtronDMP64PlusHandler:
         self.session: DMPTransportSession | None = None
         self.discovered_model: str | None = None
 
-    def connect(self) -> bool:
+    def connect(self, cancellation: DMPCancellationToken | None = None) -> bool:
         require_assigned_credentials(self.username, self.password)
+        if cancellation is not None:
+            cancellation.raise_if_cancelled()
         try:
             self.session = self.transport_factory(
                 ip_address=self.ip_address,
@@ -49,7 +52,11 @@ class ExtronDMP64PlusHandler:
                 password=self.password,
                 timeout=self.timeout,
             )
-            self.discovered_model = self.session.read_model_identity()
+            if cancellation is not None:
+                cancellation.raise_if_cancelled()
+            self.discovered_model = self.session.read_model_identity(cancellation)
+            if cancellation is not None:
+                cancellation.raise_if_cancelled()
             if not is_supported_dmp64_plus_variant(self.discovered_model):
                 raise DMPUnsupportedModel(
                     "Unsupported Extron DMP 64 Plus variant: "
@@ -57,13 +64,16 @@ class ExtronDMP64PlusHandler:
                 )
             return True
         except AuthenticationError:
-            self.session = None
+            self.disconnect()
+            raise
+        except DMPCancelled:
+            self.disconnect()
             raise
         except DMPUnsupportedModel:
             self.disconnect()
             raise
         except Exception as error:
-            self.session = None
+            self.disconnect()
             if _looks_like_paramiko_authentication(error):
                 raise AuthenticationError("Extron DMP 64 Plus rejected the assigned credential.") from error
             safe_error = redact_exception(error, (self.username, self.password))
@@ -146,14 +156,16 @@ def _looks_like_paramiko_authentication(error: BaseException) -> bool:
         import paramiko
     except Exception:
         return False
-    return isinstance(
-        error,
-        (
-            paramiko.AuthenticationException,
-            paramiko.BadAuthenticationType,
-            paramiko.PartialAuthentication,
-        ),
+    auth_error_types = tuple(
+        error_type
+        for error_type in (
+            getattr(paramiko, "AuthenticationException", None),
+            getattr(paramiko, "BadAuthenticationType", None),
+            getattr(paramiko, "PartialAuthentication", None),
+        )
+        if isinstance(error_type, type)
     )
+    return bool(auth_error_types) and isinstance(error, auth_error_types)
 
 
 __all__ = ["DMPUnsupportedModel", "ExtronDMP64PlusHandler"]

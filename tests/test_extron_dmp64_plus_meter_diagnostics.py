@@ -71,6 +71,9 @@ class DMPProtocolTests(unittest.TestCase):
         self.assertEqual("unavailable", parse_meter_payload("0*0")["kind"])
         self.assertNotIn("dbfs", parse_meter_payload("0*0"))
         self.assertEqual("sis_protocol_error", parse_meter_payload("E13")["kind"])
+        self.assertEqual("sis_protocol_error", parse_meter_payload("E14")["kind"])
+        self.assertEqual("sis_protocol_error", parse_meter_payload("E99")["kind"])
+        self.assertEqual("E99", parse_meter_payload("E99")["code"])
         self.assertEqual("malformed_payload", parse_meter_payload("bad")["kind"])
         self.assertEqual(0.0, normalize_dbfs(-80))
         self.assertAlmostEqual(0.5, normalize_dbfs(-24))
@@ -131,6 +134,36 @@ class DMPProtocolTests(unittest.TestCase):
         self.assertEqual("valid", parsed["kind"])
         self.assertEqual([b"\x1bV40004AU\r"], channel.sent)
 
+    def test_transaction_ignores_unsafe_malformed_meter_like_frames(self):
+        from core.dmp64_plus import DMPTransportSession
+
+        for unsafe_frame in (b"9*bad\r", b"123*foo\r"):
+            with self.subTest(frame=unsafe_frame):
+                channel = FakeChannel([unsafe_frame, b"1*457\r"])
+                session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
+
+                parsed = session.read_meter(40000)
+
+                self.assertEqual("valid", parsed["kind"])
+                self.assertEqual(457, parsed["raw_meter"])
+                self.assertEqual([b"\x1bV40000AU\r"], channel.sent)
+
+    def test_meter_terminal_contract_accepts_only_valid_meter_or_sis_error(self):
+        from core.dmp64_plus import DMPTransportSession
+
+        valid_cases = (
+            (b"0*0\r", "unavailable"),
+            (b"1*457\r", "valid"),
+            (b"2*1060\r", "valid"),
+            (b"E13\r", "sis_protocol_error"),
+            (b"E14\r", "sis_protocol_error"),
+        )
+        for frame, expected_kind in valid_cases:
+            with self.subTest(frame=frame):
+                channel = FakeChannel([frame])
+                session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
+                self.assertEqual(expected_kind, session.read_meter(40000)["kind"])
+
     def test_wrong_recovery_ack_waits_for_matching_oid(self):
         from core.dmp64_plus import DMPTransportSession
 
@@ -183,6 +216,32 @@ class DMPProtocolTests(unittest.TestCase):
         self.assertEqual("DMP 64 Plus C V AT", model)
         self.assertEqual([b"1I\r"], channel.sent)
 
+    def test_model_identity_ignores_banner_and_unrelated_frames(self):
+        from core.dmp64_plus import DMPTransportSession
+
+        channel = FakeChannel([b"Welcome\r", b"1*457\r", b"DMP 64 Plus C AT\r"])
+        session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
+
+        self.assertEqual("DMP 64 Plus C AT", session.read_model_identity())
+        self.assertEqual([b"1I\r"], channel.sent)
+
+    def test_model_identity_discovers_unknown_dmp_model_like_response(self):
+        from core.dmp64_plus import DMPTransportSession
+
+        channel = FakeChannel([b"Welcome\r", b"DMP 64 Plus Future X\r"])
+        session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
+
+        self.assertEqual("DMP 64 Plus Future X", session.read_model_identity())
+
+    def test_model_identity_times_out_on_pure_unrelated_frames(self):
+        from core.dmp64_plus import DMPTransactionTimeout, DMPTransportSession
+
+        channel = FakeChannel([b"Welcome\r", b"Unrelated*Frame\r"])
+        session = DMPTransportSession(channel, transaction_timeout=0.005, sleep_interval=0.001)
+
+        with self.assertRaises(DMPTransactionTimeout):
+            session.read_model_identity()
+
     def test_timeout_poisons_session_and_prevents_next_oid_or_delayed_shift(self):
         from core.dmp64_plus import DMPSessionPoisoned, DMPTransactionTimeout, DMPTransportSession
 
@@ -226,7 +285,7 @@ class DMPProtocolTests(unittest.TestCase):
     def test_partial_protocol_outcomes_do_not_destroy_complete_snapshot(self):
         from core.dmp64_plus import DMPTransportSession, build_meter_snapshot
 
-        channel = FakeChannel([b"E13\r", b"9*bad\r"] + [b"1*100\r"] * 8)
+        channel = FakeChannel([b"E13\r", b"E14\r"] + [b"1*100\r"] * 8)
         session = DMPTransportSession(channel, transaction_timeout=0.05, sleep_interval=0.001)
 
         snapshot = build_meter_snapshot(session, ip_address="192.0.2.64")
@@ -238,7 +297,8 @@ class DMPProtocolTests(unittest.TestCase):
 
         self.assertTrue(snapshot["complete"])
         self.assertEqual("sis_protocol_error", channels[0]["outcome"])
-        self.assertEqual("malformed_payload", channels[1]["outcome"])
+        self.assertEqual("sis_protocol_error", channels[1]["outcome"])
+        self.assertEqual("E14", channels[1]["error_code"])
         self.assertFalse(channels[0]["available"])
         self.assertFalse(channels[1]["available"])
         self.assertTrue(channels[2]["available"])
@@ -338,11 +398,13 @@ class DMPProtocolTests(unittest.TestCase):
         class FakeSession:
             def __init__(self):
                 self.closed = False
+                self.close_count = 0
 
-            def read_model_identity(self):
+            def read_model_identity(self, _cancellation=None):
                 return "DMP 64 Plus C"
 
             def close(self):
+                self.close_count += 1
                 self.closed = True
 
         sessions = []
@@ -361,8 +423,10 @@ class DMPProtocolTests(unittest.TestCase):
 
         self.assertTrue(handler.connect())
         self.assertEqual("DMP 64 Plus C", handler.discovered_model)
+        self.assertFalse(sessions[0].closed)
         handler.disconnect()
         self.assertTrue(sessions[0].closed)
+        self.assertEqual(1, sessions[0].close_count)
 
     def test_handler_rejects_unknown_substring_model_without_polling(self):
         from core.dmp64_plus import DMPUnsupportedModel
@@ -371,12 +435,14 @@ class DMPProtocolTests(unittest.TestCase):
         class FakeSession:
             def __init__(self):
                 self.closed = False
+                self.close_count = 0
                 self.meter_polled = False
 
-            def read_model_identity(self):
+            def read_model_identity(self, _cancellation=None):
                 return "DMP 64 Plus Future X"
 
             def close(self):
+                self.close_count += 1
                 self.closed = True
 
         sessions = []
@@ -396,7 +462,125 @@ class DMPProtocolTests(unittest.TestCase):
         with self.assertRaises(DMPUnsupportedModel):
             handler.connect()
         self.assertTrue(sessions[0].closed)
+        self.assertEqual(1, sessions[0].close_count)
         self.assertFalse(sessions[0].meter_polled)
+
+    def test_handler_closes_session_on_identity_timeout_and_transport_failure(self):
+        from core.dmp64_plus import DMPTransactionTimeout
+        from core.exceptions import ConnectionError
+        from handlers.extron.dmp64_plus import ExtronDMP64PlusHandler
+
+        for error in (
+            DMPTransactionTimeout("identity timeout"),
+            ConnectionError("identity transport failure"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                class FakeSession:
+                    def __init__(self):
+                        self.close_count = 0
+
+                    def read_model_identity(self, _cancellation=None):
+                        raise error
+
+                    def close(self):
+                        self.close_count += 1
+
+                sessions = []
+
+                def factory(**_kwargs):
+                    session = FakeSession()
+                    sessions.append(session)
+                    return session
+
+                handler = ExtronDMP64PlusHandler(
+                    "192.0.2.64",
+                    username="synthetic-user",
+                    password="synthetic-password",
+                    transport_factory=factory,
+                )
+
+                with self.assertRaises(ConnectionError):
+                    handler.connect()
+                self.assertIsNone(handler.session)
+                self.assertEqual(1, sessions[0].close_count)
+
+    def test_handler_cancellation_after_session_creation_closes_without_identity_send(self):
+        from core.dmp64_plus import DMPCancellationToken, DMPCancelled
+        from handlers.extron.dmp64_plus import ExtronDMP64PlusHandler
+
+        token = DMPCancellationToken()
+
+        class FakeSession:
+            def __init__(self):
+                self.close_count = 0
+                self.identity_sent = False
+
+            def read_model_identity(self, _cancellation=None):
+                self.identity_sent = True
+                return "DMP 64 Plus C"
+
+            def close(self):
+                self.close_count += 1
+
+        sessions = []
+
+        def factory(**_kwargs):
+            session = FakeSession()
+            sessions.append(session)
+            token.cancel()
+            return session
+
+        handler = ExtronDMP64PlusHandler(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            transport_factory=factory,
+        )
+
+        with self.assertRaises(DMPCancelled):
+            handler.connect(token)
+        self.assertFalse(sessions[0].identity_sent)
+        self.assertEqual(1, sessions[0].close_count)
+        self.assertIsNone(handler.session)
+
+    def test_handler_cancellation_during_identity_closes_session(self):
+        from core.dmp64_plus import DMPCancellationToken, DMPCancelled
+        from handlers.extron.dmp64_plus import ExtronDMP64PlusHandler
+
+        token = DMPCancellationToken()
+
+        class FakeSession:
+            def __init__(self):
+                self.close_count = 0
+                self.identity_sent = False
+
+            def read_model_identity(self, cancellation=None):
+                self.identity_sent = True
+                token.cancel()
+                cancellation.raise_if_cancelled()
+
+            def close(self):
+                self.close_count += 1
+
+        sessions = []
+
+        def factory(**_kwargs):
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        handler = ExtronDMP64PlusHandler(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            transport_factory=factory,
+        )
+
+        with self.assertRaises(DMPCancelled):
+            handler.connect(token)
+        self.assertTrue(sessions[0].identity_sent)
+        self.assertEqual(1, sessions[0].close_count)
+        self.assertIsNone(handler.session)
 
 
 class DMPWorkerLifecycleTests(unittest.TestCase):
@@ -592,6 +776,101 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
         worker.run()
 
         self.assertEqual("unsupported_device", errors[0][0])
+
+    def test_worker_cancellation_before_handler_acquisition_creates_no_handler(self):
+        from core.dmp64_plus import DMPCancellationToken
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        token = DMPCancellationToken()
+        token.cancel()
+
+        class FakeHandler:
+            instances = []
+
+            def __init__(self, **_kwargs):
+                FakeHandler.instances.append(self)
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            cancellation=token,
+            handler_factory=FakeHandler,
+        )
+
+        worker.run()
+
+        self.assertEqual([], FakeHandler.instances)
+
+    def test_worker_cancellation_after_identity_before_first_meter_sends_no_meter_oid(self):
+        from core.dmp64_plus import DMPCancellationToken
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        token = DMPCancellationToken()
+
+        class FakeHandler:
+            instances = []
+
+            def __init__(self, **_kwargs):
+                self.meter_polled = False
+                self.closed = False
+                FakeHandler.instances.append(self)
+
+            def connect(self, cancellation=None):
+                cancellation.cancel()
+                return True
+
+            def get_meter_snapshot(self, _cancellation):
+                self.meter_polled = True
+                raise AssertionError("meter polling must not start after cancellation")
+
+            def disconnect(self):
+                self.closed = True
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            cancellation=token,
+            handler_factory=FakeHandler,
+        )
+
+        worker.run()
+
+        self.assertFalse(FakeHandler.instances[0].meter_polled)
+        self.assertTrue(FakeHandler.instances[0].closed)
+
+    def test_worker_terminal_cleanup_after_connect_failure_is_idempotent(self):
+        from core.dmp64_plus import DMPUnsupportedModel
+        from core.worker import ExtronDMP64PlusMeterWorker
+
+        class FakeHandler:
+            instances = []
+
+            def __init__(self, **_kwargs):
+                self.disconnect_count = 0
+                FakeHandler.instances.append(self)
+
+            def connect(self, _cancellation=None):
+                self.disconnect()
+                raise DMPUnsupportedModel("Unsupported Extron DMP 64 Plus variant: DMP 64 Plus Future X")
+
+            def disconnect(self):
+                self.disconnect_count += 1
+
+        worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64",
+            username="synthetic-user",
+            password="synthetic-password",
+            handler_factory=FakeHandler,
+        )
+        errors = []
+        worker.signals.error.connect(errors.append)
+
+        worker.run()
+
+        self.assertEqual("unsupported_device", errors[0][0])
+        self.assertEqual(2, FakeHandler.instances[0].disconnect_count)
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")

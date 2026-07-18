@@ -111,17 +111,15 @@ def normalize_dbfs(db_value: float | int | None) -> float | None:
 
 def parse_meter_payload(payload: str) -> dict[str, Any]:
     clean = str(payload or "").strip()
-    if clean == "E13":
+    if _is_sis_error(clean):
         return {"kind": "sis_protocol_error", "code": clean, "available": False}
     match = re.fullmatch(r"(?P<state>[012])\*(?P<raw>\d+)", clean)
     if not match:
         return {"kind": "malformed_payload", "payload": clean, "available": False}
     state = int(match.group("state"))
     raw_meter = int(match.group("raw"))
-    if state == 0 and raw_meter == 0:
+    if state == 0:
         return {"kind": "unavailable", "state": state, "raw_meter": raw_meter, "available": False}
-    if state not in {1, 2}:
-        return {"kind": "malformed_payload", "payload": clean, "available": False}
     dbfs = dbfs_from_raw_meter(raw_meter)
     return {
         "kind": "valid",
@@ -234,11 +232,14 @@ class DMPTransportSession:
         return {"kind": "sis_protocol_error", "code": frame, "available": False}
 
     def read_model_identity(self, cancellation: DMPCancellationToken | None = None) -> str:
-        return self._transaction(
+        frame = self._transaction(
             build_identity_command(),
-            lambda clean: bool(clean) and not _is_sis_error(clean),
+            lambda clean: _is_dmp_model_identity(clean) or _is_sis_error(clean),
             cancellation,
         )
+        if _is_sis_error(frame):
+            raise ConnectionError(f"DMP model identity query returned SIS error {frame}.")
+        return frame
 
     def _transaction(
         self,
@@ -293,7 +294,11 @@ def _is_sis_error(frame: str) -> bool:
 def _is_meter_terminal(frame: str) -> bool:
     if frame.startswith("DsV"):
         return False
-    return _is_sis_error(frame) or re.fullmatch(r"\d+\*\S+", frame) is not None
+    return _is_sis_error(frame) or re.fullmatch(r"[012]\*\d+", frame) is not None
+
+
+def _is_dmp_model_identity(frame: str) -> bool:
+    return re.fullmatch(r"DMP 64 Plus(?:\s+\S+)*", str(frame or "").strip()) is not None
 
 
 def build_meter_snapshot(

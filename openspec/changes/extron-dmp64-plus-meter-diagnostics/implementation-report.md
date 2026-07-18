@@ -46,29 +46,30 @@ does not approve, archive, merge, or delete the change.
 
 ## Review-Finding Fixes
 
-Independent review returned `CHANGES REQUIRED` for six findings. This
-implementation update resolves them without changing the approved architecture:
+Independent review returned another `CHANGES REQUIRED` verdict on starting SHA
+`4b46978878f04a246c23af7c135b79bd3474ba46`. This corrective implementation
+pass resolves the remaining findings without changing the approved
+architecture:
 
-- Recovery budget is now consumed when the session attempts to send the
-  state-changing `*2` command, not only after a successful ACK. SIS errors,
-  timeouts, and poisoned-session paths cannot replay `*2` on the same session.
-- Meter transaction matching no longer treats arbitrary `*` frames as terminal
-  meter responses. It accepts structured SIS errors and narrow digit-prefixed
-  meter-like candidates, so frames such as `Unrelated*Frame` cannot shift OID
-  mapping.
-- DMP workers now carry an application-owned context containing generation,
-  model, IP, token, worker identity, and credential index. DMP result, error,
-  progress, status, and finished callbacks validate that context before UI,
-  credential, or fallback side effects.
-- Poll cadence now treats `poll_interval` as the target period between snapshot
-  cycles. A slow cycle receives no extra unconditional one-second sleep, while
-  a fast cycle waits only the remaining cancelable duration.
-- Production DMP connection now performs read-only identity discovery with
-  `1I\r` after SSH/SIS session acquisition and rejects models outside the exact
-  supported variant set before meter polling begins.
-- PTY echo filtering now recognizes both literal ESC echo and the live-device
-  printable `^[` representation for command-echo comparison, including
-  fragmented reads.
+- Meter transaction matching now terminates only on `[012]*<digits>` or
+  structured `E<digits>` SIS errors. Unsafe untagged frames such as `9*bad`,
+  `123*foo`, `Unrelated*Frame`, and wrong recovery ACKs are ignored for the
+  active meter read.
+- Any session created before model discovery is closed on identity timeout,
+  identity transport failure, unsupported model, cancellation, or unexpected
+  exception. The handler does not drop `self.session` before cleanup.
+- Identity transaction correlation now accepts only DMP model-like identity
+  frames, while ignoring banners, unrelated SIS frames, and PTY echo. Unknown
+  DMP model-like identities are discovered and then rejected by exact supported
+  variant validation.
+- The application-owned cancellation token is passed into handler connection
+  and identity discovery, with checkpoints before SSH acquisition, after
+  session creation, before `1I`, during bounded transaction wait, and after
+  identity response before polling.
+- `parse_meter_payload()` now classifies every structured `E<digits>` frame as
+  `sis_protocol_error` with the exact code, not only `E13`.
+- Strict OpenSpec validation was rerun successfully through the repository
+  wrapper after adding a process-local Node directory to `PATH`.
 
 ## Review-Finding Files Changed
 
@@ -93,7 +94,6 @@ implementation update resolves them without changing the approved architecture:
 ## Tests Added/Changed
 
 - `tests/test_extron_dmp64_plus_meter_diagnostics.py`
-- `tests/test_release_ui_qa.py`
 
 ## Automated Evidence
 
@@ -101,16 +101,17 @@ Runtime and dependency restoration:
 
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -> Python 3.12.9
-node --version                                                   -> v20.19.0
-npm --version                                                    -> 10.8.2
-npm ci                                                           -> added 79 packages, audited 80, 0 vulnerabilities
+DIAG_NODE_HOME                                                   -> not set
+node --version                                                   -> v24.15.0
+npm --version                                                    -> unavailable in this environment
+npm ci                                                           -> not run; node_modules already present
 ```
 
 Focused offline tests:
 
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_extron_dmp64_plus_meter_diagnostics.py"
-                                                                  -> 32 passed
+                                                                  -> 43 passed
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest tests.test_biamp_tesira_forte_ci_audio_signal_status tests.test_credential_fallback_retry tests.test_pdu_gui_composition
                                                                   -> 68 passed
 ```
@@ -119,7 +120,7 @@ Full offline suite:
 
 ```text
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py"
-                                                                  -> 332 passed
+                                                                  -> 355 passed
 ```
 
 OpenSpec validation:
@@ -134,16 +135,20 @@ Corrective implementation-session validation on 2026-07-18:
 
 ```text
 git fetch origin                                                  -> passed
-git rev-parse origin/agent/extron-dmp64-plus-meter-diagnostics    -> c6918c16a14c39433f91f649018cfd667563a251
+git rev-parse HEAD                                                -> 4b46978878f04a246c23af7c135b79bd3474ba46
+git rev-parse origin/agent/extron-dmp64-plus-meter-diagnostics    -> 4b46978878f04a246c23af7c135b79bd3474ba46
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_extron_dmp64_plus_meter_diagnostics.py"
-                                                                  -> 32 passed
+                                                                  -> 43 passed
+C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest tests.test_biamp_tesira_forte_ci_audio_signal_status tests.test_credential_fallback_retry tests.test_pdu_gui_composition
+                                                                  -> 68 passed
 C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py"
-                                                                  -> 344 passed
-git diff --check                                                  -> clean
-node --version                                                    -> blocked: node not found in PATH
-npm --version                                                     -> blocked: npm not found in PATH
+                                                                  -> 355 passed
+node --version                                                    -> v24.15.0
+npm --version                                                     -> unavailable
 .\openspec.cmd validate extron-dmp64-plus-meter-diagnostics --strict
-                                                                  -> blocked: "node" is not recognized
+                                                                  -> Change is valid
+.\openspec.cmd validate --all --strict                            -> 7 passed, 0 failed
+git diff --check                                                  -> clean
 ```
 
 Git hygiene:
@@ -156,10 +161,9 @@ git diff --check                                                  -> clean
 
 - No live DMP hardware verification was run in this implementation session.
   The normal automated suite remains fully offline as required.
-- Corrective OpenSpec strict validation could not be rerun in this environment
-  because Node/npm were not available through PATH or `DIAG_NODE_HOME`; the
-  repository-local `openspec.cmd` failed before validation with `"node" is not
-  recognized`.
+- `npm` was not available in this environment. `npm ci` was not run because
+  `node_modules` was already present, and strict OpenSpec validation passed
+  through the repository-local wrapper with process-local Node `v24.15.0`.
 
 ## Implementation Status
 
