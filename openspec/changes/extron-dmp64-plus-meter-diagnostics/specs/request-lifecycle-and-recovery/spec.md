@@ -80,6 +80,52 @@ controls belonging to the new context.
 - **THEN** it uses an application-owned non-GUI validity mechanism
 - **AND** it does not read `device_combo`, `ip_entry`, or `AudioDSPScreen`
 
+### Requirement: Persistent resource release
+The application SHALL disconnect the persistent Extron handler on window close
+and SHALL stop timers, invalidate reusable codec interactive contexts, and
+close their HTTP sessions, cookies, tokens, cookie jars, SSH channels, and
+handlers when their screen is destroyed or the application closes. A codec
+model, IP, or credential-context change SHALL close the superseded interactive
+handler before it can be reused by the new context.
+
+The application SHALL also stop/cancel the active Extron DMP 64 Plus polling
+context on model change, IP change, leaving the DMP screen, explicit repeat
+Refresh, and application close. The DMP worker/session owner SHALL close the
+SSH channel, SSH client/session, and related transport resources on the
+background execution lane that owns those resources. Cleanup SHALL be
+idempotent or guaranteed to run exactly once, and terminal completion/error
+callbacks SHALL be emitted only after cleanup according to the selected worker
+contract.
+
+#### Scenario: Application window closes after matrix use
+- **WHEN** the window receives its close event with a persistent Extron handler
+- **THEN** it disconnects that handler before delegating the close event
+
+#### Scenario: Codec screen is destroyed with a cached session
+- **WHEN** a codec screen with a cached interactive handler is destroyed
+- **THEN** its polling and follow-up timers stop
+- **AND** the handler and all model-specific session resources are closed on their owning execution lane
+
+#### Scenario: IP changes with a cached session
+- **WHEN** the selected codec IP changes before another interactive operation
+- **THEN** the old-IP handler is invalidated and disconnected
+- **AND** no callback from the old context updates the new screen
+
+#### Scenario: Credentials change with a cached session
+- **WHEN** newly resolved credentials no longer match the assigned cached credential context
+- **THEN** the cached handler is invalidated before network work continues
+- **AND** queued operations carrying the superseded credential context cannot invoke it
+
+#### Scenario: DMP resources close on cancellation
+- **WHEN** a DMP polling context terminates through normal stop, context cancellation, authentication failure, transport/session failure, application close, or unexpected exception
+- **THEN** the DMP session owner closes its SSH channel, SSH client/session, and related transport resources on the owning background lane
+- **AND** cleanup completes before terminal completion or error is emitted
+
+#### Scenario: DMP cleanup is not GUI-thread network work
+- **WHEN** a DMP polling context is stopped from the GUI
+- **THEN** the GUI publishes cancellation to the worker
+- **AND** the actual SSH/channel cleanup runs on the background execution lane that owns the network resources
+
 ## ADDED Requirements
 
 ### Requirement: Extron DMP 64 Plus continuous meter polling lifecycle
@@ -90,12 +136,30 @@ flow for all ten physical meter OIDs. It SHALL NOT create overlapping polling
 workers, ten SSH connections, ten parallel requests, or a new polling cycle
 before the previous complete snapshot finishes.
 
-The polling context SHALL stop or become stale when the selected model changes,
-the IP address changes, the operator leaves the DMP screen, a new DMP context
-starts, or the application closes. A queued stale DMP operation SHALL be
-dropped before handler acquisition and before network I/O where applicable.
-In-flight stale network work may finish, but its callbacks SHALL NOT update the
-new UI context, credential memory, recovery budget, or polling state.
+The application/composition layer SHALL own the DMP polling context generation
+and a thread-safe cancellation state/token. The worker SHALL receive immutable
+context identity and a thread-safe cancellation handle. The worker SHALL NOT
+read Qt widgets for freshness or cancellation.
+
+The polling context SHALL be cancelled when the selected model changes, the IP
+address changes, the operator leaves the DMP screen, an explicit repeat
+Refresh starts a new DMP context, or the application closes. A queued stale DMP
+operation SHALL be dropped before handler acquisition and before network I/O
+where applicable. In-flight stale network work may finish or time out, but the
+worker SHALL return to a cancellation checkpoint in bounded time and SHALL NOT
+continue polling the old context. Its callbacks SHALL NOT update the new UI
+context, credential memory, recovery budget, or polling state.
+
+Cancellation/freshness SHALL be checked at least before handler/session
+acquisition, before each new full polling cycle, before each new OID read,
+before each conditional `*2` recovery command, before each recovery retry read,
+and before snapshot/result emission. After cancellation, the worker SHALL NOT
+start new network I/O at any later checkpoint.
+
+SSH/SIS read operations SHALL use bounded timeouts. Cancellation SHALL NOT
+depend on an infinite blocking `recv()`. The architecture does not require an
+instant hard interruption of an already blocked socket/channel call, but the
+worker must reach the next cancellation checkpoint within bounded time.
 
 #### Scenario: One active DMP polling context
 - **WHEN** DMP meter diagnostics are active for one model/IP context
@@ -116,8 +180,45 @@ new UI context, credential memory, recovery budget, or polling state.
 
 #### Scenario: Stop when leaving DMP context
 - **WHEN** the operator changes model, changes IP, leaves the DMP screen, starts a new DMP context, or closes the application
-- **THEN** the active DMP polling context is stopped or marked stale
+- **THEN** the active DMP polling context receives cancellation
 - **AND** old callbacks cannot update the new context
+
+#### Scenario: Cancellation before handler acquisition
+- **WHEN** a queued DMP polling worker is cancelled before handler/session acquisition
+- **THEN** it exits without creating the handler/session
+- **AND** it performs zero DMP network I/O
+
+#### Scenario: Cancellation between OIDs
+- **WHEN** cancellation is observed after OID `40000` completes and before OID `40001` starts
+- **THEN** OID `40001` is not sent
+- **AND** no old-context snapshot is applied to the GUI
+- **AND** the worker proceeds to cleanup
+
+#### Scenario: Cancellation before recovery command
+- **WHEN** direct read returns `0*0`
+- **AND** cancellation is observed before the conditional `*2` recovery checkpoint
+- **THEN** the recovery command is not sent
+- **AND** the worker proceeds to cleanup
+
+#### Scenario: Cancellation during bounded wait
+- **WHEN** cancellation is requested while a DMP SSH/SIS read is already waiting
+- **THEN** the read may finish or time out within the bounded transaction timeout
+- **AND** the worker checks cancellation before any next DMP network I/O
+
+#### Scenario: No next cycle after cancellation
+- **WHEN** cancellation is observed after a polling cycle completes
+- **THEN** the worker does not start another full polling cycle for the stale context
+
+#### Scenario: Repeat Refresh replaces current DMP context
+- **WHEN** the operator explicitly refreshes the same DMP model/IP while polling is active
+- **THEN** the application creates a new DMP polling generation/context
+- **AND** it cancels the previous DMP context
+- **AND** only the new context is authoritative for the Audio DSP UI
+
+#### Scenario: Repeat Refresh old callbacks ignored
+- **WHEN** the old DMP context from a repeat Refresh later emits result, error, or completion
+- **THEN** those callbacks do not update the new UI context
+- **AND** they do not change credential memory for the new context
 
 ### Requirement: Extron DMP 64 Plus polling error contract
 DMP polling SHALL distinguish structured authentication failure,

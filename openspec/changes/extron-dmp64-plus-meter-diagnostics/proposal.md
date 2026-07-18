@@ -1,10 +1,11 @@
 ## Why
 
-Operators need read-only live meter diagnostics for the Extron DMP 64 Plus
-family in the existing Audio DSP category. The current Audio DSP path supports
-Biamp Tesira Forte CI signal-source tables, but it does not define DMP
-physical input/output meter bars, SIS-over-SSH transport framing, bounded
-meter recovery, or continuous snapshot polling.
+Operators need read-only live meter diagnostics for explicitly supported
+Extron DMP 64 Plus variants in the existing Audio DSP category. The current
+Audio DSP path supports Biamp Tesira Forte CI signal-source tables, but it
+does not define DMP physical input/output meter bars, SIS-over-SSH transport
+framing, bounded meter recovery, deterministic cancellation/resource release,
+or continuous snapshot polling.
 
 Live evidence confirms a useful minimum scope: six physical inputs and four
 physical outputs, read by direct sequential SIS meter queries over SSH port
@@ -14,18 +15,23 @@ per second, with observed sequential polling around 1.07 seconds.
 ## What Changes
 
 - Add `Extron DMP 64 Plus` under `Audio DSP` next to `Biamp Tesira Forte CI`.
+- Scope supported protocol variants to `DMP 64 Plus C`,
+  `DMP 64 Plus C AT`, `DMP 64 Plus C V`, and `DMP 64 Plus C V AT`; unknown
+  variants are not accepted solely by substring matching.
 - Reuse `AudioDSPScreen` with device-specific DMP meter-bar presentation while
   preserving Biamp table behavior.
 - Define DMP SIS-over-SSH transport using the supported implementation
   mechanism `open_session -> get_pty(term='vt100') -> invoke_shell()`.
-- Define stream buffering/framing and PTY echo filtering before clean SIS
-  payloads reach the meter parser.
+- Define serialized SIS transactions, response correlation, stream
+  buffering/framing, and PTY echo filtering before clean expected payloads
+  reach the meter parser.
 - Define physical input/output OIDs, direct meter reads, dBFS conversion,
   `-60 dB .. +12 dB` linear meter scale, unavailable samples, partial
   snapshots, and one-shot `*2` recovery after `0*0`.
 - Define one long-lived background polling context with sequential snapshots,
-  no overlapping workers, explicit cancellation, stale-context protection, and
-  application-owned credential fallback.
+  no overlapping workers, explicit cancellation checkpoints, bounded network
+  waits, resource cleanup, repeat-Refresh semantics, stale-context protection,
+  and application-owned credential fallback.
 - Add offline testability requirements for protocol, scale, recovery,
   lifecycle, stale handling, structured errors, and secret redaction.
 

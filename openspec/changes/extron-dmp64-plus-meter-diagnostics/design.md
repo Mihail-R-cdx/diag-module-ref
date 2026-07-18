@@ -12,12 +12,17 @@ DMP should extend those patterns as a read-only Audio DSP diagnostic path.
 
 ## Goals
 
-- Add Extron DMP 64 Plus as an Audio DSP diagnostic model.
+- Add Extron DMP 64 Plus as an Audio DSP diagnostic model for explicit
+  supported protocol variants.
 - Preserve current Biamp behavior.
 - Use one persistent SIS-over-SSH polling session per active DMP context.
 - Deliver complete normalized snapshots approximately once per second.
 - Separate SSH/PTY stream cleanup from DMP meter parsing.
+- Correlate each sequential SIS request with its expected response so
+  unrelated frames cannot shift channel results.
 - Keep recovery bounded and conditional.
+- Stop long-lived polling deterministically with bounded waits and background
+  resource cleanup.
 - Keep credential ownership in the application/composition layer.
 - Make implementation offline-testable without live DMP hardware.
 
@@ -37,6 +42,26 @@ The selectable model is `Extron DMP 64 Plus`. It appears under `Audio DSP` and
 routes to the existing `audio_dsp` screen key. Runtime `device_info` may report
 a more specific discovered model, but dispatch must not depend on one IP,
 serial number, DSP configuration, Meter Group, or exact firmware.
+
+Supported protocol variants for this change are:
+
+- `DMP 64 Plus C`
+- `DMP 64 Plus C AT`
+- `DMP 64 Plus C V`
+- `DMP 64 Plus C V AT`
+
+The vendor product documentation describes the DMP 64 Plus line as four models
+with 6 mic/line inputs and 4 line outputs, and those four variants are the
+current supported family boundary. The target physical meter OID contract for
+this change remains the confirmed current protocol contract:
+`40000-40005` for the six physical inputs and `60000-60003` for the four
+physical outputs.
+
+The selector identity remains `Extron DMP 64 Plus`, but discovered model
+validation must accept only the explicit supported variant set above or a
+model-identification response that is otherwise explicitly mapped to that set.
+An unknown future variant is not automatically supported merely because its
+string contains `DMP 64 Plus`.
 
 ### Reuse AudioDSPScreen with a DMP presentation mode
 
@@ -77,6 +102,34 @@ SSH transport -> stream buffering/framing -> PTY echo filtering
 The meter parser consumes clean payloads only. It must not know about PTY,
 skip the first line as echo, assume the second line is payload, or assume one
 `recv()` per response.
+
+### Correlate serialized SIS transactions
+
+DMP polling is sequential and must keep at most one outstanding SIS
+transaction on the persistent session. The next request is not sent until the
+previous request has reached an expected terminal response, structured timeout,
+or transport/session failure.
+
+Each transaction carries its expected response contract:
+
+- meter read `ESC V<OID>AU CR` expects a valid meter payload
+  `<state>*<raw_meter>` for the current request, a documented SIS error such
+  as `E13`, timeout, or transport/session failure;
+- recovery `ESC V<OID>*2AU CR` expects acknowledgement `DsV<OID>*2` for the
+  same OID, timeout, or transport/session failure.
+
+PTY echo is never a response. A clean frame unrelated to the current request,
+including an unsolicited frame or a frame for another OID, must not complete
+the current transaction and must not be converted into the current OID's meter
+value. The implementation may ignore such frames, record them through a
+redacted optional unsolicited sink, or expose a structured ignored-frame
+diagnostic, but it cannot use them as request success.
+
+If the expected response is not observed before the bounded transaction
+timeout, the transaction ends with a structured timeout/transport outcome. A
+leftover unrelated frame must not be carried forward as the next OID's meter
+result. The transaction boundary is responsible for preventing silent channel
+shifting across sequential OID reads.
 
 ### Query physical meter OIDs
 
@@ -146,18 +199,51 @@ Partial channel failure does not destroy the whole snapshot if the session is
 usable. Transport-wide failure, authentication failure, and session loss are
 session-level outcomes.
 
-### Manage lifecycle and stale context
+### Manage cancellation, lifecycle, and stale context
 
 DMP polling captures explicit non-GUI context: model, IP address,
 worker/session identity, credential candidate/index context, generation token,
-and cancellation/stop state.
+and a thread-safe cancellation handle owned by the application/composition
+layer. The worker receives immutable context identity plus that cancellation
+handle. It does not inspect Qt widgets for freshness or cancellation.
 
-Polling stops or becomes stale when model changes, IP changes, the operator
-leaves the DMP screen, a new DMP context starts, or the application closes.
-Queued stale work is dropped before handler acquisition/network I/O where
-possible. In-flight stale callbacks cannot update UI, recovery state, polling
-state, or credential memory. Workers must not inspect Qt widgets for
-freshness.
+Cancellation/freshness checkpoints are required at least:
+
+1. before handler/session acquisition;
+2. before starting each new full polling cycle;
+3. before sending each new OID read;
+4. before sending conditional `*2` recovery;
+5. before the recovery retry read;
+6. before emitting a snapshot, result, error, or completion that could affect
+   the active context.
+
+After cancellation or invalidation, the worker must not start new network I/O
+at any later checkpoint. If cancellation happens between OID requests, the
+next OID command is not sent, no old-context snapshot is applied to the GUI,
+and the worker moves to cleanup. An already sent request may finish or time
+out, but after that bounded wait the worker checks cancellation and does not
+continue polling the old context.
+
+All SSH/SIS reads use bounded timeouts. The architecture does not require an
+instant hard interrupt of an in-progress socket/channel receive, but it does
+require the worker to return to a cancellation checkpoint within bounded time;
+infinite blocking `recv()` is forbidden.
+
+On every terminal path, including normal stop, context cancellation,
+authentication failure, transport/session failure, application close, and
+unexpected exception, the session owner closes the SSH channel, SSH
+client/session, and related transport resources on the background execution
+lane that owns them. Cleanup must be idempotent or guaranteed exactly once.
+Terminal completion/error is emitted only after cleanup according to the
+chosen worker contract.
+
+An explicit Refresh for the currently active DMP model/IP context creates a
+new polling generation/context and invalidates the previous one. The old
+context receives cancellation, stops starting network I/O after the next
+checkpoint, cleans up its resources, and has all callbacks ignored. The new
+context is the only authoritative context and does not inherit credential
+state from stale callbacks of the old context. Two authoritative polling
+contexts for one Audio DSP UI are forbidden.
 
 ### Keep credentials application-owned
 
@@ -168,9 +254,20 @@ confirmed authentication failure during session acquisition. SIS errors,
 `E13`, `0*0`, malformed payloads, timeout, PTY echo, and per-OID failures are
 not retry authority.
 
-Credential memory is saved only after a real successful connection is
-established and used for a successful DMP operation, such as an accepted final
-snapshot. Stale/cancelled/failed sessions do not save credentials.
+Credential memory uses a DMP-specific long-lived polling success gate. The
+assigned credential index may be saved at most once for the current session
+acquisition attempt, and only after the first accepted complete ten-OID
+polling cycle.
+
+For this gate, complete means all ten physical OIDs were attempted and either
+produced a valid sample or a structured per-channel unavailable/protocol
+outcome, the snapshot was formed, the session-level operation did not end in
+authentication or transport failure, and the snapshot was accepted by the
+active non-stale DMP context. It does not require all ten channels to have
+numeric values. A successful SSH login alone is insufficient, one successful
+OID is insufficient, stale complete snapshots never cache credentials, and
+later snapshots from the same session do not repeatedly mutate credential
+memory.
 
 ### Map meter values
 
@@ -202,15 +299,9 @@ samples render empty/unavailable and never as maximum.
 
 1. Add DMP selector registration and Audio DSP routing.
 2. Extend `AudioDSPScreen` with a DMP meter mode while preserving Biamp tables.
-3. Add DMP SSH/PTTY transport, stream framing, echo filtering, OID map, parser,
+3. Add DMP SSH/PTY transport, stream framing, echo filtering, OID map, parser,
    dBFS conversion, normalization, and recovery state.
 4. Add one long-lived background polling worker/controller with explicit
    context, cancellation, stale suppression, and cleanup.
 5. Wire application-owned credential plans and structured fallback.
 6. Add focused offline tests and run full validation.
-
-## Open Questions
-
-- Do any DMP 64 Plus family variants with the same user-facing model use a
-  different physical meter OID contract? Current scope is the six-input,
-  four-output family contract above.

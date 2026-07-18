@@ -30,12 +30,18 @@ screen.
 
 ### Requirement: Extron DMP 64 Plus Audio DSP diagnostics
 The application SHALL support `Extron DMP 64 Plus` as a read-only Audio DSP
-diagnostic path for DMP 64 Plus family devices whose current physical meter
-contract is six inputs and four outputs. The selectable model SHALL be
-`Extron DMP 64 Plus`; implementation SHALL NOT require the exact live-device
-string `DMP 64 Plus C AT`, a serial number, a fixed IP address, a specific DSP
-configuration, preconfigured Meter Groups, or one tested firmware as dispatch
-identity.
+diagnostic path for these explicitly supported protocol variants:
+`DMP 64 Plus C`, `DMP 64 Plus C AT`, `DMP 64 Plus C V`, and
+`DMP 64 Plus C V AT`. The selectable model SHALL be `Extron DMP 64 Plus`;
+implementation SHALL NOT require a serial number, a fixed IP address, a
+specific DSP configuration, preconfigured Meter Groups, or one tested firmware
+as dispatch identity.
+
+The application SHALL separate the user-facing selector identity from the
+explicitly supported discovered protocol variants. A discovered supported
+variant SHALL be accepted without requiring dispatch to depend on the exact
+selector text. A future or unknown variant SHALL NOT be considered supported
+only because its model string contains `DMP 64 Plus`.
 
 The current DMP scope SHALL be physical live input/output meter diagnostics
 only. The only allowed protocol-side state change in this scope is bounded
@@ -50,6 +56,14 @@ conditional meter initialization/recovery after an unavailable `0*0` sample.
 - **WHEN** a DMP meter snapshot is displayed
 - **THEN** it contains an `Inputs` section with six physical channels
 - **AND** it contains an `Outputs` section with four physical channels
+
+#### Scenario: Supported discovered variant
+- **WHEN** DMP session discovery reports `DMP 64 Plus C V AT`
+- **THEN** the diagnostic path treats it as a supported DMP variant under the `Extron DMP 64 Plus` selector
+
+#### Scenario: Unknown variant is not substring-supported
+- **WHEN** DMP session discovery reports an unknown model string containing `DMP 64 Plus`
+- **THEN** the diagnostic path does not automatically treat it as supported without an explicit supported-variant mapping
 
 #### Scenario: DMP current scope is read-only diagnostics
 - **WHEN** the DMP diagnostic path is implemented
@@ -138,6 +152,50 @@ or depend on line position.
 #### Scenario: Multiple frames in one read
 - **WHEN** one SSH read contains more than one logical SIS frame
 - **THEN** the transport/framing layer exposes each clean frame independently
+
+### Requirement: Extron DMP 64 Plus serialized SIS transaction correlation
+The DMP polling session SHALL have at most one outstanding SIS transaction at a
+time. Because DMP polling is sequential, the next request SHALL NOT be sent
+until the previous request reaches an expected terminal response, structured
+timeout, or transport/session failure. Each transaction SHALL know the expected
+response contract for the command it sent.
+
+For `ESC V<OID>AU CR`, expected terminal responses are a valid meter payload
+`<state>*<raw_meter>` for the current transaction, a documented SIS error such
+as `E13`, timeout, or transport/session failure. PTY echo is not a response.
+Unrelated or unsolicited clean frames SHALL NOT automatically complete the
+current transaction and SHALL NOT become the meter value for the current OID.
+
+For `ESC V<OID>*2AU CR`, the expected acknowledgement is `DsV<OID>*2` for the
+same OID. An acknowledgement for another OID SHALL NOT complete the recovery
+transaction. If the expected response is not received before the bounded
+transaction timeout, the transaction SHALL end with structured timeout or
+transport outcome, and leftover/unrelated frames SHALL NOT be consumed as the
+next OID's meter result.
+
+#### Scenario: Unrelated frame before expected payload
+- **WHEN** a DMP meter-read transaction for OID `40004` receives an unrelated clean frame before `1*1060`
+- **THEN** the unrelated frame does not complete the transaction
+- **AND** `1*1060` is used as the OID `40004` meter payload when it arrives within the bounded transaction timeout
+
+#### Scenario: Unsolicited frame before expected payload
+- **WHEN** a DMP meter-read transaction receives an unsolicited clean frame before its expected meter payload
+- **THEN** the unsolicited frame is ignored or routed to an optional unsolicited sink
+- **AND** it is not parsed as the current OID meter value
+
+#### Scenario: Wrong recovery acknowledgement
+- **WHEN** recovery for OID `40004` receives `DsV40005*2`
+- **THEN** that acknowledgement does not complete the OID `40004` recovery transaction
+- **AND** the transaction waits for `DsV40004*2`, timeout, or transport failure
+
+#### Scenario: Expected response timeout
+- **WHEN** the expected meter payload or SIS error for the current transaction is not received before the bounded transaction timeout
+- **THEN** the transaction ends as structured timeout or transport outcome
+- **AND** a random unrelated frame is not treated as success
+
+#### Scenario: Leftover frame cannot shift channel result
+- **WHEN** an unrelated or leftover frame remains after one OID transaction
+- **THEN** it is not used as the next OID's meter result
 
 ### Requirement: Extron DMP 64 Plus meter recovery budget
 DMP meter recovery SHALL be conditional and bounded. After a direct read

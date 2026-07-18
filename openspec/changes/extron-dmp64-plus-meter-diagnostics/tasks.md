@@ -29,12 +29,32 @@
 - [ ] Poll all ten OIDs sequentially and emit complete snapshots.
 - [ ] Prevent overlapping DMP workers, parallel requests, and per-channel GUI
   polling loops.
+- [ ] Enforce at most one outstanding SIS transaction per DMP polling session.
+- [ ] Match meter read responses to the current transaction expected response
+  contract.
+- [ ] Match recovery acknowledgements to the same current OID.
+- [ ] Prevent unrelated, unsolicited, or leftover frames from shifting channel
+  results.
 - [ ] Stop/cancel polling on model change, IP change, leaving the DMP screen,
   starting a new DMP context, and application close.
+- [ ] Check cancellation before handler/session acquisition, each full polling
+  cycle, each OID read, each `*2` recovery command, each recovery retry read,
+  and snapshot/result emission.
+- [ ] Use bounded SSH/SIS transaction timeouts so cancellation never depends on
+  infinite blocking `recv()`.
+- [ ] Close DMP SSH channel/client/session resources on the owning background
+  execution lane for every terminal path.
+- [ ] Treat repeat Refresh for the same DMP model/IP as a new authoritative
+  polling generation that cancels the previous generation.
 - [ ] Drop queued stale work before handler acquisition/network I/O where possible.
 - [ ] Ignore stale in-flight callbacks.
 - [ ] Keep credential fallback in the application/composition layer.
-- [ ] Save credential memory only after accepted successful DMP operation.
+- [ ] Save credential memory at most once after the first accepted complete
+  ten-OID polling cycle.
+- [ ] Accept supported discovered variants `DMP 64 Plus C`,
+  `DMP 64 Plus C AT`, `DMP 64 Plus C V`, and `DMP 64 Plus C V AT`.
+- [ ] Reject unknown DMP variants unless explicitly mapped to the supported
+  variant set.
 - [ ] Distinguish authentication, transport/session, SIS protocol, per-OID
   unavailable, malformed payload, and stale/cancelled outcomes.
 - [ ] Redact credentials and SSH secret material everywhere.
@@ -49,6 +69,11 @@
 - [ ] SIS recovery command bytes.
 - [ ] PTY echo filtering.
 - [ ] Fragmented SSH reads and multiple frames in one read.
+- [ ] Unrelated clean frame before expected meter payload.
+- [ ] Unsolicited frame before expected meter payload.
+- [ ] Recovery ack for wrong OID before correct `DsV<OID>*2`.
+- [ ] Expected response timeout.
+- [ ] Leftover/unrelated frame does not become next OID meter result.
 - [ ] Clean payload parsing independent of line position.
 - [ ] `1*NNN`, `2*NNN`, `0*0`, `E13`, and malformed payloads.
 - [ ] dBFS conversion and scale normalization.
@@ -61,14 +86,38 @@
 - [ ] Transport-wide failure distinct from per-channel unavailable.
 - [ ] One persistent polling session and no overlapping cycles.
 - [ ] Worker cancellation and stale result suppression.
+- [ ] Cancellation before handler acquisition.
+- [ ] Cancellation between OIDs.
+- [ ] Cancellation before `*2`.
+- [ ] Cancellation during bounded wait.
+- [ ] No next cycle after cancellation.
+- [ ] SSH resources released on all DMP terminal paths.
+- [ ] Repeat Refresh does not leave two active authoritative polling contexts.
+- [ ] Application close cleans up DMP session.
 - [ ] Context switch by model, IP, screen, and app close.
 - [ ] Structured authentication failure and application-owned credential fallback.
 - [ ] Handler/worker does not iterate credentials.
+- [ ] SSH login only does not cache DMP credential.
+- [ ] One channel result does not cache DMP credential.
+- [ ] First accepted complete snapshot caches DMP credential once.
+- [ ] Complete snapshot with per-channel unavailable entries may cache DMP credential.
+- [ ] Stale complete snapshot does not cache DMP credential.
+- [ ] Repeated snapshots do not repeatedly alter credential memory.
+- [ ] Session-level failure before first accepted snapshot does not cache DMP credential.
+- [ ] Supported DMP variants are accepted.
+- [ ] Unknown DMP variant is not accepted solely by substring matching.
 - [ ] Secret redaction.
 - [ ] No GUI-thread network I/O.
 - [ ] No live DMP hardware required for normal automated tests.
 
-## 4. Validation
+## 4. Architecture Validation Completed
+
+- [x] Ran `.\openspec.cmd validate extron-dmp64-plus-meter-diagnostics --strict` during architecture preparation.
+- [x] Ran `.\openspec.cmd validate --all --strict` during architecture preparation.
+- [x] Ran `git diff --check` during architecture preparation.
+- [x] Confirmed only OpenSpec/specification artifacts changed during architecture preparation.
+
+## 5. Implementation/Final Validation To Rerun
 
 - [ ] Run `.\openspec.cmd validate extron-dmp64-plus-meter-diagnostics --strict`.
 - [ ] Run `.\openspec.cmd validate --all --strict`.
