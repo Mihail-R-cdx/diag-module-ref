@@ -218,7 +218,7 @@ class Bar310CredentialRetryOwnershipTests(unittest.TestCase):
         worker = self.make_worker()
         results, errors, terminal, finished = collect_outcomes(worker)
         stdout = io.StringIO()
-        with patch("core.worker.CloudLinkBar310Handler", FailingHandler), \
+        with patch("core.workers.codec_polling.CloudLinkBar310Handler", FailingHandler), \
                 contextlib.redirect_stdout(stdout):
             worker.run()
         return worker, captured, results, errors, terminal, finished, stdout
@@ -265,8 +265,8 @@ class Bar310CredentialRetryOwnershipTests(unittest.TestCase):
 
         worker = self.make_worker()
         results, errors, _terminal, finished = collect_outcomes(worker)
-        with patch("core.worker.CloudLinkBar310Handler", SuccessfulHandler), patch(
-            "core.worker.HuaweiBar310DataParser.parse_raw_data",
+        with patch("core.workers.codec_polling.CloudLinkBar310Handler", SuccessfulHandler), patch(
+            "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data",
             side_effect=lambda data: dict(data),
         ), contextlib.redirect_stdout(io.StringIO()):
             worker.run()

@@ -216,8 +216,8 @@ class CredentialPropagationTests(unittest.TestCase):
             creds_list=[{"username": "synthetic-user", "password": "synthetic-password"}],
         )
         stdout = io.StringIO()
-        with patch("core.worker.CloudLinkBar310Handler", CapturingHandler), patch(
-            "core.worker.HuaweiBar310DataParser.parse_raw_data", side_effect=lambda data: data
+        with patch("core.workers.codec_polling.CloudLinkBar310Handler", CapturingHandler), patch(
+            "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data", side_effect=lambda data: data
         ), contextlib.redirect_stdout(stdout):
             worker.run()
         self.assertEqual("synthetic-user", captured[0]["username"])
@@ -246,7 +246,7 @@ class CredentialPropagationTests(unittest.TestCase):
         worker.signals.error.connect(emitted.append)
         worker.signals.terminal_log.connect(terminal_log.append)
         stdout = io.StringIO()
-        with patch("core.worker.HuaweiTE40Handler", FailingHandler), contextlib.redirect_stdout(stdout):
+        with patch("core.workers.codec_polling.HuaweiTE40Handler", FailingHandler), contextlib.redirect_stdout(stdout):
             worker.run()
         public_output = stdout.getvalue() + repr(emitted) + "\n".join(terminal_log)
         self.assertNotIn(secret, public_output)

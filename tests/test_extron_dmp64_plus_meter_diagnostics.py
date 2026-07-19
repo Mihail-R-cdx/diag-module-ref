@@ -704,8 +704,8 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
         )
 
         waits = []
-        with patch("core.worker.time.monotonic", side_effect=[0.0, 1.07, 2.0]):
-            with patch("core.worker.wait_cancelable", side_effect=lambda _token, seconds: waits.append(seconds)):
+        with patch("core.workers.dmp.time.monotonic", side_effect=[0.0, 1.07, 2.0]):
+            with patch("core.workers.dmp.wait_cancelable", side_effect=lambda _token, seconds: waits.append(seconds)):
                 worker.run()
 
         self.assertEqual([0.0], waits)
@@ -744,8 +744,8 @@ class DMPWorkerLifecycleTests(unittest.TestCase):
         )
 
         waits = []
-        with patch("core.worker.time.monotonic", side_effect=[0.0, 0.25, 1.0]):
-            with patch("core.worker.wait_cancelable", side_effect=lambda _token, seconds: waits.append(seconds)):
+        with patch("core.workers.dmp.time.monotonic", side_effect=[0.0, 0.25, 1.0]):
+            with patch("core.workers.dmp.wait_cancelable", side_effect=lambda _token, seconds: waits.append(seconds)):
                 worker.run()
 
         self.assertEqual([0.75], waits)

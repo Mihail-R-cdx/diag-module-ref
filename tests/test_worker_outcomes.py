@@ -86,8 +86,8 @@ class TE40WorkerOutcomeTests(unittest.TestCase):
         results, errors, terminal, finished = collect(worker)
         stdout = io.StringIO()
         parser = parser_behavior or (lambda data: dict(data))
-        with patch("core.worker.HuaweiTE40Handler", Handler), patch(
-            "core.worker.HuaweiTE40DataParser.parse_raw_data", side_effect=parser
+        with patch("core.workers.codec_polling.HuaweiTE40Handler", Handler), patch(
+            "core.workers.codec_polling.HuaweiTE40DataParser.parse_raw_data", side_effect=parser
         ), contextlib.redirect_stdout(stdout):
             worker.run()
         return worker, captured, results, errors, terminal, finished, stdout
