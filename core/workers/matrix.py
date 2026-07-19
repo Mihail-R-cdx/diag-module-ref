@@ -3,8 +3,8 @@
 from PyQt5.QtCore import QRunnable, pyqtSlot
 
 from core.parser import ExtronIN1804DataParser
-from core.redaction import redact_data
-from core.workers.common import WorkerSignals, _emit_error, _worker_secrets
+from core.redaction import redact_data, redacted_callback
+from core.workers.common import WorkerSignals, _safe_error, _worker_secrets
 from handlers.extron.in1804 import ExtronIN1804Handler
 
 
