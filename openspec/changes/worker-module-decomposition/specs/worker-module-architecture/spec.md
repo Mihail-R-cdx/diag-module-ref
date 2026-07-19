@@ -127,7 +127,7 @@ Existing internal test patch targets, including
 `core.worker.time.monotonic`, and `core.worker.wait_cancelable`, SHALL migrate
 to the canonical dependency location in the focused worker module during
 implementation. The implementation SHALL NOT add complex runtime compatibility
-shims in `core.worker` solely to preserve these internal monkeypatch paths.
+indirection in `core.worker` solely to preserve these internal monkeypatch paths.
 The semantics of migrated tests SHALL remain the same.
 
 #### Scenario: Codec patch path is migrated
@@ -176,13 +176,23 @@ handlers, parsers, domain modules, exception types, connection-profile helpers,
 and redaction helpers. Focused worker modules SHALL NOT import `core.worker`,
 and handlers SHALL NOT import worker modules to emit GUI-facing signals.
 
-`core/workers/__init__.py`, if added, SHALL be an optional export convenience
-only and SHALL NOT contain worker implementation code or mixed-domain
-orchestration.
+`core/workers/__init__.py` SHALL exist as the package boundary for focused
+worker modules. It SHALL contain no worker implementation, orchestration,
+lifecycle logic, credential logic, retry/recovery logic, handler construction
+logic, parser logic, compatibility indirection, or mixed-domain aggregation.
+It MAY contain minimal package documentation and simple convenience re-exports
+only when required by existing consumers. Public backwards-compatible worker
+imports SHALL continue through `core.worker`; `core.workers` SHALL NOT become a
+second compatibility facade.
 
 #### Scenario: Focused worker avoids facade import
 - **WHEN** `core/workers/codec_polling.py`, `codec_actions.py`, `codec_call_logs.py`, `audio_dsp.py`, `dmp.py`, `matrix.py`, or `pdu.py` is imported
 - **THEN** it does not import `core.worker`
+
+#### Scenario: Workers package root remains minimal
+- **WHEN** `core/workers/__init__.py` is inspected after decomposition
+- **THEN** it contains no worker implementation or mixed-domain orchestration
+- **AND** it does not duplicate `core.worker` as a public compatibility facade
 
 #### Scenario: No new universal orchestration layer
 - **WHEN** worker modules are decomposed

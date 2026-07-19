@@ -46,7 +46,7 @@ core/
     te20_worker.py             # existing Huawei TE20 worker remains in place
 
     workers/
-        __init__.py            # optional package export convenience
+        __init__.py            # package boundary; minimal docs/re-exports only
         common.py              # WorkerSignals and shared redacted error helpers
         codec_polling.py       # HuaweiTE40Worker, HuaweiBar310Worker, PolycomRPG310Worker
         codec_actions.py       # CodecSipFixWorker

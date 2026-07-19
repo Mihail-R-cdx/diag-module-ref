@@ -12,6 +12,7 @@
 - [ ] 2.1 Add `core/workers/common.py` with `WorkerSignals`, `_worker_secrets`, `_safe_error`, and `_emit_error`.
 - [ ] 2.2 Keep common infrastructure free of focused worker, handler, GUI, and application-composition imports.
 - [ ] 2.3 Add focused tests for `WorkerSignals` signal names/types and redacted error emission if signal infrastructure moves.
+- [ ] 2.4 Add `core/workers/__init__.py` as a minimal package boundary without worker implementation, orchestration, lifecycle logic, credential logic, retry/recovery logic, handler construction logic, parser logic, compatibility indirection, or mixed-domain aggregation.
 
 ## 3. Focused worker modules
 

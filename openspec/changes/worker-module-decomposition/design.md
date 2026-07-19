@@ -325,8 +325,15 @@ Forbidden dependency direction:
 - a new universal orchestration module that owns mixed PDU, codec, DMP, Matrix,
   and audio-DSP lifecycles.
 
-`core/workers/__init__.py`, if added, must be a convenience export layer only.
-It must not become a second large aggregator with implementation code.
+`core/workers/__init__.py` is part of the approved package layout. It should
+prefer minimal package documentation and may contain simple convenience
+re-exports only when existing consumers need them. It must not contain worker
+implementation, orchestration, lifecycle logic, credential logic,
+retry/recovery logic, handler construction logic, parser logic, compatibility
+indirection, or mixed-domain aggregation that requires agents to load every
+worker family. Backwards-compatible public worker imports remain owned by
+`core.worker`; `core.workers` must not become a second public compatibility
+facade.
 
 ## Migration Sequence
 
