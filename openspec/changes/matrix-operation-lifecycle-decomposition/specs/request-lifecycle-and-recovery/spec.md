@@ -10,8 +10,11 @@ The controller SHALL capture an explicit immutable Matrix operation context
 before background work starts. The context SHALL include the selected Matrix
 model, IP address, operation kind, request/generation identity, expected
 worker/background-operation identity when applicable, and route output/input
-numbers for route mutation. Qt widgets SHALL NOT be the authoritative source
-for determining whether a submitted background Matrix operation is current.
+numbers for route mutation. The context SHALL also include a non-secret
+credential context revision or equivalent opaque token and the assigned
+candidate index when credentials participate in the operation. Qt widgets
+SHALL NOT be the authoritative source for determining whether a submitted
+background Matrix operation is current.
 
 All Matrix network I/O SHALL execute outside the Qt GUI thread. This includes
 initial Matrix refresh, route mutation, quick/status refresh after mutation,
@@ -32,7 +35,7 @@ probes, and blocking session cleanup.
 
 #### Scenario: Explicit Matrix context is captured
 - **WHEN** a Matrix operation is submitted
-- **THEN** the controller captures immutable model, IP, operation kind, request/generation identity, and expected operation identity before network I/O starts
+- **THEN** the controller captures immutable model, IP, operation kind, request/generation identity, expected operation identity, credential context revision, and candidate index before network I/O starts when applicable
 - **AND** later changes to `device_combo`, `ip_entry`, or `MatrixScreen` widgets do not mutate that operation context
 
 #### Scenario: Controller remains Matrix-specific
@@ -50,8 +53,10 @@ operation, start refresh for a newer context, or reuse an old handler/session
 for the newer context.
 
 Staleness SHALL be decided from controller-owned context identity such as
-generation/request ID, model, IP address, non-secret credential context, and
-expected worker/background-operation identity.
+generation/request ID, model, IP address, non-secret credential context
+revision, assigned candidate index when applicable, and expected
+worker/background-operation identity. Candidate index alone SHALL NOT be
+sufficient to prove freshness or session reuse.
 
 #### Scenario: Stale Matrix result is suppressed
 - **WHEN** Matrix operation A emits a result after the operator has started Matrix operation B for a different model/IP/context
@@ -109,28 +114,42 @@ changes.
 - **AND** it cannot update a newer Matrix model/IP/context
 
 ### Requirement: Matrix persistent session ownership
-If a persistent Matrix handler/session is retained, the Matrix application
-controller SHALL own its lifecycle. A persistent Matrix session SHALL be
-reusable only when model, IP address, assigned non-secret credential identity
-or credential index, protocol/port, and local connected state match the
-current Matrix context. Cross-context handler/session reuse SHALL be forbidden.
+The Matrix application controller SHALL retain and own one persistent Matrix
+handler/session for the active Matrix context. The persistent handler/session
+SHALL NOT be owned by `MatrixScreen` and SHALL NOT remain directly owned by
+`VCSDiagnosticApp` after extraction.
+
+A persistent Matrix session SHALL be reusable only when model, IP address,
+protocol/port, non-secret credential context revision or equivalent opaque
+token, assigned candidate index, and local connected state all match the
+current Matrix context. Candidate index alone SHALL NOT be sufficient for
+reuse. Username, password, profile name, or other secret credential values
+SHALL NOT be included in public context identity, signals, results, logs, or
+terminal output.
 
 The Matrix application lifecycle SHALL invalidate and close the superseded
-session on model change, IP change, credential change or fallback, explicit
-reconnect, authentication/session failure, screen destruction, and application
-close. Blocking session creation, liveness checks, route mutation, quick
-refresh, and cleanup SHALL run on the owning background execution boundary.
-Cleanup SHALL be idempotent and stale-safe.
+session on model change, IP change, credential configuration revision change,
+credential fallback to another candidate, explicit reconnect,
+authentication/session failure, screen destruction, and application close.
+Blocking session acquisition, route mutation, refresh, quick/status refresh,
+keepalive/liveness checks, and cleanup SHALL run on the owning background
+execution boundary outside the Qt GUI thread. Cleanup SHALL be idempotent and
+stale-safe.
 
-One persistent Matrix handler SHALL NOT be used concurrently by overlapping
-refresh and route operations unless implementation proves the handler is safe
-for concurrent use. The conservative requirement is serialized Matrix handler
-access per active Matrix context.
+Access to the one persistent Matrix handler SHALL be serialized. Overlapping
+refresh, route, quick/status refresh, and keepalive operations SHALL NOT invoke
+the same persistent handler concurrently.
 
 #### Scenario: No cross-context session reuse
 - **WHEN** a persistent handler/session was created for Matrix device A
 - **AND** the operator changes model, IP, or credential context to device B
 - **THEN** the session for A is not reused for B
+
+#### Scenario: Candidate index alone is not session identity
+- **WHEN** Matrix candidate index `0` remains selected
+- **AND** credential configuration changes so candidate `0` has a new credential context revision
+- **THEN** the existing Matrix persistent session is invalidated
+- **AND** it is not reused under the new credential context revision
 
 #### Scenario: Credential fallback invalidates session
 - **WHEN** Matrix credential fallback advances to another candidate
@@ -142,7 +161,7 @@ access per active Matrix context.
 
 #### Scenario: Session access is serialized
 - **WHEN** one persistent Matrix handler is retained for an active context
-- **THEN** overlapping refresh, route, quick refresh, and keepalive operations do not invoke that handler concurrently unless the implementation has a tested thread-safety contract for that handler
+- **THEN** overlapping refresh, route, quick refresh, and keepalive operations do not invoke that handler concurrently
 
 #### Scenario: Application close releases Matrix session
 - **WHEN** the application closes with a persistent Matrix handler/session active

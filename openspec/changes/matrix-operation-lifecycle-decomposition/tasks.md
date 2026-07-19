@@ -11,10 +11,13 @@
 ## 2. Controller/application boundary
 
 - [ ] 2.1 Add a Matrix-specific controller/application component with a single clear ownership reason.
-- [ ] 2.2 Define immutable Matrix operation context with model, IP, operation kind, generation/request ID, expected worker/operation identity, and non-secret credential context.
-- [ ] 2.3 Move Matrix persistent handler/session fields and keepalive ownership out of `VCSDiagnosticApp` into the Matrix controller or replace persistence with an explicitly justified per-operation policy.
-- [ ] 2.4 Keep credential candidate resolution, fallback, and successful-index memory connected to the existing application-owned credential policy.
-- [ ] 2.5 Keep the controller Matrix-specific; do not introduce shared PDU/DMP/Codec orchestration.
+- [ ] 2.2 Define immutable Matrix operation context with model, IP, operation kind, generation/request ID, expected worker/operation identity, non-secret credential context revision, and assigned candidate index when applicable.
+- [ ] 2.3 Move Matrix persistent handler/session fields and keepalive ownership out of `VCSDiagnosticApp` into the Matrix controller.
+- [ ] 2.4 Make MatrixController the only application-level owner of one persistent Matrix handler/session for the active Matrix context.
+- [ ] 2.5 Define Matrix session identity with model, IP, protocol/port, non-secret credential context revision or equivalent opaque token, and candidate index.
+- [ ] 2.6 Ensure candidate index alone is never sufficient for persistent session reuse.
+- [ ] 2.7 Keep credential candidate resolution, fallback, and successful-index memory connected to the existing application-owned credential policy.
+- [ ] 2.8 Keep the controller Matrix-specific; do not introduce shared PDU/DMP/Codec orchestration.
 
 ## 3. MatrixScreen intent boundary
 
@@ -42,11 +45,13 @@
 
 ## 6. Session/context ownership
 
-- [ ] 6.1 Define persistent handler reuse predicate: model, IP, credential identity/index, protocol/port, and local connected state must match.
-- [ ] 6.2 Prevent cross-context session reuse after model, IP, credential change/fallback, explicit reconnect, session failure, screen destruction, or application close.
-- [ ] 6.3 Serialize access to one persistent Matrix handler unless implementation proves safe concurrent use.
-- [ ] 6.4 Run blocking session creation, keepalive/liveness checks, and cleanup on the owning background lane.
-- [ ] 6.5 Make cleanup idempotent and stale-safe.
+- [ ] 6.1 Retain one persistent Matrix handler/session owned by MatrixController for the active Matrix context.
+- [ ] 6.2 Define persistent handler reuse predicate: model, IP, protocol/port, credential context revision, candidate index, and local connected state must match.
+- [ ] 6.3 Prevent cross-context session reuse after model, IP, credential configuration revision change, credential fallback, explicit reconnect, session failure, screen destruction, or application close.
+- [ ] 6.4 Serialize all access to the one persistent Matrix handler; overlapping route, refresh, quick/status refresh, and keepalive operations must not invoke it concurrently.
+- [ ] 6.5 Run blocking session acquisition, route mutation, refresh, keepalive/liveness checks, and cleanup on the owning background lane.
+- [ ] 6.6 Make cleanup idempotent and stale-safe so old cleanup cannot close the newer context's session.
+- [ ] 6.7 Add coverage for credential configuration changing while candidate index remains the same and invalidating the existing Matrix persistent session.
 
 ## 7. Stale callback coverage
 
@@ -63,8 +68,12 @@
 - [ ] 8.2 Add focused tests proving Matrix refresh and quick/status refresh do not execute in the GUI thread.
 - [ ] 8.3 Add focused tests for application-owned Matrix credential fallback and no handler/worker candidate iteration.
 - [ ] 8.4 Add focused tests for no cross-context session reuse.
-- [ ] 8.5 Add regression tests for existing Matrix rendering and successful route behavior.
-- [ ] 8.6 Run the relevant existing Matrix, worker, credential, and GUI tests.
+- [ ] 8.5 Add focused tests proving full Matrix refresh success may cache the assigned credential index.
+- [ ] 8.6 Add focused tests proving session acquisition alone does not cache credential memory.
+- [ ] 8.7 Add focused tests proving successful route mutation and route reconciliation do not cache credential memory.
+- [ ] 8.8 Add focused tests proving stale Matrix success does not cache credential memory.
+- [ ] 8.9 Add regression tests for existing Matrix rendering and successful route behavior.
+- [ ] 8.10 Run the relevant existing Matrix, worker, credential, and GUI tests.
 
 ## 9. Validation
 

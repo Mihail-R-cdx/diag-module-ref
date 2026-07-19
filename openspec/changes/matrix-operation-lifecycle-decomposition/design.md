@@ -78,7 +78,8 @@ MatrixController
   -> creates immutable MatrixOperationContext
   -> resolves operation through application-owned credential policy
   -> submits refresh / route / status work to background execution
-  -> owns persistent Matrix handler/session lifecycle
+  -> owns one persistent Matrix handler/session for the active Matrix context
+  -> serializes all access to that persistent session
   -> accepts only callbacks matching active Matrix context
 
 core/workers/matrix.py / Matrix background operation
@@ -145,6 +146,7 @@ The Matrix controller owns Matrix-specific lifecycle:
 - immutable context capture;
 - stale result, error, finished, and progress/status suppression;
 - persistent handler/session creation, reuse eligibility, and cleanup;
+- serialized access to the one active persistent Matrix handler/session;
 - cleanup on model, IP, credential context, screen, and application changes;
 - refresh-after-mutation scheduling and context binding;
 - Matrix terminal/status messages emitted without secrets.
@@ -213,8 +215,9 @@ least:
   cleanup;
 - generation or request ID;
 - expected worker/background-operation identity when applicable;
-- assigned credential index and non-secret credential context identity when
-  applicable;
+- non-secret credential context revision or equivalent opaque revision token
+  that changes when credential configuration changes;
+- assigned credential candidate index when applicable;
 - whether the operation is read-only or state-changing.
 
 Qt widgets may provide initial values when the user submits an intent, but
@@ -222,8 +225,12 @@ background operations must use the captured context. Later widget changes do
 not mutate an in-flight context.
 
 Staleness is defined by comparing the callback context against the controller's
-current Matrix generation, model/IP, assigned credential context, and expected
-operation/worker identity. A callback that fails this comparison is stale.
+current Matrix generation, model/IP, credential context revision, assigned
+candidate index when relevant, and expected operation/worker identity. A
+callback that fails this comparison is stale. Credential candidate index alone
+is not a sufficient identity: candidate `0` can be replaced in configuration
+while remaining index `0`, and the old session must then become stale without
+credential values crossing public contexts.
 
 ## Stale Callback Policy
 
@@ -284,12 +291,31 @@ The existing application/composition layer owns:
 The Matrix controller participates in that application boundary but does not
 become an independent credential manager. It asks for the resolved candidate
 sequence and reports structured outcomes that let the application-owned policy
-advance or commit indexes.
+advance or commit indexes only at the approved Matrix credential-success gate.
 
 Credential fallback for Matrix is allowed only after a structured confirmed
 authentication failure and only when safe for the operation. String heuristics
 such as `auth`, `401`, or `403` embedded in generic error text do not authorize
 fallback.
+
+Credential configuration changes publish a new non-secret credential context
+revision or equivalent opaque token through the application-owned credential
+lifecycle. The Matrix controller includes that revision in Matrix operation and
+session identity. Usernames, passwords, profile names, and other secret
+credential values do not appear in context identity, signals, results, logs, or
+terminal output.
+
+Matrix credential-success gates are intentionally narrow:
+
+- an accepted, non-stale, final successful full Matrix refresh with parsed
+  device data may save the assigned credential index for the model/IP context;
+- session acquisition, connect, login/authentication, or persistent session
+  creation alone does not save a successful credential index;
+- successful route mutation does not update successful credential memory in
+  this structural change;
+- quick/status refresh used as route reconciliation does not introduce a new
+  independent credential-memory semantic;
+- stale success never updates credential memory.
 
 ## State-Changing Route Mutation Safety
 
@@ -311,32 +337,53 @@ context.
 ## Persistent Session Policy
 
 The current application has a persistent Matrix handler and keepalive timer.
-The target architecture keeps or removes persistence based on explicit
-lifecycle rules, not because the current fields exist.
+The approved target architecture retains a persistent Matrix handler/session
+and moves its application-level ownership to the Matrix controller.
+Implementation sessions must not replace this with per-operation handler
+ownership without a separate approved architecture change.
 
-Selected policy:
+The Matrix controller owns one persistent Matrix session for the active Matrix
+context:
 
-- The Matrix controller owns the persistent handler/session if persistence is
-  retained.
-- A session is reusable only when model, IP address, assigned credential
-  identity/index, protocol/port, and local connected state match the current
-  Matrix context.
+- The persistent handler/session is created and managed by the Matrix
+  controller.
+- The handler/session does not belong to `MatrixScreen`.
+- The handler/session no longer belongs directly to `VCSDiagnosticApp`.
+- The persistent session identity includes model, IP address, protocol/port,
+  non-secret credential context revision or equivalent opaque token, and the
+  assigned candidate index.
+- Credential candidate index alone is insufficient for reuse.
+- A session is reusable only when the full persistent session identity and
+  local connected state match the current Matrix context.
 - Cross-context reuse is forbidden. Model change, IP change, credential
-  change/fallback, explicit reconnect, authentication/session failure, screen
-  destruction, and application close invalidate the old session.
-- One persistent handler must not be used concurrently by overlapping refresh
-  and route operations unless implementation proves the handler is thread-safe
-  for that use. The conservative design is serialized Matrix handler access
-  per context.
-- Session creation, blocking liveness checks, route mutation, quick refresh,
-  and cleanup run on the owning background lane.
-- Cleanup is idempotent. A stale cleanup/finished callback cannot clear the
-  active session for a newer Matrix context.
+  configuration change, credential fallback, explicit reconnect,
+  authentication/session failure, screen destruction, and application close
+  invalidate the old session.
+- Access to the one persistent handler is serialized. Overlapping route,
+  refresh, quick/status refresh, and keepalive operations do not invoke that
+  handler concurrently.
+- Session acquisition, blocking liveness checks, route mutation, quick refresh,
+  keepalive, and cleanup run on the owning background lane outside the Qt GUI
+  thread.
+- Cleanup is idempotent. A stale cleanup/finished callback cannot close,
+  clear, or disconnect the active session for a newer Matrix context.
 
-If implementation proves that the persistent session adds more risk than value,
-it may replace it with per-operation handler ownership, but must preserve route
-behavior, cleanup, background execution, and explicit stale guarantees. That
-decision should be recorded in implementation evidence.
+Conceptually, the reusable session identity is:
+
+```text
+MatrixSessionIdentity:
+    model
+    ip_address
+    protocol
+    port
+    credential_context_revision
+    candidate_index
+```
+
+The exact Python shape may differ, but the contract is fixed: the identity
+contains a non-secret credential configuration revision/token in addition to
+the candidate index, and it never contains username, password, or other secret
+credential values.
 
 ## Dependency Direction
 
@@ -386,9 +433,11 @@ credential fallback, stale suppression, or screen lifecycle.
 
 ### Remove persistent sessions immediately
 
-Deferred. Removing persistence may be the right implementation if analysis
-shows it is safer, but the architecture decision must be made with focused
-evidence. This design instead defines the required ownership and reuse rules.
+Rejected. The approved target architecture retains one persistent Matrix
+session owned by the Matrix controller, with serialized access and strict
+context invalidation. Replacing it with per-operation handler ownership would
+be a separate architecture change, not an implementation choice for this
+change.
 
 ## Risks and Mitigations
 
@@ -396,7 +445,9 @@ evidence. This design instead defines the required ownership and reuse rules.
   Mitigation: add focused tests proving route mutation and follow-up refresh
   execute on the background boundary.
 - Persistent handler reuse can cross model/IP/credential contexts.
-  Mitigation: immutable Matrix context identity and strict reuse predicate.
+  Mitigation: immutable Matrix session identity includes model, IP, protocol,
+  port, credential context revision, candidate index, and local connected
+  state; candidate index alone is never enough.
 - Stale route callbacks can update a newer screen or reset active lifecycle.
   Mitigation: controller-owned generation/request ID and expected operation
   identity checks for result, error, progress/status, and finished callbacks.
@@ -421,5 +472,10 @@ Future implementation should add focused tests for:
 - stale Matrix finished does not reset a newer worker/lifecycle;
 - route follow-up refresh remains bound to the original Matrix context;
 - handler/session for device A is not reused for device B;
+- credential configuration change invalidates Matrix persistent session even
+  when candidate index remains the same;
 - credential fallback remains application-owned and structured;
+- accepted full Matrix refresh may cache the assigned credential index;
+- session acquisition, route mutation, route reconciliation, and stale success
+  do not cache credential memory;
 - existing Matrix rendering and route behavior remain compatible.
