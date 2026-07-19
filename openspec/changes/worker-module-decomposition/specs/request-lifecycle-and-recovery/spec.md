@@ -7,9 +7,11 @@ connection, and completion information through worker signals. Workers SHALL
 disconnect handlers in their cleanup paths when a handler was created. PDU
 refresh paths, including Extron IPL T PCS4i Telnet status reads and HTTP
 outlet-name enrichment, SHALL follow this background execution boundary.
-Worker module decomposition SHALL preserve these background execution,
-cleanup, and signal lifecycle contracts without moving network I/O into the
-Qt GUI thread.
+Extron DMP 64 Plus meter diagnostics SHALL also follow a background execution
+boundary; DMP SSH connection, SIS reads, stream processing, recovery commands,
+and continuous polling SHALL NOT run in the Qt GUI thread. Worker module
+decomposition SHALL preserve these background execution, cleanup, and signal
+lifecycle contracts without moving network I/O into the Qt GUI thread.
 
 #### Scenario: Worker succeeds
 - **WHEN** a device worker connects, collects status, and parses a response
@@ -23,6 +25,10 @@ Qt GUI thread.
 - **WHEN** PCS4i refresh performs Telnet connect/read work or HTTP outlet-name enrichment
 - **THEN** that network work runs in a background worker rather than the Qt GUI thread
 
+#### Scenario: DMP meter polling stays off the GUI thread
+- **WHEN** DMP meter diagnostics establish SSH, read SIS meter values, filter PTY echo, perform conditional recovery, or poll the next snapshot
+- **THEN** that network work runs in a background execution path rather than the Qt GUI thread
+
 #### Scenario: Decomposed worker keeps background boundary
 - **WHEN** a worker implementation moves from `core/worker.py` into a focused `core/workers/` module
 - **THEN** the worker still executes device network I/O through the existing background worker boundary
@@ -34,15 +40,27 @@ command outcomes with the active request context, including the selected model,
 IP address, target screen, credential context, and request identifier. It SHALL
 ignore callbacks from superseded requests and shall not let them change the
 current screen, outlet table, command state, credential memory, or
-refresh-button state.
+refresh-button state. This includes bulk PDU sequence results, errors,
+progress, partial terminal outcomes, completions, and DMP meter snapshot,
+error, recovery, and polling-session callbacks.
 
-For PDU operations, including PCS4i refresh, PCS4i ON/OFF commands, Aten
-refresh, and Aten ON/OFF/REBOOT commands, the application/composition layer
-SHALL own the current operation context generation. Background workers SHALL
-NOT read Qt widgets, including `device_combo`, `ip_entry`, `PDUScreen`, or
-other QWidget properties, to decide whether a PDU operation is current.
-Worker module decomposition SHALL NOT move request-context ownership into
-focused worker modules or the `core.worker` facade.
+For PDU operations, including PCS4i refresh, PCS4i ON/OFF commands, PCS4i bulk
+ON/OFF, Aten refresh, Aten ON/OFF/REBOOT commands, and Aten bulk ON/OFF, the
+application/composition layer SHALL own the current operation context
+generation. For Extron DMP 64 Plus meter diagnostics, the
+application/composition layer SHALL own the current DMP polling context
+generation. Background workers SHALL NOT read Qt widgets, including
+`device_combo`, `ip_entry`, `PDUScreen`, `AudioDSPScreen`, or other QWidget
+properties, to decide whether an operation is current. Worker module
+decomposition SHALL NOT move request-context ownership into focused worker
+modules or the `core.worker` facade.
+
+Bulk busy/lock state SHALL be scoped to the PDU context generation/token that
+started it. When the application activates a new PDU context, the new context
+SHALL establish its own control state independently of the superseded context.
+A superseded bulk operation SHALL NOT keep the new context locked. A stale
+callback from the old context SHALL NOT unlock, relock, or otherwise change
+controls belonging to the new context.
 
 #### Scenario: Stale result arrives after a newer request
 - **WHEN** a prior worker emits a result after the operator has started a newer request for a different IP or screen
@@ -60,6 +78,37 @@ focused worker modules or the `core.worker` facade.
 - **WHEN** a background PDU worker checks whether an operation is still current
 - **THEN** it uses an application-owned thread-safe validity mechanism
 - **AND** it does not read Qt widget properties as the authoritative source
+
+#### Scenario: Stale bulk completion arrives after a newer context
+- **WHEN** a prior bulk PDU sequence emits result, error, or completion after the operator has changed PDU context
+- **THEN** the prior callback does not change the current outlet table, dialogs, locked controls, credential memory, or refresh state
+
+#### Scenario: Context switch while bulk active
+- **GIVEN** Aten bulk is active and its controls are locked
+- **WHEN** operator switches to a new PCS4i context
+- **THEN** the new context does not inherit the old bulk lock
+- **AND** old Aten callbacks cannot change the PCS4i control state
+
+#### Scenario: Stale completion cannot unlock new active bulk
+- **GIVEN** old context bulk becomes stale
+- **AND** a new context starts its own bulk operation
+- **WHEN** old bulk completion arrives
+- **THEN** it does not unlock controls owned by the new bulk operation
+
+#### Scenario: Worker does not inspect widgets for bulk staleness
+- **WHEN** a background bulk PDU worker checks whether the sequence or next outlet is still current
+- **THEN** it uses an application-owned non-GUI validity mechanism
+- **AND** it does not read Qt widget properties as authoritative context
+
+#### Scenario: Stale DMP snapshot arrives after context change
+- **WHEN** an old DMP polling session emits a meter snapshot after model, IP, screen, or credential context changed
+- **THEN** the old snapshot does not update `AudioDSPScreen`
+- **AND** it does not update credential memory or restart the current DMP context
+
+#### Scenario: DMP worker does not inspect widgets
+- **WHEN** a DMP polling worker checks whether its context is still current
+- **THEN** it uses an application-owned non-GUI validity mechanism
+- **AND** it does not read `device_combo`, `ip_entry`, or `AudioDSPScreen`
 
 #### Scenario: Decomposed worker does not own request generation
 - **WHEN** a worker is moved into a focused module

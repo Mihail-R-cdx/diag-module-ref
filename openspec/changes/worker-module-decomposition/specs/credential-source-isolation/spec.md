@@ -18,7 +18,7 @@ same ownership model; repeating the same assigned password for a second PCS4i
 prompt is not credential fallback. Worker module decomposition SHALL NOT move
 credential candidate selection, credential fallback, or successful credential
 index memory into focused worker modules, handlers, or the `core.worker`
-facade.
+facade, including for `ExtronDMP64PlusMeterWorker`.
 
 #### Scenario: Legacy provider is used
 - **WHEN** a provider implements only the existing one-candidate method
@@ -62,15 +62,18 @@ facade.
 - **THEN** only the GUI/application composition layer changes the credential index between attempts
 
 #### Scenario: Credential index is isolated by device and IP
-- **WHEN** one device/IP request succeeds with a later candidate and a new IP for the same device starts a request
-- **THEN** the new IP starts at candidate zero, while a later request for the original IP reuses only that IP's successful candidate
+- **WHEN** one device/IP request succeeds with a later candidate and a new IP
+  for the same device starts a request
+- **THEN** the new IP starts at candidate zero, while a later request for the
+  original IP reuses only that IP's successful candidate
 
 #### Scenario: Stored index no longer fits the chain
 - **WHEN** a saved credential index is outside the current candidate sequence
 - **THEN** the request starts safely at candidate zero without an index error
 
 #### Scenario: Partial result precedes completion
-- **WHEN** a worker emits a partial result before completing authentication and final data collection
+- **WHEN** a worker emits a partial result before completing authentication and
+  final data collection
 - **THEN** that candidate is not cached as successful
 
 #### Scenario: Successful final result permits credential caching

@@ -3,26 +3,48 @@
 ### Requirement: Focused worker implementation modules
 Worker implementation ownership SHALL be decomposed from `core/worker.py` into
 focused `core/workers/` modules by domain and responsibility boundary rather
-than by line count alone. The decomposition SHALL use the following canonical
-ownership unless implementation review identifies a stronger local boundary:
+than by line count alone. The approved target structure SHALL be:
 
-- `core/workers/common.py`: `WorkerSignals` and shared redacted error helpers;
+```text
+core/
+    worker.py
+    te20_worker.py
+
+    workers/
+        __init__.py
+        common.py
+        codec_polling.py
+        codec_actions.py
+        codec_call_logs.py
+        audio_dsp.py
+        dmp.py
+        matrix.py
+        pdu.py
+```
+
+Canonical ownership SHALL be:
+
+- `core/workers/common.py`: `WorkerSignals` and shared worker
+  redaction/error helpers;
 - `core/workers/codec_polling.py`: `HuaweiTE40Worker`,
   `HuaweiBar310Worker`, and `PolycomRPG310Worker`;
 - `core/workers/codec_actions.py`: `CodecSipFixWorker`;
 - `core/workers/codec_call_logs.py`: `PolycomCallLogWorker`;
 - `core/workers/audio_dsp.py`: `BiampTesiraForteCIWorker`;
+- `core/workers/dmp.py`: `ExtronDMP64PlusMeterWorker`;
 - `core/workers/matrix.py`: `ExtronIN1804Worker`;
-- `core/workers/pdu.py`: `PDUOperationWorker` and `AtenPDUWorker`.
+- `core/workers/pdu.py`: `PDUOperationWorker` and `AtenPDUWorker`;
+- `core/te20_worker.py`: `HuaweiTE20Worker`.
 
-`HuaweiTE20Worker` SHALL remain canonical in the existing `core.te20_worker`
-module during this change unless a separate reviewed architecture decision
-moves it.
+Implementation SHALL NOT arbitrarily change these boundaries. If implementation
+discovers a real architectural obstacle, the engineer SHALL stop and return the
+change for architectural review instead of choosing different boundaries
+independently.
 
 #### Scenario: Codec polling worker has focused ownership
 - **WHEN** a developer needs to change TE40, Bar 310, or Polycom diagnostic polling behavior
 - **THEN** the canonical implementation is in `core/workers/codec_polling.py`
-- **AND** unrelated PDU, Matrix, audio-DSP, and call-log worker implementation code is not required reading
+- **AND** unrelated PDU, Matrix, DMP, audio-DSP, and call-log worker implementation code is not required reading
 
 #### Scenario: Codec action worker has focused ownership
 - **WHEN** a developer needs to change SIP server fix worker behavior
@@ -34,6 +56,12 @@ moves it.
 - **THEN** the canonical implementation is in `core/workers/codec_call_logs.py`
 - **AND** the operation remains separate from generic codec polling workers
 
+#### Scenario: DMP worker has focused ownership
+- **WHEN** a developer needs to change Extron DMP 64 Plus meter polling behavior
+- **THEN** the canonical implementation is in `core/workers/dmp.py`
+- **AND** it is not placed in `core/workers/audio_dsp.py`
+- **AND** its long-lived polling lifecycle, cancellation, timeout/session poisoning, recovery, credential-success gate, stale-context, error classification, redaction, and background execution contracts remain explicit
+
 #### Scenario: PDU worker has focused ownership
 - **WHEN** a developer needs to change PDU refresh or PDU command worker behavior
 - **THEN** the canonical implementation is in `core/workers/pdu.py`
@@ -42,13 +70,14 @@ moves it.
 #### Scenario: TE20 remains explicitly separate
 - **WHEN** the worker facade exports `HuaweiTE20Worker`
 - **THEN** it imports the worker from `core.te20_worker`
-- **AND** this change does not automatically move TE20 into `core/workers/codec_polling.py`
+- **AND** this change does not move TE20 into `core/workers/codec_polling.py`
 
 ### Requirement: Worker compatibility facade
 `core/worker.py` SHALL remain as a small compatibility facade after the worker
 implementation moves. It SHALL re-export the existing public worker symbols
 without containing worker run-loop implementation, handler protocol logic,
-parser logic, credential iteration, retry policy, GUI callback logic, or device
+parser logic, credential orchestration, retry/recovery policy, internal
+monkeypatch compatibility indirection, GUI callback logic, or device
 orchestration.
 
 The public compatibility symbols SHALL include:
@@ -61,6 +90,7 @@ The public compatibility symbols SHALL include:
 - `CodecSipFixWorker`;
 - `PolycomCallLogWorker`;
 - `BiampTesiraForteCIWorker`;
+- `ExtronDMP64PlusMeterWorker`;
 - `ExtronIN1804Worker`;
 - `PDUOperationWorker`;
 - `AtenPDUWorker`.
@@ -70,40 +100,50 @@ The public compatibility symbols SHALL include:
 - **THEN** the import succeeds
 - **AND** the imported class is the canonical `core.workers.codec_polling.HuaweiTE40Worker`
 
+#### Scenario: Existing DMP public import remains valid
+- **WHEN** production code or tests import `ExtronDMP64PlusMeterWorker` with `from core.worker import ExtronDMP64PlusMeterWorker`
+- **THEN** the import succeeds
+- **AND** `core.worker.ExtronDMP64PlusMeterWorker is core.workers.dmp.ExtronDMP64PlusMeterWorker`
+
 #### Scenario: Worker facade remains small
 - **WHEN** `core/worker.py` is inspected after decomposition
-- **THEN** it contains only imports, `__all__`, narrow compatibility aliases, and facade documentation
+- **THEN** it contains only imports, documented facade exports, `__all__`, and minimal facade documentation
 - **AND** it contains no worker `run()` implementation
+- **AND** it contains no runtime compatibility indirection for internal test monkeypatch paths
 
 #### Scenario: Core package lazy exports remain valid
 - **WHEN** code imports `WorkerSignals`, `HuaweiTE20Worker`, or `AtenPDUWorker` through `core.__getattr__`
 - **THEN** the lazy export continues to resolve through the compatibility worker layer
 
-### Requirement: Compatibility-sensitive patch paths
-The implementation SHALL explicitly handle tests and consumers that patch
-worker implementation dependencies through `core.worker`. Existing known patch
-targets include `core.worker.HuaweiTE40Handler`,
-`core.worker.CloudLinkBar310Handler`,
-`core.worker.HuaweiTE40DataParser.parse_raw_data`, and
-`core.worker.HuaweiBar310DataParser.parse_raw_data`.
+### Requirement: Internal test monkeypatch path migration
+Public production compatibility SHALL cover worker class imports from
+`core.worker`. Internal monkeypatch paths for worker implementation
+dependencies SHALL NOT be treated as public production API.
 
-The implementation SHALL either preserve each listed patch path through a
-narrow compatibility mechanism that still affects the moved worker
-implementation, or migrate the affected tests to the canonical focused module
-patch path in the same refactor. The chosen strategy SHALL be covered by
-focused regression tests and documented in implementation evidence. Public
-worker class imports from `core.worker` SHALL remain compatible in either case.
+Existing internal test patch targets, including
+`core.worker.HuaweiTE40Handler`, `core.worker.CloudLinkBar310Handler`,
+`core.worker.HuaweiTE40DataParser.parse_raw_data`,
+`core.worker.HuaweiBar310DataParser.parse_raw_data`,
+`core.worker.time.monotonic`, and `core.worker.wait_cancelable`, SHALL migrate
+to the canonical dependency location in the focused worker module during
+implementation. The implementation SHALL NOT add complex runtime compatibility
+shims in `core.worker` solely to preserve these internal monkeypatch paths.
+The semantics of migrated tests SHALL remain the same.
 
-#### Scenario: Preserved patch path remains effective
-- **GIVEN** the implementation chooses to preserve a `core.worker` handler or parser patch path
-- **WHEN** a test patches that path
-- **THEN** the moved worker implementation observes the patched dependency
+#### Scenario: Codec patch path is migrated
+- **WHEN** a test patches a TE40 or Bar 310 handler/parser dependency after decomposition
+- **THEN** it patches the canonical dependency in `core.workers.codec_polling`
+- **AND** the test verifies the same worker behavior as before
 
-#### Scenario: Migrated patch path is deliberate
-- **GIVEN** the implementation chooses to migrate an old `core.worker` handler or parser patch path
-- **WHEN** the affected test is updated to the canonical focused module path
-- **THEN** the test continues to verify the same worker behavior
-- **AND** a compatibility import test proves the worker class still imports from `core.worker`
+#### Scenario: DMP patch path is migrated
+- **WHEN** a test patches DMP timing or cancellation helper behavior after decomposition
+- **THEN** it patches the canonical dependency in `core.workers.dmp`
+- **AND** the test verifies the same DMP lifecycle behavior as before
+
+#### Scenario: Facade import compatibility is tested separately
+- **WHEN** internal patch paths are migrated to focused modules
+- **THEN** separate regression tests still prove every public worker class imports from `core.worker`
+- **AND** each facade class has identity with its canonical implementation class
 
 ### Requirement: Shared worker infrastructure
 Shared worker signal and error/redaction helpers SHALL live in
@@ -141,8 +181,7 @@ only and SHALL NOT contain worker implementation code or mixed-domain
 orchestration.
 
 #### Scenario: Focused worker avoids facade import
-- **WHEN** `core/workers/codec_polling.py`, `codec_actions.py`,
-  `codec_call_logs.py`, `audio_dsp.py`, `matrix.py`, or `pdu.py` is imported
+- **WHEN** `core/workers/codec_polling.py`, `codec_actions.py`, `codec_call_logs.py`, `audio_dsp.py`, `dmp.py`, `matrix.py`, or `pdu.py` is imported
 - **THEN** it does not import `core.worker`
 
 #### Scenario: No new universal orchestration layer
@@ -158,8 +197,9 @@ orchestration.
 Worker module decomposition SHALL be behavior-preserving. It SHALL NOT change
 credential ownership, credential fallback, successful credential memory,
 transport profile ordering, retry semantics, state-changing operation safety,
-DMP lifecycle, GUI-threading boundaries, signal lifecycle, callback payload
-shapes, or secret redaction.
+DMP lifecycle, cancellation contract, timeout/session poisoning, recovery
+budget, stale-context boundary, GUI-threading boundaries, signal lifecycle,
+callback payload shapes, error classification, or secret redaction.
 
 #### Scenario: Credential ownership remains in application layer
 - **WHEN** any moved worker is constructed for one credential attempt
@@ -176,8 +216,16 @@ shapes, or secret redaction.
 - **THEN** the refactor adds no replay, no new recovery policy, no changed ambiguity handling, and no credential fallback after a potentially delivered mutation
 
 #### Scenario: DMP lifecycle is unchanged
-- **WHEN** DMP polling or adjacent background codec operation code interacts with moved workers
+- **WHEN** `ExtronDMP64PlusMeterWorker` moves to `core/workers/dmp.py`
 - **THEN** persistent polling lifecycle, cancellation, stale-context suppression, transaction timeout poisoning, recovery budget, and credential persistence semantics remain unchanged
+
+#### Scenario: DMP credential-success gate is unchanged
+- **WHEN** a moved DMP worker emits continuous meter snapshots or terminal failures
+- **THEN** the credential-success gate and successful credential memory semantics remain unchanged
+
+#### Scenario: DMP error classification is unchanged
+- **WHEN** a moved DMP worker reports authentication, unsupported-device, transaction-timeout, connection, cancellation, stale, or generic failures
+- **THEN** the machine-readable categories remain compatible with existing application and test consumers
 
 #### Scenario: GUI threading is unchanged
 - **WHEN** a moved worker performs network I/O
@@ -185,25 +233,31 @@ shapes, or secret redaction.
 
 #### Scenario: Secrets remain redacted
 - **WHEN** moved worker code emits logs, stdout diagnostics, GUI errors, public worker error payloads, or results
-- **THEN** credentials, Session IDs, cookies, CSRF tokens, and other secrets remain redacted
+- **THEN** credentials, Session IDs, cookies, CSRF tokens, SSH secret material, and other secrets remain redacted
 
 ### Requirement: Worker decomposition validation
 Implementation of the decomposition SHALL include focused regression tests for
 compatibility imports from `core.worker`, canonical class identity through the
-facade, `WorkerSignals` behavior when moved, compatibility-sensitive patch/mock
+facade, `WorkerSignals` behavior when moved, migrated internal patch/mock
 paths, unchanged worker error payload contracts, unchanged credential
 ownership, unchanged transport fallback, unchanged state-changing operation
-safety, and unchanged secret redaction.
+safety, unchanged DMP cancellation/lifecycle/stale/error/credential-success
+contracts, absence of GUI-thread network I/O, and unchanged secret redaction.
 
 #### Scenario: Compatibility imports are regression-tested
 - **WHEN** focused worker import tests run
 - **THEN** every public worker symbol imports from `core.worker`
 - **AND** each facade class is identical to its canonical implementation class
 
-#### Scenario: Patchability is regression-tested
+#### Scenario: DMP compatibility import is regression-tested
+- **WHEN** focused worker import tests run
+- **THEN** `ExtronDMP64PlusMeterWorker` imports from `core.worker`
+- **AND** `core.worker.ExtronDMP64PlusMeterWorker is core.workers.dmp.ExtronDMP64PlusMeterWorker`
+
+#### Scenario: Patchability migration is regression-tested
 - **WHEN** focused patch/mock tests run
-- **THEN** each preserved or intentionally migrated handler/parser patch path is verified
-- **AND** the tests fail if the selected patch strategy silently stops controlling the worker dependency
+- **THEN** each migrated handler/parser/timing helper patch path is verified at its canonical focused module location
+- **AND** the tests fail if the canonical patch path stops controlling the worker dependency
 
 #### Scenario: Error payload equivalence is regression-tested
 - **WHEN** focused worker outcome tests run before and after decomposition

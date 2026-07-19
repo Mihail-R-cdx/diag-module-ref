@@ -4,7 +4,8 @@
 - [ ] 1.2 Inventory all public imports from `core.worker` in production code and tests.
 - [ ] 1.3 Inventory direct canonical worker imports such as `core.te20_worker`.
 - [ ] 1.4 Inventory tests that patch or mock `core.worker` handler/parser symbols.
-- [ ] 1.5 Record the compatibility public symbol list before moving code.
+- [ ] 1.5 Inventory tests that patch DMP timing/cancellation helpers through `core.worker`.
+- [ ] 1.6 Record the compatibility public symbol list before moving code, including `ExtronDMP64PlusMeterWorker`.
 
 ## 2. Shared infrastructure
 
@@ -18,25 +19,28 @@
 - [ ] 3.2 Move `BiampTesiraForteCIWorker` to `core/workers/audio_dsp.py`.
 - [ ] 3.3 Move `HuaweiTE40Worker`, `HuaweiBar310Worker`, and `PolycomRPG310Worker` to `core/workers/codec_polling.py`.
 - [ ] 3.4 Move `CodecSipFixWorker` to `core/workers/codec_actions.py`.
-- [ ] 3.5 Move `ExtronIN1804Worker` to `core/workers/matrix.py`.
-- [ ] 3.6 Move `PDUOperationWorker` and `AtenPDUWorker` to `core/workers/pdu.py`.
-- [ ] 3.7 Keep `HuaweiTE20Worker` canonical in `core.te20_worker` unless a separate reviewed decision moves it.
+- [ ] 3.5 Move `ExtronDMP64PlusMeterWorker` to `core/workers/dmp.py`.
+- [ ] 3.6 Move `ExtronIN1804Worker` to `core/workers/matrix.py`.
+- [ ] 3.7 Move `PDUOperationWorker` and `AtenPDUWorker` to `core/workers/pdu.py`.
+- [ ] 3.8 Keep `HuaweiTE20Worker` canonical in `core.te20_worker` unless a separate reviewed decision moves it.
 
 ## 4. Compatibility facade
 
 - [ ] 4.1 Convert `core/worker.py` to a facade with no worker run-loop implementation.
 - [ ] 4.2 Re-export all compatibility public worker symbols from `core.worker`.
 - [ ] 4.3 Ensure `core.worker` worker class objects are identical to their canonical module class objects.
-- [ ] 4.4 Choose and document the strategy for existing `core.worker` handler/parser patch points.
-- [ ] 4.5 Add compatibility import tests for every public worker symbol.
-- [ ] 4.6 Add focused tests for patch/mock paths that are preserved or intentionally migrated.
+- [ ] 4.4 Migrate internal `core.worker` handler/parser/timing helper patch paths to canonical focused module patch paths.
+- [ ] 4.5 Do not add runtime compatibility indirection in `core.worker` for internal test monkeypatch paths.
+- [ ] 4.6 Add compatibility import tests for every public worker symbol, including `ExtronDMP64PlusMeterWorker`.
+- [ ] 4.7 Add class identity tests proving facade worker classes are identical to canonical implementation classes, including `core.worker.ExtronDMP64PlusMeterWorker is core.workers.dmp.ExtronDMP64PlusMeterWorker`.
+- [ ] 4.8 Add focused tests for migrated canonical patch/mock paths.
 
 ## 5. Behavioral regression coverage
 
-- [ ] 5.1 Run focused credential ownership tests for TE20, TE40, Bar 310, Polycom, Biamp, and Aten workers.
+- [ ] 5.1 Run focused credential ownership tests for TE20, TE40, Bar 310, Polycom, Biamp, DMP, and Aten workers.
 - [ ] 5.2 Run focused transport fallback tests for TE20 and TE40.
 - [ ] 5.3 Run focused state-changing operation tests for codec SIP actions and PDU operations.
-- [ ] 5.4 Run focused DMP lifecycle tests when any import adjacency affects DMP polling or background codec operations.
+- [ ] 5.4 Run focused DMP worker tests for cancellation, long-lived polling lifecycle, error classification, credential-success gate, stale-context boundary, secret redaction, and absence of GUI-thread network I/O.
 - [ ] 5.5 Run focused GUI worker signal consumer tests for `gui/main_window.py` and `gui/screens/codec_screen.py`.
 - [ ] 5.6 Run focused redaction tests for stdout, terminal logs, GUI errors, and public worker error payloads.
 

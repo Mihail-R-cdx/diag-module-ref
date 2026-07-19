@@ -10,6 +10,7 @@ Current `core/worker.py` owns several unrelated worker families:
   `HuaweiTE40Worker.set_sip_server()` compatibility method;
 - call-log/background codec operation: `PolycomCallLogWorker`;
 - audio DSP polling: `BiampTesiraForteCIWorker`;
+- DMP long-lived meter polling: `ExtronDMP64PlusMeterWorker`;
 - matrix polling: `ExtronIN1804Worker`;
 - PDU workers: `PDUOperationWorker`, `AtenPDUWorker`.
 
@@ -22,7 +23,7 @@ normalizing an already separate worker.
 Known `core.worker` import consumers include `gui/main_window.py`,
 `gui/screens/codec_screen.py`, `core/__init__.py`, and tests including
 credential propagation, retry ownership, hardware redaction, PDU operations,
-and worker outcome tests.
+Extron DMP 64 Plus meter diagnostics, and worker outcome tests.
 
 Known compatibility-sensitive test patch points include:
 
@@ -30,6 +31,8 @@ Known compatibility-sensitive test patch points include:
 - `core.worker.CloudLinkBar310Handler`;
 - `core.worker.HuaweiTE40DataParser.parse_raw_data`;
 - `core.worker.HuaweiBar310DataParser.parse_raw_data`.
+- `core.worker.time.monotonic`;
+- `core.worker.wait_cancelable`.
 
 ## Goals / Non-Goals
 
@@ -39,6 +42,8 @@ Known compatibility-sensitive test patch points include:
   responsibility.
 - Keep `core/worker.py` small enough to read as a compatibility facade.
 - Preserve existing public worker imports from `core.worker`.
+- Include every top-level worker implementation currently in `core/worker.py`
+  in the target architecture, including `ExtronDMP64PlusMeterWorker`.
 - Preserve runtime behavior and public signal/error/result payload shapes.
 - Preserve application-owned credential selection, fallback, and successful
   credential index memory.
@@ -65,6 +70,29 @@ Known compatibility-sensitive test patch points include:
 - Do not archive or merge this change as part of preparation.
 
 ## Target Module Boundaries
+
+The implementation target structure is fixed:
+
+```text
+core/
+    worker.py
+    te20_worker.py
+
+    workers/
+        __init__.py
+        common.py
+        codec_polling.py
+        codec_actions.py
+        codec_call_logs.py
+        audio_dsp.py
+        dmp.py
+        matrix.py
+        pdu.py
+```
+
+If implementation discovers a real architectural obstacle to these boundaries,
+the engineer must stop and return the change for architectural review rather
+than independently changing the approved map.
 
 ### `core/workers/common.py`
 
@@ -127,6 +155,21 @@ Owns audio DSP workers:
 This module may depend on the Biamp handler and parser only through the current
 worker boundary. It must preserve existing read-only behavior and cleanup.
 
+### `core/workers/dmp.py`
+
+Owns DMP long-lived meter polling workers:
+
+- `ExtronDMP64PlusMeterWorker`.
+
+This worker is not owned by `audio_dsp.py` even though its meter data is
+displayed by the Audio DSP GUI. It has a distinct long-lived polling lifecycle,
+cancellation contract, timeout/session poisoning behavior, recovery budget,
+credential-success gate, stale-context boundary, error classification, and
+secret-redaction contract. It may depend on DMP cancellation/token types,
+DMP-specific domain constants and helpers, the Extron DMP handler, common
+worker helpers, and redaction. It must not change DMP polling behavior as part
+of this structural refactor.
+
 ### `core/workers/matrix.py`
 
 Owns matrix workers:
@@ -162,8 +205,6 @@ After implementation, `core/worker.py` should be a small facade that:
 - imports canonical worker classes from their focused modules;
 - imports `HuaweiTE20Worker` from `core.te20_worker`;
 - re-exports the public worker symbols listed in the compatibility contract;
-- keeps required compatibility aliases for transitional test patch points when
-  those patch points are intentionally preserved;
 - contains no worker run-loop implementation, handler protocol logic, parser
   logic, credential iteration, retry policy, or GUI callback logic.
 
@@ -179,6 +220,7 @@ The following public worker symbols continue to import from `core.worker`:
 - `CodecSipFixWorker`;
 - `PolycomCallLogWorker`;
 - `BiampTesiraForteCIWorker`;
+- `ExtronDMP64PlusMeterWorker`;
 - `ExtronIN1804Worker`;
 - `PDUOperationWorker`;
 - `AtenPDUWorker`.
@@ -188,19 +230,19 @@ canonical implementation modules. For example, `core.worker.HuaweiTE40Worker`
 must be `core.workers.codec_polling.HuaweiTE40Worker`, not a behavior-changing
 wrapper.
 
-Temporary compatibility for dependency patching must be handled explicitly.
-The implementation must choose one of these safe paths for existing
-`core.worker.<handler-or-parser>` patches:
+Internal test monkeypatch paths such as
+`core.worker.HuaweiTE40Handler`, `core.worker.CloudLinkBar310Handler`,
+`core.worker.HuaweiTE40DataParser.parse_raw_data`,
+`core.worker.HuaweiBar310DataParser.parse_raw_data`,
+`core.worker.time.monotonic`, and `core.worker.wait_cancelable` are not public
+production API. During implementation, tests that patch these internal
+dependencies must migrate to the canonical dependency location in the focused
+worker module, such as `core.workers.codec_polling.HuaweiTE40Handler` or
+`core.workers.dmp.wait_cancelable`.
 
-1. preserve those patch points by designing a narrow compatibility shim that
-   still affects the moved worker implementation without introducing worker
-   logic back into `core.worker`; or
-2. migrate the affected tests to canonical module patch paths in the same
-   refactor and add regression tests proving old public class imports still
-   work.
-
-The chosen path must be documented in implementation notes. Silent breakage of
-existing tests that patch through `core.worker` is not acceptable.
+`core.worker` must not grow runtime compatibility indirection solely to preserve
+internal test monkeypatch paths. The semantics of the tests must remain the
+same, and public facade worker imports must be regression-tested separately.
 
 ## Behavioral Equivalence Contract
 
@@ -232,6 +274,10 @@ DMP:
 - DMP persistent polling lifecycle, cancellation, stale-context suppression,
   transaction timeout poisoning, recovery budget, and credential persistence
   semantics remain unchanged by worker module moves.
+- `ExtronDMP64PlusMeterWorker` remains a background long-lived polling worker;
+- cancellation checkpoints, timeout/session poisoning, error classification,
+  credential-success gate, stale-context boundary, secret redaction, and absence
+  of GUI-thread network I/O remain regression-covered.
 
 GUI threading:
 
@@ -289,43 +335,45 @@ It must not become a second large aggregator with implementation code.
 2. Move one low-coupling worker family first, preferably `PolycomCallLogWorker`
    or `BiampTesiraForteCIWorker`, while keeping `core.worker` re-exports and
    focused tests passing.
-3. Move codec polling workers into `codec_polling.py`; preserve parser/handler
-   patch strategy and transport fallback tests.
+3. Move codec polling workers into `codec_polling.py`; preserve behavior while
+   migrating internal parser/handler patch paths to canonical focused module
+   paths.
 4. Move `CodecSipFixWorker` into `codec_actions.py` without changing SIP fix
    result/error payloads.
-5. Move matrix and PDU workers into `matrix.py` and `pdu.py`, keeping
+5. Move `ExtronDMP64PlusMeterWorker` into `dmp.py`, preserving cancellation,
+   long-lived polling, timeout/session poisoning, recovery, credential-success
+   gate, stale-context, error classification, redaction, and background
+   execution contracts.
+6. Move matrix and PDU workers into `matrix.py` and `pdu.py`, keeping
    device-specific protocol code outside the facade.
-6. Convert `core/worker.py` into the compatibility facade and define
+7. Convert `core/worker.py` into the compatibility facade and define
    `__all__` for the compatibility public symbols.
-7. Verify all `core.worker` imports, direct canonical worker imports, and
-   patch/mock paths.
-8. Run focused regression tests and the full offline suite.
-9. Run strict OpenSpec validation.
+8. Verify all `core.worker` public imports, direct canonical worker imports,
+   facade class identity, and migrated patch/mock paths.
+9. Run focused regression tests and the full offline suite.
+10. Run strict OpenSpec validation through `.\openspec.cmd`.
 
 This order intentionally keeps `core.worker` usable throughout the migration
 and avoids a large intermediate state where many consumers break at once.
 
 ## Risks / Trade-offs
 
-- `core.worker` patch points may not naturally affect moved module-local
-  imports. The implementation must either preserve them through an explicit
-  shim or migrate tests to canonical patch paths with focused evidence.
+- Internal `core.worker` patch points will no longer affect moved module-local
+  imports. The implementation must migrate tests to canonical patch paths with
+  focused evidence and must keep facade public worker imports separately tested.
 - `WorkerSignals` currently exists both in `core/worker.py` and
   `core/te20_worker.py`. Normalizing them could change class identity even if
   signal names match, so TE20 signal unification should be deliberate and
   tested.
+- `ExtronDMP64PlusMeterWorker` has stricter lifecycle semantics than short
+  polling workers. Treating it as audio-DSP polling would obscure cancellation,
+  session timeout poisoning, and stale-context rules; the canonical boundary is
+  therefore `core/workers/dmp.py`.
 - A facade can grow back into an aggregator if helper code remains there. The
-  implementation should keep facade content to imports, `__all__`, and narrow
-  compatibility aliases only.
+  implementation should keep facade content to imports, `__all__`, and minimal
+  documentation only.
 - Moving imports may introduce cycles, especially if a focused worker imports
   `core.worker` for compatibility. The dependency direction forbids that.
 - PDU and codec workers share some lifecycle words but not the same protocol
   semantics. A broad shared orchestration layer would obscure safety contracts
   and is outside this change.
-
-## Open Questions
-
-- Should transitional `core.worker.<handler-or-parser>` patch aliases be
-  preserved for one release/test cycle, or should tests be migrated immediately
-  to canonical module paths with compatibility limited to public worker class
-  imports?
