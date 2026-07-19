@@ -11,7 +11,10 @@ new documentation SHALL use synthetic credentials only. PCS4i Telnet
 authentication, Telnet SIS commands, HTTP outlet-name enrichment, PDU command
 outcomes, unsupported-operation outcomes, DMP SSH/SIS meter polling, DMP PTY
 echo handling, DMP recovery commands, and public diagnostics SHALL never expose
-real assigned passwords or SSH secret material.
+real assigned passwords or SSH secret material. Worker module decomposition
+SHALL preserve redaction behavior when `WorkerSignals`, worker-secret
+collection, safe-error formatting, and worker error emission helpers move into
+shared worker infrastructure.
 
 #### Scenario: Handler logs a credential-bearing request
 - **WHEN** a supported Huawei, Polycom, Aten, PCS4i, or DMP handler records a request containing credentials or a token
@@ -34,6 +37,10 @@ real assigned passwords or SSH secret material.
 - **WHEN** DMP SSH connection or SIS polling fails with exception text containing an assigned credential
 - **THEN** logs, worker signals, GUI dialogs, terminal output, and validation evidence contain only redacted text
 
+#### Scenario: Decomposed worker error remains redacted
+- **WHEN** a worker moved into `core/workers/` emits an error, result, terminal log, stdout diagnostic, or completion-related public payload
+- **THEN** credentials, Session IDs, cookies, CSRF tokens, SSH secret material, and other known secrets are redacted at least as strictly as before the move
+
 ### Requirement: Offline verification boundary
 The repository SHALL keep normal automated verification offline. Hardware
 network probes and device-mutating tools SHALL remain opt-in and SHALL not be
@@ -48,11 +55,19 @@ A future OpenSpec change SHALL be ready to archive only when its required
 artifacts, requirements, scenarios, implementation status, strict OpenSpec
 validation, relevant offline tests, and documentation checks agree. The change
 SHALL explicitly describe any runtime behavior change and SHALL not hide
-unrelated fixes outside its scope.
+unrelated fixes outside its scope. A worker-module decomposition change SHALL
+also provide evidence that the refactor is structural and that production
+worker behavior, signal contracts, credential ownership, fallback semantics,
+mutation safety, DMP lifecycle, GUI-threading, and redaction did not change.
 
 #### Scenario: Completed future change
 - **WHEN** a change has completed its required artifacts and implementation
-- **THEN** maintainers can validate it with `openspec validate --all --strict` and archive it through the standard OpenSpec command
+- **THEN** maintainers can validate it with `.\openspec.cmd validate --all --strict` and archive it through the standard OpenSpec command
+
+#### Scenario: Worker decomposition completion evidence
+- **WHEN** the worker decomposition implementation is ready for review
+- **THEN** the change evidence identifies moved modules, compatibility exports, migrated patch/mock strategy, focused regression tests, full offline suite result, and strict repository-local OpenSpec validation result
+- **AND** it states whether any runtime behavior changed
 
 ### Requirement: PCS4i offline protocol validation
 PCS4i protocol behavior SHALL be verified with offline tests using synthetic

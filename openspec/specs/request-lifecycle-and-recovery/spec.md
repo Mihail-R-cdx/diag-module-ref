@@ -12,7 +12,9 @@ refresh paths, including Extron IPL T PCS4i Telnet status reads and HTTP
 outlet-name enrichment, SHALL follow this background execution boundary.
 Extron DMP 64 Plus meter diagnostics SHALL also follow a background execution
 boundary; DMP SSH connection, SIS reads, stream processing, recovery commands,
-and continuous polling SHALL NOT run in the Qt GUI thread.
+and continuous polling SHALL NOT run in the Qt GUI thread. Worker module
+decomposition SHALL preserve these background execution, cleanup, and signal
+lifecycle contracts without moving network I/O into the Qt GUI thread.
 
 #### Scenario: Worker succeeds
 - **WHEN** a device worker connects, collects status, and parses a response
@@ -29,6 +31,11 @@ and continuous polling SHALL NOT run in the Qt GUI thread.
 #### Scenario: DMP meter polling stays off the GUI thread
 - **WHEN** DMP meter diagnostics establish SSH, read SIS meter values, filter PTY echo, perform conditional recovery, or poll the next snapshot
 - **THEN** that network work runs in a background execution path rather than the Qt GUI thread
+
+#### Scenario: Decomposed worker keeps background boundary
+- **WHEN** a worker implementation moves from `core/worker.py` into a focused `core/workers/` module
+- **THEN** the worker still executes device network I/O through the existing background worker boundary
+- **AND** GUI consumers receive the same completion lifecycle as before
 
 ### Requirement: Request-context isolation
 The main window SHALL associate device results, errors, completions, and PDU
@@ -47,7 +54,9 @@ generation. For Extron DMP 64 Plus meter diagnostics, the
 application/composition layer SHALL own the current DMP polling context
 generation. Background workers SHALL NOT read Qt widgets, including
 `device_combo`, `ip_entry`, `PDUScreen`, `AudioDSPScreen`, or other QWidget
-properties, to decide whether an operation is current.
+properties, to decide whether an operation is current. Worker module
+decomposition SHALL NOT move request-context ownership into focused worker
+modules or the `core.worker` facade.
 
 Bulk busy/lock state SHALL be scoped to the PDU context generation/token that
 started it. When the application activates a new PDU context, the new context
@@ -103,6 +112,10 @@ controls belonging to the new context.
 - **WHEN** a DMP polling worker checks whether its context is still current
 - **THEN** it uses an application-owned non-GUI validity mechanism
 - **AND** it does not read `device_combo`, `ip_entry`, or `AudioDSPScreen`
+
+#### Scenario: Decomposed worker does not own request generation
+- **WHEN** a worker is moved into a focused module
+- **THEN** request generation, stale-result suppression, and credential memory updates remain owned by the application/composition layer
 
 ### Requirement: Credential retry and connection-profile memory
 The application SHALL try configured credentials in order for a supported

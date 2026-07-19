@@ -86,8 +86,8 @@ class TE40WorkerOutcomeTests(unittest.TestCase):
         results, errors, terminal, finished = collect(worker)
         stdout = io.StringIO()
         parser = parser_behavior or (lambda data: dict(data))
-        with patch("core.worker.HuaweiTE40Handler", Handler), patch(
-            "core.worker.HuaweiTE40DataParser.parse_raw_data", side_effect=parser
+        with patch("core.workers.codec_polling.HuaweiTE40Handler", Handler), patch(
+            "core.workers.codec_polling.HuaweiTE40DataParser.parse_raw_data", side_effect=parser
         ), contextlib.redirect_stdout(stdout):
             worker.run()
         return worker, captured, results, errors, terminal, finished, stdout
@@ -325,6 +325,94 @@ class PolycomWorkerOutcomeTests(unittest.TestCase):
             OTHER_TOKEN,
         ):
             self.assertNotIn(secret, output)
+
+
+class ExtronIN1804WorkerRuntimeTests(unittest.TestCase):
+    def test_success_path_emits_result_and_cleans_up_handler(self):
+        events = []
+        handlers = []
+
+        class Handler:
+            def __init__(self, **kwargs):
+                events.append(("handler_init", kwargs))
+                handlers.append(self)
+                self.log_callback = None
+
+            def connect(self):
+                events.append(("connect", None))
+                self.log_callback(f"matrix login {CURRENT_PASSWORD}")
+
+            def get_full_status(self):
+                events.append(("get_full_status", None))
+                return {"model": "IN1804"}
+
+            def disconnect(self):
+                events.append(("disconnect", None))
+
+        class Parser:
+            def parse(self, status):
+                events.append(("parse", status))
+                return {"model": status["model"], "inputs": 4}
+
+        worker = ExtronIN1804Worker(
+            "192.0.2.1804",
+            username=CURRENT_USER,
+            password=CURRENT_PASSWORD,
+        )
+        results, errors, terminal, finished = collect(worker)
+
+        with patch("core.workers.matrix.ExtronIN1804Handler", Handler), patch(
+            "core.workers.matrix.ExtronIN1804DataParser", Parser
+        ):
+            worker.run()
+
+        self.assertEqual([], errors)
+        self.assertEqual([True], finished)
+        self.assertEqual(1, len(results))
+        self.assertEqual("192.0.2.1804", results[0]["ip_address"])
+        self.assertEqual("IN1804", results[0]["model"])
+        self.assertEqual(4, results[0]["inputs"])
+        self.assertEqual(1, len(handlers))
+        self.assertIsNotNone(handlers[0].log_callback)
+        self.assertEqual(
+            ["handler_init", "connect", "get_full_status", "parse", "disconnect"],
+            [event for event, _payload in events],
+        )
+        self.assertTrue(terminal)
+        self.assertNotIn(CURRENT_PASSWORD, "".join(terminal))
+
+    def test_error_path_emits_existing_error_tuple_and_cleans_up_handler(self):
+        events = []
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                events.append("handler_init")
+                self.log_callback = None
+
+            def connect(self):
+                events.append("connect")
+                raise RuntimeError(f"matrix failure {CURRENT_PASSWORD}")
+
+            def disconnect(self):
+                events.append("disconnect")
+
+        worker = ExtronIN1804Worker(
+            "192.0.2.1804",
+            username=CURRENT_USER,
+            password=CURRENT_PASSWORD,
+        )
+        results, errors, terminal, finished = collect(worker)
+
+        with patch("core.workers.matrix.ExtronIN1804Handler", Handler):
+            worker.run()
+
+        self.assertEqual([], results)
+        self.assertEqual([True], finished)
+        self.assertEqual(1, len(errors))
+        self.assertEqual("ExtronIN1804Error", errors[0][0])
+        self.assertEqual(3, len(errors[0]))
+        self.assertNotIn(CURRENT_PASSWORD, repr(errors) + "".join(terminal))
+        self.assertEqual(["handler_init", "connect", "disconnect"], events)
 
 
 class ProductionWorkerOutcomeContractTests(unittest.TestCase):
