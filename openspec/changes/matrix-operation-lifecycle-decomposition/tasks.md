@@ -32,19 +32,20 @@
 - [ ] 4.1 Add a background execution path for Matrix route mutation.
 - [ ] 4.2 Ensure handler/session acquisition for route mutation happens off the Qt GUI thread.
 - [ ] 4.3 Classify route mutation as state-changing and prevent blind replay after ambiguous delivery.
-- [ ] 4.4 Permit credential fallback only before any possible route command send and only after structured confirmed authentication failure.
+- [ ] 4.4 Permit credential fallback only before any possible route command send and only after a structured authentication outcome explicitly confirms device rejection of the assigned credential.
 - [ ] 4.5 Emit structured route result/error/finished callbacks carrying Matrix context identity.
 
 ## 5. Structured Matrix authentication classification
 
-- [ ] 5.1 Replace text-based authentication classification in `ExtronIN1804Worker` with structured exception/outcome classification.
+- [ ] 5.1 Replace text-based authentication classification in `ExtronIN1804Worker` with structured failure semantics that distinguish confirmed device credential rejection from local authentication/configuration precondition failure.
 - [ ] 5.2 Remove final authentication classification in `BaseExtronMatrixHandler.connect()` that searches aggregated exception strings for `auth`, `login`, `password`, `authentication`, `401`, `403`, or similar text.
-- [ ] 5.3 Preserve structured failure category for each Matrix transport attempt in the connection sequence.
+- [ ] 5.3 Preserve structured failure category and confirmed-rejection semantics for each Matrix transport attempt in the connection sequence.
 - [ ] 5.4 Keep one assigned credential candidate across all transport fallback attempts in one Matrix connection operation.
 - [ ] 5.5 Define conservative mixed-outcome handling: mixed or ambiguous auth/non-auth transport outcomes do not authorize credential fallback unless the final structured outcome is an unambiguous confirmed authentication rejection.
 - [ ] 5.6 Ensure Matrix handler and worker do not perform credential iteration, candidate advancement, wrap-around, or successful-index persistence.
-- [ ] 5.7 Ensure application credential fallback receives authority only from a structured confirmed Matrix authentication outcome.
+- [ ] 5.7 Ensure application credential fallback receives authority only from explicit structured confirmed device credential rejection semantics; `AuthenticationError` exception class alone is not sufficient authority.
 - [ ] 5.8 If implementation changes shared `BaseExtronMatrixHandler`, add regression coverage proving other Extron Matrix users of that base handler keep compatible non-Matrix behavior.
+- [ ] 5.9 Add focused tests proving that structured confirmed device credential rejection may authorize fallback only before mutation send is possible, while local authentication/configuration precondition failures, including missing username or password, do not advance credentials and application fallback checks confirmed-rejection semantics rather than only the `AuthenticationError` exception class.
 
 ## 6. Refresh lifecycle
 

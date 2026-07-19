@@ -13,19 +13,31 @@ and Extron IN1804 handlers SHALL NOT read `credentials.local.json`, inspect
 candidate lists, choose another credential candidate, advance credential
 indexes, wrap candidate order, or commit successful credential memory.
 
-Matrix credential fallback SHALL be authorized only by a structured confirmed
-authentication failure and only when the operation is safe for fallback. Message
-text, localized authentication words, `auth`, `401`, `403`, timeout text,
-connection text, malformed payloads, or generic failures SHALL NOT authorize
-credential advancement.
+Matrix credential fallback SHALL be authorized only by a structured
+authentication outcome whose semantics explicitly confirm that the assigned
+credential was rejected by the device on a supported authentication path, and
+only when the operation is safe for fallback. An exception class alone,
+including `AuthenticationError`, SHALL NOT authorize credential advancement.
+Message text, localized authentication words, `auth`, `401`, `403`, timeout
+text, connection text, malformed payloads, or generic failures SHALL NOT
+authorize credential advancement.
+
+Missing username, missing password, incomplete or invalid credential
+configuration, and other local authentication/configuration precondition
+failures that occur before the device confirms rejection of the assigned
+credential SHALL NOT be treated as confirmed credential rejection and SHALL NOT
+authorize credential fallback, even if they are represented by
+`AuthenticationError`.
 
 `ExtronIN1804Worker` and any new Matrix background operation SHALL classify
-authentication failure only from structured exception type or structured
-outcome. They SHALL NOT search exception text for `auth`, `authentication`,
-`login`, `password`, `401`, `403`, or similar strings. They SHALL NOT convert
-generic connection, timeout, transport, negotiation, protocol, malformed
-response, or command failures into authentication failures based on message
-text.
+fallback-eligible authentication failure only from a structured outcome that
+explicitly carries or unambiguously expresses confirmed device rejection of the
+assigned credential. A caught `AuthenticationError` SHALL NOT by itself be
+translated into fallback authority. Matrix workers and background operations
+SHALL NOT search exception text for `auth`, `authentication`, `login`,
+`password`, `401`, `403`, or similar strings. They SHALL NOT convert generic
+connection, timeout, transport, negotiation, protocol, malformed response, or
+command failures into authentication failures based on message text.
 
 `BaseExtronMatrixHandler.connect()` or Matrix-specific replacement connection
 logic SHALL preserve a structured failure category for each transport attempt.
@@ -85,14 +97,21 @@ Matrix successful credential memory SHALL have these gates:
 - **AND** it does not select another credential candidate itself
 
 #### Scenario: Structured Matrix authentication may advance
-- **WHEN** Matrix session acquisition returns a structured confirmed authentication failure before any state-changing route command could have been sent
+- **WHEN** Matrix session acquisition returns a structured authentication failure that explicitly confirms the assigned credential was rejected by the device on a supported authentication path before any state-changing route command could have been sent
 - **AND** another unattempted candidate remains
 - **THEN** the application-owned credential policy may start the next candidate
 
-#### Scenario: Real structured authentication failure may advance
-- **WHEN** the Matrix handler reports a real structured `AuthenticationError`
+#### Scenario: Confirmed credential rejection may advance
+- **WHEN** the Matrix handler reports a structured authentication failure that explicitly represents confirmed rejection of the assigned credential by the device on a supported authentication path
 - **AND** no state-changing route command could have been sent
 - **THEN** the application may consider the next credential candidate
+
+#### Scenario: Authentication precondition does not advance credentials
+- **WHEN** a Matrix operation fails because required authentication input is missing, invalid, incomplete, or otherwise fails before the device confirms rejection of the assigned credential
+- **THEN** the failure does not authorize credential fallback
+- **AND** the application does not advance to another credential candidate
+- **AND** missing username or password is not treated as confirmed credential rejection
+- **AND** an `AuthenticationError` exception class alone is not sufficient fallback authority
 
 #### Scenario: Matrix text does not advance credentials
 - **WHEN** a Matrix failure contains text such as `auth`, `401`, or `403` but is not classified as a structured confirmed authentication failure
@@ -100,14 +119,14 @@ Matrix successful credential memory SHALL have these gates:
 
 #### Scenario: Authentication word in connection error is non-authentication
 - **WHEN** a Matrix connection or transport failure message contains the word `authentication`
-- **AND** the failure is not a structured confirmed `AuthenticationError`
-- **THEN** the outcome remains non-authentication
+- **AND** the structured failure semantics do not explicitly confirm device rejection of the assigned credential
+- **THEN** the outcome remains non-authentication or otherwise non-fallback-authorizing
 - **AND** credential fallback is not authorized
 
 #### Scenario: Authentication-like generic text does not classify auth
 - **WHEN** generic Matrix exception text contains `auth`, `authentication`, `login`, `password`, `401`, or `403`
-- **AND** no structured confirmed authentication failure was produced
-- **THEN** the worker and application do not classify it as authentication failure
+- **AND** no structured outcome explicitly confirming device rejection of the assigned credential was produced
+- **THEN** the worker and application do not classify it as a fallback-authorizing authentication failure
 - **AND** the assigned credential candidate does not change
 
 #### Scenario: Timeout remains transport failure

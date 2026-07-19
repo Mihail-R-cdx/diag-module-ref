@@ -293,10 +293,16 @@ become an independent credential manager. It asks for the resolved candidate
 sequence and reports structured outcomes that let the application-owned policy
 advance or commit indexes only at the approved Matrix credential-success gate.
 
-Credential fallback for Matrix is allowed only after a structured confirmed
-authentication failure and only when safe for the operation. String heuristics
-such as `auth`, `401`, or `403` embedded in generic error text do not authorize
-fallback.
+Credential fallback for Matrix is allowed only after a structured
+authentication outcome whose semantics explicitly confirm that the assigned
+credential was rejected by the device on a supported authentication path, and
+only when safe for the operation. The `AuthenticationError` exception class
+alone is not credential-fallback authority. Local authentication or credential
+configuration precondition failures, including missing username, missing
+password, or incomplete credential configuration, do not authorize fallback
+unless the device has explicitly confirmed rejection of the assigned
+credential. String heuristics such as `auth`, `401`, or `403` embedded in
+generic error text do not authorize fallback.
 
 Credential configuration changes publish a new non-secret credential context
 revision or equivalent opaque token through the application-owned credential
@@ -331,16 +337,24 @@ Current technical debt:
 Both legacy paths must be removed during implementation of this change. The
 future Matrix lifecycle must preserve structured failure categories end to end.
 
-The structured authentication outcome is formed at typed failure boundaries:
+The structured authentication outcome is formed at typed failure boundaries,
+but the `AuthenticationError` type alone is not automatically a confirmed
+credential rejection:
 
-- handler authentication phases raise or return a structured
-  `AuthenticationError` only when the assigned credential was confirmed
+- authentication/configuration precondition failures such as missing username,
+  missing password, incomplete credential configuration, or failure before the
+  device can reject the assigned credential remain non-fallback-authorizing
+  structured outcomes even if represented by `AuthenticationError`;
+- a fallback-eligible authentication outcome must additionally carry or
+  unambiguously express semantics that the assigned credential was actually
   rejected by the device on a supported authentication path;
+- Matrix workers and Matrix background operations may translate a caught
+  structured `AuthenticationError` into a fallback-eligible
+  worker/application authentication category only when those confirmed
+  rejection semantics are present; the exception class by itself is
+  insufficient;
 - handler connection, timeout, negotiation, unsupported service, malformed
   protocol, and command/protocol failures keep non-authentication categories;
-- Matrix workers and Matrix background operations may translate a caught
-  structured `AuthenticationError` into a structured worker/application
-  authentication category;
 - Matrix workers and background operations must not search exception text for
   `auth`, `authentication`, `login`, `password`, `401`, `403`, or similar
   strings and must not convert generic transport/protocol failures into
@@ -353,13 +367,13 @@ select another credential, the worker does not select another credential, and
 transport fallback never advances the credential candidate index.
 
 For a sequence of Matrix transport attempts, the handler or replacement
-connection logic must preserve structured category for each attempt. Conceptual
-shape:
+connection logic must preserve structured category and confirmed-rejection
+semantics for each attempt. Conceptual shape:
 
 ```text
-attempt 1 -> structured AuthenticationError
-attempt 2 -> structured ConnectionError
-attempt 3 -> structured ProtocolError
+attempt 1 -> structured authentication_precondition, no confirmed rejection
+attempt 2 -> structured confirmed_credential_rejection
+attempt 3 -> structured ConnectionError
 ```
 
 The final Matrix connection outcome is classified conservatively:
@@ -371,22 +385,28 @@ The final Matrix connection outcome is classified conservatively:
   SSH/Telnet negotiation failure, unsupported service, malformed protocol
   response, and other non-authentication failures stay non-authentication even
   when their message text contains authentication-like words;
+- local authentication/configuration precondition failure: missing required
+  authentication input, incomplete credential configuration, or any failure
+  before confirmed device rejection remains non-fallback-authorizing;
 - mixed outcomes: an ambiguous mixture of authentication and non-authentication
   transport failures does not authorize credential fallback unless the final
   structured outcome is an unambiguous confirmed authentication rejection.
 
 The application-owned credential fallback policy may consider the next
-candidate only after it receives that final structured confirmed authentication
-outcome. There is no compatibility shortcut where any error string containing
-`auth`, `authentication`, `login`, `password`, `401`, or `403` authorizes
-credential fallback.
+candidate only after it receives a final structured authentication outcome that
+explicitly confirms device rejection of the assigned credential. Receiving an
+`AuthenticationError` exception without those semantics is not sufficient.
+There is no compatibility shortcut where any error string containing `auth`,
+`authentication`, `login`, `password`, `401`, or `403` authorizes credential
+fallback.
 
 ## State-Changing Route Mutation Safety
 
 Matrix route mutation is a state-changing command. A route operation must not
 be blindly repeated after an ambiguous outcome.
 
-Before the command is sent, structured authentication failure during handler
+Before the command is sent, only a structured authentication outcome that
+explicitly confirms device rejection of the assigned credential during handler
 or session acquisition may permit credential fallback. After `set_connection`
 has been invoked, may have been delivered to the transport, or has an
 ambiguous outcome, the controller must not retry the mutation with another
@@ -517,7 +537,8 @@ change.
   identity checks for result, error, progress/status, and finished callbacks.
 - Credential fallback after mutation could duplicate a state-changing route
   command. Mitigation: allow fallback only before any possible command send and
-  only from structured authentication failure.
+  only from structured semantics that explicitly confirm device rejection of
+  the assigned credential.
 - Moving orchestration out of `MainWindow` can accidentally broaden scope.
   Mitigation: keep this controller Matrix-specific and leave PDU, DMP, codec,
   SIP, and generic credential architecture untouched.
@@ -538,7 +559,11 @@ Future implementation should add focused tests for:
 - handler/session for device A is not reused for device B;
 - credential configuration change invalidates Matrix persistent session even
   when candidate index remains the same;
-- credential fallback remains application-owned and structured;
+- credential fallback remains application-owned and requires explicit structured
+  confirmed device credential rejection semantics rather than only an
+  `AuthenticationError` exception class;
+- local authentication/configuration precondition failures, including missing
+  username or password, do not advance credential candidates;
 - accepted full Matrix refresh may cache the assigned credential index;
 - session acquisition, route mutation, route reconciliation, and stale success
   do not cache credential memory;
