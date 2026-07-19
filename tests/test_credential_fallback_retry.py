@@ -252,6 +252,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                     "Huawei TE40",
                     "CloudLink Bar 310",
                     "Polycom RPG 310",
+                    "Extron IN1804",
                 }:
                     window.set_current_credential_index.assert_not_called()
                     self.assertEqual(

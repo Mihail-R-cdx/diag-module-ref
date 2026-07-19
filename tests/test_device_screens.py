@@ -95,7 +95,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         QApplication.processEvents()
         return widget
 
-    def test_matrix_updates_cards_and_keeps_switch_handler(self):
+    def test_matrix_updates_cards_and_emits_route_intent(self):
         from gui.components import SectionCard
         from gui.screens.matrix_screen import MatrixScreen
 
@@ -125,12 +125,11 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         self.assertEqual("●", screen.matrix_table.item(2, 3).text())
         self.assertEqual("", screen.matrix_table.styleSheet())
 
-        with patch("gui.screens.matrix_screen.QTimer") as timer:
-            screen.on_output_cell_clicked(4, 3)
-        self.assertEqual(
-            [(1, 5)], self.parent_widget.matrix_handler.switches
-        )
-        timer.singleShot.assert_called_once()
+        intents = []
+        screen.routeRequested.connect(lambda output, input_: intents.append((output, input_)))
+        screen.on_output_cell_clicked(4, 3)
+        self.assertEqual([(1, 5)], intents)
+        self.assertEqual([], self.parent_widget.matrix_handler.switches)
 
     def test_pdu_updates_statuses_and_preserves_all_commands(self):
         from gui.components import SectionCard, StatusIndicator

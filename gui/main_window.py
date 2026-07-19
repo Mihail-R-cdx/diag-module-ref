@@ -11,6 +11,7 @@ import traceback
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
+from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
 from core.worker import (
@@ -192,13 +193,15 @@ class VCSDiagnosticApp(QMainWindow):
         self._credential_attempt_plans = {}
         self._dmp_context_revision = 0
         self._dmp_cancel_token = None
-        self.matrix_persistent_handler = None
-        self.matrix_persistent_ip = None
-        self.matrix_persistent_username = None
-        self.matrix_persistent_password = None
-        self.matrix_keepalive_timer = QTimer(self)
-        self.matrix_keepalive_timer.setInterval(15000)
-        self.matrix_keepalive_timer.timeout.connect(self.on_matrix_keepalive)
+        self._matrix_credential_context_revision = 0
+        self.matrix_controller = MatrixController(
+            context_provider=self._matrix_public_context,
+            credential_candidates_provider=self._matrix_credential_candidates,
+            credential_index_provider=self._matrix_credential_index,
+            credential_advance_provider=self._matrix_advance_credential_attempt,
+            credential_revision_provider=self._matrix_credential_revision,
+            parent=self,
+        )
         
         # Инициализация экранов
         self.screens = {}
@@ -472,6 +475,19 @@ class VCSDiagnosticApp(QMainWindow):
             "pdu": PDUScreen(self),
             "audio_dsp": AudioDSPScreen(self)
         }
+        matrix_screen = self.screens["matrix"]
+        matrix_screen.routeRequested.connect(self.matrix_controller.request_route)
+        matrix_screen.refreshRequested.connect(
+            self.matrix_controller.request_status_refresh
+        )
+        self.matrix_controller.resultAccepted.connect(self._on_matrix_result)
+        self.matrix_controller.errorAccepted.connect(self._on_matrix_error)
+        self.matrix_controller.progressAccepted.connect(self._on_matrix_progress)
+        self.matrix_controller.statusAccepted.connect(self._on_matrix_status)
+        self.matrix_controller.terminalAccepted.connect(self._on_matrix_terminal)
+        self.matrix_controller.finishedAccepted.connect(self._on_matrix_finished)
+        self.matrix_controller.routeAccepted.connect(self._on_matrix_route_accepted)
+        self.matrix_controller.routeError.connect(self._on_matrix_route_error)
     
     def create_update_time_panel(self):
         """Создание панели времени обновления"""
@@ -548,7 +564,54 @@ class VCSDiagnosticApp(QMainWindow):
             if hasattr(screen, "set_bulk_records_current"):
                 screen.set_bulk_records_current(False)
 
+    def _matrix_public_context(self):
+        return (
+            MATRIX_DEVICE_NAME,
+            self.ip_entry.text().strip() if hasattr(self, "ip_entry") else "",
+        )
+
+    def _matrix_credential_candidates(self, device_name, ip_address):
+        active_request = self.__dict__.get("_active_request") or {}
+        candidates = None
+        if active_request.get("device") == device_name:
+            candidates = getattr(self, "_active_request_credentials", None)
+        if candidates is None:
+            candidates = self.__dict__.get("device_credentials", {}).get(
+                device_name, []
+            )
+        return tuple(candidates or ())
+
+    def _matrix_credential_index(self, device_name, ip_address, candidates):
+        return self.get_valid_current_credential_index(
+            device_name, tuple(candidates or ()), ip_address
+        )
+
+    def _matrix_credential_revision(self):
+        return self.__dict__.get("_matrix_credential_context_revision", 0)
+
+    def _matrix_advance_credential_attempt(
+        self,
+        device_name,
+        ip_address,
+        candidates,
+        current_index,
+        operation_id,
+    ):
+        return self._advance_request_credential_attempt(
+            device_name,
+            tuple(candidates or ()),
+            ip_address,
+            current_index,
+            operation_id=operation_id,
+        )
+
     def _on_credential_configuration_changed(self, device_name=None):
+        if device_name in (None, MATRIX_DEVICE_NAME):
+            self._matrix_credential_context_revision = (
+                self.__dict__.get("_matrix_credential_context_revision", 0) + 1
+            )
+            if hasattr(self, "matrix_controller"):
+                self.matrix_controller.invalidate_context()
         self._invalidate_pdu_context()
         if not self._is_pdu_device(device_name):
             return
@@ -685,6 +748,47 @@ class VCSDiagnosticApp(QMainWindow):
             self.on_worker_finished(w, rid)
         )
 
+    def _matrix_request_id(self):
+        request = self.__dict__.get("_active_request") or {}
+        return request.get("id")
+
+    def _on_matrix_result(self, data, worker):
+        self.current_worker = worker
+        self.on_device_data_received(data, worker, self._matrix_request_id())
+
+    def _on_matrix_error(self, error, worker):
+        self.current_worker = worker
+        self.on_device_error(error, worker, self._matrix_request_id())
+
+    def _on_matrix_progress(self, progress, worker):
+        self.current_worker = worker
+        self.on_progress_update(progress, worker, self._matrix_request_id())
+
+    def _on_matrix_status(self, status, worker):
+        self.current_worker = worker
+        self.on_status_update(status, worker, self._matrix_request_id())
+
+    def _on_matrix_terminal(self, message, worker):
+        self.current_worker = worker
+        self.on_terminal_log(message)
+
+    def _on_matrix_finished(self, worker):
+        self.current_worker = worker
+        self.on_worker_finished(worker, self._matrix_request_id())
+
+    def _on_matrix_route_accepted(self, input_num):
+        matrix_screen = self.screens.get("matrix")
+        if matrix_screen is not None:
+            matrix_screen.current_connection = input_num
+            matrix_screen.update_connection_display()
+
+    def _on_matrix_route_error(self, message):
+        QMessageBox.warning(
+            self,
+            "Ошибка",
+            f"Не удалось переключить матрицу: {message}",
+        )
+
     def _fail_request_start(self, error):
         """Leave loading deterministically when worker construction fails."""
         self.hide_progress_dialog()
@@ -726,8 +830,8 @@ class VCSDiagnosticApp(QMainWindow):
             codec_screen.reset_volume_session()
         if codec_screen and hasattr(codec_screen, 'stop_te20_monitor_audio_polling'):
             codec_screen.stop_te20_monitor_audio_polling()
-        if device_name != "Extron IN1804":
-            self.disconnect_matrix_persistent_handler()
+        if device_name != MATRIX_DEVICE_NAME:
+            self.matrix_controller.invalidate_context()
 
         screen_type = self.device_to_screen.get(device_name, "codec")
         if screen_type == "codec" and codec_screen and hasattr(codec_screen, 'update_parameters_display'):
@@ -966,6 +1070,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.is_vcs_codec_device(device_name)
             or self._is_pcs4i_device(device_name)
             or self._is_dmp_device(device_name)
+            or device_name == MATRIX_DEVICE_NAME
         )
 
     def _is_structured_retry_authentication_error(self, device_name, error_type, error_message):
@@ -973,6 +1078,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.is_vcs_codec_device(device_name)
             or self._is_pcs4i_device(device_name)
             or self._is_dmp_device(device_name)
+            or device_name == MATRIX_DEVICE_NAME
         ):
             return error_type == CodecFailureCategory.AUTHENTICATION.value
         return self.is_authentication_error(error_type, error_message)
@@ -997,83 +1103,6 @@ class VCSDiagnosticApp(QMainWindow):
         if ip_address:
             self.device_connection_profiles[(device_name, ip_address)] = profile
 
-    def ensure_matrix_persistent_handler(self, ip_address=None, username=None, password=None, force_reconnect=False):
-        from handlers.extron.in1804 import ExtronIN1804Handler
-
-        creds = None
-        if username is None or password is None:
-            creds = self.get_current_matrix_credentials()
-            if not creds:
-                raise RuntimeError("Нет credentials для Extron IN1804")
-            username = creds.get('username', '')
-            password = creds.get('password', '')
-
-        if ip_address is None:
-            ip_address = self.ip_entry.text().strip()
-
-        same_connection = (
-            self.matrix_persistent_handler is not None and
-            self.matrix_persistent_ip == ip_address and
-            self.matrix_persistent_username == username and
-            self.matrix_persistent_password == password and
-            self.matrix_persistent_handler.is_connected()
-        )
-        if same_connection and not force_reconnect:
-            return self.matrix_persistent_handler
-
-        self.disconnect_matrix_persistent_handler()
-
-        handler = ExtronIN1804Handler(
-            ip_address=ip_address,
-            port=22023,
-            username=username,
-            password=password
-        )
-        handler.connect()
-
-        self.matrix_persistent_handler = handler
-        self.matrix_persistent_ip = ip_address
-        self.matrix_persistent_username = username
-        self.matrix_persistent_password = password
-        self.matrix_keepalive_timer.start()
-        print(f"Persistent Extron handler connected for {ip_address}")
-        return handler
-
-    def disconnect_matrix_persistent_handler(self):
-        if hasattr(self, 'matrix_keepalive_timer') and self.matrix_keepalive_timer.isActive():
-            self.matrix_keepalive_timer.stop()
-
-        if self.matrix_persistent_handler:
-            try:
-                self.matrix_persistent_handler.disconnect()
-            except Exception as e:
-                print(f"Error disconnecting persistent Extron handler: {e}")
-
-        self.matrix_persistent_handler = None
-        self.matrix_persistent_ip = None
-        self.matrix_persistent_username = None
-        self.matrix_persistent_password = None
-
-    @pyqtSlot()
-    def on_matrix_keepalive(self):
-        if not self.matrix_persistent_handler or not self.matrix_persistent_handler.is_connected():
-            self.disconnect_matrix_persistent_handler()
-            return
-
-        original_log_callback = self.matrix_persistent_handler.log_callback
-        try:
-            self.matrix_persistent_handler.log_callback = None
-            result = self.matrix_persistent_handler.send_command('w20STAT')
-            if not result or not result.get('success'):
-                raise RuntimeError(result.get('error', 'keepalive failed') if result else 'keepalive failed')
-        except Exception as e:
-            print(f"Matrix keepalive failed: {e}")
-            self.disconnect_matrix_persistent_handler()
-        finally:
-            if self.matrix_persistent_handler:
-                self.matrix_persistent_handler.log_callback = original_log_callback
-
-    
     def switch_screen(self, screen_type):
         """Переключение между экранами"""
         if screen_type in self.screens:
@@ -1200,9 +1229,6 @@ class VCSDiagnosticApp(QMainWindow):
         if not self.ensure_ping_success(ip_address):
             return
 
-        if device_name == "Extron IN1804":
-            self.disconnect_matrix_persistent_handler()
-        
         device_type = self.device_to_screen.get(device_name, "codec")
         
         # Определяем, какой экран нужно показывать после успешного обновления
@@ -1608,48 +1634,29 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Неверный IP адрес", "Введите корректный IP адрес.")
             return
         
-        # Получаем список credentials для Extron IN1804
         device_name = self.device_combo.currentText()
-        creds_list = self.device_credentials.get(device_name)
-        
-        # Создаем worker с текущими credentials
+        creds_list = getattr(self, "_active_request_credentials", None)
+        if creds_list is None:
+            creds_list = self.device_credentials.get(device_name)
+
         current_idx = self.get_valid_current_credential_index(
             device_name, creds_list, ip_address
         )
-        creds = creds_list[current_idx]
-        
-        
-        # Отключаем кнопку
+
         if hasattr(self, 'refresh_btn'):
             self.refresh_btn.setEnabled(False)
             self.refresh_btn.setText("Подключение...")
-        
-        # Показываем прогресс
+
         self.show_progress_dialog(f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})...")
         self.show_matrix_terminal(ip_address, current_idx + 1, len(creds_list), reset=(current_idx == 0))
-        
+
         try:
-            from core.worker import ExtronIN1804Worker
-            
-            self.current_worker = ExtronIN1804Worker(
-                ip_address=ip_address,
-                port=22023,
-                **creds,
+            self.matrix_controller.request_full_refresh(
+                ip_address,
+                creds_list,
+                current_idx,
             )
-            
-            # Сохраняем информацию для повторных попыток
-            self.current_worker.creds_list = creds_list
-            self.current_worker.current_idx = current_idx
-            self.current_worker.device_name = device_name
-            
-            # Подключаем сигналы
-            self._bind_worker(self.current_worker)
-            self.current_worker.signals.terminal_log.connect(self.on_terminal_log)
-            
-            # Запускаем
-            QThreadPool.globalInstance().start(self.current_worker)
-            print("Worker для Extron IN1804 запущен")
-            
+            print("MatrixController full refresh submitted")
         except Exception as e:
             print(f"Ошибка создания Worker: {e}")
             self._fail_request_start(e)
@@ -2481,6 +2488,7 @@ class VCSDiagnosticApp(QMainWindow):
         data = dict(data)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
+        data.pop('_matrix_credential_success_candidate', None)
         continuous_update = bool(data.pop('_continuous_update', False))
         if structured_outcome == 'error':
             self.on_device_error(
@@ -2539,18 +2547,6 @@ class VCSDiagnosticApp(QMainWindow):
                         data.get('ip_address', self.ip_entry.text())
                     )
                 print(f"Запомнен успешный credentials #{current_idx + 1} для {device_name}")
-                if device_name == "Extron IN1804":
-                    creds_list = getattr(worker, 'creds_list', [])
-                    if creds_list and current_idx < len(creds_list):
-                        creds = creds_list[current_idx]
-                        try:
-                            self.ensure_matrix_persistent_handler(
-                                ip_address=data.get('ip_address', self.ip_entry.text()),
-                                username=creds.get('username', ''),
-                                password=creds.get('password', '')
-                            )
-                        except Exception as e:
-                            print(f"Failed to establish persistent Extron handler: {e}")
         
         # Обновляем данные на текущем экране
         current_screen = (self._active_request or {}).get("screen")
@@ -2634,6 +2630,15 @@ class VCSDiagnosticApp(QMainWindow):
         error = error_info[1]
         traceback_text = error_info[2] if len(error_info) > 2 else ""
         creds_list = getattr(worker, 'creds_list', []) if worker else []
+        if (
+            worker
+            and getattr(worker, 'device_name', None) == MATRIX_DEVICE_NAME
+            and not creds_list
+        ):
+            creds_list = self._matrix_credential_candidates(
+                MATRIX_DEVICE_NAME,
+                getattr(worker, 'ip_address', None),
+            )
         error = redact_exception(
             error,
             VCSDiagnosticApp._credential_secrets(creds_list),
@@ -3629,7 +3634,7 @@ class VCSDiagnosticApp(QMainWindow):
             codec_screen.shutdown_interactive_controller()
         elif codec_screen and hasattr(codec_screen, "reset_volume_session"):
             codec_screen.reset_volume_session()
-        self.disconnect_matrix_persistent_handler()
+        self.matrix_controller.shutdown()
         app = QApplication.instance()
         if app is not None:
             app.removeEventFilter(self)

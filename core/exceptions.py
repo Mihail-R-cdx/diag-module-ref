@@ -22,6 +22,37 @@ class AuthenticationError(DeviceError):
     pass
 
 
+class MatrixAuthenticationError(AuthenticationError):
+    """Structured Matrix authentication failure.
+
+    The exception type alone is not retry authority. Matrix credential fallback
+    may only use instances whose metadata confirms device-side rejection while
+    the operation is still at a safe fallback point.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        confirmed_device_rejection: bool = False,
+        safe_for_credential_fallback: bool = False,
+    ):
+        super().__init__(message)
+        self.confirmed_device_rejection = confirmed_device_rejection
+        self.safe_for_credential_fallback = safe_for_credential_fallback
+
+
+class MatrixAuthenticationPreconditionError(MatrixAuthenticationError):
+    """Local Matrix credential/configuration failure before device rejection."""
+
+    def __init__(self, message: str):
+        super().__init__(
+            message,
+            confirmed_device_rejection=False,
+            safe_for_credential_fallback=False,
+        )
+
+
 class CredentialRequired(DeviceError):
     """The device requested a credential, but none was assigned for this attempt."""
     pass
@@ -77,6 +108,40 @@ class CodecFailureCategory(str, Enum):
     PROTOCOL = "protocol_error"
     COMMAND = "command_error"
     UNKNOWN_COMMAND_OUTCOME = "unknown_command_outcome"
+
+
+class MatrixFailureCategory(str, Enum):
+    """Stable Matrix retry authority derived from typed outcomes."""
+
+    AUTHENTICATION = "authentication_error"
+    CONNECTION = "connection_error"
+    PROTOCOL = "protocol_error"
+    COMMAND = "command_error"
+    UNKNOWN_COMMAND_OUTCOME = "unknown_command_outcome"
+
+
+def is_confirmed_matrix_credential_rejection(error: BaseException) -> bool:
+    """Return True only for explicit, safe Matrix credential rejection."""
+
+    return (
+        isinstance(error, MatrixAuthenticationError)
+        and bool(error.confirmed_device_rejection)
+        and bool(error.safe_for_credential_fallback)
+    )
+
+
+def classify_matrix_failure(error: BaseException) -> MatrixFailureCategory:
+    """Classify Matrix failures without inspecting human-readable text."""
+
+    if is_confirmed_matrix_credential_rejection(error):
+        return MatrixFailureCategory.AUTHENTICATION
+    if isinstance(error, CommandOutcomeUnknownError):
+        return MatrixFailureCategory.UNKNOWN_COMMAND_OUTCOME
+    if isinstance(error, CommandError):
+        return MatrixFailureCategory.COMMAND
+    if isinstance(error, (ProtocolError, ParseError)):
+        return MatrixFailureCategory.PROTOCOL
+    return MatrixFailureCategory.CONNECTION
 
 
 def classify_codec_failure(error: BaseException) -> CodecFailureCategory:

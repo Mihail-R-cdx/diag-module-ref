@@ -5,7 +5,12 @@ import socket
 import time
 import paramiko
 
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    ConnectionError,
+    MatrixAuthenticationError,
+    MatrixAuthenticationPreconditionError,
+)
 
 
 class ProtocolHandler(ABC):
@@ -135,7 +140,9 @@ class BaseExtronMatrixHandler(ProtocolHandler):
     def connect(self) -> bool:
         """Установка TCP соединения с матрицей и аутентификация"""
         if not self.username or not self.password:
-            raise AuthenticationError("Credentials are required before connecting to Extron.")
+            raise MatrixAuthenticationPreconditionError(
+                "Credentials are required before connecting to Extron."
+            )
         errors = []
 
         for attempt in self._build_connection_attempts():
@@ -166,7 +173,11 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                         )
                     else:
                         if not self._authenticate(initial_response):
-                            raise AuthenticationError("Authentication failed")
+                            raise MatrixAuthenticationError(
+                                "Authentication failed",
+                                confirmed_device_rejection=True,
+                                safe_for_credential_fallback=True,
+                            )
 
                 self._connected = True
                 self.authenticated = True
@@ -174,16 +185,26 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 self._emit_log(f"[connect] connected via {self.connection_protocol}")
                 return True
             except Exception as e:
-                errors.append(f"{attempt_name}: {e}")
+                errors.append({
+                    "attempt": attempt_name,
+                    "error": e,
+                })
                 print(f"Connection attempt failed ({attempt_name}): {e}")
                 self._emit_log(f"[error] {attempt_name}: {e}")
 
         self.disconnect()
 
-        auth_errors = [message for message in errors if 'auth' in message.lower() or 'login' in message.lower() or 'password' in message.lower()]
-        if auth_errors:
-            raise AuthenticationError("; ".join(auth_errors))
-        raise ConnectionError(f"Failed to connect to Extron matrix: {'; '.join(errors)}")
+        last_error = errors[-1]["error"] if errors else None
+        if (
+            isinstance(last_error, MatrixAuthenticationError)
+            and last_error.confirmed_device_rejection
+            and last_error.safe_for_credential_fallback
+        ):
+            raise last_error
+        details = "; ".join(
+            f"{item['attempt']}: {item['error']}" for item in errors
+        )
+        raise ConnectionError(f"Failed to connect to Extron matrix: {details}")
 
     def _build_connection_attempts(self):
         attempts = [
@@ -242,9 +263,13 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
     def _connect_via_ssh(self, port: int, protocol_label: str) -> None:
         if not self.username:
-            raise AuthenticationError("Username required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Username required for Extron authentication"
+            )
         if self.password is None:
-            raise AuthenticationError("Password required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Password required for Extron authentication"
+            )
 
         try:
             self.ssh_client = paramiko.SSHClient()
@@ -270,7 +295,11 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             if b'this service allows sftp connections only' in lowered_prompt:
                 raise ConnectionError("SSH service is SFTP-only and does not provide CLI access")
         except paramiko.AuthenticationException as e:
-            raise AuthenticationError(f"SSH authentication failed: {e}")
+            raise MatrixAuthenticationError(
+                f"SSH authentication failed: {e}",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
         except paramiko.SSHException as e:
             raise ConnectionError(f"SSH connection failed: {e}")
 
@@ -280,9 +309,13 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             return True
 
         if not self.username:
-            raise AuthenticationError("Username required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Username required for Extron authentication"
+            )
         if self.password is None:
-            raise AuthenticationError("Password required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Password required for Extron authentication"
+            )
 
         login_prompt = initial_response or self._read_until_patterns(
             [b'login as:', b'password:', b'>', b']'],
@@ -329,9 +362,15 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             self._emit_log(f"[recv] {self._format_bytes(password_prompt)}")
         lowered_password_prompt = password_prompt.lower()
         if b'login incorrect' in lowered_password_prompt:
-            raise AuthenticationError("Invalid username")
+            raise MatrixAuthenticationError(
+                "Invalid username",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
         if b'password:' not in lowered_password_prompt and b'>' not in lowered_password_prompt and b']' not in lowered_password_prompt:
-            raise AuthenticationError("Device did not request password")
+            raise MatrixAuthenticationPreconditionError(
+                "Device did not request password"
+            )
 
         print("Sending password...")
         self._emit_log("[send] <password>")
@@ -347,9 +386,17 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         lowered_final_response = final_response.lower()
 
         if b'login incorrect' in lowered_final_response:
-            raise AuthenticationError("Invalid password")
+            raise MatrixAuthenticationError(
+                "Invalid password",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
         if b'password:' in lowered_final_response or b'login as:' in lowered_final_response:
-            raise AuthenticationError("Authentication prompts repeated after password")
+            raise MatrixAuthenticationError(
+                "Authentication prompts repeated after password",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
 
         print("Authentication successful")
         return True
