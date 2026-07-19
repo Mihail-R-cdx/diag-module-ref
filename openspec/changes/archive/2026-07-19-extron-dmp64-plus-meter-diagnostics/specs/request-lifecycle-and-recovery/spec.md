@@ -70,6 +70,27 @@ controls belonging to the new context.
 - **THEN** it uses an application-owned thread-safe validity mechanism
 - **AND** it does not read Qt widget properties as the authoritative source
 
+#### Scenario: Stale bulk completion arrives after a newer context
+- **WHEN** a prior bulk PDU sequence emits result, error, or completion after the operator has changed PDU context
+- **THEN** the prior callback does not change the current outlet table, dialogs, locked controls, credential memory, or refresh state
+
+#### Scenario: Context switch while bulk active
+- **GIVEN** Aten bulk is active and its controls are locked
+- **WHEN** operator switches to a new PCS4i context
+- **THEN** the new context does not inherit the old bulk lock
+- **AND** old Aten callbacks cannot change the PCS4i control state
+
+#### Scenario: Stale completion cannot unlock new active bulk
+- **GIVEN** old context bulk becomes stale
+- **AND** a new context starts its own bulk operation
+- **WHEN** old bulk completion arrives
+- **THEN** it does not unlock controls owned by the new bulk operation
+
+#### Scenario: Worker does not inspect widgets for bulk staleness
+- **WHEN** a background bulk PDU worker checks whether the sequence or next outlet is still current
+- **THEN** it uses an application-owned non-GUI validity mechanism
+- **AND** it does not read Qt widget properties as authoritative context
+
 #### Scenario: Stale DMP snapshot arrives after context change
 - **WHEN** an old DMP polling session emits a meter snapshot after model, IP, screen, or credential context changed
 - **THEN** the old snapshot does not update `AudioDSPScreen`
