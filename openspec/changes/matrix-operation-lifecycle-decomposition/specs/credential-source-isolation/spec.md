@@ -19,6 +19,32 @@ text, localized authentication words, `auth`, `401`, `403`, timeout text,
 connection text, malformed payloads, or generic failures SHALL NOT authorize
 credential advancement.
 
+`ExtronIN1804Worker` and any new Matrix background operation SHALL classify
+authentication failure only from structured exception type or structured
+outcome. They SHALL NOT search exception text for `auth`, `authentication`,
+`login`, `password`, `401`, `403`, or similar strings. They SHALL NOT convert
+generic connection, timeout, transport, negotiation, protocol, malformed
+response, or command failures into authentication failures based on message
+text.
+
+`BaseExtronMatrixHandler.connect()` or Matrix-specific replacement connection
+logic SHALL preserve a structured failure category for each transport attempt.
+It SHALL NOT determine final authentication classification by searching
+aggregated exception strings for authentication-like words. Transport fallback
+attempts within one Matrix connection operation SHALL use the same assigned
+credential candidate. The handler and worker SHALL NOT select, inspect, or
+advance to another credential candidate during transport fallback.
+
+The final Matrix connection outcome SHALL be a structured confirmed
+authentication failure only when structured failure semantics unambiguously
+prove that the assigned credential was rejected by the device on a supported
+authentication path. Timeout, connection refusal, socket failure,
+SSH/Telnet negotiation failure, unsupported service, malformed protocol
+response, and other transport/protocol failures SHALL remain non-authentication
+failures. A mixed transport sequence containing ambiguous authentication and
+non-authentication failures SHALL NOT authorize credential fallback unless the
+final structured outcome is an unambiguous confirmed authentication rejection.
+
 For Matrix route mutation, credential fallback SHALL be forbidden after the
 state-changing route command was invoked, may have been delivered, or has an
 ambiguous outcome.
@@ -63,9 +89,46 @@ Matrix successful credential memory SHALL have these gates:
 - **AND** another unattempted candidate remains
 - **THEN** the application-owned credential policy may start the next candidate
 
+#### Scenario: Real structured authentication failure may advance
+- **WHEN** the Matrix handler reports a real structured `AuthenticationError`
+- **AND** no state-changing route command could have been sent
+- **THEN** the application may consider the next credential candidate
+
 #### Scenario: Matrix text does not advance credentials
 - **WHEN** a Matrix failure contains text such as `auth`, `401`, or `403` but is not classified as a structured confirmed authentication failure
 - **THEN** the application does not advance to another credential candidate
+
+#### Scenario: Authentication word in connection error is non-authentication
+- **WHEN** a Matrix connection or transport failure message contains the word `authentication`
+- **AND** the failure is not a structured confirmed `AuthenticationError`
+- **THEN** the outcome remains non-authentication
+- **AND** credential fallback is not authorized
+
+#### Scenario: Authentication-like generic text does not classify auth
+- **WHEN** generic Matrix exception text contains `auth`, `authentication`, `login`, `password`, `401`, or `403`
+- **AND** no structured confirmed authentication failure was produced
+- **THEN** the worker and application do not classify it as authentication failure
+- **AND** the assigned credential candidate does not change
+
+#### Scenario: Timeout remains transport failure
+- **WHEN** a Matrix transport attempt ends with timeout
+- **THEN** the outcome remains a non-authentication transport failure
+- **AND** credential fallback is not authorized
+
+#### Scenario: Connection and protocol failures remain non-authentication
+- **WHEN** a Matrix transport attempt ends with connection refusal, socket failure, SSH/Telnet negotiation failure, unsupported service, or malformed protocol response
+- **THEN** the outcome remains non-authentication
+- **AND** credential fallback is not authorized from message text
+
+#### Scenario: Same credential across Matrix transport fallback
+- **WHEN** the Matrix handler tries multiple supported transport attempts for one connection operation
+- **THEN** every attempt uses the same assigned credential candidate
+- **AND** the handler and worker do not advance to another candidate during the transport sequence
+
+#### Scenario: Mixed transport outcomes are conservative
+- **WHEN** a Matrix transport sequence contains a mix of structured authentication-related and non-authentication failures
+- **AND** the final outcome is not an unambiguous structured confirmed authentication rejection
+- **THEN** credential fallback is not authorized
 
 #### Scenario: Credential revision participates in session identity
 - **WHEN** Matrix credential configuration changes while the selected candidate index remains the same

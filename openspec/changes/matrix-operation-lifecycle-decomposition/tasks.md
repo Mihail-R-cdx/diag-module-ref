@@ -35,51 +35,66 @@
 - [ ] 4.4 Permit credential fallback only before any possible route command send and only after structured confirmed authentication failure.
 - [ ] 4.5 Emit structured route result/error/finished callbacks carrying Matrix context identity.
 
-## 5. Refresh lifecycle
+## 5. Structured Matrix authentication classification
 
-- [ ] 5.1 Keep initial Matrix refresh on the existing focused worker/background boundary.
-- [ ] 5.2 Bind Matrix refresh callbacks to Matrix controller context rather than widget state.
-- [ ] 5.3 Add quick/status refresh after successful route mutation as a read-only background operation.
-- [ ] 5.4 Bind refresh-after-mutation to the original Matrix context and drop it if the context changes.
-- [ ] 5.5 Preserve terminal/status redaction and current user-visible refresh behavior.
+- [ ] 5.1 Replace text-based authentication classification in `ExtronIN1804Worker` with structured exception/outcome classification.
+- [ ] 5.2 Remove final authentication classification in `BaseExtronMatrixHandler.connect()` that searches aggregated exception strings for `auth`, `login`, `password`, `authentication`, `401`, `403`, or similar text.
+- [ ] 5.3 Preserve structured failure category for each Matrix transport attempt in the connection sequence.
+- [ ] 5.4 Keep one assigned credential candidate across all transport fallback attempts in one Matrix connection operation.
+- [ ] 5.5 Define conservative mixed-outcome handling: mixed or ambiguous auth/non-auth transport outcomes do not authorize credential fallback unless the final structured outcome is an unambiguous confirmed authentication rejection.
+- [ ] 5.6 Ensure Matrix handler and worker do not perform credential iteration, candidate advancement, wrap-around, or successful-index persistence.
+- [ ] 5.7 Ensure application credential fallback receives authority only from a structured confirmed Matrix authentication outcome.
+- [ ] 5.8 If implementation changes shared `BaseExtronMatrixHandler`, add regression coverage proving other Extron Matrix users of that base handler keep compatible non-Matrix behavior.
 
-## 6. Session/context ownership
+## 6. Refresh lifecycle
 
-- [ ] 6.1 Retain one persistent Matrix handler/session owned by MatrixController for the active Matrix context.
-- [ ] 6.2 Define persistent handler reuse predicate: model, IP, protocol/port, credential context revision, candidate index, and local connected state must match.
-- [ ] 6.3 Prevent cross-context session reuse after model, IP, credential configuration revision change, credential fallback, explicit reconnect, session failure, screen destruction, or application close.
-- [ ] 6.4 Serialize all access to the one persistent Matrix handler; overlapping route, refresh, quick/status refresh, and keepalive operations must not invoke it concurrently.
-- [ ] 6.5 Run blocking session acquisition, route mutation, refresh, keepalive/liveness checks, and cleanup on the owning background lane.
-- [ ] 6.6 Make cleanup idempotent and stale-safe so old cleanup cannot close the newer context's session.
-- [ ] 6.7 Add coverage for credential configuration changing while candidate index remains the same and invalidating the existing Matrix persistent session.
+- [ ] 6.1 Keep initial Matrix refresh on the existing focused worker/background boundary.
+- [ ] 6.2 Bind Matrix refresh callbacks to Matrix controller context rather than widget state.
+- [ ] 6.3 Add quick/status refresh after successful route mutation as a read-only background operation.
+- [ ] 6.4 Bind refresh-after-mutation to the original Matrix context and drop it if the context changes.
+- [ ] 6.5 Preserve terminal/status redaction and current user-visible refresh behavior.
 
-## 7. Stale callback coverage
+## 7. Session/context ownership
 
-- [ ] 7.1 Add tests where stale Matrix result arrives after model/IP/context change.
-- [ ] 7.2 Add tests where stale Matrix error arrives after model/IP/context change.
-- [ ] 7.3 Add tests where stale Matrix finished arrives while a newer Matrix operation is active.
-- [ ] 7.4 Add tests where stale Matrix progress/status/terminal events cannot update the newer context.
-- [ ] 7.5 Add tests where stale route follow-up refresh cannot update a newer Matrix context.
-- [ ] 7.6 Add tests where stale callbacks cannot save credential memory or reset handler/session ownership for the newer context.
+- [ ] 7.1 Retain one persistent Matrix handler/session owned by MatrixController for the active Matrix context.
+- [ ] 7.2 Define persistent handler reuse predicate: model, IP, protocol/port, credential context revision, candidate index, and local connected state must match.
+- [ ] 7.3 Prevent cross-context session reuse after model, IP, credential configuration revision change, credential fallback, explicit reconnect, session failure, screen destruction, or application close.
+- [ ] 7.4 Serialize all access to the one persistent Matrix handler; overlapping route, refresh, quick/status refresh, and keepalive operations must not invoke it concurrently.
+- [ ] 7.5 Run blocking session acquisition, route mutation, refresh, keepalive/liveness checks, and cleanup on the owning background lane.
+- [ ] 7.6 Make cleanup idempotent and stale-safe so old cleanup cannot close the newer context's session.
+- [ ] 7.7 Add coverage for credential configuration changing while candidate index remains the same and invalidating the existing Matrix persistent session.
 
-## 8. Regression tests
+## 8. Stale callback coverage
 
-- [ ] 8.1 Add focused tests proving Matrix route mutation does not execute in the GUI thread.
-- [ ] 8.2 Add focused tests proving Matrix refresh and quick/status refresh do not execute in the GUI thread.
-- [ ] 8.3 Add focused tests for application-owned Matrix credential fallback and no handler/worker candidate iteration.
-- [ ] 8.4 Add focused tests for no cross-context session reuse.
-- [ ] 8.5 Add focused tests proving full Matrix refresh success may cache the assigned credential index.
-- [ ] 8.6 Add focused tests proving session acquisition alone does not cache credential memory.
-- [ ] 8.7 Add focused tests proving successful route mutation and route reconciliation do not cache credential memory.
-- [ ] 8.8 Add focused tests proving stale Matrix success does not cache credential memory.
-- [ ] 8.9 Add regression tests for existing Matrix rendering and successful route behavior.
-- [ ] 8.10 Run the relevant existing Matrix, worker, credential, and GUI tests.
+- [ ] 8.1 Add tests where stale Matrix result arrives after model/IP/context change.
+- [ ] 8.2 Add tests where stale Matrix error arrives after model/IP/context change.
+- [ ] 8.3 Add tests where stale Matrix finished arrives while a newer Matrix operation is active.
+- [ ] 8.4 Add tests where stale Matrix progress/status/terminal events cannot update the newer context.
+- [ ] 8.5 Add tests where stale route follow-up refresh cannot update a newer Matrix context.
+- [ ] 8.6 Add tests where stale callbacks cannot save credential memory or reset handler/session ownership for the newer context.
 
-## 9. Validation
+## 9. Regression tests
 
-- [ ] 9.1 Run focused regression tests added or affected by the Matrix lifecycle extraction.
-- [ ] 9.2 Run `python -m unittest discover -s tests -p "test_*.py"` unless the implementation session documents why production/tests were untouched.
-- [ ] 9.3 Run `.\openspec.cmd validate matrix-operation-lifecycle-decomposition --strict`.
-- [ ] 9.4 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 9.5 Run `git diff --check`.
-- [ ] 9.6 Confirm no unrelated PDU, DMP, codec, SIP, generic credential, worker facade, or handler protocol behavior changed.
+- [ ] 9.1 Add focused tests proving Matrix route mutation does not execute in the GUI thread.
+- [ ] 9.2 Add focused tests proving Matrix refresh and quick/status refresh do not execute in the GUI thread.
+- [ ] 9.3 Add focused tests for application-owned Matrix credential fallback and no handler/worker candidate iteration.
+- [ ] 9.4 Add focused tests for no cross-context session reuse.
+- [ ] 9.5 Add focused tests proving full Matrix refresh success may cache the assigned credential index.
+- [ ] 9.6 Add focused tests proving session acquisition alone does not cache credential memory.
+- [ ] 9.7 Add focused tests proving successful route mutation and route reconciliation do not cache credential memory.
+- [ ] 9.8 Add focused tests proving stale Matrix success does not cache credential memory.
+- [ ] 9.9 Add focused tests proving generic connection text containing `auth`, `authentication`, `login`, `password`, `401`, or `403` does not authorize Matrix credential fallback.
+- [ ] 9.10 Add focused tests proving timeout, connection refusal, socket failure, SSH/Telnet negotiation failure, unsupported service, and malformed protocol response remain non-authentication Matrix outcomes.
+- [ ] 9.11 Add focused tests proving Matrix transport fallback keeps the same assigned credential candidate across all attempts.
+- [ ] 9.12 Add focused tests proving mixed Matrix transport outcomes use conservative no-credential-fallback classification unless final structured outcome is unambiguous authentication rejection.
+- [ ] 9.13 Add regression tests for existing Matrix rendering and successful route behavior.
+- [ ] 9.14 Run the relevant existing Matrix, worker, credential, and GUI tests.
+
+## 10. Validation
+
+- [ ] 10.1 Run focused regression tests added or affected by the Matrix lifecycle extraction.
+- [ ] 10.2 Run `python -m unittest discover -s tests -p "test_*.py"` unless the implementation session documents why production/tests were untouched.
+- [ ] 10.3 Run `.\openspec.cmd validate matrix-operation-lifecycle-decomposition --strict`.
+- [ ] 10.4 Run `.\openspec.cmd validate --all --strict`.
+- [ ] 10.5 Run `git diff --check`.
+- [ ] 10.6 Confirm no unrelated PDU, DMP, codec, SIP, generic credential, worker facade, or handler protocol behavior changed.

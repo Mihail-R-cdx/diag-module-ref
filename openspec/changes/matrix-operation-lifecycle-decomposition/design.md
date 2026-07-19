@@ -317,6 +317,70 @@ Matrix credential-success gates are intentionally narrow:
   independent credential-memory semantic;
 - stale success never updates credential memory.
 
+## Structured Matrix Authentication Classification
+
+Current technical debt:
+
+- `ExtronIN1804Worker` currently maps a generic exception to
+  `authentication_error` by checking whether the redacted error message
+  contains `"authentication"`.
+- `BaseExtronMatrixHandler.connect()` currently stores transport-attempt
+  failures as strings and later searches the aggregated strings for words such
+  as `auth`, `login`, or `password` before raising `AuthenticationError`.
+
+Both legacy paths must be removed during implementation of this change. The
+future Matrix lifecycle must preserve structured failure categories end to end.
+
+The structured authentication outcome is formed at typed failure boundaries:
+
+- handler authentication phases raise or return a structured
+  `AuthenticationError` only when the assigned credential was confirmed
+  rejected by the device on a supported authentication path;
+- handler connection, timeout, negotiation, unsupported service, malformed
+  protocol, and command/protocol failures keep non-authentication categories;
+- Matrix workers and Matrix background operations may translate a caught
+  structured `AuthenticationError` into a structured worker/application
+  authentication category;
+- Matrix workers and background operations must not search exception text for
+  `auth`, `authentication`, `login`, `password`, `401`, `403`, or similar
+  strings and must not convert generic transport/protocol failures into
+  authentication failures based on message text.
+
+Transport fallback and credential fallback remain separate. A Matrix
+connection operation may try multiple supported transport/profile attempts, but
+every attempt uses the same assigned credential candidate. The handler does not
+select another credential, the worker does not select another credential, and
+transport fallback never advances the credential candidate index.
+
+For a sequence of Matrix transport attempts, the handler or replacement
+connection logic must preserve structured category for each attempt. Conceptual
+shape:
+
+```text
+attempt 1 -> structured AuthenticationError
+attempt 2 -> structured ConnectionError
+attempt 3 -> structured ProtocolError
+```
+
+The final Matrix connection outcome is classified conservatively:
+
+- confirmed authentication failure: only when structured failure semantics
+  unambiguously prove the assigned credential was rejected by the device on a
+  supported authentication path;
+- transport/connection/protocol failure: timeout, connection refusal,
+  SSH/Telnet negotiation failure, unsupported service, malformed protocol
+  response, and other non-authentication failures stay non-authentication even
+  when their message text contains authentication-like words;
+- mixed outcomes: an ambiguous mixture of authentication and non-authentication
+  transport failures does not authorize credential fallback unless the final
+  structured outcome is an unambiguous confirmed authentication rejection.
+
+The application-owned credential fallback policy may consider the next
+candidate only after it receives that final structured confirmed authentication
+outcome. There is no compatibility shortcut where any error string containing
+`auth`, `authentication`, `login`, `password`, `401`, or `403` authorizes
+credential fallback.
+
 ## State-Changing Route Mutation Safety
 
 Matrix route mutation is a state-changing command. A route operation must not
