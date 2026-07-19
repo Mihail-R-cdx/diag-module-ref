@@ -4,6 +4,9 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGridLayout,
     QHeaderView,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
     QScrollArea,
     QTableWidget,
     QTableWidgetItem,
@@ -85,6 +88,11 @@ class AudioDSPScreen(BaseScreen):
         self.ip_row.set_state("normal")
         self._clear_sources()
 
+        meter_sections = data.get("meter_sections") or []
+        if meter_sections:
+            self._render_meter_sections(meter_sections)
+            return
+
         signal_sources = data.get("signal_sources") or []
         if not signal_sources:
             self.empty_state = EmptyState(
@@ -118,6 +126,64 @@ class AudioDSPScreen(BaseScreen):
 
         self.sources_layout.setColumnStretch(0, 1)
         self.sources_layout.setColumnStretch(1, 1)
+
+    def _render_meter_sections(self, meter_sections):
+        section_index = 0
+        for section in meter_sections:
+            if not isinstance(section, dict):
+                continue
+            title = section.get("title") or "Meters"
+            channels = section.get("channels") or []
+            card = SectionCard(str(title), "∿", self.sources_container)
+            card.setObjectName("dmpMeterSectionCard")
+            for channel in channels:
+                if isinstance(channel, dict):
+                    card.add_widget(self._create_meter_row(card, channel))
+            self.sources_layout.addWidget(card, section_index, 0, 1, 2)
+            self.source_cards.append(card)
+            section_index += 1
+        self.sources_layout.setColumnStretch(0, 1)
+        self.sources_layout.setColumnStretch(1, 1)
+
+    def _create_meter_row(self, parent, channel):
+        row = QWidget(parent)
+        row.setObjectName("dmpMeterRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, SPACING["xs"], 0, SPACING["xs"])
+        layout.setSpacing(SPACING["sm"])
+
+        label = QLabel(str(channel.get("name") or channel.get("oid") or "Meter"), row)
+        label.setObjectName("dmpMeterLabel")
+        label.setMinimumWidth(92)
+
+        bar = QProgressBar(row)
+        bar.setObjectName("dmpMeterBar")
+        bar.setTextVisible(False)
+        bar.setRange(0, 1000)
+        bar.setProperty("available", bool(channel.get("available")))
+        normalized = channel.get("normalized")
+        if channel.get("available") and normalized is not None:
+            bar.setValue(int(max(0.0, min(1.0, float(normalized))) * 1000))
+        else:
+            bar.setValue(0)
+        bar.setStyleSheet(
+            """
+            QProgressBar#dmpMeterBar {
+                min-height: 14px;
+                border: 1px solid #2D2D2D;
+                border-radius: 4px;
+                background: #141414;
+            }
+            QProgressBar#dmpMeterBar::chunk {
+                border-radius: 3px;
+                background-color: #22C55E;
+            }
+            """
+        )
+
+        layout.addWidget(label)
+        layout.addWidget(bar, 1)
+        return row
 
     def _create_source_table(self, parent, rows):
         table = QTableWidget(len(rows), 2, parent)

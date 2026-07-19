@@ -15,6 +15,7 @@ class ProtocolFactory:
         'huawei_bar310': ('handlers.huawei.bar310', 'CloudLinkBar310Handler'), 
         'polycom_rpg310': ('handlers.polycom.rpg310', 'PolycomRPG310Handler'),
         'extron_in1804': ('handlers.extron.in1804', 'ExtronIN1804Handler'),
+        'extron_dmp64_plus': ('handlers.extron.dmp64_plus', 'ExtronDMP64PlusHandler'),
         'aten_pdu': ('handlers.aten.pdu', 'AtenPDUHandler'),
         'biamp_tesira_forte_ci': ('handlers.biamp.tesira_forte_ci', 'BiampTesiraForteCIHandler'),
     }
