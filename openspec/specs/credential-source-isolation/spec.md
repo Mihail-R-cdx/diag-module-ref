@@ -166,7 +166,10 @@ candidate indexes without wrap-around. Each worker instance SHALL use only its
 assigned candidate, SHALL NOT change the credential index, and SHALL emit at
 most one terminal result or error. PCS4i workers and handlers SHALL follow this
 same ownership model; repeating the same assigned password for a second PCS4i
-prompt is not credential fallback.
+prompt is not credential fallback. Worker module decomposition SHALL NOT move
+credential candidate selection, credential fallback, or successful credential
+index memory into focused worker modules, handlers, or the `core.worker`
+facade, including for `ExtronDMP64PlusMeterWorker`.
 
 #### Scenario: Legacy provider is used
 - **WHEN** a provider implements only the existing one-candidate method
@@ -254,6 +257,11 @@ prompt is not credential fallback.
 - **WHEN** PCS4i returns a new `Password` marker after the assigned password was sent once
 - **THEN** the handler sends the same assigned password exactly one additional time
 - **AND** it does not choose a different credential candidate
+
+#### Scenario: Decomposed worker cannot become credential owner
+- **WHEN** a worker implementation moves from `core/worker.py` into a focused module
+- **THEN** the worker still receives only its assigned credential candidate
+- **AND** the move does not introduce provider reads, credential iteration, candidate advancement, wrap-around, or successful-index persistence inside the worker module
 
 ### Requirement: Safe candidate observability and provider isolation
 Workers and handlers SHALL receive resolved credential values through existing
