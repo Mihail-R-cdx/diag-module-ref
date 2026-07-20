@@ -184,6 +184,64 @@ class MatrixHandlerSecurityTests(unittest.TestCase):
         self.assertEqual([1], connections)
         self.assertEqual([b"!\r", b"!\r"], sent)
 
+    def test_route_echo_only_response_is_unknown_outcome(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        handler.model = "IN1804"
+        sent = []
+        handler._send_bytes = sent.append
+        handler._read_response = lambda: b"3*1!\r\n"
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            with self.assertRaises(CommandOutcomeUnknownError):
+                handler.set_connection(1, 3)
+
+        self.assertEqual([b"3*1!\r"], sent)
+
+    def test_read_only_echo_only_response_is_not_success(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        sent = []
+        handler._send_bytes = sent.append
+        handler._read_response = lambda: b"!\r\n"
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            with self.assertRaises(ConnectionError):
+                handler.get_connections()
+
+        self.assertEqual([b"!\r"], sent)
+
+    def test_read_only_echo_plus_payload_is_success(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        sent = []
+        handler._send_bytes = sent.append
+        handler._read_response = lambda: b"!\r\nIn1 All\r\n"
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            connections = handler.get_connections()
+
+        self.assertEqual([1], connections)
+        self.assertEqual([b"!\r"], sent)
+
 
 if __name__ == "__main__":
     unittest.main()

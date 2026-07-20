@@ -484,6 +484,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 response_text = str(response_bytes)
 
             response_text = self._strip_command_echo(command, response_text)
+            if self.strict_session_failures and response_required and not response_text:
+                if replay_safe:
+                    raise ConnectionError(
+                        "No authoritative response received for Extron matrix command"
+                    )
+                raise CommandOutcomeUnknownError(
+                    "No authoritative response received after Matrix route command send"
+                )
 
             return {
                 'success': True,
