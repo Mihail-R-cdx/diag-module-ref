@@ -7,7 +7,7 @@ import textwrap
 import unittest
 from unittest.mock import patch
 
-from core.exceptions import AuthenticationError
+from core.exceptions import AuthenticationError, MatrixAuthenticationError
 from core.te20_worker import HuaweiTE20Worker
 from core.worker import (
     AtenPDUWorker,
@@ -409,10 +409,73 @@ class ExtronIN1804WorkerRuntimeTests(unittest.TestCase):
         self.assertEqual([], results)
         self.assertEqual([True], finished)
         self.assertEqual(1, len(errors))
-        self.assertEqual("ExtronIN1804Error", errors[0][0])
+        self.assertEqual("connection_error", errors[0][0])
         self.assertEqual(3, len(errors[0]))
         self.assertNotIn(CURRENT_PASSWORD, repr(errors) + "".join(terminal))
         self.assertEqual(["handler_init", "connect", "disconnect"], events)
+
+    def test_generic_authentication_text_is_not_matrix_retry_authority(self):
+        cases = [
+            RuntimeError("transport auth 401 403 login password authentication"),
+            AuthenticationError("legacy AuthenticationError without metadata"),
+        ]
+        for error in cases:
+            with self.subTest(error=type(error).__name__):
+                events = []
+
+                class Handler:
+                    def __init__(self, **_kwargs):
+                        events.append("handler_init")
+                        self.log_callback = None
+
+                    def connect(self):
+                        events.append("connect")
+                        raise error
+
+                    def disconnect(self):
+                        events.append("disconnect")
+
+                worker = ExtronIN1804Worker(
+                    "192.0.2.1804",
+                    username=CURRENT_USER,
+                    password=CURRENT_PASSWORD,
+                )
+                _results, errors, _terminal, _finished = collect(worker)
+
+                with patch("core.workers.matrix.ExtronIN1804Handler", Handler):
+                    worker.run()
+
+                self.assertEqual(1, len(errors))
+                self.assertEqual("connection_error", errors[0][0])
+                self.assertEqual(["handler_init", "connect", "disconnect"], events)
+
+    def test_confirmed_matrix_rejection_is_retry_authority(self):
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+
+            def connect(self):
+                raise MatrixAuthenticationError(
+                    "device rejected assigned credential",
+                    confirmed_device_rejection=True,
+                    safe_for_credential_fallback=True,
+                )
+
+            def disconnect(self):
+                pass
+
+        worker = ExtronIN1804Worker(
+            "192.0.2.1804",
+            username=CURRENT_USER,
+            password=CURRENT_PASSWORD,
+        )
+        _results, errors, _terminal, _finished = collect(worker)
+
+        with patch("core.workers.matrix.ExtronIN1804Handler", Handler):
+            worker.run()
+
+        self.assertEqual(1, len(errors))
+        self.assertEqual("authentication_error", errors[0][0])
 
 
 class ProductionWorkerOutcomeContractTests(unittest.TestCase):

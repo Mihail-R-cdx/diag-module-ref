@@ -3,7 +3,12 @@
 import re
 import time
 from core.base_handler import BaseExtronMatrixHandler
-from core.exceptions import ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CommandOutcomeUnknownError,
+    ConnectionError,
+    ProtocolError,
+)
 
 
 class ExtronIN1804Handler(BaseExtronMatrixHandler):
@@ -21,6 +26,24 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
         self.model = 'Unknown'
         self.inputs_num = 8
         self.outputs_num = 1
+        self.strict_session_failures = True
+
+    def send_command(self, command: str, data: dict = None, **kwargs) -> dict:
+        kwargs.setdefault("response_required", True)
+        return super().send_command(command, data, **kwargs)
+
+    @staticmethod
+    def _raise_if_fatal_failure(error):
+        if isinstance(
+            error,
+            (
+                AuthenticationError,
+                CommandOutcomeUnknownError,
+                ConnectionError,
+                ProtocolError,
+            ),
+        ):
+            raise error
     
     def get_status(self) -> dict:
         """Получить полный статус устройства"""
@@ -53,10 +76,12 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                         info['temperature'] = int(temp_str)
                         print(f"Temperature received: {temp_str}")  # Для отладки
             except Exception as e:
+                self._raise_if_fatal_failure(e)
                 print(f"Temperature command failed: {e}")
                 info['temperature'] = 0
                 
         except Exception as e:
+            self._raise_if_fatal_failure(e)
             print(f"Error in get_device_info: {e}")
         
         return info
@@ -75,6 +100,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                     names.append(f"Input {i+1}")
                 time.sleep(0.2)
             except Exception as e:
+                self._raise_if_fatal_failure(e)
                 print(f"Error getting input name for {i+1}: {e}")
                 names.append(f"Input {i+1}")
         return names
@@ -90,6 +116,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             else:
                 names.append("Main Output")
         except Exception as e:
+            self._raise_if_fatal_failure(e)
             print(f"Error getting output name: {e}")
             names.append("Main Output")
         return names
@@ -147,6 +174,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                     })
                     
         except Exception as e:
+            self._raise_if_fatal_failure(e)
             print(f"Error in get_signal_status: {e}")
             for i in range(self.inputs_num):
                 statuses.append({
@@ -188,6 +216,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                 time.sleep(0.2)
                 
             except Exception as e:
+                self._raise_if_fatal_failure(e)
                 print(f"Error getting HDCP info for input {i+1}: {e}")
                 input_hdcp_auth.append(0)
                 input_hdcp_status.append('0')
@@ -199,6 +228,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             if result and result.get('success') and result.get('response'):
                 output_hdcp = result['response']
         except Exception as e:
+            self._raise_if_fatal_failure(e)
             print(f"Error getting output HDCP: {e}")
         
         return {
@@ -224,11 +254,12 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                 else:
                     connections.append(1)  # Значение по умолчанию
             else:
-                connections.append(1)
+                return []
                 
         except Exception as e:
+            self._raise_if_fatal_failure(e)
             print(f"Error in get_connections: {e}")
-            connections.append(1)
+            return []
         
         return connections
     
@@ -279,7 +310,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             command = f'{input_num}*1!'
         
         print(f"Sending switch command: {command}")
-        result = self.send_command(command)
+        result = self.send_command(command, replay_safe=False)
         
         if result and result.get('success'):
             print(f"Successfully switched to input {input_num}")

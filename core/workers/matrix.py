@@ -2,6 +2,7 @@
 
 from PyQt5.QtCore import QRunnable, pyqtSlot
 
+from core.exceptions import classify_matrix_failure
 from core.parser import ExtronIN1804DataParser
 from core.redaction import redact_data, redacted_callback
 from core.workers.common import WorkerSignals, _safe_error, _worker_secrets
@@ -61,10 +62,8 @@ class ExtronIN1804Worker(QRunnable):
         except Exception as e:
             import traceback
             error_message, error_traceback = _safe_error(e, _worker_secrets(self))
-            if "authentication" in error_message.lower():
-                self.signals.error.emit(("authentication_error", error_message, error_traceback))
-            else:
-                self.signals.error.emit(("ExtronIN1804Error", error_message, error_traceback))
+            category = classify_matrix_failure(e).value
+            self.signals.error.emit((category, error_message, error_traceback))
 
         finally:
             if self.handler:

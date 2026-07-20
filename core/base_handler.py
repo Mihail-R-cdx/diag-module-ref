@@ -5,7 +5,14 @@ import socket
 import time
 import paramiko
 
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import (
+    AuthenticationError,
+    CommandOutcomeUnknownError,
+    ConnectionError,
+    MatrixAuthenticationError,
+    MatrixAuthenticationPreconditionError,
+)
+from core.redaction import redact_text
 
 
 class ProtocolHandler(ABC):
@@ -131,11 +138,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         self.connection_protocol = 'Unknown'
         self._last_prompt = b''
         self.log_callback = None
+        self.strict_session_failures = False
 
     def connect(self) -> bool:
         """Установка TCP соединения с матрицей и аутентификация"""
         if not self.username or not self.password:
-            raise AuthenticationError("Credentials are required before connecting to Extron.")
+            raise MatrixAuthenticationPreconditionError(
+                "Credentials are required before connecting to Extron."
+            )
         errors = []
 
         for attempt in self._build_connection_attempts():
@@ -166,7 +176,11 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                         )
                     else:
                         if not self._authenticate(initial_response):
-                            raise AuthenticationError("Authentication failed")
+                            raise MatrixAuthenticationError(
+                                "Authentication failed",
+                                confirmed_device_rejection=True,
+                                safe_for_credential_fallback=True,
+                            )
 
                 self._connected = True
                 self.authenticated = True
@@ -174,16 +188,26 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 self._emit_log(f"[connect] connected via {self.connection_protocol}")
                 return True
             except Exception as e:
-                errors.append(f"{attempt_name}: {e}")
+                errors.append({
+                    "attempt": attempt_name,
+                    "error": e,
+                })
                 print(f"Connection attempt failed ({attempt_name}): {e}")
                 self._emit_log(f"[error] {attempt_name}: {e}")
 
         self.disconnect()
 
-        auth_errors = [message for message in errors if 'auth' in message.lower() or 'login' in message.lower() or 'password' in message.lower()]
-        if auth_errors:
-            raise AuthenticationError("; ".join(auth_errors))
-        raise ConnectionError(f"Failed to connect to Extron matrix: {'; '.join(errors)}")
+        last_error = errors[-1]["error"] if errors else None
+        if (
+            isinstance(last_error, MatrixAuthenticationError)
+            and last_error.confirmed_device_rejection
+            and last_error.safe_for_credential_fallback
+        ):
+            raise last_error
+        details = "; ".join(
+            f"{item['attempt']}: {item['error']}" for item in errors
+        )
+        raise ConnectionError(f"Failed to connect to Extron matrix: {details}")
 
     def _build_connection_attempts(self):
         attempts = [
@@ -242,9 +266,13 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
     def _connect_via_ssh(self, port: int, protocol_label: str) -> None:
         if not self.username:
-            raise AuthenticationError("Username required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Username required for Extron authentication"
+            )
         if self.password is None:
-            raise AuthenticationError("Password required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Password required for Extron authentication"
+            )
 
         try:
             self.ssh_client = paramiko.SSHClient()
@@ -270,7 +298,11 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             if b'this service allows sftp connections only' in lowered_prompt:
                 raise ConnectionError("SSH service is SFTP-only and does not provide CLI access")
         except paramiko.AuthenticationException as e:
-            raise AuthenticationError(f"SSH authentication failed: {e}")
+            raise MatrixAuthenticationError(
+                f"SSH authentication failed: {e}",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
         except paramiko.SSHException as e:
             raise ConnectionError(f"SSH connection failed: {e}")
 
@@ -280,15 +312,19 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             return True
 
         if not self.username:
-            raise AuthenticationError("Username required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Username required for Extron authentication"
+            )
         if self.password is None:
-            raise AuthenticationError("Password required for Extron authentication")
+            raise MatrixAuthenticationPreconditionError(
+                "Password required for Extron authentication"
+            )
 
         login_prompt = initial_response or self._read_until_patterns(
             [b'login as:', b'password:', b'>', b']'],
             timeout=self.timeout
         )
-        print(f"Login prompt received: {login_prompt[:200]}...")
+        print(f"Login prompt received: {self._format_auth_bytes(login_prompt[:200])}...")
         if login_prompt:
             self._emit_log(f"[recv] {self._format_bytes(login_prompt)}")
         lowered_login_prompt = login_prompt.lower()
@@ -298,7 +334,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
         if b'password:' in lowered_login_prompt and b'login as:' not in lowered_login_prompt:
             print("Password prompt arrived before login prompt, sending username first")
-            self._emit_log(f"[send] {self.username}")
+            self._emit_log("[send] <username>")
             self._send_bytes((self.username + '\r\n').encode())
             password_prompt = self._read_until_patterns(
                 [b'password:', b'login incorrect', b'login as:', b'>', b']'],
@@ -316,22 +352,28 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 if extra_prompt:
                     self._emit_log(f"[recv] {self._format_bytes(extra_prompt)}")
 
-            print(f"Sending username: {self.username}")
-            self._emit_log(f"[send] {self.username}")
+            print("Sending username...")
+            self._emit_log("[send] <username>")
             self._send_bytes((self.username + '\r\n').encode())
             password_prompt = self._read_until_patterns(
                 [b'Password:', b'Login incorrect', b'login as:', b'>', b']'],
                 timeout=self.timeout
             )
 
-        print(f"Response after username: {password_prompt[:200]}...")
+        print(f"Response after username: {self._format_auth_bytes(password_prompt[:200])}...")
         if password_prompt:
             self._emit_log(f"[recv] {self._format_bytes(password_prompt)}")
         lowered_password_prompt = password_prompt.lower()
         if b'login incorrect' in lowered_password_prompt:
-            raise AuthenticationError("Invalid username")
+            raise MatrixAuthenticationError(
+                "Invalid username",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
         if b'password:' not in lowered_password_prompt and b'>' not in lowered_password_prompt and b']' not in lowered_password_prompt:
-            raise AuthenticationError("Device did not request password")
+            raise MatrixAuthenticationPreconditionError(
+                "Device did not request password"
+            )
 
         print("Sending password...")
         self._emit_log("[send] <password>")
@@ -341,15 +383,23 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             [b'Password:', b'Login incorrect', b'login as:', b'>', b']'],
             timeout=self.timeout
         )
-        print(f"Response after password: {final_response[:200]}...")
+        print(f"Response after password: {self._format_auth_bytes(final_response[:200])}...")
         if final_response:
             self._emit_log(f"[recv] {self._format_bytes(final_response)}")
         lowered_final_response = final_response.lower()
 
         if b'login incorrect' in lowered_final_response:
-            raise AuthenticationError("Invalid password")
+            raise MatrixAuthenticationError(
+                "Invalid password",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
         if b'password:' in lowered_final_response or b'login as:' in lowered_final_response:
-            raise AuthenticationError("Authentication prompts repeated after password")
+            raise MatrixAuthenticationError(
+                "Authentication prompts repeated after password",
+                confirmed_device_rejection=True,
+                safe_for_credential_fallback=True,
+            )
 
         print("Authentication successful")
         return True
@@ -363,14 +413,27 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         self.connection_protocol = 'Unknown'
         self._last_prompt = b''
 
-    def send_command(self, command: str, data: dict = None) -> dict:
+    def send_command(
+        self,
+        command: str,
+        data: dict = None,
+        *,
+        replay_safe: bool = True,
+        response_required: bool = False,
+        recovery_attempts_remaining: int = 1,
+    ) -> dict:
         """Отправка команды и получение ответа"""
         if not self.socket and not self.ssh_channel:
+            if self.strict_session_failures:
+                raise ConnectionError("Not connected to Extron matrix")
             return {'success': False, 'error': 'Not connected to device', 'response': ''}
 
+        command_invoked = False
         try:
             if not self.authenticated:
                 if not self._authenticate():
+                    if self.strict_session_failures:
+                        raise ConnectionError("Not authenticated to Extron matrix")
                     return {'success': False, 'error': 'Not authenticated', 'response': ''}
 
             if not command.endswith('\r'):
@@ -378,6 +441,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
             print(f"Sending command: {command.strip()}")
             self._emit_log(f"[send] {command.strip()}")
+            command_invoked = True
             self._send_bytes(command.encode())
             time.sleep(0.5)
 
@@ -385,13 +449,33 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             print(f"Received response bytes: {response_bytes[:100]}...")
             if response_bytes:
                 self._emit_log(f"[recv] {self._format_bytes(response_bytes)}")
+            elif self.strict_session_failures and response_required:
+                if replay_safe:
+                    raise ConnectionError("No response received for Extron matrix command")
+                raise CommandOutcomeUnknownError(
+                    "No response received after Matrix route command send"
+                )
 
             lowered_response = response_bytes.lower()
             if b'password:' in lowered_response or b'login as:' in lowered_response:
                 print("Authentication requested again, re-authenticating...")
                 self.authenticated = False
+                if not replay_safe:
+                    raise CommandOutcomeUnknownError(
+                        "Authentication prompt received after Matrix route command send"
+                    )
+                if recovery_attempts_remaining <= 0:
+                    raise ConnectionError("Read-only Matrix command recovery budget exhausted")
                 if self._authenticate():
-                    return self.send_command(command, data)
+                    return self.send_command(
+                        command,
+                        data,
+                        replay_safe=replay_safe,
+                        response_required=response_required,
+                        recovery_attempts_remaining=recovery_attempts_remaining - 1,
+                    )
+                if self.strict_session_failures:
+                    raise ConnectionError("Re-authentication failed")
                 return {'success': False, 'error': 'Re-authentication failed', 'response': ''}
 
             try:
@@ -400,6 +484,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 response_text = str(response_bytes)
 
             response_text = self._strip_command_echo(command, response_text)
+            if self.strict_session_failures and response_required and not response_text:
+                if replay_safe:
+                    raise ConnectionError(
+                        "No authoritative response received for Extron matrix command"
+                    )
+                raise CommandOutcomeUnknownError(
+                    "No authoritative response received after Matrix route command send"
+                )
 
             return {
                 'success': True,
@@ -409,6 +501,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
         except Exception as e:
             print(f"Error in send_command: {e}")
+            if self.strict_session_failures:
+                if isinstance(e, (AuthenticationError, CommandOutcomeUnknownError, ConnectionError)):
+                    raise
+                if command_invoked and not replay_safe:
+                    raise CommandOutcomeUnknownError(
+                        f"Matrix route command outcome unknown after transport failure: {e}"
+                    ) from e
+                raise ConnectionError(f"Extron matrix command transport failed: {e}") from e
             return {
                 'success': False,
                 'error': str(e),
@@ -523,7 +623,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
     def _emit_log(self, message: str) -> None:
         if self.log_callback:
             try:
-                self.log_callback(message)
+                self.log_callback(redact_text(message, (self.username, self.password)))
             except Exception:
                 pass
 
@@ -543,6 +643,9 @@ class BaseExtronMatrixHandler(ProtocolHandler):
     @staticmethod
     def _format_bytes(payload: bytes) -> str:
         return payload.decode('utf-8', errors='ignore').replace('\r', '\\r').replace('\n', '\\n')
+
+    def _format_auth_bytes(self, payload: bytes) -> str:
+        return redact_text(self._format_bytes(payload), (self.username, self.password))
 
     @staticmethod
     def _strip_command_echo(command: str, response_text: str) -> str:

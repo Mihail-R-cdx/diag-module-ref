@@ -1,4 +1,4 @@
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
     QFrame,
@@ -18,6 +18,9 @@ from .base_screen import BaseScreen
 class MatrixScreen(BaseScreen):
     """Extron routing screen with the original switching contract."""
 
+    routeRequested = pyqtSignal(int, int)
+    refreshRequested = pyqtSignal()
+
     def __init__(self, parent=None):
         self.matrix_data = None
         self.current_connection = 1
@@ -28,7 +31,6 @@ class MatrixScreen(BaseScreen):
         self.matrix_table = None
         self.info_panel_layout = None
         self.output_column_width = 150
-        self.main_window = parent
         super().__init__(parent)
 
     def init_ui(self, params=None):
@@ -232,40 +234,12 @@ class MatrixScreen(BaseScreen):
         )
 
     def on_output_cell_clicked(self, row, column):
-        """Keep the existing persistent-session switching flow."""
-        if column != 3 or not self.main_window:
+        """Publish a non-secret route intent."""
+        if column != 3:
             return
 
         input_num = row + 1
-        ip_address = self.main_window.ip_entry.text().strip()
-        device_name = self.main_window.device_combo.currentText()
-        creds_list = self.main_window.device_credentials.get(device_name, [])
-        if not creds_list:
-            return
-
-        current_idx = self.main_window.get_current_credential_index(
-            device_name, ip_address
-        )
-        if current_idx >= len(creds_list):
-            current_idx = 0
-        creds = creds_list[current_idx]
-
-        try:
-            handler = self.main_window.ensure_matrix_persistent_handler(
-                ip_address=ip_address,
-                username=creds.get("username", ""),
-                password=creds.get("password", ""),
-            )
-            handler.set_connection(1, input_num)
-            QTimer.singleShot(300, self.request_status_update)
-        except Exception as error:
-            from PyQt5.QtWidgets import QMessageBox
-
-            QMessageBox.warning(
-                self,
-                "Ошибка",
-                f"Не удалось переключить матрицу: {error}",
-            )
+        self.routeRequested.emit(1, input_num)
 
     def update_info_panel(self):
         if self.matrix_data:
@@ -288,38 +262,10 @@ class MatrixScreen(BaseScreen):
         self.matrix_table.viewport().update()
 
     def request_status_update(self):
-        if not self.main_window:
-            return
-
-        ip_address = self.main_window.ip_entry.text().strip()
-        device_name = self.main_window.device_combo.currentText()
-        creds_list = self.main_window.device_credentials.get(device_name, [])
-        if not creds_list:
-            return
-        current_idx = self.main_window.get_current_credential_index(
-            device_name, ip_address
-        )
-        if current_idx >= len(creds_list):
-            current_idx = 0
-        creds = creds_list[current_idx]
-
-        try:
-            handler = self.main_window.ensure_matrix_persistent_handler(
-                ip_address=ip_address,
-                username=creds.get("username", ""),
-                password=creds.get("password", ""),
-            )
-            connections = handler.get_connections()
-            if connections:
-                self.current_connection = connections[0]
-                self.update_connection_display()
-        except Exception:
-            # The historical quick refresh is intentionally best-effort.
-            pass
+        self.refreshRequested.emit()
 
     def refresh_statuses(self):
         self.update_data()
 
     def refresh(self):
-        if self.parent and hasattr(self.parent, "refresh_data"):
-            self.parent.refresh_data()
+        self.refreshRequested.emit()
