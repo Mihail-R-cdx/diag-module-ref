@@ -431,6 +431,193 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertFalse(instances[0].connected)
         self.assertTrue(instances[1].connected)
 
+    def test_failed_session_invalidation_is_serialized_for_same_identity_race(self):
+        from core.exceptions import ConnectionError
+
+        controller, state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        entered_first = threading.Event()
+        release_first = threading.Event()
+        disconnect_started = threading.Event()
+        release_disconnect = threading.Event()
+        second_used_new_handler = threading.Event()
+        instances = []
+        calls = []
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = False
+                self.id = len(instances)
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_connections(self):
+                calls.append(("get", self.id))
+                if self.id == 0:
+                    entered_first.set()
+                    release_first.wait(2)
+                    raise ConnectionError("socket failed")
+                second_used_new_handler.set()
+                return [2]
+
+            def disconnect(self):
+                calls.append(("disconnect", self.id))
+                self.connected = False
+                if self.id == 0:
+                    disconnect_started.set()
+                    release_disconnect.wait(2)
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, state["candidates"])
+            first_thread = threading.Thread(
+                target=controller._run_background_operation,
+                args=(first,),
+            )
+            first_thread.start()
+            self.assertTrue(entered_first.wait(1))
+
+            second = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(second, state["candidates"])
+            second_thread = threading.Thread(
+                target=controller._run_background_operation,
+                args=(second,),
+            )
+            second_thread.start()
+
+            release_first.set()
+            self.assertTrue(disconnect_started.wait(1))
+            self.assertTrue(second_used_new_handler.wait(1))
+            release_disconnect.set()
+            second_thread.join(2)
+            first_thread.join(2)
+
+        self.assertFalse(first_thread.is_alive())
+        self.assertEqual(2, len(instances))
+        self.assertEqual([("get", 0), ("disconnect", 0), ("get", 1)], calls)
+        self.assertFalse(instances[0].connected)
+        self.assertTrue(instances[1].connected)
+        self.assertIs(controller._session_handler, instances[1])
+
+    def test_production_quick_refresh_transport_failure_does_not_emit_route_one(self):
+        from core.exceptions import ConnectionError
+
+        controller, state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        routes = []
+        errors = []
+        controller.routeAccepted.connect(routes.append)
+        controller.routeError.connect(errors.append)
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_connections(self):
+                raise ConnectionError("transport failed")
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            context = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(context, state["candidates"])
+            controller._run_background_operation(context)
+
+        self.assertEqual([], routes)
+        self.assertEqual(1, len(errors))
+
+    def test_production_full_refresh_transport_failure_is_not_accepted_or_cached(self):
+        from handlers.extron.in1804 import ExtronIN1804Handler
+
+        controller, state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        accepted = []
+        errors = []
+        route_errors = []
+        instances = []
+        controller.resultAccepted.connect(lambda *args: accepted.append(args))
+        controller.errorAccepted.connect(lambda *args: errors.append(args))
+        controller.routeError.connect(route_errors.append)
+
+        class BrokenTransportHandler(ExtronIN1804Handler):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                instances.append(self)
+
+            def connect(self):
+                self.socket = object()
+                self.authenticated = True
+                self._connected = True
+
+            def _send_bytes(self, _payload):
+                pass
+
+            def _recv_bytes(self, _size):
+                raise OSError("socket read failed")
+
+            def disconnect(self):
+                super().disconnect()
+                self.socket = None
+                self._connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", BrokenTransportHandler):
+            first = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, state["candidates"])
+            controller._run_background_operation(first)
+
+            second = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(second, state["candidates"])
+            controller._run_background_operation(second)
+
+        self.assertEqual([], accepted)
+        self.assertEqual(1, len(errors))
+        self.assertEqual(1, len(route_errors))
+        self.assertEqual("connection_error", errors[0][0][0])
+        self.assertGreaterEqual(len(instances), 2)
+        self.assertIsNot(instances[0], instances[1])
+
     def test_old_failure_does_not_invalidate_new_matching_context_session(self):
         controller, state, _pool = self.make_controller()
         controller._request_keepalive_start = lambda: None

@@ -7,6 +7,7 @@ import paramiko
 
 from core.exceptions import (
     AuthenticationError,
+    CommandOutcomeUnknownError,
     ConnectionError,
     MatrixAuthenticationError,
     MatrixAuthenticationPreconditionError,
@@ -137,6 +138,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         self.connection_protocol = 'Unknown'
         self._last_prompt = b''
         self.log_callback = None
+        self.strict_session_failures = False
 
     def connect(self) -> bool:
         """Установка TCP соединения с матрицей и аутентификация"""
@@ -411,14 +413,19 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         self.connection_protocol = 'Unknown'
         self._last_prompt = b''
 
-    def send_command(self, command: str, data: dict = None) -> dict:
+    def send_command(self, command: str, data: dict = None, *, replay_safe: bool = True) -> dict:
         """Отправка команды и получение ответа"""
         if not self.socket and not self.ssh_channel:
+            if self.strict_session_failures:
+                raise ConnectionError("Not connected to Extron matrix")
             return {'success': False, 'error': 'Not connected to device', 'response': ''}
 
+        command_invoked = False
         try:
             if not self.authenticated:
                 if not self._authenticate():
+                    if self.strict_session_failures:
+                        raise ConnectionError("Not authenticated to Extron matrix")
                     return {'success': False, 'error': 'Not authenticated', 'response': ''}
 
             if not command.endswith('\r'):
@@ -426,6 +433,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
             print(f"Sending command: {command.strip()}")
             self._emit_log(f"[send] {command.strip()}")
+            command_invoked = True
             self._send_bytes(command.encode())
             time.sleep(0.5)
 
@@ -438,8 +446,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             if b'password:' in lowered_response or b'login as:' in lowered_response:
                 print("Authentication requested again, re-authenticating...")
                 self.authenticated = False
+                if not replay_safe:
+                    raise CommandOutcomeUnknownError(
+                        "Authentication prompt received after Matrix route command send"
+                    )
                 if self._authenticate():
-                    return self.send_command(command, data)
+                    return self.send_command(command, data, replay_safe=replay_safe)
+                if self.strict_session_failures:
+                    raise ConnectionError("Re-authentication failed")
                 return {'success': False, 'error': 'Re-authentication failed', 'response': ''}
 
             try:
@@ -457,6 +471,14 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
         except Exception as e:
             print(f"Error in send_command: {e}")
+            if self.strict_session_failures:
+                if isinstance(e, (AuthenticationError, CommandOutcomeUnknownError, ConnectionError)):
+                    raise
+                if command_invoked and not replay_safe:
+                    raise CommandOutcomeUnknownError(
+                        f"Matrix route command outcome unknown after transport failure: {e}"
+                    ) from e
+                raise ConnectionError(f"Extron matrix command transport failed: {e}") from e
             return {
                 'success': False,
                 'error': str(e),

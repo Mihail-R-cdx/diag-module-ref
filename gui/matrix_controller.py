@@ -71,6 +71,15 @@ class MatrixOperationSignals(QObject):
     finished = pyqtSignal(object)
 
 
+class MatrixOperationFailure(Exception):
+    def __init__(self, category: str, message: str, details: str, detached_handler=None):
+        super().__init__(message)
+        self.category = category
+        self.message = message
+        self.details = details
+        self.detached_handler = detached_handler
+
+
 class MatrixBackgroundOperation(QRunnable):
     def __init__(self, controller: "MatrixController", context: MatrixOperationContext):
         super().__init__()
@@ -277,18 +286,12 @@ class MatrixController(QObject):
         secrets = self._candidate_secrets(context)
         try:
             self._execute_serialized(context, secrets)
-        except Exception as error:
-            message, details = _safe_error(error, secrets)
-            category = classify_matrix_failure(error).value
-            if (
-                context.operation_kind == "route"
-                and getattr(error, "_matrix_route_command_invoked", False)
-                and category == "authentication_error"
-            ):
-                category = "unknown_command_outcome"
-            if category in _SESSION_INVALIDATING_CATEGORIES:
-                self._invalidate_failed_session(context)
-            self._signals.error.emit(context, (category, message, details))
+        except MatrixOperationFailure as failure:
+            self._disconnect_detached_handler(failure.detached_handler)
+            self._signals.error.emit(
+                context,
+                (failure.category, failure.message, failure.details),
+            )
         finally:
             self._signals.finished.emit(context)
 
@@ -296,53 +299,75 @@ class MatrixController(QObject):
         with self._operation_lock:
             if not self._is_current(context):
                 return
-            if context.operation_kind == "full_refresh":
-                self._signals.status.emit(context, "Connecting to Extron IN1804 matrix...")
-                self._signals.progress.emit(context, 10)
-                handler = self._acquire_session(context, secrets)
-                if not self._is_current(context):
-                    return
-                self._signals.status.emit(context, "Reading Matrix device status...")
-                self._signals.progress.emit(context, 30)
-                status = handler.get_full_status()
-                parser = ExtronIN1804DataParser()
-                data = parser.parse(status)
-                data["ip_address"] = context.ip_address
-                data["_matrix_credential_success_candidate"] = context.candidate_index
-                self._signals.progress.emit(context, 100)
-                self._signals.status.emit(context, "Ready")
-                self._signals.result.emit(context, redact_data(data, secrets))
-            elif context.operation_kind == "route":
-                handler = self._acquire_session(context, secrets)
-                if not self._is_current(context):
-                    return
-                try:
-                    handler.set_connection(context.output_num, context.input_num)
-                except Exception as error:
-                    setattr(error, "_matrix_route_command_invoked", True)
-                    raise
-                self._signals.result.emit(context, {"route_input": context.input_num})
-            elif context.operation_kind == "quick_refresh":
-                handler = self._acquire_session(context, secrets)
-                if not self._is_current(context):
-                    return
-                connections = handler.get_connections()
-                current = connections[0] if connections else None
-                self._signals.result.emit(context, {"current_connection": current})
-            elif context.operation_kind == "keepalive":
-                with self._session_lock:
-                    handler = self._session_handler
-                if handler is None or not handler.is_connected():
+            try:
+                self._execute_operation_body(context, secrets)
+            except Exception as error:
+                message, details = _safe_error(error, secrets)
+                category = classify_matrix_failure(error).value
+                if (
+                    context.operation_kind == "route"
+                    and getattr(error, "_matrix_route_command_invoked", False)
+                    and category == "authentication_error"
+                ):
+                    category = "unknown_command_outcome"
+                detached_handler = None
+                if category in _SESSION_INVALIDATING_CATEGORIES:
+                    detached_handler = self._detach_failed_session_locked(context)
+                raise MatrixOperationFailure(
+                    category,
+                    message,
+                    details,
+                    detached_handler=detached_handler,
+                ) from error
+
+    def _execute_operation_body(self, context: MatrixOperationContext, secrets):
+        if context.operation_kind == "full_refresh":
+            self._signals.status.emit(context, "Connecting to Extron IN1804 matrix...")
+            self._signals.progress.emit(context, 10)
+            handler = self._acquire_session(context, secrets)
+            if not self._is_current(context):
+                return
+            self._signals.status.emit(context, "Reading Matrix device status...")
+            self._signals.progress.emit(context, 30)
+            status = handler.get_full_status()
+            parser = ExtronIN1804DataParser()
+            data = parser.parse(status)
+            data["ip_address"] = context.ip_address
+            data["_matrix_credential_success_candidate"] = context.candidate_index
+            self._signals.progress.emit(context, 100)
+            self._signals.status.emit(context, "Ready")
+            self._signals.result.emit(context, redact_data(data, secrets))
+        elif context.operation_kind == "route":
+            handler = self._acquire_session(context, secrets)
+            if not self._is_current(context):
+                return
+            try:
+                handler.set_connection(context.output_num, context.input_num)
+            except Exception as error:
+                setattr(error, "_matrix_route_command_invoked", True)
+                raise
+            self._signals.result.emit(context, {"route_input": context.input_num})
+        elif context.operation_kind == "quick_refresh":
+            handler = self._acquire_session(context, secrets)
+            if not self._is_current(context):
+                return
+            connections = handler.get_connections()
+            current = connections[0] if connections else None
+            self._signals.result.emit(context, {"current_connection": current})
+        elif context.operation_kind == "keepalive":
+            with self._session_lock:
+                handler = self._session_handler
+            if handler is None or not handler.is_connected():
+                raise RuntimeError("keepalive failed")
+            original_log_callback = handler.log_callback
+            try:
+                handler.log_callback = None
+                result = handler.send_command("w20STAT")
+                if not result or not result.get("success"):
                     raise RuntimeError("keepalive failed")
-                original_log_callback = handler.log_callback
-                try:
-                    handler.log_callback = None
-                    result = handler.send_command("w20STAT")
-                    if not result or not result.get("success"):
-                        raise RuntimeError("keepalive failed")
-                finally:
-                    handler.log_callback = original_log_callback
-                self._signals.result.emit(context, {"keepalive": True})
+            finally:
+                handler.log_callback = original_log_callback
+            self._signals.result.emit(context, {"keepalive": True})
 
     def _candidate_secrets(self, context: MatrixOperationContext):
         candidate = self._candidate_for_context(context)
@@ -459,16 +484,24 @@ class MatrixController(QObject):
             self._keepalive_timer.stop()
 
     def _invalidate_failed_session(self, context: MatrixOperationContext):
+        with self._operation_lock:
+            handler = self._detach_failed_session_locked(context)
+        self._disconnect_detached_handler(handler)
+
+    def _detach_failed_session_locked(self, context: MatrixOperationContext):
         identity = self._session_identity_for_context(context)
         if identity is None:
-            return
+            return None
         with self._session_lock:
             if self._session_identity != identity:
-                return
+                return None
             handler = self._session_handler
             self._session_handler = None
             self._session_identity = None
         self._request_keepalive_stop()
+        return handler
+
+    def _disconnect_detached_handler(self, handler):
         if handler is not None:
             try:
                 handler.disconnect()
