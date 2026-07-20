@@ -28,6 +28,10 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
         self.outputs_num = 1
         self.strict_session_failures = True
 
+    def send_command(self, command: str, data: dict = None, **kwargs) -> dict:
+        kwargs.setdefault("response_required", True)
+        return super().send_command(command, data, **kwargs)
+
     @staticmethod
     def _raise_if_fatal_failure(error):
         if isinstance(

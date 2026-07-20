@@ -413,7 +413,15 @@ class BaseExtronMatrixHandler(ProtocolHandler):
         self.connection_protocol = 'Unknown'
         self._last_prompt = b''
 
-    def send_command(self, command: str, data: dict = None, *, replay_safe: bool = True) -> dict:
+    def send_command(
+        self,
+        command: str,
+        data: dict = None,
+        *,
+        replay_safe: bool = True,
+        response_required: bool = False,
+        recovery_attempts_remaining: int = 1,
+    ) -> dict:
         """Отправка команды и получение ответа"""
         if not self.socket and not self.ssh_channel:
             if self.strict_session_failures:
@@ -441,6 +449,12 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             print(f"Received response bytes: {response_bytes[:100]}...")
             if response_bytes:
                 self._emit_log(f"[recv] {self._format_bytes(response_bytes)}")
+            elif self.strict_session_failures and response_required:
+                if replay_safe:
+                    raise ConnectionError("No response received for Extron matrix command")
+                raise CommandOutcomeUnknownError(
+                    "No response received after Matrix route command send"
+                )
 
             lowered_response = response_bytes.lower()
             if b'password:' in lowered_response or b'login as:' in lowered_response:
@@ -450,8 +464,16 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                     raise CommandOutcomeUnknownError(
                         "Authentication prompt received after Matrix route command send"
                     )
+                if recovery_attempts_remaining <= 0:
+                    raise ConnectionError("Read-only Matrix command recovery budget exhausted")
                 if self._authenticate():
-                    return self.send_command(command, data, replay_safe=replay_safe)
+                    return self.send_command(
+                        command,
+                        data,
+                        replay_safe=replay_safe,
+                        response_required=response_required,
+                        recovery_attempts_remaining=recovery_attempts_remaining - 1,
+                    )
                 if self.strict_session_failures:
                     raise ConnectionError("Re-authentication failed")
                 return {'success': False, 'error': 'Re-authentication failed', 'response': ''}

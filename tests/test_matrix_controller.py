@@ -618,6 +618,113 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertGreaterEqual(len(instances), 2)
         self.assertIsNot(instances[0], instances[1])
 
+    def test_route_empty_response_does_not_accept_or_fallback(self):
+        from handlers.extron.in1804 import ExtronIN1804Handler
+
+        controller, _state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        routes = []
+        route_errors = []
+        fallback_calls = []
+        sends = []
+        controller.routeAccepted.connect(routes.append)
+        controller.routeError.connect(route_errors.append)
+        controller._credential_advance_provider = (
+            lambda *_args: fallback_calls.append(_args) or 1
+        )
+
+        class EmptyRouteResponseHandler(ExtronIN1804Handler):
+            def connect(self):
+                self.socket = object()
+                self.authenticated = True
+                self._connected = True
+                self.model = "IN1804"
+
+            def _send_bytes(self, payload):
+                sends.append(payload)
+
+            def _recv_bytes(self, _size):
+                return b""
+
+            def disconnect(self):
+                super().disconnect()
+                self.socket = None
+                self._connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", EmptyRouteResponseHandler):
+            with patch("core.base_handler.time.sleep", lambda _seconds: None):
+                controller.request_route(1, 3)
+                pool.runnables.pop(0).run()
+
+        self.assertEqual([], routes)
+        self.assertEqual(1, len(route_errors))
+        self.assertEqual([], fallback_calls)
+        self.assertEqual([b"3*1!\r"], sends)
+        self.assertIsNone(controller._session_handler)
+
+    def test_full_refresh_empty_response_is_not_accepted_and_reconnects_next(self):
+        from handlers.extron.in1804 import ExtronIN1804Handler
+
+        controller, state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        accepted = []
+        errors = []
+        route_errors = []
+        instances = []
+        controller.resultAccepted.connect(lambda *args: accepted.append(args))
+        controller.errorAccepted.connect(lambda *args: errors.append(args))
+        controller.routeError.connect(route_errors.append)
+
+        class EmptyReadResponseHandler(ExtronIN1804Handler):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                instances.append(self)
+
+            def connect(self):
+                self.socket = object()
+                self.authenticated = True
+                self._connected = True
+
+            def _send_bytes(self, _payload):
+                pass
+
+            def _recv_bytes(self, _size):
+                return b""
+
+            def disconnect(self):
+                super().disconnect()
+                self.socket = None
+                self._connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", EmptyReadResponseHandler):
+            with patch("core.base_handler.time.sleep", lambda _seconds: None):
+                first = controller._make_context(
+                    operation_kind="full_refresh",
+                    ip_address="192.0.2.10",
+                    candidate_index=0,
+                    state_changing=False,
+                )
+                controller._submit(first, state["candidates"])
+                controller._run_background_operation(first)
+
+                second = controller._make_context(
+                    operation_kind="quick_refresh",
+                    ip_address="192.0.2.10",
+                    candidate_index=0,
+                    state_changing=False,
+                )
+                controller._submit(second, state["candidates"])
+                controller._run_background_operation(second)
+
+        self.assertEqual([], accepted)
+        self.assertEqual(1, len(errors))
+        self.assertEqual(1, len(route_errors))
+        self.assertEqual("connection_error", errors[0][0][0])
+        self.assertGreaterEqual(len(instances), 2)
+        self.assertIsNot(instances[0], instances[1])
+
     def test_old_failure_does_not_invalidate_new_matching_context_session(self):
         controller, state, _pool = self.make_controller()
         controller._request_keepalive_start = lambda: None

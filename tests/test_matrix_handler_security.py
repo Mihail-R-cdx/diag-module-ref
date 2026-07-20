@@ -1,6 +1,7 @@
 import contextlib
 import io
 import unittest
+from unittest.mock import patch
 
 from core.exceptions import CommandOutcomeUnknownError, ConnectionError
 from core.base_handler import BaseExtronMatrixHandler
@@ -101,6 +102,87 @@ class MatrixHandlerSecurityTests(unittest.TestCase):
             handler.set_connection(1, 3)
 
         self.assertEqual([b"3*1!\r"], sent)
+
+    def test_route_empty_response_is_unknown_outcome_and_not_success(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        handler.model = "IN1804"
+        sent = []
+        handler._send_bytes = sent.append
+        handler._recv_bytes = lambda _size: b""
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            with self.assertRaises(CommandOutcomeUnknownError):
+                handler.set_connection(1, 3)
+
+        self.assertEqual([b"3*1!\r"], sent)
+
+    def test_read_only_empty_response_is_not_success(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        sent = []
+        handler._send_bytes = sent.append
+        handler._recv_bytes = lambda _size: b""
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            with self.assertRaises(ConnectionError):
+                handler.get_connections()
+
+        self.assertEqual([b"!\r"], sent)
+
+    def test_read_only_auth_recovery_is_bounded(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        sent = []
+        responses = iter((b"Password:", b"Password:"))
+        handler._send_bytes = sent.append
+        handler._read_response = lambda: next(responses)
+        handler._authenticate = lambda *_args, **_kwargs: True
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            with self.assertRaises(ConnectionError):
+                handler.get_connections()
+
+        self.assertEqual([b"!\r", b"!\r"], sent)
+
+    def test_read_only_auth_recovery_succeeds_within_budget(self):
+        handler = ExtronIN1804Handler(
+            "192.0.2.10",
+            username="matrix-user",
+            password="matrix-pass",
+        )
+        handler.socket = object()
+        handler.authenticated = True
+        handler._connected = True
+        sent = []
+        responses = iter((b"Password:", b"In1 All\r\n"))
+        handler._send_bytes = sent.append
+        handler._read_response = lambda: next(responses)
+        handler._authenticate = lambda *_args, **_kwargs: True
+
+        with patch("core.base_handler.time.sleep", lambda _seconds: None):
+            connections = handler.get_connections()
+
+        self.assertEqual([1], connections)
+        self.assertEqual([b"!\r", b"!\r"], sent)
 
 
 if __name__ == "__main__":
