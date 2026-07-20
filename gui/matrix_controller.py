@@ -7,7 +7,7 @@ import itertools
 import threading
 from typing import Callable, Iterable, Optional
 
-from PyQt5.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, QRunnable, QThread, QThreadPool, QTimer, pyqtSignal, pyqtSlot
 
 from core.exceptions import classify_matrix_failure
 from core.parser import ExtronIN1804DataParser
@@ -17,6 +17,12 @@ from handlers.extron.in1804 import ExtronIN1804Handler
 
 
 MATRIX_DEVICE_NAME = "Extron IN1804"
+_SESSION_INVALIDATING_CATEGORIES = {
+    "authentication_error",
+    "connection_error",
+    "protocol_error",
+    "unknown_command_outcome",
+}
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,9 @@ class MatrixBackgroundOperation(QRunnable):
 class MatrixController(QObject):
     """Owns Matrix refresh, route, persistent session, and stale suppression."""
 
+    _startKeepaliveRequested = pyqtSignal()
+    _stopKeepaliveRequested = pyqtSignal()
+
     resultAccepted = pyqtSignal(dict, object)
     errorAccepted = pyqtSignal(tuple, object)
     progressAccepted = pyqtSignal(int, object)
@@ -115,8 +124,10 @@ class MatrixController(QObject):
         self._last_ip = ""
         self._last_credential_revision = self._credential_revision()
         self._session_lock = threading.RLock()
+        self._operation_lock = threading.RLock()
         self._session_identity: Optional[MatrixSessionIdentity] = None
         self._session_handler = None
+        self._candidate_snapshots = {}
         self._signals = MatrixOperationSignals()
         self._signals.result.connect(self._on_result)
         self._signals.error.connect(self._on_error)
@@ -128,11 +139,13 @@ class MatrixController(QObject):
         self._keepalive_timer = QTimer(self)
         self._keepalive_timer.setInterval(15000)
         self._keepalive_timer.timeout.connect(self.request_keepalive)
+        self._startKeepaliveRequested.connect(self._start_keepalive_timer)
+        self._stopKeepaliveRequested.connect(self._stop_keepalive_timer)
 
     def invalidate_context(self):
         self._generation += 1
         self._active_context = None
-        self._stop_keepalive()
+        self._request_keepalive_stop()
         self._release_session_background()
 
     def shutdown(self):
@@ -147,13 +160,13 @@ class MatrixController(QObject):
             candidate_index=candidate_index,
             state_changing=False,
         )
-        self._submit(context)
+        self._submit(context, candidates)
 
     def request_route(self, output_num: int, input_num: int):
         model, ip_address = self._context_provider()
         candidates = tuple(self._credential_candidates_provider(model, ip_address) or ())
         if not candidates:
-            self.routeError.emit("Нет credentials для Extron IN1804")
+            self.routeError.emit("No credentials for Extron IN1804")
             return
         candidate_index = self._credential_index_provider(model, ip_address, candidates)
         if candidate_index < 0 or candidate_index >= len(candidates):
@@ -166,7 +179,7 @@ class MatrixController(QObject):
             input_num=input_num,
             state_changing=True,
         )
-        self._submit(context)
+        self._submit(context, candidates)
 
     def request_status_refresh(self):
         model, ip_address = self._context_provider()
@@ -182,7 +195,7 @@ class MatrixController(QObject):
             candidate_index=candidate_index,
             state_changing=False,
         )
-        self._submit(context)
+        self._submit(context, candidates)
 
     @pyqtSlot()
     def request_keepalive(self):
@@ -192,7 +205,7 @@ class MatrixController(QObject):
             identity = self._session_identity
             handler = self._session_handler
         if identity is None or handler is None:
-            self._stop_keepalive()
+            self._request_keepalive_stop()
             return
         context = self._make_context(
             operation_kind="keepalive",
@@ -252,18 +265,44 @@ class MatrixController(QObject):
         self._active_context = context
         return context
 
-    def _submit(self, context: MatrixOperationContext):
+    def _submit(self, context: MatrixOperationContext, candidates=None):
+        if candidates is not None and context.candidate_index is not None:
+            self._candidate_snapshots[context.operation_id] = tuple(candidates or ())
         self._thread_pool.start(MatrixBackgroundOperation(self, context))
 
     def _run_background_operation(self, context: MatrixOperationContext):
+        if not self._is_current(context):
+            self._candidate_snapshots.pop(context.operation_id, None)
+            return
         secrets = self._candidate_secrets(context)
-        route_command_invoked = False
         try:
+            self._execute_serialized(context, secrets)
+        except Exception as error:
+            message, details = _safe_error(error, secrets)
+            category = classify_matrix_failure(error).value
+            if (
+                context.operation_kind == "route"
+                and getattr(error, "_matrix_route_command_invoked", False)
+                and category == "authentication_error"
+            ):
+                category = "unknown_command_outcome"
+            if category in _SESSION_INVALIDATING_CATEGORIES:
+                self._invalidate_failed_session(context)
+            self._signals.error.emit(context, (category, message, details))
+        finally:
+            self._signals.finished.emit(context)
+
+    def _execute_serialized(self, context: MatrixOperationContext, secrets):
+        with self._operation_lock:
+            if not self._is_current(context):
+                return
             if context.operation_kind == "full_refresh":
-                self._signals.status.emit(context, "Подключение к матрице Extron IN1804...")
+                self._signals.status.emit(context, "Connecting to Extron IN1804 matrix...")
                 self._signals.progress.emit(context, 10)
                 handler = self._acquire_session(context, secrets)
-                self._signals.status.emit(context, "Получение информации об устройстве...")
+                if not self._is_current(context):
+                    return
+                self._signals.status.emit(context, "Reading Matrix device status...")
                 self._signals.progress.emit(context, 30)
                 status = handler.get_full_status()
                 parser = ExtronIN1804DataParser()
@@ -271,15 +310,22 @@ class MatrixController(QObject):
                 data["ip_address"] = context.ip_address
                 data["_matrix_credential_success_candidate"] = context.candidate_index
                 self._signals.progress.emit(context, 100)
-                self._signals.status.emit(context, "Готово!")
+                self._signals.status.emit(context, "Ready")
                 self._signals.result.emit(context, redact_data(data, secrets))
             elif context.operation_kind == "route":
                 handler = self._acquire_session(context, secrets)
-                route_command_invoked = True
-                handler.set_connection(context.output_num, context.input_num)
+                if not self._is_current(context):
+                    return
+                try:
+                    handler.set_connection(context.output_num, context.input_num)
+                except Exception as error:
+                    setattr(error, "_matrix_route_command_invoked", True)
+                    raise
                 self._signals.result.emit(context, {"route_input": context.input_num})
             elif context.operation_kind == "quick_refresh":
                 handler = self._acquire_session(context, secrets)
+                if not self._is_current(context):
+                    return
                 connections = handler.get_connections()
                 current = connections[0] if connections else None
                 self._signals.result.emit(context, {"current_connection": current})
@@ -297,18 +343,6 @@ class MatrixController(QObject):
                 finally:
                     handler.log_callback = original_log_callback
                 self._signals.result.emit(context, {"keepalive": True})
-        except Exception as error:
-            message, details = _safe_error(error, secrets)
-            category = classify_matrix_failure(error).value
-            if (
-                context.operation_kind == "route"
-                and route_command_invoked
-                and category == "authentication_error"
-            ):
-                category = "unknown_command_outcome"
-            self._signals.error.emit(context, (category, message, details))
-        finally:
-            self._signals.finished.emit(context)
 
     def _candidate_secrets(self, context: MatrixOperationContext):
         candidate = self._candidate_for_context(context)
@@ -319,19 +353,20 @@ class MatrixController(QObject):
     def _candidate_for_context(self, context: MatrixOperationContext):
         if context.candidate_index is None:
             return None
-        candidates = tuple(
-            self._credential_candidates_provider(context.model, context.ip_address)
-            or ()
-        )
+        candidates = self._candidate_snapshots.get(context.operation_id)
+        if candidates is None:
+            candidates = tuple(
+                self._credential_candidates_provider(context.model, context.ip_address)
+                or ()
+            )
         if context.candidate_index < 0 or context.candidate_index >= len(candidates):
             return None
         return candidates[context.candidate_index]
 
-    def _acquire_session(self, context: MatrixOperationContext, secrets):
-        candidate = self._candidate_for_context(context)
-        if not isinstance(candidate, dict):
-            raise RuntimeError("Нет credentials для Extron IN1804")
-        identity = MatrixSessionIdentity(
+    def _session_identity_for_context(self, context: MatrixOperationContext):
+        if context.candidate_index is None:
+            return None
+        return MatrixSessionIdentity(
             model=context.model,
             ip_address=context.ip_address,
             protocol="auto",
@@ -339,6 +374,12 @@ class MatrixController(QObject):
             credential_context_revision=context.credential_context_revision,
             candidate_index=context.candidate_index,
         )
+
+    def _acquire_session(self, context: MatrixOperationContext, secrets):
+        candidate = self._candidate_for_context(context)
+        if not isinstance(candidate, dict):
+            raise RuntimeError("No credentials for Extron IN1804")
+        identity = self._session_identity_for_context(context)
         with self._session_lock:
             if (
                 self._session_identity == identity
@@ -361,7 +402,7 @@ class MatrixController(QObject):
             handler.connect()
             self._session_identity = identity
             self._session_handler = handler
-            self._keepalive_timer.start()
+            self._request_keepalive_start()
             return handler
 
     def _release_session_background(self):
@@ -393,11 +434,46 @@ class MatrixController(QObject):
                 pass
         self._session_handler = None
         self._session_identity = None
-        self._stop_keepalive()
+        self._request_keepalive_stop()
 
-    def _stop_keepalive(self):
+    def _request_keepalive_start(self):
+        if QThread.currentThread() == self.thread():
+            self._start_keepalive_timer()
+        else:
+            self._startKeepaliveRequested.emit()
+
+    def _request_keepalive_stop(self):
+        if QThread.currentThread() == self.thread():
+            self._stop_keepalive_timer()
+        else:
+            self._stopKeepaliveRequested.emit()
+
+    @pyqtSlot()
+    def _start_keepalive_timer(self):
+        if not self._keepalive_timer.isActive():
+            self._keepalive_timer.start()
+
+    @pyqtSlot()
+    def _stop_keepalive_timer(self):
         if self._keepalive_timer.isActive():
             self._keepalive_timer.stop()
+
+    def _invalidate_failed_session(self, context: MatrixOperationContext):
+        identity = self._session_identity_for_context(context)
+        if identity is None:
+            return
+        with self._session_lock:
+            if self._session_identity != identity:
+                return
+            handler = self._session_handler
+            self._session_handler = None
+            self._session_identity = None
+        self._request_keepalive_stop()
+        if handler is not None:
+            try:
+                handler.disconnect()
+            except Exception:
+                pass
 
     def _is_current(self, context: MatrixOperationContext) -> bool:
         current = self._active_context
@@ -429,7 +505,7 @@ class MatrixController(QObject):
                 state_changing=False,
                 reuse_generation=context.generation,
             )
-            self._submit(follow_up)
+            self._submit(follow_up, self._candidate_snapshots.get(context.operation_id))
             return
         if context.operation_kind == "quick_refresh":
             current = data.get("current_connection")
@@ -445,13 +521,15 @@ class MatrixController(QObject):
         if not self._is_current(context):
             return
         if context.operation_kind == "route" and error[0] == "authentication_error":
-            candidates = tuple(
-                self._credential_candidates_provider(
-                    context.model,
-                    context.ip_address,
+            candidates = self._candidate_snapshots.get(context.operation_id)
+            if candidates is None:
+                candidates = tuple(
+                    self._credential_candidates_provider(
+                        context.model,
+                        context.ip_address,
+                    )
+                    or ()
                 )
-                or ()
-            )
             next_index = self._credential_advance_provider(
                 context.model,
                 context.ip_address,
@@ -469,7 +547,7 @@ class MatrixController(QObject):
                     state_changing=True,
                     reuse_generation=context.generation,
                 )
-                self._submit(retry)
+                self._submit(retry, candidates)
                 return
         if context.operation_kind in {"route", "quick_refresh", "keepalive"}:
             if context.operation_kind == "keepalive":
@@ -492,6 +570,7 @@ class MatrixController(QObject):
             self.terminalAccepted.emit(message, self._handle(context))
 
     def _on_finished(self, context: MatrixOperationContext):
+        self._candidate_snapshots.pop(context.operation_id, None)
         if not self._is_current(context):
             return
         if context.operation_kind in {"route", "quick_refresh", "keepalive", "cleanup"}:
@@ -512,7 +591,8 @@ class _MatrixCleanupOperation(QRunnable):
 
     @pyqtSlot()
     def run(self):
-        try:
-            self.handler.disconnect()
-        finally:
-            self.controller._signals.finished.emit(self.context)
+        with self.controller._operation_lock:
+            try:
+                self.handler.disconnect()
+            finally:
+                self.controller._signals.finished.emit(self.context)

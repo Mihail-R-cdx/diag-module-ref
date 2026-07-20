@@ -480,6 +480,8 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         window.set_ui_state = Mock()
         window.set_current_credential_index = Mock()
         window.refresh_pdu = Mock()
+        window.refresh_extron_in1804 = Mock()
+        window.finish_matrix_terminal = Mock()
         window.refresh_btn = Mock()
         window.screens = {}
         window.current_screen_type = None
@@ -875,6 +877,88 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         self.assertEqual(1, next_worker.current_idx)
         self.assertEqual({"password": "synthetic-password-1"}, next_worker.credentials)
         self.assertEqual(1, next_worker.descriptor.credential_index)
+        window.set_current_credential_index.assert_not_called()
+
+    def test_matrix_full_refresh_uses_existing_attempt_plan_after_fallback(self):
+        window = self.make_window()
+        device_name = "Extron IN1804"
+        ip_address = "192.0.2.55"
+        creds = [
+            {"username": "matrix-user-0", "password": "matrix-pass-0"},
+            {"username": "matrix-user-1", "password": "matrix-pass-1"},
+            {"username": "matrix-user-2", "password": "matrix-pass-2"},
+        ]
+        window.device_combo = SimpleNamespace(currentText=lambda: device_name)
+        window.device_credentials = {device_name: creds}
+        window._active_request_credentials = creds
+        window.validate_ip_address = Mock(return_value=True)
+        window.show_progress_dialog = Mock()
+        window.show_matrix_terminal = Mock()
+        window.matrix_controller = Mock()
+        window._matrix_credential_context_revision = 0
+
+        next_index = window._advance_request_credential_attempt(
+            device_name,
+            creds,
+            ip_address,
+            0,
+        )
+        self.assertEqual(1, next_index)
+
+        VCSDiagnosticApp.refresh_extron_in1804(window, ip_address)
+
+        window.matrix_controller.request_full_refresh.assert_called_once_with(
+            ip_address,
+            creds,
+            1,
+        )
+        window.set_current_credential_index.assert_not_called()
+
+    def test_matrix_full_refresh_fallback_exhaustion_discards_request_plan(self):
+        window = self.make_window()
+        device_name = "Extron IN1804"
+        ip_address = "192.0.2.56"
+        creds = [
+            {"username": "matrix-user-0", "password": "matrix-pass-0"},
+            {"username": "matrix-user-1", "password": "matrix-pass-1"},
+        ]
+        window.device_combo = SimpleNamespace(currentText=lambda: device_name)
+        window._active_request_credentials = creds
+        window.current_worker = SimpleNamespace(
+            device_name=device_name,
+            ip_address=ip_address,
+            current_idx=0,
+            creds_list=creds,
+        )
+
+        window.on_device_error(("authentication_error", "bad 0", ""), window.current_worker, 1)
+        self.assertEqual(1, window.refresh_extron_in1804.call_count)
+        self.assertEqual(
+            1,
+            window._credential_attempt_plans[
+                f"{device_name}|{ip_address}"
+            ].current_index,
+        )
+
+        terminal_worker = SimpleNamespace(
+            device_name=device_name,
+            ip_address=ip_address,
+            current_idx=1,
+            creds_list=creds,
+        )
+        window.current_worker = terminal_worker
+        with patch.object(QMessageBox, "warning"):
+            window.on_device_error(
+                ("authentication_error", "bad 1", ""),
+                terminal_worker,
+                1,
+            )
+
+        self.assertEqual(1, window.refresh_extron_in1804.call_count)
+        self.assertNotIn(
+            f"{device_name}|{ip_address}",
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
         window.set_current_credential_index.assert_not_called()
 
 

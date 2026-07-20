@@ -1639,7 +1639,7 @@ class VCSDiagnosticApp(QMainWindow):
         if creds_list is None:
             creds_list = self.device_credentials.get(device_name)
 
-        current_idx = self.get_valid_current_credential_index(
+        current_idx = self._credential_attempt_index(
             device_name, creds_list, ip_address
         )
 

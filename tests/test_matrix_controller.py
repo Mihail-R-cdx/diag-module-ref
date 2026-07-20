@@ -1,4 +1,5 @@
 import os
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -103,6 +104,55 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertFalse(hasattr(accepted[0], "username"))
         self.assertFalse(hasattr(accepted[0], "password"))
 
+    def test_stale_callbacks_are_suppressed_for_all_public_channels(self):
+        controller, _state, pool = self.make_controller()
+        accepted = {
+            "result": [],
+            "error": [],
+            "progress": [],
+            "status": [],
+            "terminal": [],
+            "finished": [],
+            "route": [],
+            "route_error": [],
+        }
+        controller.resultAccepted.connect(lambda *args: accepted["result"].append(args))
+        controller.errorAccepted.connect(lambda *args: accepted["error"].append(args))
+        controller.progressAccepted.connect(lambda *args: accepted["progress"].append(args))
+        controller.statusAccepted.connect(lambda *args: accepted["status"].append(args))
+        controller.terminalAccepted.connect(lambda *args: accepted["terminal"].append(args))
+        controller.finishedAccepted.connect(lambda *args: accepted["finished"].append(args))
+        controller.routeAccepted.connect(accepted["route"].append)
+        controller.routeError.connect(accepted["route_error"].append)
+
+        stale = controller._make_context(
+            operation_kind="route",
+            ip_address="192.0.2.10",
+            candidate_index=0,
+            output_num=1,
+            input_num=2,
+            state_changing=True,
+        )
+        current = controller._make_context(
+            operation_kind="full_refresh",
+            ip_address="192.0.2.11",
+            candidate_index=0,
+            state_changing=False,
+        )
+        cleanup = controller._make_cleanup_context()
+
+        controller._on_result(stale, {"route_input": 2})
+        controller._on_error(stale, ("authentication_error", "rejected", ""))
+        controller._on_progress(stale, 50)
+        controller._on_status(stale, "old")
+        controller._on_terminal(stale, "old terminal")
+        controller._on_finished(stale)
+        controller._on_finished(cleanup)
+
+        self.assertEqual({key: [] for key in accepted}, accepted)
+        self.assertIs(current, controller._active_context)
+        self.assertEqual([], pool.runnables)
+
     def test_session_identity_includes_ip_candidate_and_credential_revision(self):
         controller, state, pool = self.make_controller()
         events = []
@@ -169,6 +219,260 @@ class MatrixControllerTests(unittest.TestCase):
             2,
         )
         self.assertTrue(pool.runnables)
+
+    def test_persistent_handler_access_is_serialized_for_overlapping_operations(self):
+        controller, state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        entered_first = threading.Event()
+        release_first = threading.Event()
+        entered_route = threading.Event()
+        calls = []
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = True
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_connections(self):
+                calls.append("quick")
+                entered_first.set()
+                release_first.wait(2)
+                return [1]
+
+            def set_connection(self, output_num, input_num):
+                calls.append(("route", output_num, input_num))
+                entered_route.set()
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, state["candidates"])
+            first_thread = threading.Thread(
+                target=controller._run_background_operation,
+                args=(first,),
+            )
+            first_thread.start()
+            self.assertTrue(entered_first.wait(1))
+
+            second = controller._make_context(
+                operation_kind="route",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                output_num=1,
+                input_num=4,
+                state_changing=True,
+            )
+            controller._submit(second, state["candidates"])
+            second_thread = threading.Thread(
+                target=controller._run_background_operation,
+                args=(second,),
+            )
+            second_thread.start()
+            self.assertFalse(entered_route.wait(0.2))
+
+            release_first.set()
+            first_thread.join(2)
+            second_thread.join(2)
+
+        self.assertFalse(first_thread.is_alive())
+        self.assertFalse(second_thread.is_alive())
+        self.assertEqual(["quick", ("route", 1, 4)], calls)
+
+    def test_stale_queued_route_is_discarded_before_handler_acquisition(self):
+        controller, _state, pool = self.make_controller()
+        controller.request_route(1, 4)
+        route = pool.runnables[0]
+        controller.invalidate_context()
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler") as handler_factory:
+            route.run()
+
+        handler_factory.assert_not_called()
+
+    def test_route_that_becomes_stale_while_waiting_for_lane_does_not_send(self):
+        controller, _state, pool = self.make_controller()
+        waiting_for_lane = threading.Event()
+        release_lane = threading.Event()
+
+        class BlockingLane:
+            def __enter__(self):
+                waiting_for_lane.set()
+                release_lane.wait(2)
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        controller._operation_lock = BlockingLane()
+        controller.request_route(1, 4)
+        route = pool.runnables[0]
+        with patch("gui.matrix_controller.ExtronIN1804Handler") as handler_factory:
+            thread = threading.Thread(target=route.run)
+            thread.start()
+            self.assertTrue(waiting_for_lane.wait(1))
+            controller.invalidate_context()
+            release_lane.set()
+            thread.join(2)
+
+            self.assertFalse(thread.is_alive())
+            handler_factory.assert_not_called()
+
+    def test_background_operation_does_not_start_keepalive_timer_directly(self):
+        controller, state, _pool = self.make_controller()
+        start_called = threading.Event()
+
+        class Timer:
+            def isActive(self):
+                return False
+
+            def start(self):
+                start_called.set()
+
+            def stop(self):
+                pass
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+
+            def connect(self):
+                pass
+
+            def is_connected(self):
+                return True
+
+            def get_connections(self):
+                return [2]
+
+            def disconnect(self):
+                pass
+
+        controller._keepalive_timer = Timer()
+        context = controller._make_context(
+            operation_kind="quick_refresh",
+            ip_address="192.0.2.10",
+            candidate_index=0,
+            state_changing=False,
+        )
+        controller._submit(context, state["candidates"])
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            thread = threading.Thread(
+                target=controller._run_background_operation,
+                args=(context,),
+            )
+            thread.start()
+            thread.join(2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(start_called.is_set())
+
+    def test_session_failure_invalidates_matching_session_and_reconnects(self):
+        from core.exceptions import ConnectionError
+
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        instances = []
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = False
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_connections(self):
+                if self is instances[0]:
+                    raise ConnectionError("socket failed")
+                return [3]
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, state["candidates"])
+            controller._run_background_operation(first)
+
+            second = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(second, state["candidates"])
+            controller._run_background_operation(second)
+
+        self.assertEqual(2, len(instances))
+        self.assertFalse(instances[0].connected)
+        self.assertTrue(instances[1].connected)
+
+    def test_old_failure_does_not_invalidate_new_matching_context_session(self):
+        controller, state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = True
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            old = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(old, state["candidates"])
+            controller._acquire_session(old, ())
+
+            state["revision"] = 2
+            new = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(new, state["candidates"])
+            new_handler = controller._acquire_session(new, ())
+            controller._invalidate_failed_session(old)
+
+        self.assertIs(new_handler, controller._session_handler)
+        self.assertTrue(new_handler.connected)
 
     def test_route_auth_before_send_uses_next_candidate(self):
         from core.exceptions import MatrixAuthenticationError

@@ -99,3 +99,15 @@
 - [x] 10.4 Run `.\openspec.cmd validate --all --strict`.
 - [x] 10.5 Run `git diff --check`.
 - [x] 10.6 Confirm no unrelated PDU, DMP, codec, SIP, generic credential, worker facade, or handler protocol behavior changed.
+
+## 11. Review follow-up evidence
+
+- [x] 11.1 Serialize real persistent handler use across refresh, route, quick refresh, keepalive, and cleanup through the Matrix operation lane; covered by `test_persistent_handler_access_is_serialized_for_overlapping_operations`.
+- [x] 11.2 Discard stale queued Matrix route operations before handler acquisition/network I/O; covered by `test_stale_queued_route_is_discarded_before_handler_acquisition`.
+- [x] 11.3 Re-check current immutable context after waiting for the serialized lane and immediately before route send; covered by `test_route_that_becomes_stale_while_waiting_for_lane_does_not_send`.
+- [x] 11.4 Use the application-owned request-scoped full-refresh credential cursor for retry candidate N+1 without persisting success early; covered by `test_matrix_full_refresh_uses_existing_attempt_plan_after_fallback`.
+- [x] 11.5 Keep Matrix full-refresh fallback finite and discard the request plan after terminal exhaustion; covered by `test_matrix_full_refresh_fallback_exhaustion_discards_request_plan`.
+- [x] 11.6 Dispatch controller-owned keepalive timer start/stop through the Qt owner-thread boundary while keeping the network probe in background; covered by `test_background_operation_does_not_start_keepalive_timer_directly`.
+- [x] 11.7 Invalidate only the matching failed persistent session and reconnect on the next operation without letting old failures clear a newer session; covered by `test_session_failure_invalidates_matching_session_and_reconnects` and `test_old_failure_does_not_invalidate_new_matching_context_session`.
+- [x] 11.8 Redact actual Matrix username/password from stdout and handler log callbacks, including echoed authentication prompts; covered by `test_telnet_authentication_does_not_print_or_log_actual_credentials`.
+- [x] 11.9 Preserve stale suppression for result, error, progress, status, terminal, finished, cleanup, and route follow-up callbacks; covered by `test_stale_callbacks_are_suppressed_for_all_public_channels`.

@@ -11,6 +11,7 @@ from core.exceptions import (
     MatrixAuthenticationError,
     MatrixAuthenticationPreconditionError,
 )
+from core.redaction import redact_text
 
 
 class ProtocolHandler(ABC):
@@ -321,7 +322,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             [b'login as:', b'password:', b'>', b']'],
             timeout=self.timeout
         )
-        print(f"Login prompt received: {login_prompt[:200]}...")
+        print(f"Login prompt received: {self._format_auth_bytes(login_prompt[:200])}...")
         if login_prompt:
             self._emit_log(f"[recv] {self._format_bytes(login_prompt)}")
         lowered_login_prompt = login_prompt.lower()
@@ -331,7 +332,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
 
         if b'password:' in lowered_login_prompt and b'login as:' not in lowered_login_prompt:
             print("Password prompt arrived before login prompt, sending username first")
-            self._emit_log(f"[send] {self.username}")
+            self._emit_log("[send] <username>")
             self._send_bytes((self.username + '\r\n').encode())
             password_prompt = self._read_until_patterns(
                 [b'password:', b'login incorrect', b'login as:', b'>', b']'],
@@ -349,15 +350,15 @@ class BaseExtronMatrixHandler(ProtocolHandler):
                 if extra_prompt:
                     self._emit_log(f"[recv] {self._format_bytes(extra_prompt)}")
 
-            print(f"Sending username: {self.username}")
-            self._emit_log(f"[send] {self.username}")
+            print("Sending username...")
+            self._emit_log("[send] <username>")
             self._send_bytes((self.username + '\r\n').encode())
             password_prompt = self._read_until_patterns(
                 [b'Password:', b'Login incorrect', b'login as:', b'>', b']'],
                 timeout=self.timeout
             )
 
-        print(f"Response after username: {password_prompt[:200]}...")
+        print(f"Response after username: {self._format_auth_bytes(password_prompt[:200])}...")
         if password_prompt:
             self._emit_log(f"[recv] {self._format_bytes(password_prompt)}")
         lowered_password_prompt = password_prompt.lower()
@@ -380,7 +381,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
             [b'Password:', b'Login incorrect', b'login as:', b'>', b']'],
             timeout=self.timeout
         )
-        print(f"Response after password: {final_response[:200]}...")
+        print(f"Response after password: {self._format_auth_bytes(final_response[:200])}...")
         if final_response:
             self._emit_log(f"[recv] {self._format_bytes(final_response)}")
         lowered_final_response = final_response.lower()
@@ -570,7 +571,7 @@ class BaseExtronMatrixHandler(ProtocolHandler):
     def _emit_log(self, message: str) -> None:
         if self.log_callback:
             try:
-                self.log_callback(message)
+                self.log_callback(redact_text(message, (self.username, self.password)))
             except Exception:
                 pass
 
@@ -590,6 +591,9 @@ class BaseExtronMatrixHandler(ProtocolHandler):
     @staticmethod
     def _format_bytes(payload: bytes) -> str:
         return payload.decode('utf-8', errors='ignore').replace('\r', '\\r').replace('\n', '\\n')
+
+    def _format_auth_bytes(self, payload: bytes) -> str:
+        return redact_text(self._format_bytes(payload), (self.username, self.password))
 
     @staticmethod
     def _strip_command_echo(command: str, response_text: str) -> str:
