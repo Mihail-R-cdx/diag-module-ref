@@ -101,5 +101,5 @@
 - [x] 10.3 Run `git diff --check`.
 - [x] 10.4 Run `./openspec.cmd validate dmp-polling-lifecycle-decomposition --strict` using the repository-local wrapper only.
 - [x] 10.5 Run `./openspec.cmd validate --all --strict` using the repository-local wrapper only.
-- [ ] 10.6 Commit and push implementation before requesting independent validation.
+- [x] 10.6 Commit and push implementation before requesting independent validation.
 - [ ] 10.7 Perform independent validation in a separate clean detached worktree from the exact published remote SHA according to `RULES.md`.
