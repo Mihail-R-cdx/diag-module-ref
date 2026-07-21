@@ -310,6 +310,106 @@ class PDUControllerLifecycleTests(unittest.TestCase):
             self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"),
         )
 
+    def test_pcs4i_refresh_retry_success_becomes_next_refresh_starting_index(self):
+        started = []
+        self.window._active_request_credentials = [
+            {"password": "a"},
+            {"password": "b"},
+        ]
+        self.window.set_current_credential_index("Extron IPL T PCS4i", 0, "192.0.2.44")
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "critical"), \
+                patch.object(QMessageBox, "information"):
+            self.window.screens["pdu"].refresh()
+            first = started[-1]
+            self.assertEqual(0, first.descriptor.credential_index)
+
+            self.window.on_pdu_refresh_error(
+                (
+                    CodecFailureCategory.AUTHENTICATION.value,
+                    "rejected",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
+                first,
+                first.descriptor,
+            )
+            retry = started[-1]
+            self.assertEqual(1, retry.descriptor.credential_index)
+            self.assertEqual(
+                0,
+                self.window.get_current_credential_index(
+                    "Extron IPL T PCS4i",
+                    "192.0.2.44",
+                ),
+            )
+
+            self.window.on_pdu_refresh_result(
+                {
+                    "device_info": {"model": "IPL T PCS4i"},
+                    "outlets": [{"number": 1, "status": "on"}],
+                    "ip_address": "192.0.2.44",
+                    "_credential_used": True,
+                },
+                retry,
+                retry.descriptor,
+            )
+            self.assertEqual(
+                1,
+                self.window.get_current_credential_index(
+                    "Extron IPL T PCS4i",
+                    "192.0.2.44",
+                ),
+            )
+
+            self.window.screens["pdu"].refresh()
+            next_refresh = started[-1]
+
+        self.assertEqual(3, len(started))
+        self.assertEqual(1, next_refresh.descriptor.credential_index)
+        self.assertEqual({"password": "b"}, next_refresh.credentials)
+        self.assertNotEqual({"password": "a"}, next_refresh.credentials)
+
+    def test_pcs4i_refresh_saved_last_candidate_does_not_wrap_after_auth_failure(self):
+        started = []
+        self.window._active_request_credentials = [
+            {"password": "a"},
+            {"password": "b"},
+        ]
+        self.window.set_current_credential_index("Extron IPL T PCS4i", 1, "192.0.2.44")
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "critical"):
+            self.window.screens["pdu"].refresh()
+            first = started[-1]
+            self.assertEqual(1, first.descriptor.credential_index)
+
+            self.window.on_pdu_refresh_error(
+                (
+                    CodecFailureCategory.AUTHENTICATION.value,
+                    "rejected",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
+                first,
+                first.descriptor,
+            )
+
+        self.assertEqual(1, len(started))
+        self.assertEqual(
+            1,
+            self.window.get_current_credential_index(
+                "Extron IPL T PCS4i",
+                "192.0.2.44",
+            ),
+        )
+        self.assertNotIn(
+            "Extron IPL T PCS4i|192.0.2.44|operation:"
+            f"{first.descriptor.operation_id}",
+            self.window.__dict__.get("_credential_attempt_plans", {}),
+        )
+
     def test_aten_refresh_auth_looking_text_does_not_retry_or_persist(self):
         started = []
         self.window.device_combo.setCurrentText("Aten PE8208AV")

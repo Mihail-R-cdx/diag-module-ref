@@ -824,10 +824,11 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         window.set_current_credential_index.assert_not_called()
         window.refresh_pdu.assert_not_called()
 
-    def test_pcs4i_refresh_pdu_uses_existing_attempt_plan_after_fallback(self):
+    def test_pcs4i_refresh_pdu_ignores_stale_non_operation_attempt_plan(self):
         window = self.make_window()
         creds = self.worker(total=3).creds_list
         window._active_request_credentials = creds
+        window.current_credential_index["Extron IPL T PCS4i|192.0.2.44"] = 0
         self.assertEqual(
             1,
             window._advance_request_credential_attempt(
@@ -847,8 +848,8 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         next_worker = started[0]
         self.assertFalse(hasattr(next_worker, "creds_list"))
         self.assertFalse(hasattr(next_worker, "current_idx"))
-        self.assertEqual({"password": "synthetic-password-1"}, next_worker.credentials)
-        self.assertEqual(1, next_worker.descriptor.credential_index)
+        self.assertEqual({"password": "synthetic-password-0"}, next_worker.credentials)
+        self.assertEqual(0, next_worker.descriptor.credential_index)
         window.set_current_credential_index.assert_not_called()
 
     def test_matrix_full_refresh_uses_existing_attempt_plan_after_fallback(self):

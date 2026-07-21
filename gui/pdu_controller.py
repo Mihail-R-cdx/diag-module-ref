@@ -1012,12 +1012,6 @@ class PDUController:
         return creds_list
 
     def _refresh_credential_index(self, device_name, ip_address, creds_list):
-        if self.shell._is_pcs4i_device(device_name):
-            return self.shell._credential_attempt_index(
-                device_name,
-                creds_list,
-                ip_address,
-            )
         return self.shell.get_valid_current_credential_index(
             device_name,
             creds_list,
