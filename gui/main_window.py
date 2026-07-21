@@ -11,6 +11,7 @@ import traceback
 
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
+from .dmp_polling_controller import DMP_DEVICE_NAME, DMPPollingController
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
 from .theme import SPACING, apply_theme, legacy_colors
@@ -22,9 +23,7 @@ from core.worker import (
     PolycomRPG310Worker,
     CodecSipFixWorker,
     BiampTesiraForteCIWorker,
-    ExtronDMP64PlusMeterWorker,
 )
-from core.dmp64_plus import DMPCancellationToken
 from core.pdu import (
     BULK_COMMAND_OFF,
     BULK_COMMAND_ON,
@@ -191,8 +190,6 @@ class VCSDiagnosticApp(QMainWindow):
         self._request_serial = 0
         self._active_request = None
         self._credential_attempt_plans = {}
-        self._dmp_context_revision = 0
-        self._dmp_cancel_token = None
         self._matrix_credential_context_revision = 0
         self.matrix_controller = MatrixController(
             context_provider=self._matrix_public_context,
@@ -205,6 +202,10 @@ class VCSDiagnosticApp(QMainWindow):
         self.pdu_controller = PDUController(
             shell=self,
             screen_provider=lambda: getattr(self, "screens", {}).get("pdu"),
+        )
+        self.dmp_polling_controller = DMPPollingController(
+            shell=self,
+            screen_provider=lambda: getattr(self, "screens", {}).get("audio_dsp"),
         )
         
         # Инициализация экранов
@@ -401,9 +402,6 @@ class VCSDiagnosticApp(QMainWindow):
         self.device_combo.currentTextChanged.connect(
             lambda _text: self._invalidate_pdu_context()
         )
-        self.device_combo.currentTextChanged.connect(
-            lambda _text: self._cancel_dmp_context()
-        )
         self.device_combo.installEventFilter(self)
         
         device_label = QLabel("Устройство")
@@ -422,7 +420,7 @@ class VCSDiagnosticApp(QMainWindow):
             lambda _text: self._invalidate_pdu_context()
         )
         self.ip_entry.textChanged.connect(
-            lambda _text: self._cancel_dmp_context()
+            lambda _text: self._invalidate_dmp_context()
         )
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
@@ -574,6 +572,20 @@ class VCSDiagnosticApp(QMainWindow):
     def _invalidate_pdu_context(self):
         self._pdu_controller().invalidate_context()
 
+    def _dmp_controller(self):
+        controller = self.__dict__.get("dmp_polling_controller")
+        if controller is None:
+            controller = DMPPollingController(
+                shell=self,
+                screen_provider=lambda: getattr(self, "screens", {}).get("audio_dsp"),
+                thread_pool=QThreadPool.globalInstance(),
+            )
+            self.__dict__["dmp_polling_controller"] = controller
+        return controller
+
+    def _invalidate_dmp_context(self):
+        self._dmp_controller().invalidate_context()
+
     def _matrix_public_context(self):
         return (
             MATRIX_DEVICE_NAME,
@@ -622,6 +634,8 @@ class VCSDiagnosticApp(QMainWindow):
             )
             if hasattr(self, "matrix_controller"):
                 self.matrix_controller.invalidate_context()
+        if device_name in (None, DMP_DEVICE_NAME):
+            self._dmp_controller().invalidate_credential_context()
         self._invalidate_pdu_context()
         if not self._is_pdu_device(device_name):
             return
@@ -647,20 +661,9 @@ class VCSDiagnosticApp(QMainWindow):
     def _pdu_context_token(self):
         return self._pdu_controller().context_token()
 
-    def _cancel_dmp_context(self):
-        token = self.__dict__.get("_dmp_cancel_token")
-        if token is not None:
-            token.cancel()
-        self._dmp_context_revision = self.__dict__.get("_dmp_context_revision", 0) + 1
-
-    def _begin_dmp_context(self):
-        self._cancel_dmp_context()
-        token = DMPCancellationToken()
-        self._dmp_cancel_token = token
-        return self.__dict__.get("_dmp_context_revision", 0), token
-
-    def _is_dmp_device(self, device_name):
-        return device_name == "Extron DMP 64 Plus"
+    @staticmethod
+    def _is_dmp_device(device_name):
+        return device_name == DMP_DEVICE_NAME
 
     def _set_active_pdu_credential_context(
         self,
@@ -706,21 +709,6 @@ class VCSDiagnosticApp(QMainWindow):
         if request is None or request_id != request["id"]:
             return False
         return worker is None or worker is getattr(self, "current_worker", None)
-
-    def _dmp_callback_is_current(self, worker=None):
-        if worker is None or getattr(worker, "device_name", None) != "Extron DMP 64 Plus":
-            return True
-        context = getattr(worker, "dmp_context", None)
-        if not isinstance(context, dict):
-            return False
-        request = self.__dict__.get("_active_request") or {}
-        return (
-            context.get("generation") == self.__dict__.get("_dmp_context_revision", 0)
-            and context.get("token") is self.__dict__.get("_dmp_cancel_token")
-            and context.get("worker") is worker
-            and request.get("device") == context.get("model")
-            and request.get("ip") == context.get("ip")
-        )
 
     def _bind_worker(self, worker):
         """Bind worker signals to the request that created it."""
@@ -832,7 +820,7 @@ class VCSDiagnosticApp(QMainWindow):
     
     def on_device_change(self, device_name):
         """Обработка изменения выбранного устройства"""
-        self._cancel_dmp_context()
+        self._invalidate_dmp_context()
         codec_screen = self.screens.get("codec") if hasattr(self, 'screens') else None
         if codec_screen and hasattr(codec_screen, 'reset_volume_session'):
             codec_screen.reset_volume_session()
@@ -1077,7 +1065,6 @@ class VCSDiagnosticApp(QMainWindow):
         return (
             self.is_vcs_codec_device(device_name)
             or self._is_pcs4i_device(device_name)
-            or self._is_dmp_device(device_name)
             or device_name == MATRIX_DEVICE_NAME
         )
 
@@ -1085,7 +1072,6 @@ class VCSDiagnosticApp(QMainWindow):
         if (
             self.is_vcs_codec_device(device_name)
             or self._is_pcs4i_device(device_name)
-            or self._is_dmp_device(device_name)
             or device_name == MATRIX_DEVICE_NAME
         ):
             return error_type == CodecFailureCategory.AUTHENTICATION.value
@@ -1333,63 +1319,8 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setText("РћР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ")
 
     def refresh_extron_dmp64_plus(self, ip_address: str):
-        """Start a new authoritative Extron DMP 64 Plus meter polling context."""
-        if not self.validate_ip_address(ip_address):
-            QMessageBox.warning(self, "Invalid IP", "Enter a valid IP address.")
-            return
-
-        device_name = "Extron DMP 64 Plus"
-        creds_list = self.device_credentials.get(device_name)
-        current_idx = self._credential_attempt_index(
-            device_name, creds_list, ip_address
-        )
-        creds = creds_list[current_idx]
-        generation, cancellation = self._begin_dmp_context()
-
-        if hasattr(self, 'refresh_btn'):
-            self.refresh_btn.setEnabled(False)
-            self.refresh_btn.setText("Подключение...")
-
-        self.show_progress_dialog(
-            f"Подключение к {device_name} (попытка {current_idx + 1}/{len(creds_list)})..."
-        )
-        self.show_codec_poll_terminal(
-            device_name,
-            ip_address,
-            current_idx + 1,
-            len(creds_list),
-            reset=(current_idx == 0),
-        )
-
-        try:
-            self.current_worker = ExtronDMP64PlusMeterWorker(
-                ip_address=ip_address,
-                cancellation=cancellation,
-                **creds,
-            )
-            self.current_worker.creds_list = creds_list
-            self.current_worker.current_idx = current_idx
-            self.current_worker.device_name = device_name
-            self.current_worker.dmp_context = {
-                "generation": generation,
-                "model": device_name,
-                "ip": ip_address,
-                "token": cancellation,
-                "worker": self.current_worker,
-                "credential_index": current_idx,
-            }
-
-            self._bind_worker(self.current_worker)
-            self.current_worker.signals.terminal_log.connect(self.on_codec_poll_terminal_log)
-
-            QThreadPool.globalInstance().start(self.current_worker)
-        except Exception as e:
-            cancellation.cancel()
-            self._fail_request_start(e)
-            QMessageBox.critical(self, "Error", f"Could not create worker: {str(e)}")
-            if hasattr(self, 'refresh_btn'):
-                self.refresh_btn.setEnabled(True)
-                self.refresh_btn.setText("Обновить данные")
+        """Compatibility delegate for Extron DMP 64 Plus polling."""
+        return self._dmp_controller().refresh(ip_address)
 
 
     def refresh_huawei_bar310(self, ip_address: str):
@@ -1825,8 +1756,6 @@ class VCSDiagnosticApp(QMainWindow):
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
         worker = worker or getattr(self, "current_worker", None)
-        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
-            return
         data = dict(data)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
@@ -1878,6 +1807,7 @@ class VCSDiagnosticApp(QMainWindow):
             and credential_used is not False
             and not credential_policy_handled
             and not VCSDiagnosticApp._is_pdu_device(getattr(worker, 'device_name', None))
+            and not VCSDiagnosticApp._is_dmp_device(getattr(worker, 'device_name', None))
         ):
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
@@ -1963,8 +1893,6 @@ class VCSDiagnosticApp(QMainWindow):
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
         worker = worker or getattr(self, "current_worker", None)
-        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
-            return
         active_request_id = request_id
         if active_request_id is None:
             active_request_id = (self._active_request or {}).get("id")
@@ -2000,24 +1928,32 @@ class VCSDiagnosticApp(QMainWindow):
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
         elif worker and getattr(worker, 'device_name', None) == "Huawei TE20":
             self.finish_te20_terminal(f"Опрос завершён с ошибкой: {error}")
-        elif worker and getattr(worker, 'device_name', None) == "Extron DMP 64 Plus":
+        elif worker and getattr(worker, 'device_name', None) == DMP_DEVICE_NAME:
             self.finish_codec_terminal(f"Опрос завершён с ошибкой: {error}")
         
         # Проверяем, есть ли текущий worker и нужно ли пробовать другие credentials
         if worker:
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
+            if VCSDiagnosticApp._is_dmp_device(device_name):
+                uses_request_plan = False
+                is_auth_error = False
+            else:
+                error_message = str(error)
+                uses_request_plan = VCSDiagnosticApp._uses_request_scoped_credential_retry(
+                    self, device_name
+                )
+                is_auth_error = VCSDiagnosticApp._is_structured_retry_authentication_error(
+                    self, device_name, error_type, error_message
+                )
             
-            error_message = str(error)
-            uses_request_plan = VCSDiagnosticApp._uses_request_scoped_credential_retry(
-                self, device_name
-            )
-            is_auth_error = VCSDiagnosticApp._is_structured_retry_authentication_error(
-                self, device_name, error_type, error_message
-            )
-
             # Если это ошибка аутентификации и есть еще credentials для проверки
-            if is_auth_error and creds_list and current_idx < len(creds_list) - 1:
+            if (
+                not VCSDiagnosticApp._is_dmp_device(device_name)
+                and is_auth_error
+                and creds_list
+                and current_idx < len(creds_list) - 1
+            ):
                 
                 # Переходим к следующему credentials
                 next_idx = current_idx + 1
@@ -2067,8 +2003,6 @@ class VCSDiagnosticApp(QMainWindow):
                         self.refresh_pdu(worker.ip_address, device_name)
                     elif device_name == "Biamp Tesira Forte CI":
                         self.refresh_biamp_tesira_forte_ci(worker.ip_address)
-                    elif device_name == "Extron DMP 64 Plus":
-                        self.refresh_extron_dmp64_plus(worker.ip_address)
                     return
                       
         
@@ -2077,9 +2011,12 @@ class VCSDiagnosticApp(QMainWindow):
         
         error_message = str(error)
         device_name = getattr(worker, 'device_name', self.device_combo.currentText())
-        is_auth_error = VCSDiagnosticApp._is_structured_retry_authentication_error(
-            self, device_name, error_type, error_message
-        )
+        if VCSDiagnosticApp._is_dmp_device(device_name):
+            is_auth_error = error_type == CodecFailureCategory.AUTHENTICATION.value
+        else:
+            is_auth_error = VCSDiagnosticApp._is_structured_retry_authentication_error(
+                self, device_name, error_type, error_message
+            )
         VCSDiagnosticApp._discard_credential_attempt_plan(
             self,
             device_name,
@@ -2129,8 +2066,6 @@ class VCSDiagnosticApp(QMainWindow):
         """Обработка обновления прогресса"""
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
-        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
-            return
         if self.progress_dialog is not None:
             try:
                 if self.progress_dialog.maximum() == 0:
@@ -2158,8 +2093,6 @@ class VCSDiagnosticApp(QMainWindow):
         """Обработка обновления статуса"""
         if request_id is not None and not self._request_is_current(request_id, worker):
             return
-        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
-            return
         if hasattr(self, 'progress_dialog') and self.progress_dialog:
             self.progress_dialog.setLabelText(status)
         if self.ui_state in {UIState.LOADING, UIState.COMMAND}:
@@ -2169,8 +2102,6 @@ class VCSDiagnosticApp(QMainWindow):
     def on_worker_finished(self, worker=None, request_id=None):
         """Обработка завершения работы Worker"""
         if request_id is not None and not self._request_is_current(request_id, worker):
-            return
-        if not VCSDiagnosticApp._dmp_callback_is_current(self, worker):
             return
         self.hide_progress_dialog()
         
@@ -2981,7 +2912,7 @@ class VCSDiagnosticApp(QMainWindow):
         dialog.activateWindow()
 
     def closeEvent(self, event):
-        self._cancel_dmp_context()
+        self._dmp_controller().shutdown()
         codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
         if codec_screen and hasattr(codec_screen, "shutdown_interactive_controller"):
             codec_screen.shutdown_interactive_controller()
