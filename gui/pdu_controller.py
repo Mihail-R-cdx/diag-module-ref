@@ -10,6 +10,7 @@ from PyQt5.QtCore import QThreadPool
 from PyQt5.QtWidgets import QMessageBox
 
 from core.exceptions import CodecFailureCategory
+from core.exceptions import CredentialConfigurationError
 from core.pdu import (
     BULK_COMMAND_OFF,
     BULK_COMMAND_ON,
@@ -35,7 +36,13 @@ class PDUCommonContext:
     model: str
     ip_address: str
     credential_context_revision: int
-    credential_index: Optional[int]
+
+
+@dataclass(frozen=True)
+class PDUAttemptState:
+    candidates: tuple
+    current_index: int
+    lane: str
 
 
 @dataclass(frozen=True)
@@ -74,6 +81,7 @@ class PDUController:
         self._mutation_lane: Optional[PDUMutationLane] = None
         self._current_outlet_context = None
         self._state_epoch = 0
+        self._attempt_states = {}
 
     @property
     def context_revision(self) -> int:
@@ -85,6 +93,8 @@ class PDUController:
         self._refresh_lane = None
         self._mutation_lane = None
         self._current_outlet_context = None
+        self._attempt_states.clear()
+        self.shell.__dict__.pop("_active_request_credentials", None)
         request = self.shell.__dict__.get("_active_request")
         if request is not None:
             request["credential_context"] = self._context_revision
@@ -104,6 +114,12 @@ class PDUController:
     def next_operation_id(self) -> int:
         return next(self._operation_serial)
 
+    def request_refresh(self) -> bool:
+        device_name, ip_address = self._selected_context()
+        if device_name not in PDU_DEVICE_NAMES:
+            return False
+        return self.refresh_pdu(ip_address, device_name)
+
     def refresh_pdu(self, ip_address: str, device_name: Optional[str] = None) -> bool:
         device_name = device_name or self.shell.device_combo.currentText()
         print(f"=== Начинаю обновление {device_name} для {ip_address} ===")
@@ -117,6 +133,8 @@ class PDUController:
             return False
 
         try:
+            if not self._ensure_common_request(device_name, ip_address):
+                return False
             creds_list = self._credential_candidates(device_name, ip_address)
             operation_id = self.next_operation_id()
             current_idx = self._refresh_credential_index(
@@ -130,10 +148,7 @@ class PDUController:
                 creds_list=creds_list,
                 current_idx=current_idx,
                 operation_id=operation_id,
-                generation=(self.shell._active_request or {}).get(
-                    "id",
-                    self.shell._request_serial,
-                ),
+                generation=self.shell._active_request["id"],
                 state_epoch=self._state_epoch,
                 originating_mutation_operation_id=None,
             )
@@ -148,6 +163,14 @@ class PDUController:
             self._thread_pool.start(worker)
             print(f"Worker для {device_name} запущен")
             return True
+        except CredentialConfigurationError as error:
+            message = str(error)
+            self.shell.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(self.shell, "Настройка credentials", message)
+            if hasattr(self.shell, "refresh_btn"):
+                self.shell.refresh_btn.setEnabled(True)
+                self.shell.refresh_btn.setText("Обновить данные")
+            return False
         except Exception as error:
             print(f"Ошибка создания Worker: {error}")
             self.shell._fail_request_start(error)
@@ -394,9 +417,8 @@ class PDUController:
         )
         worker = PDUOperationWorker(descriptor, credentials=creds)
         worker.is_current = lambda d: self.is_refresh_descriptor_current(d, worker)
-        worker.creds_list = creds_list
-        worker.current_idx = current_idx
         worker.device_name = device_name
+        self._record_attempt_state(descriptor, creds_list, current_idx, "refresh")
         self._refresh_lane = PDURefreshLane(
             operation_id=descriptor.operation_id,
             expected_worker_id=id(worker),
@@ -418,9 +440,8 @@ class PDUController:
     ):
         worker = PDUOperationWorker(descriptor, credentials=creds)
         worker.is_current = lambda d: self.is_mutation_descriptor_current(d, kind, worker)
-        worker.creds_list = creds_list
-        worker.current_idx = current_idx
         worker.device_name = descriptor.model
+        self._record_attempt_state(descriptor, creds_list, current_idx, kind)
         if kind == "bulk":
             worker.signals.result.connect(
                 lambda data, w=worker, d=descriptor: self.on_bulk_result(data, w, d)
@@ -459,6 +480,39 @@ class PDUController:
         worker.signals.finished.connect(
             lambda w=worker, d=descriptor: self.on_refresh_finished(w, d)
         )
+
+    def start_refresh_retry_worker(self, *, descriptor, current_idx):
+        attempt = self._attempt_state(descriptor)
+        if attempt is None:
+            return
+        creds_list = attempt.candidates
+        creds = creds_list[current_idx]
+        credential_index = None if not creds else current_idx
+        self._set_active_credential_context(
+            descriptor.model,
+            descriptor.ip_address,
+            credential_index,
+        )
+        worker = self._build_refresh_worker(
+            device_name=descriptor.model,
+            ip_address=descriptor.ip_address,
+            creds_list=creds_list,
+            current_idx=current_idx,
+            operation_id=descriptor.operation_id,
+            generation=descriptor.generation,
+            state_epoch=self._state_epoch,
+            originating_mutation_operation_id=(
+                self._refresh_lane.originating_mutation_operation_id
+                if self._refresh_lane is not None
+                else None
+            ),
+        )
+        self.shell.current_worker = worker
+        self.shell.show_progress_dialog(
+            f"Подключение к {descriptor.model} "
+            f"(попытка {current_idx + 1}/{len(creds_list)})..."
+        )
+        self._thread_pool.start(worker)
 
     def start_command_retry_worker(self, *, descriptor, creds_list, current_idx):
         creds = creds_list[current_idx]
@@ -532,7 +586,6 @@ class PDUController:
             and request.get("ip") == context.ip_address
             and request.get("credential_context")
             == context.credential_context_revision
-            and request.get("credential_index") == context.credential_index
         )
 
     def is_descriptor_common_current(self, descriptor: PDUOperationDescriptor) -> bool:
@@ -631,14 +684,45 @@ class PDUController:
 
     def on_refresh_result(self, data, worker, descriptor):
         if not self.is_refresh_descriptor_current(descriptor, worker):
+            self._clear_attempt_state(descriptor)
             return
+        self._commit_refresh_success_if_allowed(data, descriptor)
+        self.shell._discard_credential_attempt_plan(
+            descriptor.model,
+            descriptor.ip_address,
+            descriptor.operation_id,
+        )
+        self._clear_attempt_state(descriptor)
         self.remember_outlet_context(data, descriptor)
-        self.shell.on_device_data_received(data, worker, descriptor.generation)
+        rendered = dict(data or {})
+        rendered["_credential_policy_handled"] = True
+        self.shell.on_device_data_received(rendered, worker, descriptor.generation)
 
     def on_refresh_error(self, error_info, worker, descriptor):
         if not self.is_refresh_descriptor_current(descriptor, worker):
+            self._clear_attempt_state(descriptor)
             return
-        self.shell.on_device_error(error_info, worker, descriptor.generation)
+        error_type = error_info[0]
+        error = error_info[1]
+        if error_type == CodecFailureCategory.AUTHENTICATION.value:
+            next_idx = self._advance_attempt_state(descriptor)
+            if next_idx is not None:
+                attempt = self._attempt_state(descriptor)
+                self.shell.set_ui_state(
+                    UIState.LOADING,
+                    f"Ошибка авторизации; попытка {next_idx + 1} из {len(attempt.candidates)}...",
+                )
+                self.start_refresh_retry_worker(descriptor=descriptor, current_idx=next_idx)
+                return
+        self.shell._discard_credential_attempt_plan(
+            descriptor.model,
+            descriptor.ip_address,
+            descriptor.operation_id,
+        )
+        self._clear_attempt_state(descriptor)
+        self.shell.hide_progress_dialog()
+        self.shell.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка PDU: {error}")
+        QMessageBox.critical(self.shell, "Ошибка", f"Ошибка PDU: {error}")
 
     def on_refresh_progress(self, progress, worker, descriptor):
         if self.is_refresh_descriptor_current(descriptor, worker):
@@ -656,6 +740,7 @@ class PDUController:
     def on_bulk_result(self, data, worker, descriptor):
         from_lane = self._mutation_lane is not None
         if not self.is_mutation_descriptor_current(descriptor, "bulk", worker):
+            self._clear_attempt_state(descriptor)
             return
         self.shell.hide_progress_dialog()
         self.set_mutation_busy(descriptor, "bulk", False, worker)
@@ -664,6 +749,7 @@ class PDUController:
             descriptor.ip_address,
             descriptor.operation_id,
         )
+        self._clear_attempt_state(descriptor)
         if data.get("success"):
             if (
                 (
@@ -719,6 +805,7 @@ class PDUController:
     def on_bulk_error(self, error_info, worker, descriptor):
         from_lane = self._mutation_lane is not None
         if not self.is_mutation_descriptor_current(descriptor, "bulk", worker):
+            self._clear_attempt_state(descriptor)
             return
         self.shell.hide_progress_dialog()
         error_type = error_info[0]
@@ -728,19 +815,11 @@ class PDUController:
             error_type == CodecFailureCategory.AUTHENTICATION.value
             and metadata.get("state_changing_send_attempted") is False
         ):
-            creds_list = normalize_pdu_credential_candidates(
-                descriptor.model,
-                getattr(worker, "creds_list", []),
-            )
-            current_idx = getattr(worker, "current_idx", 0)
-            next_idx = self.shell._advance_request_credential_attempt(
-                descriptor.model,
-                creds_list,
-                descriptor.ip_address,
-                current_idx,
-                descriptor.operation_id,
-            )
+            attempt = self._attempt_state(descriptor)
+            next_idx = self._advance_attempt_state(descriptor)
             if next_idx is not None:
+                attempt = self._attempt_state(descriptor)
+                creds_list = attempt.candidates
                 self.shell.set_ui_state(
                     UIState.LOADING,
                     f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}...",
@@ -757,6 +836,7 @@ class PDUController:
             descriptor.ip_address,
             descriptor.operation_id,
         )
+        self._clear_attempt_state(descriptor)
         self.set_mutation_busy(descriptor, "bulk", False, worker)
         self.shell.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка групповой команды PDU: {error}")
         QMessageBox.critical(self.shell, "Ошибка", f"Ошибка групповой команды PDU: {error}")
@@ -773,10 +853,12 @@ class PDUController:
     def on_command_result(self, data, worker, descriptor):
         from_lane = self._mutation_lane is not None
         if not self.is_mutation_descriptor_current(descriptor, "individual", worker):
+            self._clear_attempt_state(descriptor)
             return
         self.shell.hide_progress_dialog()
         self.set_command_busy(descriptor, False)
         self.set_mutation_busy(descriptor, "individual", False, worker)
+        self._clear_attempt_state(descriptor)
         if data.get("success"):
             if (
                 descriptor.model == "Extron IPL T PCS4i"
@@ -826,6 +908,7 @@ class PDUController:
     def on_command_error(self, error_info, worker, descriptor):
         from_lane = self._mutation_lane is not None
         if not self.is_mutation_descriptor_current(descriptor, "individual", worker):
+            self._clear_attempt_state(descriptor)
             return
         self.shell.hide_progress_dialog()
         error_type = error_info[0]
@@ -836,19 +919,11 @@ class PDUController:
             and error_type == CodecFailureCategory.AUTHENTICATION.value
             and metadata.get("state_changing_send_attempted") is False
         ):
-            creds_list = normalize_pdu_credential_candidates(
-                descriptor.model,
-                getattr(worker, "creds_list", []),
-            )
-            current_idx = getattr(worker, "current_idx", 0)
-            next_idx = self.shell._advance_request_credential_attempt(
-                descriptor.model,
-                creds_list,
-                descriptor.ip_address,
-                current_idx,
-                descriptor.operation_id,
-            )
+            attempt = self._attempt_state(descriptor)
+            next_idx = self._advance_attempt_state(descriptor)
             if next_idx is not None:
+                attempt = self._attempt_state(descriptor)
+                creds_list = attempt.candidates
                 self.shell.set_ui_state(
                     UIState.LOADING,
                     f"Ошибка авторизации; попытка {next_idx + 1} из {len(creds_list)}...",
@@ -866,6 +941,7 @@ class PDUController:
                 descriptor.ip_address,
                 descriptor.operation_id,
             )
+            self._clear_attempt_state(descriptor)
         if error_type == "indeterminate_outcome":
             if descriptor.model == "Extron IPL T PCS4i":
                 self.shell._discard_credential_attempt_plan(
@@ -873,6 +949,7 @@ class PDUController:
                     descriptor.ip_address,
                     descriptor.operation_id,
                 )
+            self._clear_attempt_state(descriptor)
             message = (
                 "Не удалось достоверно определить итог команды. "
                 "Проверьте состояние устройства перед повторной операцией."
@@ -891,6 +968,7 @@ class PDUController:
                     descriptor.ip_address,
                     descriptor.operation_id,
                 )
+            self._clear_attempt_state(descriptor)
             message = "Команда PDU была отклонена устройством или не достигла запрошенного состояния."
             self.shell.set_ui_state(UIState.REQUEST_ERROR, message)
             QMessageBox.warning(self.shell, "Команда PDU не выполнена", message)
@@ -905,6 +983,7 @@ class PDUController:
                 descriptor.ip_address,
                 descriptor.operation_id,
             )
+        self._clear_attempt_state(descriptor)
         self.shell.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка команды PDU: {error}")
         QMessageBox.critical(self.shell, "Ошибка", f"Ошибка при управлении PDU: {error}")
         self.set_command_busy(descriptor, False)
@@ -975,13 +1054,41 @@ class PDUController:
             return
         request["credential_index"] = credential_index
 
+    def _ensure_common_request(self, device_name, ip_address) -> bool:
+        request = self.shell.__dict__.get("_active_request")
+        screen = self._screen()
+        same_context = bool(
+            request
+            and request.get("device") == device_name
+            and request.get("ip") == ip_address
+            and request.get("credential_context") == self.context_token()
+        )
+        if not same_context:
+            self.shell._begin_request(device_name, ip_address, screen)
+            if screen is not None and hasattr(screen, "clear_data"):
+                screen.clear_data()
+        else:
+            self.shell.set_ui_state(
+                UIState.LOADING,
+                f"Подключение к {device_name} ({ip_address})…",
+                screen,
+            )
+        if (
+            screen is not None
+            and hasattr(self.shell, "screen_container")
+            and self.shell.screen_container.currentWidget() is not screen
+        ):
+            self.shell.screen_container.setCurrentWidget(screen)
+        if screen is not None and hasattr(screen, "set_ui_state"):
+            screen.set_ui_state(UIState.LOADING, "Загрузка данных…")
+        return True
+
     def _context_from_descriptor(self, descriptor: PDUOperationDescriptor) -> PDUCommonContext:
         return PDUCommonContext(
             generation=descriptor.generation,
             model=descriptor.model,
             ip_address=descriptor.ip_address,
             credential_context_revision=descriptor.credential_context or 0,
-            credential_index=descriptor.credential_index,
         )
 
     def _screen(self):
@@ -1005,3 +1112,60 @@ class PDUController:
 
     def _last_accepted_mutation_id(self):
         return getattr(self, "_last_accepted_mutation_operation_id", None)
+
+    def _attempt_key(self, descriptor: PDUOperationDescriptor):
+        return descriptor.operation_id
+
+    def _record_attempt_state(self, descriptor, creds_list, current_idx, lane) -> None:
+        self._attempt_states[self._attempt_key(descriptor)] = PDUAttemptState(
+            candidates=tuple(creds_list or ()),
+            current_index=current_idx,
+            lane=lane,
+        )
+
+    def _attempt_state(self, descriptor):
+        return self._attempt_states.get(self._attempt_key(descriptor))
+
+    def _clear_attempt_state(self, descriptor) -> None:
+        self._attempt_states.pop(self._attempt_key(descriptor), None)
+
+    def _advance_attempt_state(self, descriptor):
+        attempt = self._attempt_state(descriptor)
+        if attempt is None:
+            return None
+        next_idx = self.shell._advance_request_credential_attempt(
+            descriptor.model,
+            attempt.candidates,
+            descriptor.ip_address,
+            attempt.current_index,
+            descriptor.operation_id,
+        )
+        if next_idx is None:
+            self._clear_attempt_state(descriptor)
+            return None
+        self._attempt_states[self._attempt_key(descriptor)] = PDUAttemptState(
+            candidates=attempt.candidates,
+            current_index=next_idx,
+            lane=attempt.lane,
+        )
+        return next_idx
+
+    def _commit_refresh_success_if_allowed(self, data, descriptor) -> None:
+        if descriptor.credential_index is None:
+            return
+        if descriptor.model == "Aten PE8208AV":
+            self.shell.set_current_credential_index(
+                descriptor.model,
+                descriptor.credential_index,
+                descriptor.ip_address,
+            )
+            return
+        if (
+            descriptor.model == "Extron IPL T PCS4i"
+            and (data or {}).get("_credential_used") is True
+        ):
+            self.shell.set_current_credential_index(
+                descriptor.model,
+                descriptor.credential_index,
+                descriptor.ip_address,
+            )

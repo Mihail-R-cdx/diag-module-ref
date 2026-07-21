@@ -45,8 +45,6 @@ class PDUOperationWorker(QRunnable):
         self.credentials = normalize_pdu_credentials(descriptor.model, credentials or {})
         self.username = self.credentials.get("username")
         self.password = self.credentials.get("password")
-        self.current_idx = descriptor.credential_index or 0
-        self.creds_list = []
         self.is_current = is_current or (lambda _descriptor: True)
         self.handler_factory = handler_factory
         self.bulk_delay = None

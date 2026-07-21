@@ -485,7 +485,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.matrix_controller.request_status_refresh
         )
         pdu_screen = self.screens["pdu"]
-        pdu_screen.refreshRequested.connect(self.refresh_data)
+        pdu_screen.refreshRequested.connect(self._pdu_controller().request_refresh)
         pdu_screen.outletMutationRequested.connect(
             self._pdu_controller().request_individual_mutation
         )
@@ -1213,14 +1213,13 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
             return
 
+        if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
+            self._pdu_controller().request_refresh()
+            return
+
         try:
             # Credential resolution is deliberately before ping or worker network I/O.
-            if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
-                self._active_request_credentials = self._resolve_pdu_attempt_credentials(
-                    device_name, ip_address
-                )
-            else:
-                self._active_request_credentials = self.device_credentials.get(device_name)
+            self._active_request_credentials = self.device_credentials.get(device_name)
             VCSDiagnosticApp._discard_credential_attempt_plan(
                 self, device_name, ip_address
             )
@@ -1831,6 +1830,7 @@ class VCSDiagnosticApp(QMainWindow):
         data = dict(data)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
+        credential_policy_handled = bool(data.pop('_credential_policy_handled', False))
         data.pop('_matrix_credential_success_candidate', None)
         continuous_update = bool(data.pop('_continuous_update', False))
         if structured_outcome == 'error':
@@ -1872,7 +1872,13 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Сбрасываем индекс на успешный credentials для этого устройства
-        if worker and not partial_update and credential_used is not False:
+        if (
+            worker
+            and not partial_update
+            and credential_used is not False
+            and not credential_policy_handled
+            and not VCSDiagnosticApp._is_pdu_device(getattr(worker, 'device_name', None))
+        ):
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
             if device_name:
@@ -1972,6 +1978,10 @@ class VCSDiagnosticApp(QMainWindow):
         error_type = error_info[0]
         error = error_info[1]
         traceback_text = error_info[2] if len(error_info) > 2 else ""
+        if worker and VCSDiagnosticApp._is_pdu_device(getattr(worker, 'device_name', None)):
+            self.hide_progress_dialog()
+            self.set_ui_state(UIState.REQUEST_ERROR, f"Ошибка PDU: {error}")
+            return
         creds_list = getattr(worker, 'creds_list', []) if worker else []
         if (
             worker

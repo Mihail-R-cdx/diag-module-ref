@@ -10,6 +10,7 @@ try:
 except ImportError:
     QApplication = None
 
+from core.exceptions import CodecFailureCategory
 from core.pdu import COMMAND_ON, REFRESH, PDUOperationDescriptor
 
 
@@ -65,6 +66,115 @@ class PDUControllerLifecycleTests(unittest.TestCase):
         self.assertTrue(
             self.window.pdu_controller.is_mutation_descriptor_current(
                 mutation_worker.descriptor,
+                "individual",
+                mutation_worker,
+            )
+        )
+
+    def test_screen_refresh_signal_preserves_active_mutation_context_and_skips_ping(self):
+        started = []
+        self.window.ensure_ping_success = Mock(return_value=True)
+        self.window.ping_device = Mock(return_value=True)
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "information"):
+            self.assertTrue(self.window.control_pdu_outlet(1, "on"))
+            mutation_worker = started[-1]
+            mutation_lane = self.window.pdu_controller._mutation_lane
+            generation = self.window._active_request["id"]
+
+            self.window.screens["pdu"].refresh()
+            refresh_worker = started[-1]
+
+            self.assertEqual(generation, self.window._active_request["id"])
+            self.assertEqual(
+                mutation_lane.operation_id,
+                self.window.pdu_controller._mutation_lane.operation_id,
+            )
+            self.assertTrue(
+                self.window.pdu_controller.is_mutation_descriptor_current(
+                    mutation_worker.descriptor,
+                    "individual",
+                    mutation_worker,
+                )
+            )
+            self.assertTrue(
+                self.window.pdu_controller.is_refresh_descriptor_current(
+                    refresh_worker.descriptor,
+                    refresh_worker,
+                )
+            )
+            self.assertTrue(self.window.screens["pdu"].mutation_busy)
+            self.assertFalse(hasattr(refresh_worker, "creds_list"))
+            self.assertFalse(hasattr(refresh_worker, "current_idx"))
+
+            self.window.on_pdu_refresh_finished(refresh_worker, refresh_worker.descriptor)
+            self.assertTrue(self.window.screens["pdu"].mutation_busy)
+
+            self.window.on_pdu_command_result(
+                {
+                    "success": True,
+                    "operation": COMMAND_ON,
+                    "outlet_number": 1,
+                    "state_changing_send_attempted": True,
+                },
+                mutation_worker,
+                mutation_worker.descriptor,
+            )
+
+        self.assertFalse(self.window.screens["pdu"].mutation_busy)
+        self.window.ensure_ping_success.assert_not_called()
+        self.window.ping_device.assert_not_called()
+        self.assertGreaterEqual(len(started), 3)
+
+    def test_different_lane_credential_indices_do_not_invalidate_each_other(self):
+        controller = self.window.pdu_controller
+        mutation = PDUOperationDescriptor(
+            operation_id=1,
+            generation=100,
+            model="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            operation=COMMAND_ON,
+            outlet_number=1,
+            credential_context=self.window._pdu_context_token(),
+            credential_index=1,
+        )
+        mutation_worker = object()
+        controller.set_mutation_busy(mutation, "individual", True, mutation_worker)
+
+        refresh_worker = controller._build_refresh_worker(
+            device_name="Extron IPL T PCS4i",
+            ip_address="192.0.2.44",
+            creds_list=({"password": "a"}, {"password": "b"}),
+            current_idx=0,
+            operation_id=2,
+            generation=100,
+            state_epoch=controller._state_epoch,
+            originating_mutation_operation_id=None,
+        )
+
+        self.assertEqual(0, refresh_worker.descriptor.credential_index)
+        self.assertEqual(0, self.window._active_request["credential_index"])
+        self.assertTrue(
+            controller.is_mutation_descriptor_current(
+                mutation,
+                "individual",
+                mutation_worker,
+            )
+        )
+        self.assertTrue(
+            controller.is_refresh_descriptor_current(
+                refresh_worker.descriptor,
+                refresh_worker,
+            )
+        )
+
+        self.window.on_pdu_refresh_finished(refresh_worker, refresh_worker.descriptor)
+
+        self.assertTrue(self.window.screens["pdu"].mutation_busy)
+        self.assertTrue(
+            controller.is_mutation_descriptor_current(
+                mutation,
                 "individual",
                 mutation_worker,
             )
@@ -150,6 +260,109 @@ class PDUControllerLifecycleTests(unittest.TestCase):
                 new_worker,
             )
         )
+
+    def test_aten_refresh_structured_auth_retries_and_persists_only_after_success(self):
+        started = []
+        self.window.device_combo.setCurrentText("Aten PE8208AV")
+        self.window.ip_entry.setText("192.0.2.45")
+        self.window._active_request_credentials = [
+            {"username": "u", "password": "a"},
+            {"username": "u", "password": "b"},
+        ]
+        self.window.set_current_credential_index("Aten PE8208AV", 0, "192.0.2.45")
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "critical"), \
+                patch.object(QMessageBox, "information"):
+            self.assertTrue(self.window.screens["pdu"].refreshRequested.emit() is None)
+            first = started[-1]
+            self.window.on_pdu_refresh_error(
+                (
+                    CodecFailureCategory.AUTHENTICATION.value,
+                    "rejected",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
+                first,
+                first.descriptor,
+            )
+
+            retry = started[-1]
+            self.assertEqual(1, retry.descriptor.credential_index)
+            self.assertEqual(
+                0,
+                self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"),
+            )
+            self.assertFalse(hasattr(retry, "creds_list"))
+
+            self.window.on_pdu_refresh_result(
+                {
+                    "device_info": {"model": "PE8208AV"},
+                    "outlets": [{"number": 1, "status": "on"}],
+                    "ip_address": "192.0.2.45",
+                },
+                retry,
+                retry.descriptor,
+            )
+
+        self.assertEqual(
+            1,
+            self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"),
+        )
+
+    def test_aten_refresh_auth_looking_text_does_not_retry_or_persist(self):
+        started = []
+        self.window.device_combo.setCurrentText("Aten PE8208AV")
+        self.window.ip_entry.setText("192.0.2.45")
+        self.window._active_request_credentials = [
+            {"username": "u", "password": "a"},
+            {"username": "u", "password": "b"},
+        ]
+        self.window.set_current_credential_index("Aten PE8208AV", 0, "192.0.2.45")
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "critical"):
+            self.window.screens["pdu"].refresh()
+            first = started[-1]
+            self.window.on_pdu_refresh_error(
+                (
+                    "connection_error",
+                    "HTTP 401-like proxy auth text",
+                    "",
+                    {"state_changing_send_attempted": False},
+                ),
+                first,
+                first.descriptor,
+            )
+
+        self.assertEqual(1, len(started))
+        self.assertEqual(
+            0,
+            self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"),
+        )
+
+    def test_stale_refresh_auth_error_does_not_retry_or_mutate_ui(self):
+        started = []
+        self.window.set_ui_state = Mock()
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.screens["pdu"].refresh()
+            worker = started[-1]
+
+        self.window.set_ui_state.reset_mock()
+        self.window.pdu_controller.invalidate_context()
+        self.window.on_pdu_refresh_error(
+            (
+                CodecFailureCategory.AUTHENTICATION.value,
+                "rejected",
+                "",
+                {"state_changing_send_attempted": False},
+            ),
+            worker,
+            worker.descriptor,
+        )
+
+        self.assertEqual(1, len(started))
+        self.window.set_ui_state.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -233,7 +233,6 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             "CloudLink Bar 310": "refresh_huawei_bar310",
             "Polycom RPG 310": "refresh_polycom_rpg310",
             "Extron IN1804": "refresh_extron_in1804",
-            "Aten PE8208AV": "refresh_aten_pdu",
             "Biamp Tesira Forte CI": "refresh_biamp_tesira_forte_ci",
         }
         for device_name, method_name in refresh_methods.items():
@@ -247,23 +246,17 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
                 refresh.assert_called_once_with("192.0.2.10")
-                if device_name in {
-                    "Huawei TE20",
-                    "Huawei TE40",
-                    "CloudLink Bar 310",
-                    "Polycom RPG 310",
-                    "Extron IN1804",
-                }:
+                if device_name == "Biamp Tesira Forte CI":
+                    window.set_current_credential_index.assert_called_once_with(
+                        device_name, 1, "192.0.2.10"
+                    )
+                else:
                     window.set_current_credential_index.assert_not_called()
                     self.assertEqual(
                         1,
                         window._credential_attempt_plans[
                             f"{device_name}|192.0.2.10"
                         ].current_index,
-                    )
-                else:
-                    window.set_current_credential_index.assert_called_once_with(
-                        device_name, 1, "192.0.2.10"
                     )
 
     def test_chain_length_ten_has_no_special_case_limit(self):
@@ -559,32 +552,13 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
 
         window.set_current_credential_index.assert_not_called()
-        window.refresh_pdu.assert_called_once_with("192.0.2.44", "Extron IPL T PCS4i")
-        self.assertEqual(
-            1,
-            window._credential_attempt_plans[
-                "Extron IPL T PCS4i|192.0.2.44"
-            ].current_index,
+        window.refresh_pdu.assert_not_called()
+        self.assertNotIn(
+            "Extron IPL T PCS4i|192.0.2.44",
+            window.__dict__.get("_credential_attempt_plans", {}),
         )
 
-        success_worker = self.worker(index=1, total=3)
-        window.current_worker = success_worker
-        with patch.object(QMessageBox, "information"):
-            window.on_device_data_received(
-                {
-                    "ip_address": "192.0.2.44",
-                    "status": "ok",
-                    "_credential_used": True,
-                },
-                success_worker,
-                1,
-            )
-
-        window.set_current_credential_index.assert_called_once_with(
-            "Extron IPL T PCS4i", 1, "192.0.2.44"
-        )
-
-    def test_old_candidate_descriptor_is_stale_after_fallback_advances_context(self):
+    def test_old_candidate_descriptor_remains_current_after_candidate_index_changes(self):
         window = self.context_window()
         creds = self.worker(total=2).creds_list
         old_descriptor = self.activate_pdu_candidate(window, 0)
@@ -603,17 +577,9 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             retry_descriptor.ip_address,
             retry_descriptor.credential_index,
         )
-        acquired = []
 
-        result = execute_pdu_command(
-            descriptor=old_descriptor,
-            credentials=creds[0],
-            is_current=window._pdu_context_is_current,
-            handler_factory=lambda *_args: acquired.append(True),
-        )
-
-        self.assertEqual({"_outcome": "stale", "operation": COMMAND_ON}, result)
-        self.assertEqual([], acquired)
+        self.assertTrue(window._pdu_context_is_current(old_descriptor))
+        self.assertTrue(window._pdu_context_is_current(retry_descriptor))
 
     def test_retry_candidate_descriptor_remains_current_with_same_operation_id(self):
         window = self.context_window()
@@ -689,10 +655,13 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         self.assertNotIn(secret, descriptor_text)
         self.assertNotIn(hashlib.sha256(secret.encode("utf-8")).hexdigest(), descriptor_text)
 
-    def test_successful_candidate_context_makes_old_queued_candidate_stale(self):
+    def test_credential_context_revision_makes_old_queued_candidate_stale(self):
         window = self.context_window()
         old_descriptor = self.activate_pdu_candidate(window, 0)
-        successful_descriptor = self.pdu_descriptor(1, operation_id=777)
+        successful_descriptor = PDUOperationDescriptor(
+            **{**self.pdu_descriptor(1, operation_id=777).__dict__, "credential_context": 43}
+        )
+        window._active_request["credential_context"] = 43
         window._set_active_pdu_credential_context(
             successful_descriptor.model,
             successful_descriptor.ip_address,
@@ -714,6 +683,10 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         window = self.context_window()
         old_descriptor = self.activate_pdu_candidate(window, 0)
         current_descriptor = self.pdu_descriptor(1, operation_id=old_descriptor.operation_id)
+        current_descriptor = PDUOperationDescriptor(
+            **{**current_descriptor.__dict__, "credential_context": old_descriptor.credential_context + 1}
+        )
+        window._active_request["credential_context"] = current_descriptor.credential_context
         window._set_active_pdu_credential_context(
             current_descriptor.model,
             current_descriptor.ip_address,
@@ -764,16 +737,9 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
 
         window.refresh_pdu.side_effect = start_next
         window.on_device_error(("authentication_error", "bad 0", ""), first_worker, 1)
-        second_worker = window.current_worker
-        window.on_device_error(("authentication_error", "bad 1", ""), second_worker, 1)
-        third_worker = window.current_worker
 
-        with patch.object(QMessageBox, "warning") as warning:
-            window.on_device_error(("authentication_error", "bad 2", ""), third_worker, 1)
-
-        self.assertEqual([0, 1, 2], attempts)
-        self.assertEqual(2, window.refresh_pdu.call_count)
-        warning.assert_called_once()
+        self.assertEqual([0], attempts)
+        window.refresh_pdu.assert_not_called()
         window.set_current_credential_index.assert_not_called()
 
     def test_pcs4i_non_auth_structured_error_stops_fallback(self):
@@ -855,17 +821,22 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
                 1,
             )
 
-        window.set_current_credential_index.assert_called_once_with(
-            "Extron IPL T PCS4i", 1, "192.0.2.44"
-        )
-        self.assertEqual(1, window.refresh_pdu.call_count)
+        window.set_current_credential_index.assert_not_called()
+        window.refresh_pdu.assert_not_called()
 
     def test_pcs4i_refresh_pdu_uses_existing_attempt_plan_after_fallback(self):
         window = self.make_window()
-        window._active_request_credentials = self.worker(total=3).creds_list
-        first_worker = self.worker(index=0, total=3)
-        window.current_worker = first_worker
-        window.on_device_error(("authentication_error", "bad 0", ""), first_worker, 1)
+        creds = self.worker(total=3).creds_list
+        window._active_request_credentials = creds
+        self.assertEqual(
+            1,
+            window._advance_request_credential_attempt(
+                "Extron IPL T PCS4i",
+                creds,
+                "192.0.2.44",
+                0,
+            ),
+        )
         started = []
 
         with patch("gui.main_window.QThreadPool.globalInstance") as pool:
@@ -874,7 +845,8 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
 
         self.assertEqual(1, len(started))
         next_worker = started[0]
-        self.assertEqual(1, next_worker.current_idx)
+        self.assertFalse(hasattr(next_worker, "creds_list"))
+        self.assertFalse(hasattr(next_worker, "current_idx"))
         self.assertEqual({"password": "synthetic-password-1"}, next_worker.credentials)
         self.assertEqual(1, next_worker.descriptor.credential_index)
         window.set_current_credential_index.assert_not_called()

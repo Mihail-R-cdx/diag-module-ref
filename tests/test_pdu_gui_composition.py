@@ -56,7 +56,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         self.assertEqual(1, len(started))
         worker = started[0]
-        self.assertEqual([{}], worker.creds_list)
+        self.assertFalse(hasattr(worker, "creds_list"))
+        self.assertFalse(hasattr(worker, "current_idx"))
         self.assertEqual({}, worker.credentials)
         self.assertIsNone(worker.descriptor.credential_index)
 
@@ -167,14 +168,14 @@ class PDUGuiCompositionTests(unittest.TestCase):
             "credential_context": descriptor.credential_context,
             "credential_index": descriptor.credential_index,
         }
+        creds = [
+            {"password": "synthetic-password-a"},
+            {"password": "synthetic-password-b"},
+        ]
+        self._seed_pdu_attempt(descriptor, creds, 0, "individual")
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
             ip_address="192.0.2.44",
-            current_idx=0,
-            creds_list=[
-                {"password": "synthetic-password-a"},
-                {"password": "synthetic-password-b"},
-            ],
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
@@ -197,7 +198,9 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.assertEqual(42, retry.descriptor.operation_id)
         self.assertEqual(command, retry.descriptor.operation)
         self.assertEqual(outlet_number, retry.descriptor.outlet_number)
-        self.assertEqual(1, retry.current_idx)
+        self.assertEqual(1, retry.descriptor.credential_index)
+        self.assertFalse(hasattr(retry, "creds_list"))
+        self.assertFalse(hasattr(retry, "current_idx"))
         self.assertEqual({"password": "synthetic-password-b"}, retry.credentials)
         self.assertNotIn("username", retry.credentials)
         self.assertEqual({}, self.window.current_credential_index)
@@ -222,8 +225,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
             ip_address="192.0.2.44",
-            current_idx=0,
-            creds_list=[{"password": "a"}, {"password": "b"}],
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
@@ -256,8 +257,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
             ip_address="192.0.2.44",
-            current_idx=0,
-            creds_list=[{"password": "a"}, {"password": "b"}],
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
@@ -286,7 +285,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_stale_pdu_refresh_result_is_ignored_after_context_change(self):
         descriptor = self._pdu_descriptor(REFRESH, operation_id=10, generation=4, context=30)
-        worker = SimpleNamespace(device_name="Extron IPL T PCS4i", current_idx=1)
+        worker = SimpleNamespace(device_name="Extron IPL T PCS4i")
         self._activate_pdu_request(descriptor)
         self.window._invalidate_pdu_context()
         self.window._active_request["credential_context"] = self.window._pdu_context_token()
@@ -300,7 +299,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_stale_pdu_refresh_auth_error_does_not_retry_or_update_ui(self):
         descriptor = self._pdu_descriptor(REFRESH, operation_id=11, generation=5, context=40)
-        worker = SimpleNamespace(device_name="Extron IPL T PCS4i", current_idx=0)
+        worker = SimpleNamespace(device_name="Extron IPL T PCS4i")
         self._activate_pdu_request(descriptor)
         self.window._invalidate_pdu_context()
         self.window._active_request["credential_context"] = self.window._pdu_context_token()
@@ -418,7 +417,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         with patch.object(QMessageBox, "warning"):
             self.window.on_pdu_command_error(
                 ("indeterminate_outcome", "unknown", ""),
-                SimpleNamespace(creds_list=creds, current_idx=1),
+                SimpleNamespace(device_name="Extron IPL T PCS4i"),
                 descriptor,
             )
 
@@ -488,11 +487,15 @@ class PDUGuiCompositionTests(unittest.TestCase):
             credential_index=0,
         )
         self._activate_pdu_request(descriptor)
+        self._seed_pdu_attempt(
+            descriptor,
+            [{"password": "a"}, {"password": "b"}],
+            0,
+            "individual",
+        )
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
             ip_address="192.0.2.44",
-            current_idx=0,
-            creds_list=[{"password": "a"}, {"password": "b"}],
         )
         self.window.current_worker = SimpleNamespace()
         self.window.hide_progress_dialog = Mock()
@@ -511,7 +514,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         start.assert_called_once()
         self.assertEqual(301, start.call_args.args[0].descriptor.operation_id)
-        self.assertEqual(1, start.call_args.args[0].current_idx)
+        self.assertEqual(1, start.call_args.args[0].descriptor.credential_index)
 
     def test_ip_change_invalidates_queued_pdu_operation(self):
         self.window._pdu_context_revision = 10
@@ -662,9 +665,9 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         self.assertEqual(1, len(started))
         worker = started[0]
-        self.assertEqual(new_chain, worker.creds_list)
+        self.assertFalse(hasattr(worker, "creds_list"))
+        self.assertFalse(hasattr(worker, "current_idx"))
         self.assertEqual(new_chain[0], worker.credentials)
-        self.assertEqual(0, worker.current_idx)
         self.assertNotIn(worker.credentials, old_chain)
 
     def test_bulk_dispatch_starts_one_worker_with_immutable_ordered_sequence_and_lock(self):
@@ -827,11 +830,15 @@ class PDUGuiCompositionTests(unittest.TestCase):
             outlet_sequence=(1, 2),
         )
         self._activate_pdu_request(descriptor)
+        self._seed_pdu_attempt(
+            descriptor,
+            [{"password": "a"}, {"password": "b"}],
+            0,
+            "bulk",
+        )
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
             ip_address="192.0.2.44",
-            current_idx=0,
-            creds_list=[{"password": "a"}, {"password": "b"}],
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
@@ -853,7 +860,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
         retry = start.call_args.args[0]
         self.assertEqual(BULK_COMMAND_ON, retry.descriptor.operation)
         self.assertEqual((1, 2), retry.descriptor.outlet_sequence)
-        self.assertEqual(1, retry.current_idx)
+        self.assertEqual(1, retry.descriptor.credential_index)
+        self.assertFalse(hasattr(retry, "creds_list"))
 
     def test_aten_bulk_auth_retry_uses_next_candidate_and_persists_only_full_success(self):
         self.window.set_current_credential_index("Aten PE8208AV", 0, "192.0.2.45")
@@ -868,14 +876,14 @@ class PDUGuiCompositionTests(unittest.TestCase):
             outlet_sequence=(1, 2),
         )
         self._activate_pdu_request(descriptor)
+        creds = [
+            {"username": "u", "password": "a"},
+            {"username": "u", "password": "b"},
+        ]
+        self._seed_pdu_attempt(descriptor, creds, 0, "bulk")
         worker = SimpleNamespace(
             device_name="Aten PE8208AV",
             ip_address="192.0.2.45",
-            current_idx=0,
-            creds_list=[
-                {"username": "u", "password": "a"},
-                {"username": "u", "password": "b"},
-            ],
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
@@ -894,7 +902,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
         start.assert_called_once()
         retry = start.call_args.args[0]
-        self.assertEqual(1, retry.current_idx)
+        self.assertEqual(1, retry.descriptor.credential_index)
         self.assertEqual(0, self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"))
 
         self._activate_pdu_request(retry.descriptor)
@@ -928,8 +936,6 @@ class PDUGuiCompositionTests(unittest.TestCase):
         worker = SimpleNamespace(
             device_name="Extron IPL T PCS4i",
             ip_address="192.0.2.44",
-            current_idx=0,
-            creds_list=[{"password": "a"}, {"password": "b"}],
         )
         self.window.current_worker = worker
         self.window.hide_progress_dialog = Mock()
@@ -1032,6 +1038,14 @@ class PDUGuiCompositionTests(unittest.TestCase):
     @staticmethod
     def _missing_mapping(**_kwargs):
         raise CredentialProfileNotFoundError("missing mapping")
+
+    def _seed_pdu_attempt(self, descriptor, creds, current_index, lane):
+        self.window.pdu_controller._record_attempt_state(
+            descriptor,
+            creds,
+            current_index,
+            lane,
+        )
 
     def _activate_pdu_request(self, descriptor):
         self.window._active_request = {
