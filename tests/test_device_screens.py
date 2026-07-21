@@ -163,6 +163,10 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
             screen.outlets_table.cellWidget(1, 1), StatusIndicator
         )
 
+        captured_intents = []
+        screen.outletMutationRequested.connect(
+            lambda outlet, command: captured_intents.append((outlet, command))
+        )
         expected = ((3, "on"), (4, "off"), (5, "reboot"))
         with patch.object(
             QMessageBox, "question", return_value=QMessageBox.Yes
@@ -171,11 +175,11 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
                 button = screen.outlets_table.cellWidget(0, column)
                 self.assertIsInstance(button, QPushButton)
                 button.click()
-                self.assertEqual(command, self.parent_widget.pdu_commands[-1][1])
         self.assertEqual(
             [(1, "on"), (1, "off"), (1, "reboot")],
-            self.parent_widget.pdu_commands,
+            captured_intents,
         )
+        self.assertEqual([], self.parent_widget.pdu_commands)
         self.assertEqual("", screen.outlets_table.styleSheet())
 
     def test_pcs4i_pdu_renders_four_outlets_without_reboot_control(self):

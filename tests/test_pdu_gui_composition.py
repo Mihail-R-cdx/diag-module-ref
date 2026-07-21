@@ -141,7 +141,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         critical.assert_not_called()
         warning.assert_called_once()
         self.assertIn("Не удалось достоверно определить итог команды", warning.call_args.args[2])
-        self.window.refresh_data.assert_called_once()
+        self.window.refresh_data.assert_not_called()
 
     def test_pcs4i_on_auth_failure_retries_same_command_next_candidate(self):
         self._assert_pcs4i_command_auth_retry(COMMAND_ON, 2)
@@ -238,7 +238,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
             )
 
         start.assert_not_called()
-        self.window.refresh_data.assert_called_once()
+        self.window.refresh_data.assert_not_called()
         self.assertNotIn("Extron IPL T PCS4i|192.0.2.44", self.window._credential_attempt_plans)
 
     def test_pcs4i_command_auth_after_possible_send_does_not_retry_or_advance(self):
@@ -277,7 +277,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
             )
 
         start.assert_not_called()
-        self.window.refresh_data.assert_called_once()
+        self.window.refresh_data.assert_not_called()
         self.assertNotIn(
             "Extron IPL T PCS4i|192.0.2.44|operation:43",
             self.window._credential_attempt_plans,
@@ -435,7 +435,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
                 102,
             ),
         )
-        self.window.refresh_data.assert_called_once()
+        self.window.refresh_data.assert_not_called()
 
     def test_pcs4i_success_persists_used_candidate_for_next_operation(self):
         self.window.set_current_credential_index("Extron IPL T PCS4i", 0, "192.0.2.44")
@@ -911,7 +911,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
             )
 
         self.assertEqual(1, self.window.get_current_credential_index("Aten PE8208AV", "192.0.2.45"))
-        self.window.refresh_data.assert_called_once()
+        self.window.refresh_data.assert_not_called()
 
     def test_bulk_auth_error_after_possible_send_does_not_retry(self):
         descriptor = PDUOperationDescriptor(
@@ -949,7 +949,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
             )
 
         start.assert_not_called()
-        self.window.refresh_data.assert_called_once()
+        self.window.refresh_data.assert_not_called()
 
     def test_bulk_success_persists_used_credential_but_partial_does_not(self):
         self.window.set_current_credential_index("Extron IPL T PCS4i", 0, "192.0.2.44")

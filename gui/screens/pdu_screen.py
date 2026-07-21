@@ -27,6 +27,9 @@ from .base_screen import BaseScreen
 class PDUScreen(BaseScreen):
     """Aten outlet status and control screen."""
 
+    refreshRequested = pyqtSignal()
+    outletMutationRequested = pyqtSignal(int, str)
+    bulkMutationRequested = pyqtSignal(str)
     outlet_control_signal = pyqtSignal(int, str)
     bulk_control_signal = pyqtSignal(str)
     ACTION_BUTTON_WIDTH = 128
@@ -420,14 +423,7 @@ class PDUScreen(BaseScreen):
     def on_outlet_control(self, outlet_num, command):
         if self.mutation_busy:
             return
-        self.set_outlet_command_state(outlet_num, command, True)
-        submitted = False
-        try:
-            if self.parent and hasattr(self.parent, "control_pdu_outlet"):
-                submitted = bool(self.parent.control_pdu_outlet(outlet_num, command))
-        finally:
-            if not submitted:
-                self.set_outlet_command_state(outlet_num, command, False)
+        self.outletMutationRequested.emit(outlet_num, command)
 
     def set_outlet_command_state(self, outlet_num, command, busy):
         """Disable only the controls for the outlet being changed."""
@@ -447,14 +443,7 @@ class PDUScreen(BaseScreen):
 
     @pyqtSlot(str)
     def on_bulk_control(self, command):
-        submitted = False
-        try:
-            if self.parent and hasattr(self.parent, "control_pdu_outlets_bulk"):
-                submitted = bool(self.parent.control_pdu_outlets_bulk(command))
-        finally:
-            if not submitted:
-                self.clear_bulk_operation_state()
+        self.bulkMutationRequested.emit(command)
 
     def refresh(self):
-        if self.parent and hasattr(self.parent, "refresh_data"):
-            self.parent.refresh_data()
+        self.refreshRequested.emit()
