@@ -41,7 +41,6 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
         self.poll_interval = poll_interval
         self.max_cycles = max_cycles
         self.signals = WorkerSignals()
-        self.creds_list = []
         self.current_idx = 0
         self.device_name = DMP64_PLUS_MODEL
         self._credential_success_emitted = False

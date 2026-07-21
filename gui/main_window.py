@@ -402,9 +402,6 @@ class VCSDiagnosticApp(QMainWindow):
         self.device_combo.currentTextChanged.connect(
             lambda _text: self._invalidate_pdu_context()
         )
-        self.device_combo.currentTextChanged.connect(
-            lambda _text: self._invalidate_dmp_context()
-        )
         self.device_combo.installEventFilter(self)
         
         device_label = QLabel("Устройство")

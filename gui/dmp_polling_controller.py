@@ -36,6 +36,12 @@ class PendingDMPRetry:
     next_candidate_index: int
 
 
+@dataclass(frozen=True)
+class DMPAttemptState:
+    candidates: tuple
+    current_index: int
+
+
 class DMPPollingController:
     """Owns DMP polling context, callback authority, and credential handoff."""
 
@@ -59,6 +65,7 @@ class DMPPollingController:
         self._retiring_context: Optional[DMPPollingContext] = None
         self._retiring_worker_id: Optional[int] = None
         self._success_committed_context: Optional[DMPPollingContext] = None
+        self._attempt_states = {}
 
     @property
     def credential_context_revision(self) -> int:
@@ -88,6 +95,7 @@ class DMPPollingController:
         self._retiring_context = None
         self._retiring_worker_id = None
         self._success_committed_context = None
+        self._attempt_states.clear()
 
     def shutdown(self) -> None:
         self.invalidate_context()
@@ -149,7 +157,8 @@ class DMPPollingController:
         current_idx: int,
         reset_terminal: bool,
     ) -> None:
-        creds = creds_list[current_idx]
+        candidates = tuple(creds_list or ())
+        creds = candidates[current_idx]
         cancellation = DMPCancellationToken()
         context = DMPPollingContext(
             generation=self._generation,
@@ -165,7 +174,6 @@ class DMPPollingController:
             cancellation=cancellation,
             **creds,
         )
-        worker.creds_list = list(creds_list)
         worker.current_idx = current_idx
         worker.device_name = DMP_DEVICE_NAME
         worker.dmp_context = context
@@ -174,6 +182,10 @@ class DMPPollingController:
         self._active_cancellation = cancellation
         self._expected_worker_id = id(worker)
         self._success_committed_context = None
+        self._attempt_states[request_id] = DMPAttemptState(
+            candidates=candidates,
+            current_index=current_idx,
+        )
         self.shell.current_worker = worker
 
         if hasattr(self.shell, "refresh_btn"):
@@ -181,13 +193,13 @@ class DMPPollingController:
             self.shell.refresh_btn.setText("Подключение...")
         self.shell.show_progress_dialog(
             f"Подключение к {DMP_DEVICE_NAME} "
-            f"(попытка {current_idx + 1}/{len(creds_list)})..."
+            f"(попытка {current_idx + 1}/{len(candidates)})..."
         )
         self.shell.show_codec_poll_terminal(
             DMP_DEVICE_NAME,
             ip_address,
             current_idx + 1,
-            len(creds_list),
+            len(candidates),
             reset=reset_terminal,
         )
 
@@ -227,12 +239,12 @@ class DMPPollingController:
             return
         error_type = error_info[0]
         if error_type == CodecFailureCategory.AUTHENTICATION.value:
-            next_idx = self._advance_after_authentication_failure(context, worker)
-            if next_idx is not None:
+            next_attempt = self._advance_after_authentication_failure(context)
+            if next_attempt is not None:
                 self._pending_retry = PendingDMPRetry(
                     failed_context=context,
                     expected_worker_id=id(worker),
-                    next_candidate_index=next_idx,
+                    next_candidate_index=next_attempt.current_index,
                 )
                 self._retiring_context = context
                 self._retiring_worker_id = id(worker)
@@ -241,7 +253,8 @@ class DMPPollingController:
                 self._expected_worker_id = None
                 self.shell.set_ui_state(
                     UIState.LOADING,
-                    f"Ошибка авторизации; ожидание cleanup перед попыткой {next_idx + 1}...",
+                    "Ошибка авторизации; ожидание cleanup перед "
+                    f"попыткой {next_attempt.current_index + 1}...",
                 )
                 return
 
@@ -287,14 +300,16 @@ class DMPPollingController:
             return True
 
         next_idx = pending.next_candidate_index
+        attempt = self._attempt_states.get(context.request_id)
         self._pending_retry = None
         self._retiring_context = None
         self._retiring_worker_id = None
-        creds_list = tuple(getattr(worker, "creds_list", ()) or ())
+        if attempt is None or attempt.current_index != next_idx:
+            return True
         self._start_attempt(
             ip_address=context.ip_address,
             request_id=context.request_id,
-            creds_list=creds_list,
+            creds_list=attempt.candidates,
             current_idx=next_idx,
             reset_terminal=False,
         )
@@ -317,15 +332,26 @@ class DMPPollingController:
             and request.get("ip") == context.ip_address
         )
 
-    def _advance_after_authentication_failure(self, context, worker):
-        creds_list = tuple(getattr(worker, "creds_list", ()) or ())
-        return self.shell._advance_request_credential_attempt(
+    def _advance_after_authentication_failure(self, context):
+        attempt = self._attempt_states.get(context.request_id)
+        if attempt is None:
+            return None
+        next_idx = self.shell._advance_request_credential_attempt(
             context.model,
-            creds_list,
+            attempt.candidates,
             context.ip_address,
             context.candidate_index,
             context.request_id,
         )
+        if next_idx is None:
+            self._attempt_states.pop(context.request_id, None)
+            return None
+        next_attempt = DMPAttemptState(
+            candidates=attempt.candidates,
+            current_index=next_idx,
+        )
+        self._attempt_states[context.request_id] = next_attempt
+        return next_attempt
 
     def _commit_success_if_allowed(self, data, context: DMPPollingContext) -> None:
         if self._success_committed_context == context:
@@ -350,6 +376,7 @@ class DMPPollingController:
         self._success_committed_context = context
 
     def _discard_attempt_plan(self, context: DMPPollingContext) -> None:
+        self._attempt_states.pop(context.request_id, None)
         self.shell._discard_credential_attempt_plan(
             context.model,
             context.ip_address,

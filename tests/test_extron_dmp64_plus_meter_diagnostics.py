@@ -1042,6 +1042,9 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.assertTrue(first_worker.cancellation.is_cancelled())
         self.assertFalse(second_worker.cancellation.is_cancelled())
         self.assertEqual("Extron DMP 64 Plus", first_worker.device_name)
+        self.assertEqual("synthetic-user", first_worker.username)
+        self.assertEqual("synthetic-password", first_worker.password)
+        self.assertFalse(hasattr(first_worker, "creds_list"))
 
     def _start_dmp_polling(self, started, credentials=None, ip_address="192.0.2.64"):
         credentials = credentials or [
@@ -1086,11 +1089,14 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         controller, first_worker, first_context = self._start_dmp_polling(started)
         self.window.on_worker_finished = Mock()
 
+        self.assertFalse(hasattr(first_worker, "creds_list"))
         controller.on_error(("authentication_error", "rejected", ""), first_worker, first_context)
 
         self.assertEqual(1, len(started))
         self.assertIsNotNone(controller.pending_retry)
         self.assertIsNone(controller.active_context)
+        self.assertNotIn("synthetic-password-b", repr(controller.pending_retry))
+        self.assertFalse(hasattr(first_worker, "creds_list"))
 
         controller.on_finished(first_worker, first_context)
 
@@ -1102,6 +1108,49 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.assertEqual(1, second_worker.current_idx)
         self.assertEqual("synthetic-user-b", second_worker.username)
         self.assertEqual("synthetic-password-b", second_worker.password)
+        self.assertFalse(hasattr(second_worker, "creds_list"))
+
+    def test_dmp_worker_receives_only_assigned_candidate_not_full_chain(self):
+        started = []
+        _controller, worker, _context = self._start_dmp_polling(started)
+
+        worker_state = {
+            key: value
+            for key, value in worker.__dict__.items()
+            if key not in {"signals", "cancellation", "dmp_context"}
+        }
+
+        self.assertEqual("synthetic-user-a", worker.username)
+        self.assertEqual("synthetic-password-a", worker.password)
+        self.assertFalse(hasattr(worker, "creds_list"))
+        self.assertNotIn("synthetic-user-b", repr(worker_state))
+        self.assertNotIn("synthetic-password-b", repr(worker_state))
+
+    def test_dmp_fallback_does_not_read_credential_chain_from_worker(self):
+        started = []
+        controller, first_worker, first_context = self._start_dmp_polling(started)
+        first_worker.creds_list = ()
+
+        controller.on_error(("authentication_error", "rejected", ""), first_worker, first_context)
+        controller.on_finished(first_worker, first_context)
+
+        self.assertEqual(2, len(started))
+        second_worker = started[1]
+        self.assertEqual(1, second_worker.current_idx)
+        self.assertEqual("synthetic-user-b", second_worker.username)
+        self.assertEqual("synthetic-password-b", second_worker.password)
+        self.assertFalse(hasattr(second_worker, "creds_list"))
+
+    def test_dmp_non_matching_retiring_finished_does_not_launch_pending_retry(self):
+        started = []
+        controller, first_worker, first_context = self._start_dmp_polling(started)
+        controller.on_error(("authentication_error", "rejected", ""), first_worker, first_context)
+
+        controller.on_finished(SimpleNamespace(), first_context)
+        controller.on_finished(first_worker, SimpleNamespace(**first_context.__dict__))
+
+        self.assertEqual(1, len(started))
+        self.assertIsNotNone(controller.pending_retry)
 
     def test_dmp_stale_callbacks_do_not_update_current_context(self):
         started = []
@@ -1146,6 +1195,7 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         started = []
         controller, worker, context = self._start_dmp_polling(started)
         self.window.set_current_credential_index = Mock()
+        model_generation = controller._generation
 
         self.window.device_combo.setCurrentText("Biamp Tesira Forte CI")
         controller.on_result(
@@ -1156,10 +1206,12 @@ class DMPGuiIntegrationTests(unittest.TestCase):
 
         self.assertTrue(worker.cancellation.is_cancelled())
         self.assertIsNone(controller.active_context)
+        self.assertEqual(model_generation + 1, controller._generation)
         self.window.set_current_credential_index.assert_not_called()
 
         controller, worker, context = self._start_dmp_polling(started)
         self.window.set_current_credential_index = Mock()
+        ip_generation = controller._generation
         self.window.ip_entry.setText("192.0.2.65")
         controller.on_result(
             {"_credential_used": True, "complete": True, "meter_sections": []},
@@ -1169,6 +1221,7 @@ class DMPGuiIntegrationTests(unittest.TestCase):
 
         self.assertTrue(worker.cancellation.is_cancelled())
         self.assertIsNone(controller.active_context)
+        self.assertEqual(ip_generation + 1, controller._generation)
         self.window.set_current_credential_index.assert_not_called()
         self.assertEqual(2, len(started))
 
