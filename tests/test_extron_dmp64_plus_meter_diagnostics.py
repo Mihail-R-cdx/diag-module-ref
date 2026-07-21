@@ -1043,258 +1043,240 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.assertFalse(second_worker.cancellation.is_cancelled())
         self.assertEqual("Extron DMP 64 Plus", first_worker.device_name)
 
-    def test_dmp_timeout_text_does_not_advance_credential_chain(self):
-        from core.dmp64_plus import DMPCancellationToken
-        from gui.main_window import VCSDiagnosticApp
+    def _start_dmp_polling(self, started, credentials=None, ip_address="192.0.2.64"):
+        credentials = credentials or [
+            {"username": "synthetic-user-a", "password": "synthetic-password-a"},
+            {"username": "synthetic-user-b", "password": "synthetic-password-b"},
+        ]
+        self.window.device_credentials["Extron DMP 64 Plus"] = credentials
+        self.window.device_combo.setCurrentText("Extron DMP 64 Plus")
+        self.window.ip_entry.setText(ip_address)
+        self.window.ensure_ping_success = lambda _ip: True
+        self.window.show_progress_dialog = Mock()
+        self.window.show_codec_poll_terminal = Mock()
+        controller = self.window._dmp_controller()
+        controller._thread_pool = SimpleNamespace(start=started.append)
+        self.window.refresh_data()
+        return controller, started[-1], controller.active_context
 
-        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        token = DMPCancellationToken()
-        window._active_request = {
-            "id": 1,
-            "screen": None,
-            "device": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-        }
-        window._dmp_context_revision = 1
-        window._dmp_cancel_token = token
-        window.current_credential_index = {}
-        window.current_worker = None
-        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
-        window.hide_progress_dialog = Mock()
-        window.finish_codec_terminal = Mock()
-        window.set_ui_state = Mock()
-        window.set_current_credential_index = Mock()
-        window.refresh_extron_dmp64_plus = Mock()
-        window.refresh_btn = Mock()
-        window.screens = {}
-        window.current_screen_type = None
-        window.progress_dialog = None
-        window.is_vcs_codec_device = lambda _device: False
-        worker = SimpleNamespace(
-            device_name="Extron DMP 64 Plus",
-            ip_address="192.0.2.64",
-            current_idx=0,
-            creds_list=[
-                {"username": "synthetic-user-a", "password": "synthetic-password-a"},
-                {"username": "synthetic-user-b", "password": "synthetic-password-b"},
-            ],
-        )
-        worker.dmp_context = {
-            "generation": 1,
-            "model": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-            "token": token,
-            "worker": worker,
-        }
-        window.current_worker = worker
+    def test_dmp_non_auth_failure_does_not_advance_credential_chain(self):
+        started = []
+        controller, worker, context = self._start_dmp_polling(started)
+        self.window.set_current_credential_index = Mock()
+        self.window.on_device_data_received = Mock()
+        self.window.on_device_error = Mock()
 
-        with patch.object(QMessageBox, "critical"):
-            window.on_device_error(
-                ("transport_session_failure", "auth 401 403 timeout", ""),
-                worker,
-                1,
-            )
-
-        window.refresh_extron_dmp64_plus.assert_not_called()
-        window.set_current_credential_index.assert_not_called()
-
-    def test_dmp_structured_authentication_failure_advances_request_plan(self):
-        from core.dmp64_plus import DMPCancellationToken
-        from gui.main_window import VCSDiagnosticApp
-
-        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        token = DMPCancellationToken()
-        window._active_request = {
-            "id": 1,
-            "screen": None,
-            "device": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-        }
-        window._dmp_context_revision = 1
-        window._dmp_cancel_token = token
-        window.current_credential_index = {}
-        window.current_worker = None
-        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
-        window.hide_progress_dialog = Mock()
-        window.finish_codec_terminal = Mock()
-        window.set_ui_state = Mock()
-        window.set_current_credential_index = Mock()
-        window.refresh_extron_dmp64_plus = Mock()
-        window.refresh_btn = Mock()
-        window.screens = {}
-        window.current_screen_type = None
-        window.progress_dialog = None
-        window.is_vcs_codec_device = lambda _device: False
-        worker = SimpleNamespace(
-            device_name="Extron DMP 64 Plus",
-            ip_address="192.0.2.64",
-            current_idx=0,
-            creds_list=[
-                {"username": "synthetic-user-a", "password": "synthetic-password-a"},
-                {"username": "synthetic-user-b", "password": "synthetic-password-b"},
-            ],
-        )
-        worker.dmp_context = {
-            "generation": 1,
-            "model": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-            "token": token,
-            "worker": worker,
-        }
-        window.current_worker = worker
-
-        window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
-
-        window.set_current_credential_index.assert_not_called()
-        window.refresh_extron_dmp64_plus.assert_called_once_with("192.0.2.64")
-        self.assertEqual(
-            1,
-            window._credential_attempt_plans[
-                "Extron DMP 64 Plus|192.0.2.64"
-            ].current_index,
+        controller.on_error(
+            ("transport_session_failure", "auth 401 403 timeout", ""),
+            worker,
+            context,
         )
 
-    def test_stale_dmp_snapshot_does_not_cache_or_render(self):
-        from gui.main_window import VCSDiagnosticApp
-
-        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        window._active_request = {"id": 2, "screen": Mock()}
-        window.current_worker = object()
-        window.current_credential_index = {}
-        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
-        window.hide_progress_dialog = Mock()
-        window.set_ui_state = Mock()
-        window.set_current_credential_index = Mock()
-        stale_worker = SimpleNamespace(
-            device_name="Extron DMP 64 Plus",
-            ip_address="192.0.2.64",
-            current_idx=1,
-            creds_list=[{"username": "synthetic-user", "password": "synthetic-password"}],
+        self.assertEqual(1, len(started))
+        self.assertIsNone(controller.pending_retry)
+        self.window.set_current_credential_index.assert_not_called()
+        self.window.on_device_error.assert_called_once_with(
+            ("transport_session_failure", "auth 401 403 timeout", ""),
+            worker,
+            context.request_id,
         )
 
-        window.on_device_data_received(
+    def test_dmp_auth_failure_waits_for_finished_before_retry(self):
+        started = []
+        controller, first_worker, first_context = self._start_dmp_polling(started)
+        self.window.on_worker_finished = Mock()
+
+        controller.on_error(("authentication_error", "rejected", ""), first_worker, first_context)
+
+        self.assertEqual(1, len(started))
+        self.assertIsNotNone(controller.pending_retry)
+        self.assertIsNone(controller.active_context)
+
+        controller.on_finished(first_worker, first_context)
+
+        self.window.on_worker_finished.assert_not_called()
+        self.assertEqual(2, len(started))
+        second_worker = started[1]
+        self.assertIsNot(first_worker, second_worker)
+        self.assertIsNot(first_worker.cancellation, second_worker.cancellation)
+        self.assertEqual(1, second_worker.current_idx)
+        self.assertEqual("synthetic-user-b", second_worker.username)
+        self.assertEqual("synthetic-password-b", second_worker.password)
+
+    def test_dmp_stale_callbacks_do_not_update_current_context(self):
+        started = []
+        controller, first_worker, first_context = self._start_dmp_polling(started)
+        self.window.refresh_data()
+        self.assertEqual(2, len(started))
+        self.window.set_current_credential_index = Mock()
+        self.window.on_codec_poll_terminal_log = Mock()
+        self.window.on_progress_update = Mock()
+        self.window.on_status_update = Mock()
+        self.window.on_device_error = Mock()
+        self.window.on_worker_finished = Mock()
+        self.window.screens["audio_dsp"].update_data = Mock()
+
+        controller.on_result(
             {
                 "_continuous_update": True,
                 "_credential_used": True,
+                "complete": True,
                 "ip_address": "192.0.2.64",
                 "meter_sections": [{"title": "Inputs", "channels": []}],
             },
-            stale_worker,
-            1,
+            first_worker,
+            first_context,
         )
+        controller.on_error(("authentication_error", "stale rejected", ""), first_worker, first_context)
+        controller.on_progress(55, first_worker, first_context)
+        controller.on_status("stale status", first_worker, first_context)
+        controller.on_terminal_log("stale terminal", first_worker, first_context)
+        controller.on_finished(first_worker, first_context)
 
-        window.set_current_credential_index.assert_not_called()
-        window._active_request["screen"].update_data.assert_not_called()
+        self.window.set_current_credential_index.assert_not_called()
+        self.window.screens["audio_dsp"].update_data.assert_not_called()
+        self.window.on_codec_poll_terminal_log.assert_not_called()
+        self.window.on_progress_update.assert_not_called()
+        self.window.on_status_update.assert_not_called()
+        self.window.on_device_error.assert_not_called()
+        self.window.on_worker_finished.assert_not_called()
+        self.assertEqual(2, len(started))
 
-    def test_stale_dmp_generation_same_request_worker_does_not_cache_or_render(self):
-        from core.dmp64_plus import DMPCancellationToken
-        from gui.main_window import VCSDiagnosticApp
+    def test_dmp_model_and_ip_changes_invalidate_current_context(self):
+        started = []
+        controller, worker, context = self._start_dmp_polling(started)
+        self.window.set_current_credential_index = Mock()
 
-        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        screen = Mock()
-        current_token = DMPCancellationToken()
-        old_token = DMPCancellationToken()
-        window._active_request = {
-            "id": 1,
-            "screen": screen,
-            "device": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-        }
-        window._dmp_context_revision = 2
-        window._dmp_cancel_token = current_token
-        window.current_credential_index = {}
-        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
-        window.hide_progress_dialog = Mock()
-        window.set_ui_state = Mock()
-        window.set_current_credential_index = Mock()
-        worker = SimpleNamespace(
-            device_name="Extron DMP 64 Plus",
-            ip_address="192.0.2.64",
-            current_idx=0,
-            creds_list=[{"username": "synthetic-user", "password": "synthetic-password"}],
-        )
-        worker.dmp_context = {
-            "generation": 1,
-            "model": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-            "token": old_token,
-            "worker": worker,
-        }
-        window.current_worker = worker
-
-        window.on_device_data_received(
-            {
-                "_continuous_update": True,
-                "_credential_used": True,
-                "ip_address": "192.0.2.64",
-                "meter_sections": [{"title": "Inputs", "channels": [{"available": True}]}],
-            },
+        self.window.device_combo.setCurrentText("Biamp Tesira Forte CI")
+        controller.on_result(
+            {"_credential_used": True, "complete": True, "meter_sections": []},
             worker,
+            context,
+        )
+
+        self.assertTrue(worker.cancellation.is_cancelled())
+        self.assertIsNone(controller.active_context)
+        self.window.set_current_credential_index.assert_not_called()
+
+        controller, worker, context = self._start_dmp_polling(started)
+        self.window.set_current_credential_index = Mock()
+        self.window.ip_entry.setText("192.0.2.65")
+        controller.on_result(
+            {"_credential_used": True, "complete": True, "meter_sections": []},
+            worker,
+            context,
+        )
+
+        self.assertTrue(worker.cancellation.is_cancelled())
+        self.assertIsNone(controller.active_context)
+        self.window.set_current_credential_index.assert_not_called()
+        self.assertEqual(2, len(started))
+
+    def test_dmp_credential_context_change_invalidates_same_candidate_index(self):
+        started = []
+        controller, worker, context = self._start_dmp_polling(
+            started,
+            credentials=[{"username": "synthetic-user", "password": "synthetic-password"}],
+        )
+        previous_revision = controller.credential_context_revision
+        self.window.set_current_credential_index = Mock()
+
+        self.window._on_credential_configuration_changed("Extron DMP 64 Plus")
+        controller.on_result(
+            {"_credential_used": True, "complete": True, "meter_sections": []},
+            worker,
+            context,
+        )
+
+        self.assertTrue(worker.cancellation.is_cancelled())
+        self.assertIsNone(controller.active_context)
+        self.assertEqual(previous_revision + 1, controller.credential_context_revision)
+        self.window.set_current_credential_index.assert_not_called()
+
+    def test_dmp_first_complete_snapshot_commits_success_once(self):
+        started = []
+        controller, worker, context = self._start_dmp_polling(started)
+        self.window.set_current_credential_index = Mock()
+        self.window.on_device_data_received = Mock()
+        self.window.set_device_connection_profile = Mock()
+
+        snapshot = {
+            "_continuous_update": True,
+            "_credential_used": True,
+            "complete": True,
+            "connection_profile": {"protocol": "sis-over-ssh", "port": 22023},
+            "meter_sections": [{"title": "Inputs", "channels": [{"available": True}]}],
+        }
+        controller.on_result(snapshot, worker, context)
+        controller.on_result(snapshot, worker, context)
+
+        self.window.set_current_credential_index.assert_called_once_with(
+            "Extron DMP 64 Plus",
+            0,
+            "192.0.2.64",
+        )
+        self.window.set_device_connection_profile.assert_called_once()
+
+    def test_dmp_partial_or_unused_snapshot_does_not_commit_success(self):
+        started = []
+        controller, worker, context = self._start_dmp_polling(started)
+        self.window.set_current_credential_index = Mock()
+        self.window.on_device_data_received = Mock()
+
+        controller.on_result(
+            {"_credential_used": True, "complete": False, "meter_sections": []},
+            worker,
+            context,
+        )
+        controller.on_result(
+            {"_credential_used": False, "complete": True, "meter_sections": []},
+            worker,
+            context,
+        )
+
+        self.window.set_current_credential_index.assert_not_called()
+
+    def test_dmp_stale_retiring_finished_cannot_launch_pending_retry(self):
+        started = []
+        controller, first_worker, first_context = self._start_dmp_polling(started)
+
+        controller.on_error(("authentication_error", "rejected", ""), first_worker, first_context)
+        self.assertIsNotNone(controller.pending_retry)
+        controller.invalidate_context()
+        controller.on_finished(first_worker, first_context)
+
+        self.assertEqual(1, len(started))
+        self.assertIsNone(controller.pending_retry)
+
+    def test_dmp_no_wrap_candidate_exhaustion_surfaces_terminal_auth_error(self):
+        started = []
+        self.window.set_current_credential_index(
+            "Extron DMP 64 Plus",
             1,
+            "192.0.2.64",
         )
+        controller, worker, context = self._start_dmp_polling(started)
+        self.window.on_device_error = Mock()
 
-        window.hide_progress_dialog.assert_not_called()
-        window.set_current_credential_index.assert_not_called()
-        screen.update_data.assert_not_called()
+        controller.on_error(("authentication_error", "rejected", ""), worker, context)
 
-    def test_stale_dmp_error_and_finished_same_request_worker_are_ignored(self):
-        from core.dmp64_plus import DMPCancellationToken
-        from gui.main_window import VCSDiagnosticApp
-
-        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
-        current_token = DMPCancellationToken()
-        old_token = DMPCancellationToken()
-        window._active_request = {
-            "id": 1,
-            "screen": None,
-            "device": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-        }
-        window._dmp_context_revision = 2
-        window._dmp_cancel_token = current_token
-        window.current_credential_index = {}
-        window.device_combo = SimpleNamespace(currentText=lambda: "Extron DMP 64 Plus")
-        window.hide_progress_dialog = Mock()
-        window.finish_codec_terminal = Mock()
-        window.set_ui_state = Mock()
-        window.set_current_credential_index = Mock()
-        window.refresh_extron_dmp64_plus = Mock()
-        window.refresh_btn = Mock()
-        worker = SimpleNamespace(
-            device_name="Extron DMP 64 Plus",
-            ip_address="192.0.2.64",
-            current_idx=0,
-            creds_list=[
-                {"username": "synthetic-user-a", "password": "synthetic-password-a"},
-                {"username": "synthetic-user-b", "password": "synthetic-password-b"},
-            ],
+        self.assertEqual(1, len(started))
+        self.assertIsNone(controller.pending_retry)
+        self.window.on_device_error.assert_called_once_with(
+            ("authentication_error", "rejected", ""),
+            worker,
+            context.request_id,
         )
-        worker.dmp_context = {
-            "generation": 1,
-            "model": "Extron DMP 64 Plus",
-            "ip": "192.0.2.64",
-            "token": old_token,
-            "worker": worker,
-        }
-        window.current_worker = worker
-
-        window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
-        window.on_worker_finished(worker, 1)
-
-        window.refresh_extron_dmp64_plus.assert_not_called()
-        window.set_current_credential_index.assert_not_called()
-        window.hide_progress_dialog.assert_not_called()
-        window.refresh_btn.setEnabled.assert_not_called()
 
     def test_close_event_cancels_active_dmp_context(self):
         from PyQt5.QtGui import QCloseEvent
 
-        token = SimpleNamespace(cancel=Mock())
-        self.window._dmp_cancel_token = token
+        started = []
+        _controller, worker, _context = self._start_dmp_polling(started)
 
         self.window.closeEvent(QCloseEvent())
 
-        token.cancel.assert_called()
+        self.assertTrue(worker.cancellation.is_cancelled())
 
 
 def QThreadPool_global():
