@@ -4,7 +4,7 @@
 
 Extron DMP 64 Plus polling lifecycle SHALL be owned by a DMP-specific application/composition controller rather than directly by generic `VCSDiagnosticApp` result/error/progress/status/finished handlers, by `AudioDSPScreen`, by the DMP worker, or by a generic multi-device manager.
 
-The controller SHALL own DMP polling generation, active immutable non-secret polling context, cancellation publication, expected worker identity, DMP-specific worker signal binding, callback acceptance, structured authentication-only fallback coordination through application-owned credential policy callbacks, first-success credential persistence gating, and lifecycle invalidation/shutdown.
+The controller SHALL own DMP polling generation, active immutable non-secret polling context, cancellation publication, expected worker identity, DMP-specific worker signal binding, callback acceptance, structured authentication-only fallback coordination through application-owned credential policy callbacks, pending-retry/retiring-attempt handoff authority, first-success credential persistence gating, and lifecycle invalidation/shutdown.
 
 All DMP network I/O, SSH/SIS session ownership, blocking transport cleanup, model discovery, meter reads, recovery commands, and poll timing SHALL remain on the existing background worker/handler execution boundary. Moving blocking DMP network work into an ordinary controller method on the Qt GUI thread SHALL NOT satisfy this requirement.
 
@@ -35,7 +35,9 @@ Candidate index alone SHALL NOT prove credential-context currentness. A credenti
 
 The controller SHALL invalidate and supersede the active DMP context on model change, IP change, leaving or superseding the DMP diagnostic context, DMP credential-context change, explicit repeat Refresh, and application shutdown.
 
-Result, error, progress, status, terminal, and finished callbacks SHALL be accepted only when their immutable DMP context and expected worker identity match current controller authority. Stale callbacks SHALL NOT update `AudioDSPScreen`, alter current request/UI state, save credential memory, advance fallback, start another DMP attempt, alter refresh controls, or affect a newer DMP context.
+`result`, `error`, `progress`, `status`, `terminal_log`, and `finished` callbacks SHALL be accepted only when their immutable DMP context and expected worker identity match current controller authority, except for the narrowly defined retiring-attempt `finished` authority required for cleanup-complete credential retry handoff. DMP `terminal_log` SHALL pass through the controller freshness boundary and SHALL NOT be wired directly from the worker to terminal rendering without the same context and expected-worker check.
+
+Stale callbacks SHALL NOT update `AudioDSPScreen`, append terminal output, alter current request/UI state, save credential memory, advance fallback, start another DMP attempt, alter refresh controls, or affect a newer DMP context.
 
 #### Scenario: Credential configuration change invalidates active DMP polling
 - **GIVEN** a DMP polling session is current for model, IP, and candidate index N
@@ -54,9 +56,15 @@ Result, error, progress, status, terminal, and finished callbacks SHALL be accep
 - **WHEN** that attempt later emits an authentication error
 - **THEN** no next credential candidate is started for the current context
 
+#### Scenario: Stale DMP terminal log cannot update the new context
+- **GIVEN** DMP context A has been superseded by context B
+- **WHEN** the worker from context A emits `terminal_log`
+- **THEN** the old terminal text is ignored
+- **AND** it is not appended to the current DMP terminal UI
+
 #### Scenario: Stale DMP completion cannot alter newer refresh state
 - **GIVEN** a newer DMP request is current
-- **WHEN** an older canceled DMP worker emits `finished`
+- **WHEN** an older canceled DMP worker emits an ordinary stale `finished`
 - **THEN** the old completion does not re-enable, disable, or otherwise change controls owned by the newer request
 
 #### Scenario: Repeat Refresh replaces the polling context
@@ -73,13 +81,39 @@ Each DMP worker SHALL receive exactly one assigned credential candidate for one 
 
 Credential fallback SHALL occur only after a current structured confirmed `authentication_error` and only when another candidate remains in the current no-wrap suffix. Timeout, disconnect, SIS protocol error, unsupported model, malformed data, cancellation, unavailable samples, or other non-authentication failures SHALL NOT authorize fallback. String heuristics such as matching `auth`, `401`, or `403` SHALL NOT authorize fallback.
 
-A fallback attempt SHALL use a fresh worker, fresh cancellation token, and fresh SSH/SIS session. A failed worker/session SHALL NOT be reused for the next credential candidate.
+The current DMP worker signal ordering SHALL be preserved: a failed attempt may emit `error` before its `finally` cleanup, and it emits `finished` only after handler/session cleanup completes. Therefore a structured authentication error MAY cause application-owned policy to select the next candidate as a pending retry, but the controller SHALL NOT construct, submit, connect, or start the next DMP worker from that `error` callback.
 
-#### Scenario: Structured authentication failure advances once
+The pending retry SHALL be bound to the exact failed attempt/context and expected worker. The failed worker SHALL remain a retiring attempt until its matching `finished` callback confirms cleanup completion. That retiring-attempt `finished` callback SHALL have authority only to release the already-planned retry. It SHALL NOT act as ordinary request completion, SHALL NOT alter refresh controls or current UI state, SHALL NOT persist credential success, and SHALL NOT independently select or advance another credential candidate.
+
+Only after the matching retiring worker emits cleanup-complete `finished` MAY the controller create a fresh DMP attempt context, fresh cancellation token, fresh worker, and fresh SSH/SIS session for the already-selected next candidate. Consecutive DMP credential attempts SHALL NOT have overlapping polling workers or SSH/SIS sessions.
+
+If model, IP, credential-context revision, generic request authority, DMP lifecycle generation, or application lifecycle is superseded before the retiring worker emits `finished`, the pending retry SHALL be discarded. A stale or non-matching retiring `finished` callback SHALL NOT launch a retry.
+
+#### Scenario: Structured authentication failure schedules but does not immediately start retry
 - **WHEN** the current DMP worker reports a structured confirmed authentication failure
 - **AND** another unattempted candidate remains
-- **THEN** application-owned policy advances to exactly the next candidate without wrap-around
-- **AND** the controller starts a fresh DMP worker/session attempt with that one assigned candidate
+- **THEN** application-owned policy advances to exactly the next candidate without wrap-around and records it as a pending retry for the failed attempt
+- **AND** the next DMP worker is not started from the `error` callback
+
+#### Scenario: Cleanup-complete finished releases the pending retry
+- **GIVEN** candidate N failed with a structured confirmed authentication error
+- **AND** candidate N+1 was recorded as the pending retry for that exact retiring worker/context
+- **WHEN** candidate N's matching worker emits `finished` after cleanup
+- **THEN** the controller may create and submit a fresh attempt for candidate N+1
+- **AND** the failed worker/session is no longer active when the new attempt starts
+
+#### Scenario: Retiring finished has narrow authority only
+- **GIVEN** a failed DMP attempt is retiring with one pending retry
+- **WHEN** its matching cleanup-complete `finished` is accepted
+- **THEN** that callback may only release the already-planned retry
+- **AND** it does not perform ordinary completion UI, credential persistence, refresh-control changes, or further candidate selection
+
+#### Scenario: Stale retiring finished cannot launch retry
+- **GIVEN** a DMP attempt has a pending retry
+- **AND** its model, IP, credential context, request authority, generation, or application lifecycle is superseded before cleanup finishes
+- **WHEN** the old retiring worker later emits `finished`
+- **THEN** the pending retry is discarded or remains invalid
+- **AND** no new DMP worker is started from that stale callback
 
 #### Scenario: Non-authentication failure stops the DMP credential chain
 - **WHEN** the current DMP attempt fails with timeout, transport/session failure, SIS protocol error, unsupported model, malformed data, or another non-authentication outcome
