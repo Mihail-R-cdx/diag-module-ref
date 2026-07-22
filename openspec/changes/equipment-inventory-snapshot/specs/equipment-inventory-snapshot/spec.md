@@ -31,42 +31,172 @@ or inferred from unrelated repository code.
 - **THEN** it does not invent column names or silently map ambiguous fields
 - **AND** the source mapping remains blocked until the real workbook or a sanitized schema sample is inspected
 
-### Requirement: Versioned canonical inventory snapshot
+### Requirement: Canonical inventory snapshot schema v1
 
 The first runtime storage adapter SHALL consume a UTF-8 JSON document whose root is a
-versioned object containing at least `schema_version`, `snapshot_id`, and `records`.
-Unsupported schema versions, an invalid root shape, or invalid canonical record shapes
-SHALL be rejected before an `EquipmentInventory` is published to runtime consumers.
+JSON object. For schema v1 the required root fields SHALL be:
 
-Each canonical equipment record SHALL contain the following runtime fields:
+- `schema_version`: JSON integer and exactly `1`;
+- `snapshot_id`: non-empty JSON string satisfying the deterministic snapshot identity contract;
+- `records`: JSON array of canonical equipment record objects.
 
-- non-empty `record_id` unique within the snapshot;
-- nullable `source_model`;
-- nullable `diagnostic_model` containing an exact supported application model name only when such a mapping is explicitly known;
-- nullable normalized `ip_address`;
-- nullable authoritative `room_id`;
-- nullable `room_name` for display;
-- non-empty normalized `device_kind`.
+The schema-v1 root MAY additionally contain only reviewed non-secret generation metadata.
+The initially approved optional metadata fields are:
+
+- `generated_at`: RFC 3339 UTC timestamp string;
+- `source_row_count`: non-negative JSON integer.
+
+Generation metadata SHALL NOT affect runtime lookup semantics or `snapshot_id` identity.
+A field outside this approved schema SHALL require a reviewed schema change rather than
+being copied opportunistically from the source workbook.
+
+Each schema-v1 canonical equipment record SHALL contain exactly these runtime fields:
+
+- `record_id`: non-empty JSON string, unique within the snapshot after canonical normalization;
+- `source_model`: JSON string or null;
+- `diagnostic_model`: JSON string or null, containing an exact supported application model name only when such a reviewed mapping is explicitly known;
+- `ip_address`: canonical IPv4 JSON string or null;
+- `room_id`: non-empty normalized JSON string or null;
+- `room_name`: non-empty normalized JSON string or null;
+- `device_kind`: JSON string containing exactly one schema-v1 canonical vocabulary value.
+
+Schema-v1 `device_kind` is a closed vocabulary:
+
+```text
+pdu
+video_codec
+other
+```
+
+The importer SHALL map source equipment types into this vocabulary explicitly. Unknown,
+unmapped, or irrelevant equipment SHALL use `other`; importers SHALL NOT emit ad hoc
+alternatives such as `codec`, `vcs_codec`, `video-codec`, or organization-specific labels
+as canonical `device_kind` values.
+
+Canonical string normalization for `record_id`, `source_model`, `diagnostic_model`,
+`room_id`, and `room_name` SHALL normalize Unicode text to NFC and remove leading and
+trailing whitespace. Empty normalized `record_id` is invalid. Empty normalized nullable
+text SHALL become null. Canonical normalization SHALL preserve case and internal text
+unless a separately reviewed source mapping explicitly defines a stronger authoritative
+identifier rule before canonicalization.
+
+`ip_address`, when present, SHALL be the normalized dotted-decimal representation of a
+valid IPv4 address. Invalid source IP text SHALL become null under the approved unresolved
+import semantics and SHALL NOT be retained as an index key.
 
 A canonical snapshot SHALL contain only fields approved for runtime use. The importer
 SHALL NOT copy every source workbook column into canonical records by default.
 
-#### Scenario: Valid versioned snapshot is loaded
+#### Scenario: Valid schema-v1 snapshot is loaded
 
-- **WHEN** a canonical JSON snapshot has a supported `schema_version`, a non-empty `snapshot_id`, and valid records
-- **THEN** the runtime loader publishes one inventory instance representing that snapshot revision
+- **WHEN** a canonical JSON snapshot contains integer `schema_version` equal to `1`, a valid deterministic `snapshot_id`, and a JSON-array `records` value whose records satisfy the schema-v1 field contract
+- **THEN** the runtime loader may publish one inventory instance representing that snapshot revision
 
-#### Scenario: Snapshot schema version is unsupported
+#### Scenario: Canonical device kind is emitted
 
-- **WHEN** the runtime loader receives a snapshot with an unsupported `schema_version`
-- **THEN** it rejects the snapshot with a structured safe configuration error
-- **AND** it does not partially publish records from that snapshot
+- **WHEN** the inspected source mapping identifies a source row as a video-conferencing codec
+- **THEN** the canonical `device_kind` is exactly `video_codec`
+- **AND** runtime consumers do not need to recognize organization-specific codec category spellings
 
 #### Scenario: Unsupported source model remains explicit
 
 - **WHEN** an imported source model has no reviewed mapping to a supported diagnostic application model
-- **THEN** the canonical record retains its source model when available
+- **THEN** the canonical record retains its normalized source model when available
 - **AND** `diagnostic_model` remains null rather than fabricating a supported model name
+
+### Requirement: Deterministic canonical snapshot identity
+
+Schema-v1 `snapshot_id` SHALL identify canonical inventory data content, not one execution
+of the importer. Identical normalized canonical content SHALL produce the same
+`snapshot_id`; changed canonical content SHALL produce a different `snapshot_id` for
+ordinary operation.
+
+For schema v1, canonical records SHALL be published in deterministic ascending
+`record_id` order using Unicode code-point ordering after canonical normalization.
+`snapshot_id` SHALL use this exact representation:
+
+```text
+sha256:<64 lowercase hexadecimal characters>
+```
+
+The digest SHALL be SHA-256 over the UTF-8 canonical JSON serialization of an identity
+payload containing exactly:
+
+```text
+schema_version
+records
+```
+
+The identity payload SHALL use integer `schema_version` equal to `1`, the deterministic
+canonical record order, lexicographically sorted JSON object keys, compact JSON separators
+with no insignificant whitespace, and direct UTF-8 encoding of normalized Unicode text.
+Optional generation metadata such as `generated_at` and `source_row_count` SHALL be
+excluded from the identity payload.
+
+#### Scenario: Same canonical content is imported twice
+
+- **WHEN** two imports produce identical normalized canonical records
+- **THEN** they produce the same canonical record order
+- **AND** they produce the same `snapshot_id`
+- **AND** differing generation timestamps, if present, do not change `snapshot_id`
+
+#### Scenario: Canonical content changes
+
+- **WHEN** at least one canonical identity field or canonical record membership changes
+- **THEN** the resulting canonical identity payload changes
+- **AND** the newly generated snapshot uses the SHA-256 identity derived from that changed payload
+
+### Requirement: Structured runtime inventory load failure contract
+
+The runtime inventory loader SHALL expose safe structured load failures through a
+machine-readable category and a non-secret human-readable message. The concrete Python
+exception hierarchy is an implementation detail, but every failed load SHALL classify as
+exactly one of:
+
+```text
+NOT_FOUND
+UNREADABLE
+INVALID_FORMAT
+UNSUPPORTED_SCHEMA
+INVALID_SNAPSHOT
+```
+
+The category semantics SHALL be:
+
+- `NOT_FOUND`: the configured snapshot path does not exist;
+- `UNREADABLE`: the snapshot exists but cannot be read as required because of filesystem or access failure;
+- `INVALID_FORMAT`: the file can be read but is not valid UTF-8 JSON;
+- `UNSUPPORTED_SCHEMA`: the JSON root declares a `schema_version` other than integer `1`;
+- `INVALID_SNAPSHOT`: the JSON value has an invalid root shape, missing/invalid required fields, duplicate normalized `record_id`, invalid canonical field values/types, an invalid schema-v1 `snapshot_id`, or otherwise violates the canonical schema contract.
+
+A failed load SHALL NOT publish a partial `EquipmentInventory`, partial records, or partial
+indexes. Runtime consumers SHALL NOT need to inspect raw `FileNotFoundError`,
+`JSONDecodeError`, `ValueError`, or other implementation-specific exception types to
+distinguish these failure categories.
+
+#### Scenario: Inventory file is absent
+
+- **WHEN** the configured canonical snapshot path does not exist
+- **THEN** loading fails with category `NOT_FOUND`
+- **AND** no `EquipmentInventory` is published
+
+#### Scenario: Inventory file contains invalid JSON
+
+- **WHEN** the configured snapshot can be read but is not valid UTF-8 JSON
+- **THEN** loading fails with category `INVALID_FORMAT`
+- **AND** no `EquipmentInventory` is published
+
+#### Scenario: Snapshot schema version is unsupported
+
+- **WHEN** the runtime loader receives a JSON object with `schema_version` other than integer `1`
+- **THEN** it rejects the snapshot with category `UNSUPPORTED_SCHEMA`
+- **AND** it does not partially publish records from that snapshot
+
+#### Scenario: Snapshot has duplicate record identity
+
+- **WHEN** two canonical records have the same normalized `record_id`
+- **THEN** loading fails with category `INVALID_SNAPSHOT`
+- **AND** the loader does not silently deduplicate or select one record
 
 ### Requirement: Explicit import validation and source-row accounting
 
@@ -99,15 +229,35 @@ inventory into normal logs or public errors.
 
 #### Scenario: Source IP is invalid
 
-- **WHEN** a non-empty source IP value cannot be normalized as a valid supported IP address
+- **WHEN** a non-empty source IP value cannot be normalized as a valid IPv4 address
 - **THEN** that invalid text is not inserted into the runtime IP index
 - **AND** the source row is accounted for through the canonical unresolved semantics and import report
 
+### Requirement: Atomic canonical snapshot publication
+
+The offline importer SHALL publish a new production snapshot only after the complete
+candidate snapshot has been constructed and validated successfully. A failed import at
+any point before complete publication SHALL leave the previously published snapshot
+intact and SHALL NOT expose partial candidate output under the production snapshot path.
+
+The concrete atomic-write mechanism is an implementation detail. An implementation MAY
+use a temporary file in the target filesystem followed by an atomic replacement operation,
+provided the normative preservation and no-partial-publication behavior is satisfied.
+
 #### Scenario: Fatal source mapping is unresolved
 
+- **GIVEN** a previously valid production snapshot exists
 - **WHEN** the importer cannot resolve a required authoritative source column
 - **THEN** it reports a fatal import condition
-- **AND** it does not replace a previously valid canonical snapshot with partial output
+- **AND** the previously published snapshot remains intact
+- **AND** no partial new snapshot is exposed under the production snapshot path
+
+#### Scenario: Publication fails after candidate generation begins
+
+- **GIVEN** a previously valid production snapshot exists
+- **WHEN** importer processing fails before the new complete validated snapshot is published
+- **THEN** the previous snapshot remains the production snapshot
+- **AND** partial candidate content is not visible at the production snapshot path
 
 ### Requirement: Storage-independent equipment inventory runtime boundary
 
@@ -175,7 +325,7 @@ Exact implementation names MAY differ only if these semantics remain unchanged.
 #### Scenario: IP has multiple matching records
 
 - **WHEN** a normalized IP address exists on multiple canonical records
-- **THEN** IP lookup returns every matching record in deterministic order
+- **THEN** IP lookup returns every matching record in deterministic canonical record order
 - **AND** the inventory layer does not choose the first record as authoritative
 
 #### Scenario: Room equipment is queried repeatedly
@@ -198,7 +348,8 @@ empty result collection. Interpretation of zero, one, or multiple matches as
 change and SHALL NOT be hidden inside the storage layer.
 
 `room_name` SHALL NOT be silently used as an authoritative room identity when `room_id`
-is absent unless the inspected source contract explicitly defines that mapping.
+is absent unless the inspected source contract explicitly defines that mapping before
+canonicalization.
 
 #### Scenario: IP is absent from inventory
 
@@ -221,8 +372,8 @@ is absent unless the inspected source contract explicitly defines that mapping.
 ### Requirement: Immutable snapshot revision identity
 
 Each loaded `EquipmentInventory` SHALL represent one immutable canonical snapshot
-revision identified by its non-secret `snapshot_id`. Runtime consumers SHALL NOT mutate
-canonical records or indexes in place.
+revision identified by its deterministic non-secret `snapshot_id`. Runtime consumers
+SHALL NOT mutate canonical records or indexes in place.
 
 Replacing inventory data SHALL create and validate a new inventory instance before it is
 published by a future application composition boundary. This change does not require
@@ -233,10 +384,16 @@ automatic file watching, runtime hot reload, or GUI reload controls.
 - **WHEN** runtime consumers perform inventory lookups
 - **THEN** the loaded snapshot records and indexes remain unchanged by those queries
 
-#### Scenario: A newer snapshot is loaded later
+#### Scenario: Equivalent snapshot is loaded later
 
-- **WHEN** a future composition path replaces the current inventory with a newly validated snapshot
-- **THEN** the replacement has its own `snapshot_id`
+- **WHEN** a future composition path loads another valid snapshot with identical canonical identity content
+- **THEN** the new inventory instance has the same `snapshot_id`
+- **AND** identity equality means the canonical inventory revision is unchanged even if generation metadata differs
+
+#### Scenario: Changed snapshot is loaded later
+
+- **WHEN** a future composition path replaces the current inventory with newly validated changed canonical content
+- **THEN** the replacement carries the deterministic `snapshot_id` derived from the new canonical content
 - **AND** the old inventory instance is not mutated into the new revision
 
 ### Requirement: Production inventory data isolation
@@ -250,7 +407,7 @@ Git. Tests SHALL use synthetic fixtures that contain no real organization IP add
 room identities, equipment identifiers, or other operational inventory data. A tracked
 example snapshot MAY exist only when all values are synthetic.
 
-Runtime and importer logs/errors SHALL not emit the complete inventory or complete source
+Runtime and importer logs/errors SHALL NOT emit the complete inventory or complete source
 rows. Repository code MAY contain the canonical schema, importer, normalization logic,
 synthetic fixtures, and documentation needed to reproduce the import process.
 
