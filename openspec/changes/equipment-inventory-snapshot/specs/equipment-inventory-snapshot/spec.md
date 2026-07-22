@@ -15,7 +15,8 @@ that the runtime inventory path does not import or require it.
 
 The concrete importer mapping SHALL be based on the real workbook or a sanitized source
 schema/header sample. Source worksheet names and column semantics SHALL NOT be guessed
-or inferred from unrelated repository code.
+or inferred from unrelated repository code, including columns for the authoritative
+database record ID, MAC address, serial number, or other source fields.
 
 #### Scenario: Runtime loads inventory without Excel support
 
@@ -56,9 +57,15 @@ Each schema-v1 canonical equipment record SHALL contain exactly these runtime fi
 - `source_model`: JSON string or null;
 - `diagnostic_model`: JSON string or null, containing an exact supported application model name only when such a reviewed mapping is explicitly known;
 - `ip_address`: canonical IPv4 JSON string or null;
+- `mac_address`: canonical MAC address JSON string or null;
+- `serial_number`: normalized JSON string or null;
 - `room_id`: non-empty normalized JSON string or null;
 - `room_name`: non-empty normalized JSON string or null;
 - `device_kind`: JSON string containing exactly one schema-v1 canonical vocabulary value.
+
+The nullable schema-v1 record fields are exactly `source_model`, `diagnostic_model`,
+`ip_address`, `mac_address`, `serial_number`, `room_id`, and `room_name`. The required
+non-null schema-v1 record fields are exactly `record_id` and `device_kind`.
 
 Schema-v1 `device_kind` is a closed vocabulary:
 
@@ -74,15 +81,29 @@ alternatives such as `codec`, `vcs_codec`, `video-codec`, or organization-specif
 as canonical `device_kind` values.
 
 Canonical string normalization for `record_id`, `source_model`, `diagnostic_model`,
-`room_id`, and `room_name` SHALL normalize Unicode text to NFC and remove leading and
-trailing whitespace. Empty normalized `record_id` is invalid. Empty normalized nullable
-text SHALL become null. Canonical normalization SHALL preserve case and internal text
-unless a separately reviewed source mapping explicitly defines a stronger authoritative
-identifier rule before canonicalization.
+`serial_number`, `room_id`, and `room_name` SHALL normalize Unicode text to NFC and
+remove leading and trailing whitespace. Empty normalized `record_id` is invalid. Empty
+normalized nullable text SHALL become null. Canonical normalization SHALL preserve case
+and internal text unless a separately reviewed source mapping explicitly defines a
+stronger authoritative identifier rule before canonicalization.
 
 `ip_address`, when present, SHALL be the normalized dotted-decimal representation of a
 valid IPv4 address. Invalid source IP text SHALL become null under the approved unresolved
 import semantics and SHALL NOT be retained as an index key.
+
+`mac_address`, when present, SHALL be lowercase colon-separated 48-bit MAC text in this
+canonical form:
+
+```text
+aa:bb:cc:dd:ee:ff
+```
+
+The importer SHALL normalize valid 48-bit source MAC addresses from common textual
+representations to that one canonical representation when the source MAC can be
+unambiguously parsed. Missing or blank source MAC values SHALL become null.
+
+Invalid source MAC text SHALL become null under the approved unresolved import semantics
+and SHALL NOT be emitted as a valid canonical MAC value.
 
 A canonical snapshot SHALL contain only fields approved for runtime use. The importer
 SHALL NOT copy every source workbook column into canonical records by default.
@@ -104,26 +125,42 @@ SHALL NOT copy every source workbook column into canonical records by default.
 - **THEN** the canonical record retains its normalized source model when available
 - **AND** `diagnostic_model` remains null rather than fabricating a supported model name
 
+#### Scenario: Nullable canonical fields are absent
+
+- **WHEN** a source row has valid required identity and equipment type data but lacks source model, diagnostic model, IP address, MAC address, serial number, room identity, or room display name
+- **THEN** the importer may retain the canonical record with null in the absent nullable fields
+- **AND** the row is not silently dropped solely because nullable source data is incomplete
+
+#### Scenario: Source MAC is normalized
+
+- **WHEN** a valid source MAC address is represented with separators, without separators, or with mixed letter case
+- **THEN** the importer normalizes it to the schema-v1 lowercase colon-separated canonical representation
+- **AND** equivalent textual representations of the same 48-bit MAC produce the same canonical `mac_address`
+
 ### Requirement: Stable deterministic canonical record identity
 
 Schema-v1 `record_id` SHALL be a stable deterministic identity for one canonical equipment
-record under the reviewed source contract. The importer SHALL NOT generate `record_id`
-from random UUIDs, timestamps, per-import counters, or other values that can change when
-the same logical source inventory is imported again.
+record under the reviewed source contract. It identifies the source database equipment
+record, not the physical network adapter, device serial label, or current IP assignment.
+The importer SHALL NOT generate `record_id` from random UUIDs, timestamps, per-import
+counters, mutable attributes, or other values that can change when the same logical
+source inventory is imported again.
 
-When the inspected source provides an authoritative equipment identifier that is intended
-to be unique and stable, the importer SHALL use its canonical normalized value as
-`record_id`. If the source does not provide such an identifier, `record_id` MAY be derived
-only by an explicitly reviewed deterministic rule over stable source identity fields.
-The derivation rule SHALL be documented as part of the concrete source mapping before the
-importer is considered implementation-complete.
+When the inspected source provides an authoritative database record ID that is intended
+to be unique and stable across normal edits to IP address, room, MAC address, serial
+number, model, or other mutable attributes, the importer SHALL use its canonical
+normalized value as `record_id`. If the source does not provide such an identifier,
+`record_id` MAY be derived only by an explicitly reviewed deterministic rule over stable
+source identity fields. The derivation rule SHALL be documented as part of the concrete
+source mapping before the importer is considered implementation-complete.
 
 Source row number or physical workbook row order SHALL NOT participate in `record_id`
 derivation unless the reviewed authoritative source contract explicitly defines row
-position as part of equipment identity. Mutable placement/display attributes such as
-`room_id` or `room_name` SHALL NOT be used in a derived identity merely for convenience;
-they MAY participate only when the reviewed source contract explicitly defines them as
-part of the equipment identity key.
+position as part of equipment identity. Mutable placement/display/network/device
+attributes such as `ip_address`, `mac_address`, `serial_number`, `room_id`, or `room_name`
+SHALL NOT be used in a derived identity merely for convenience; they MAY participate only
+when the reviewed source contract explicitly defines them as part of the equipment
+identity key.
 
 Duplicate normalized authoritative identifiers and collisions produced by an approved
 deterministic derivation SHALL be fatal source-contract failures. The importer SHALL NOT
@@ -133,11 +170,18 @@ stable information to define a unique deterministic `record_id`, source mapping 
 snapshot publication SHALL remain blocked until a reviewed architectural decision defines
 the identity rule.
 
-#### Scenario: Authoritative equipment identity is available
+#### Scenario: Authoritative database equipment identity is available
 
-- **WHEN** the inspected source provides a stable authoritative unique equipment identifier
+- **WHEN** the inspected source provides a stable authoritative unique database equipment record ID
 - **THEN** the importer canonically normalizes that identifier and uses it as `record_id`
 - **AND** importing the same logical equipment again produces the same `record_id`
+
+#### Scenario: Mutable equipment attributes change
+
+- **GIVEN** an authoritative stable database record ID has been confirmed and mapped to `record_id`
+- **WHEN** mutable source attributes such as IP address, MAC address, serial number, room, model, or display text change for that source record
+- **THEN** the canonical record retains the same `record_id`
+- **AND** the changed mutable attributes are represented through their canonical fields rather than by replacing identity
 
 #### Scenario: Source has no authoritative unique identifier
 
@@ -151,6 +195,13 @@ the identity rule.
 - **WHEN** the inspected source contract provides neither a stable authoritative unique identifier nor enough stable fields for an approved deterministic derivation
 - **THEN** source mapping remains blocked pending architectural review
 - **AND** the importer does not publish a snapshot using invented `record_id` values
+
+#### Scenario: Physical identifiers do not replace source identity
+
+- **GIVEN** an authoritative stable database record ID is available
+- **WHEN** the source row also provides a MAC address or serial number
+- **THEN** `mac_address` and `serial_number` are emitted only as canonical record attributes
+- **AND** neither field replaces the authoritative database ID as `record_id`
 
 #### Scenario: Authoritative or derived identity collides
 
@@ -196,6 +247,10 @@ with no insignificant whitespace, and direct UTF-8 encoding of normalized Unicod
 Optional generation metadata such as `generated_at` and `source_row_count` SHALL be
 excluded from the identity payload.
 
+Because `mac_address` and `serial_number` are canonical record fields, changes to either
+field SHALL change canonical `records` content and therefore SHALL change `snapshot_id`
+in ordinary operation. These fields SHALL NOT be treated as optional generation metadata.
+
 The runtime loader SHALL independently recompute the expected schema-v1 `snapshot_id`
 from the actually loaded and validated `schema_version` and canonical `records` using this
 exact canonical identity algorithm before publishing an `EquipmentInventory`. The loader
@@ -221,6 +276,12 @@ or verifying the identity.
 - **WHEN** at least one canonical identity field or canonical record membership changes
 - **THEN** the resulting canonical identity payload changes
 - **AND** the newly generated snapshot uses the SHA-256 identity derived from that changed payload
+
+#### Scenario: Physical device identifier content changes
+
+- **WHEN** a canonical record's `mac_address` or `serial_number` changes
+- **THEN** the canonical `records` content changes
+- **AND** the resulting `snapshot_id` changes
 
 #### Scenario: Declared snapshot identity does not match loaded content
 
@@ -296,12 +357,14 @@ canonical root construction, or duplicate canonical `record_id` values SHALL pre
 publication of a new snapshot. These identity conflicts SHALL NOT be repaired by arbitrary
 suffixes, counters, timestamps, or non-authoritative row positions.
 
-Data-quality conditions including missing IP address, invalid IP text, missing room
-identity, unsupported/unmapped diagnostic model, duplicate IP assignments, or multiple
-relevant devices in one room SHALL remain observable. They SHALL NOT be silently fixed by
-deleting records, deduplicating records, selecting the first record, or inventing values.
-Where the canonical record can still be represented safely, the importer MAY retain it
-with the affected canonical field unresolved and report the issue.
+Data-quality conditions including missing IP address, invalid IP text, missing MAC
+address, invalid MAC text, missing serial number, missing room identity,
+unsupported/unmapped diagnostic model, duplicate IP assignments, duplicate MAC
+assignments, duplicate serial numbers, or multiple relevant devices in one room SHALL
+remain observable. They SHALL NOT be silently fixed by deleting records, deduplicating
+records, selecting the first record, or inventing values. Where the canonical record can
+still be represented safely, the importer MAY retain it with the affected canonical field
+unresolved and report the issue.
 
 Import diagnostics SHALL use structured issue categories and minimal source row or
 record references. They SHALL NOT dump complete source rows or the complete organization
@@ -319,6 +382,26 @@ inventory into normal logs or public errors.
 - **WHEN** a non-empty source IP value cannot be normalized as a valid IPv4 address
 - **THEN** that invalid text is not inserted into the runtime IP index
 - **AND** the source row is accounted for through the canonical unresolved semantics and import report
+
+#### Scenario: Source MAC is invalid
+
+- **WHEN** a non-empty source MAC value cannot be normalized as a valid 48-bit MAC address
+- **THEN** canonical `mac_address` is null for that record when required fields remain valid
+- **AND** the invalid MAC remains observable through a structured data-quality issue
+- **AND** the importer does not treat the invalid text as a valid canonical MAC value
+
+#### Scenario: Source serial number is missing
+
+- **WHEN** source serial-number data is absent or normalizes to an empty string
+- **THEN** canonical `serial_number` is null
+- **AND** the source row is not dropped solely because the serial number is missing
+
+#### Scenario: Duplicate physical identifiers appear in the source
+
+- **WHEN** multiple source records share the same normalized MAC address or serial number
+- **THEN** every otherwise valid canonical record is preserved
+- **AND** the duplicate physical identifier is reported as a data-quality issue when required by the importer report
+- **AND** the importer does not delete records, deduplicate records, or select a first match as authoritative
 
 ### Requirement: Atomic canonical snapshot publication
 
@@ -352,6 +435,10 @@ Runtime consumers SHALL access equipment data through a focused `EquipmentInvent
 query boundary rather than reading JSON structures directly. The first loader SHALL use
 Python standard-library JSON support, but the public inventory query semantics SHALL NOT
 depend on JSON-specific dictionary layout, file offsets, or serialization details.
+
+Schema v1 SHALL expose `mac_address` and `serial_number` as canonical equipment record
+attributes only. It SHALL NOT require a MAC-address index or serial-number index unless a
+future reviewed runtime need introduces one.
 
 A future storage adapter, including a possible SQLite adapter, SHALL be able to construct
 or implement the same inventory query boundary without changing the semantics expected

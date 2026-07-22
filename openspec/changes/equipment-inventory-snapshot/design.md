@@ -57,6 +57,9 @@ accepted PDU context and starts an independent read-only codec-status lifecycle.
 - Do not make generation timestamps part of inventory revision identity.
 - Do not invent per-import `record_id` values or silently repair conflicting source
   identities with arbitrary suffixes.
+- Do not guess source columns for the source database ID, MAC address, serial number, or
+  other source fields before inspecting the real workbook or a sanitized schema/header
+  sample.
 
 ## Decision 1: Excel is an offline import format, not a runtime dependency
 
@@ -81,6 +84,8 @@ The importer owns all source-specific concerns:
 - normalization of blank cells and source value types;
 - source model/type alias mapping;
 - conversion of valid IP values to canonical normalized strings;
+- conversion of valid MAC values to canonical normalized strings;
+- normalization of optional serial-number text;
 - mapping source room fields into canonical room identity/display fields;
 - reviewed canonical `record_id` provenance and derivation;
 - import diagnostics and row accounting.
@@ -90,6 +95,19 @@ inspected before implementing its concrete mapping. If the source layout is ambi
 the implementer must stop and request clarification rather than infer column semantics.
 The same source-data gate applies to equipment identity: implementation must not invent a
 `record_id` strategy before the source contract is inspected.
+
+The preferred schema-v1 identity rule is:
+
+```text
+authoritative stable database record ID
+    -> canonical record_id
+```
+
+This rule applies only after source analysis confirms the corresponding workbook column
+and verifies that the source database ID is stable for normal record edits, including IP,
+room, MAC, serial-number, or other mutable attribute changes. Deleting a source record and
+creating a replacement may legitimately produce a new database ID, representing a new
+canonical equipment record.
 
 ## Decision 2: JSON is the first canonical runtime storage format
 
@@ -139,6 +157,8 @@ record_id: non-empty string
 source_model: string | null
 diagnostic_model: string | null
 ip_address: canonical IPv4 string | null
+mac_address: canonical MAC address string | null
+serial_number: string | null
 room_id: non-empty normalized string | null
 room_name: non-empty normalized string | null
 device_kind: canonical string
@@ -158,9 +178,10 @@ explicitly into these canonical values. Unknown or unmapped equipment becomes `o
 the importer must not emit aliases such as `codec`, `vcs_codec`, or `video-codec`.
 
 Canonical textual normalization uses NFC Unicode normalization and trims leading and
-trailing whitespace. Empty nullable text becomes null. `record_id` must remain non-empty
-and unique after normalization. Case and internal text are preserved unless the inspected
-source contract has an explicitly reviewed stronger authoritative identifier rule.
+trailing whitespace. Empty nullable text becomes null, including empty `serial_number`.
+`record_id` must remain non-empty and unique after normalization. Case and internal text
+are preserved unless the inspected source contract has an explicitly reviewed stronger
+authoritative identifier rule.
 
 `record_id` provenance is part of the concrete reviewed source mapping, not an importer
 implementation detail. The preferred rule is to use a stable authoritative unique
@@ -168,12 +189,22 @@ equipment identifier supplied by the source, after canonical normalization. If t
 inspected source has no such field, a derived `record_id` is allowed only when a reviewed
 deterministic derivation can be defined from stable source identity fields.
 
+Schema-v1 explicitly separates record identity from physical device identifiers and
+network attributes:
+
+- `record_id` identifies the stable source database equipment record;
+- `mac_address` and `serial_number` identify or describe the physical device when source
+  data provides usable values;
+- `ip_address` is a mutable network attribute and must not drive canonical record
+  identity when an authoritative stable database ID is available.
+
 Random UUIDs, timestamps, per-import counters, and other execution-specific values are
 forbidden. Source row number or row order is also forbidden unless the reviewed source
-contract explicitly declares row position authoritative. Mutable placement/display fields
-such as `room_id` or `room_name` must not be used merely as convenient disambiguators;
-they may participate only when the reviewed source contract explicitly makes them part of
-the equipment identity key.
+contract explicitly declares row position authoritative. Mutable placement, display,
+network, or device-attribute fields such as `ip_address`, `mac_address`,
+`serial_number`, `room_id`, or `room_name` must not be used merely as convenient
+disambiguators; they may participate only when the reviewed source contract explicitly
+makes them part of the equipment identity key.
 
 Duplicate normalized authoritative IDs and collisions from an approved deterministic
 derivation are fatal source-contract failures. The importer must not append arbitrary
@@ -184,6 +215,26 @@ the rule.
 
 `ip_address`, when present, is canonical dotted-decimal IPv4 text. Invalid source IP text
 is reported and does not become an index key.
+
+`mac_address`, when present, is canonical lowercase colon-separated 48-bit MAC text:
+
+```text
+aa:bb:cc:dd:ee:ff
+```
+
+The importer must accept common textual representations of the same 48-bit MAC when they
+can be unambiguously normalized to that canonical representation. A missing or blank MAC
+becomes null. Invalid non-empty MAC source text is reported as an observable data-quality
+issue and produces canonical `mac_address = null` when the rest of the record can still
+be safely imported. MAC addresses are canonical equipment attributes; schema v1 does not
+introduce a MAC index without a proven runtime need. Duplicate MAC values must not cause
+arbitrary deletion, deduplication, or first-match selection.
+
+`serial_number`, when present, uses the general canonical text normalization contract. A
+missing serial number or a value that normalizes to an empty string becomes null. Schema
+v1 does not assume global serial-number uniqueness, does not introduce a serial-number
+index without a proven runtime need, and does not allow serial number to replace the
+authoritative database ID as `record_id`.
 
 The canonical snapshot is intentionally not a wholesale copy of all Excel columns.
 Additional fields require a reviewed schema change rather than ad hoc importer output.
@@ -214,6 +265,17 @@ stable under the reviewed source contract, reordering non-authoritative workbook
 not change canonical order or `snapshot_id`. The canonical JSON identity serialization
 uses sorted object keys, compact separators with no insignificant whitespace, and direct
 UTF-8 encoding of normalized Unicode text.
+
+Because `mac_address` and `serial_number` are canonical record fields, they are included
+in canonical `records` content and therefore participate in snapshot identity:
+
+```text
+change mac_address or serial_number
+    -> canonical records change
+    -> snapshot_id changes
+```
+
+They must not be moved into optional generation metadata.
 
 Optional generation metadata such as `generated_at` and `source_row_count` is excluded
 from the identity payload. Therefore importing the same canonical data at two different
@@ -247,14 +309,39 @@ Non-fatal data-quality conditions may include:
 
 - blank IP address;
 - invalid IP text that cannot be normalized;
+- blank MAC address;
+- invalid MAC text that cannot be normalized;
+- missing serial number;
 - missing room identity;
 - unmapped/unsupported diagnostic model;
 - duplicate IP address across multiple records;
+- duplicate MAC address across multiple records;
+- duplicate serial number across multiple records;
 - multiple devices of the same relevant kind in one room.
 
 These conditions are reported but are not automatically "fixed" by deleting records or
 selecting one candidate. Where possible the canonical record is retained with a null or
-unresolved field. Invalid source IP text must never become an index key.
+unresolved field. Invalid source IP text must never become an index key. Invalid source
+MAC text must never become a valid canonical MAC value.
+
+Schema v1 permits null for these record fields:
+
+```text
+source_model
+diagnostic_model
+ip_address
+mac_address
+serial_number
+room_id
+room_name
+```
+
+Only `record_id` and `device_kind` remain required non-null record fields. Missing or
+invalid nullable source data must not silently drop the source row, block the whole
+snapshot by itself, or turn incomplete data into an automatically invalid record when the
+canonical record can still be safely represented. Missing or invalid authoritative
+`record_id` remains a separate identity/source-contract failure, and unknown equipment
+type continues to normalize to `device_kind = other`.
 
 The report should use structured issue codes, counts, and source row/record identities.
 It must avoid dumping entire source rows or unrelated organization data into logs.

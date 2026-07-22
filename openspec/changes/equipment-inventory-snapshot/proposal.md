@@ -30,10 +30,11 @@ independently reviewed.
   application runtime imports.
 - Define a minimal canonical equipment record containing stable runtime fields for
   equipment identity, source model, optional normalized diagnostic model, IP address,
-  room identity/display name, and device kind.
+  optional physical device identifiers, room identity/display name, and device kind.
 - Require explicit source-column mapping after the real workbook or a sanitized schema
   sample is inspected; implementation must not guess organization-specific column
-  names or sheet layout.
+  names or sheet layout, including columns for authoritative database identity, MAC
+  address, or serial number.
 - Validate source rows during import and account for every row as imported or reported
   with a structured issue; do not silently discard or deduplicate conflicting records.
 - Use JSON as the first runtime snapshot format and Python standard-library JSON loading
