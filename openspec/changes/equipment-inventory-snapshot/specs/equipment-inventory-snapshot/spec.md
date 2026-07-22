@@ -104,6 +104,69 @@ SHALL NOT copy every source workbook column into canonical records by default.
 - **THEN** the canonical record retains its normalized source model when available
 - **AND** `diagnostic_model` remains null rather than fabricating a supported model name
 
+### Requirement: Stable deterministic canonical record identity
+
+Schema-v1 `record_id` SHALL be a stable deterministic identity for one canonical equipment
+record under the reviewed source contract. The importer SHALL NOT generate `record_id`
+from random UUIDs, timestamps, per-import counters, or other values that can change when
+the same logical source inventory is imported again.
+
+When the inspected source provides an authoritative equipment identifier that is intended
+to be unique and stable, the importer SHALL use its canonical normalized value as
+`record_id`. If the source does not provide such an identifier, `record_id` MAY be derived
+only by an explicitly reviewed deterministic rule over stable source identity fields.
+The derivation rule SHALL be documented as part of the concrete source mapping before the
+importer is considered implementation-complete.
+
+Source row number or physical workbook row order SHALL NOT participate in `record_id`
+derivation unless the reviewed authoritative source contract explicitly defines row
+position as part of equipment identity. Mutable placement/display attributes such as
+`room_id` or `room_name` SHALL NOT be used in a derived identity merely for convenience;
+they MAY participate only when the reviewed source contract explicitly defines them as
+part of the equipment identity key.
+
+Duplicate normalized authoritative identifiers and collisions produced by an approved
+deterministic derivation SHALL be fatal source-contract failures. The importer SHALL NOT
+silently repair such conflicts by appending arbitrary suffixes, row numbers, counters, or
+other invented disambiguators. If the inspected source contract does not provide enough
+stable information to define a unique deterministic `record_id`, source mapping and
+snapshot publication SHALL remain blocked until a reviewed architectural decision defines
+the identity rule.
+
+#### Scenario: Authoritative equipment identity is available
+
+- **WHEN** the inspected source provides a stable authoritative unique equipment identifier
+- **THEN** the importer canonically normalizes that identifier and uses it as `record_id`
+- **AND** importing the same logical equipment again produces the same `record_id`
+
+#### Scenario: Source has no authoritative unique identifier
+
+- **WHEN** the inspected source has no single authoritative unique equipment identifier
+- **AND** a reviewed deterministic derivation from stable source identity fields has been approved
+- **THEN** the importer applies exactly that derivation rule
+- **AND** it does not substitute a random, timestamp-based, row-position-based, or per-import identity
+
+#### Scenario: Stable identity cannot be defined
+
+- **WHEN** the inspected source contract provides neither a stable authoritative unique identifier nor enough stable fields for an approved deterministic derivation
+- **THEN** source mapping remains blocked pending architectural review
+- **AND** the importer does not publish a snapshot using invented `record_id` values
+
+#### Scenario: Authoritative or derived identity collides
+
+- **WHEN** two source records normalize or derive to the same `record_id`
+- **THEN** the importer reports a fatal identity conflict
+- **AND** it does not append arbitrary suffixes or row positions to manufacture uniqueness
+- **AND** no new snapshot is published from that import
+
+#### Scenario: Non-authoritative source rows are reordered
+
+- **GIVEN** source row order is not part of the reviewed authoritative source contract
+- **WHEN** the same normalized logical inventory is imported with its workbook rows reordered
+- **THEN** each logical equipment record retains the same `record_id`
+- **AND** canonical record order remains unchanged
+- **AND** `snapshot_id` remains unchanged
+
 ### Requirement: Deterministic canonical snapshot identity
 
 Schema-v1 `snapshot_id` SHALL identify canonical inventory data content, not one execution
@@ -206,8 +269,11 @@ canonical imported record or as a structured reported issue; a source row SHALL 
 silently discarded.
 
 Fatal structural conditions, including unresolved required worksheet/column mapping,
-invalid canonical root construction, or non-resolvable duplicate canonical `record_id`
-values, SHALL prevent publication of a new snapshot.
+absence of an approved stable unique `record_id` rule, duplicate normalized authoritative
+identifiers, collisions in an approved deterministic `record_id` derivation, invalid
+canonical root construction, or duplicate canonical `record_id` values SHALL prevent
+publication of a new snapshot. These identity conflicts SHALL NOT be repaired by arbitrary
+suffixes, counters, timestamps, or non-authoritative row positions.
 
 Data-quality conditions including missing IP address, invalid IP text, missing room
 identity, unsupported/unmapped diagnostic model, duplicate IP assignments, or multiple
