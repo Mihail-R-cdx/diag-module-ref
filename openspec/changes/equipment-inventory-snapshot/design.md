@@ -38,6 +38,9 @@ accepted PDU context and starts an independent read-only codec-status lifecycle.
   without performing any network operation in this change.
 - Make inventory revision identity deterministic from canonical content so later
   application lifecycles can compare revisions without depending on import timestamps.
+- Make canonical record identity deterministic from the reviewed source contract so
+  logically unchanged inventory does not acquire a new revision solely because import
+  execution details or source row order changed.
 
 ## Non-Goals
 
@@ -52,6 +55,8 @@ accepted PDU context and starts an independent read-only codec-status lifecycle.
 - Do not commit the real Excel workbook or a generated production snapshot.
 - Do not hard-code guessed organization-specific Excel sheet names or column headers.
 - Do not make generation timestamps part of inventory revision identity.
+- Do not invent per-import `record_id` values or silently repair conflicting source
+  identities with arbitrary suffixes.
 
 ## Decision 1: Excel is an offline import format, not a runtime dependency
 
@@ -77,11 +82,14 @@ The importer owns all source-specific concerns:
 - source model/type alias mapping;
 - conversion of valid IP values to canonical normalized strings;
 - mapping source room fields into canonical room identity/display fields;
+- reviewed canonical `record_id` provenance and derivation;
 - import diagnostics and row accounting.
 
 The real workbook, or at minimum a sanitized workbook schema/header sample, must be
 inspected before implementing its concrete mapping. If the source layout is ambiguous,
 the implementer must stop and request clarification rather than infer column semantics.
+The same source-data gate applies to equipment identity: implementation must not invent a
+`record_id` strategy before the source contract is inspected.
 
 ## Decision 2: JSON is the first canonical runtime storage format
 
@@ -154,6 +162,26 @@ trailing whitespace. Empty nullable text becomes null. `record_id` must remain n
 and unique after normalization. Case and internal text are preserved unless the inspected
 source contract has an explicitly reviewed stronger authoritative identifier rule.
 
+`record_id` provenance is part of the concrete reviewed source mapping, not an importer
+implementation detail. The preferred rule is to use a stable authoritative unique
+equipment identifier supplied by the source, after canonical normalization. If the
+inspected source has no such field, a derived `record_id` is allowed only when a reviewed
+deterministic derivation can be defined from stable source identity fields.
+
+Random UUIDs, timestamps, per-import counters, and other execution-specific values are
+forbidden. Source row number or row order is also forbidden unless the reviewed source
+contract explicitly declares row position authoritative. Mutable placement/display fields
+such as `room_id` or `room_name` must not be used merely as convenient disambiguators;
+they may participate only when the reviewed source contract explicitly makes them part of
+the equipment identity key.
+
+Duplicate normalized authoritative IDs and collisions from an approved deterministic
+derivation are fatal source-contract failures. The importer must not append arbitrary
+suffixes, counters, timestamps, or row numbers to manufacture uniqueness. If the real
+source contract does not provide enough stable information to define unique deterministic
+record identity, mapping and publication remain blocked until architectural review defines
+the rule.
+
 `ip_address`, when present, is canonical dotted-decimal IPv4 text. Invalid source IP text
 is reported and does not become an index key.
 
@@ -181,9 +209,11 @@ snapshot_id = "sha256:" + lowercase_sha256_hex(canonical_identity_payload)
 ```
 
 The identity payload contains exactly `schema_version` and `records`. Records are sorted
-in deterministic ascending normalized `record_id` order. The canonical JSON identity
-serialization uses sorted object keys, compact separators with no insignificant
-whitespace, and direct UTF-8 encoding of normalized Unicode text.
+in deterministic ascending normalized `record_id` order. Because `record_id` itself is
+stable under the reviewed source contract, reordering non-authoritative workbook rows does
+not change canonical order or `snapshot_id`. The canonical JSON identity serialization
+uses sorted object keys, compact separators with no insignificant whitespace, and direct
+UTF-8 encoding of normalized Unicode text.
 
 Optional generation metadata such as `generated_at` and `source_row_count` is excluded
 from the identity payload. Therefore importing the same canonical data at two different
@@ -202,11 +232,16 @@ Fatal import conditions include cases such as:
 
 - workbook/sheet selection cannot be resolved;
 - required source-column mapping is unavailable;
+- no reviewed stable unique `record_id` rule can be defined from the inspected source;
+- duplicate normalized authoritative equipment identifiers are present;
+- an approved deterministic derived-identity rule produces a collision;
 - canonical root/schema construction fails;
-- duplicate canonical `record_id` values cannot be resolved deterministically;
+- duplicate canonical `record_id` values remain after the approved identity rule;
 - complete schema-v1 validation fails before publication.
 
-Fatal conditions prevent publication of a new canonical snapshot.
+Fatal conditions prevent publication of a new canonical snapshot. Identity conflicts are
+not repaired silently by suffixing or by switching to row numbers or another unreviewed
+fallback rule.
 
 Non-fatal data-quality conditions may include:
 
@@ -241,8 +276,8 @@ A temporary file in the target filesystem followed by atomic replacement is the 
 implementation approach, but the exact filesystem mechanism is an implementation detail.
 The invariant, not the specific API call, is part of the capability contract.
 
-This protection applies to every failure before successful publication, not only to an
-unresolved workbook-column mapping failure.
+This protection applies to every failure before successful publication, including failure
+to establish or apply the approved stable `record_id` rule.
 
 ## Decision 7: Runtime load failures have stable machine-readable categories
 
@@ -376,6 +411,26 @@ diagnostics.
 Rejected for the first version. The current lookup requirements are small and
 index-oriented, and approximately 17,000 records fit comfortably in memory. The storage
 abstraction keeps SQLite available later without paying its complexity now.
+
+### Use a random UUID for record_id
+
+Rejected. It makes logically unchanged source inventory produce different canonical
+records and therefore different `snapshot_id` values on each import. Schema v1 requires
+record identity to come from a stable authoritative source identifier or an explicitly
+reviewed deterministic derivation from stable source identity fields.
+
+### Use source row number as record_id
+
+Rejected by default. Reordering workbook rows would change canonical identity even when
+the logical inventory is unchanged. Row position may participate only when the reviewed
+authoritative source contract explicitly defines it as part of equipment identity.
+
+### Repair duplicate equipment identities with suffixes
+
+Rejected. Silent suffixing hides a source-contract identity conflict and makes identity
+semantics depend on importer behavior or row order. Duplicate authoritative IDs or derived
+identity collisions are fatal until the source mapping or architecture defines a stable
+unique rule.
 
 ### Use a random UUID for snapshot_id
 
