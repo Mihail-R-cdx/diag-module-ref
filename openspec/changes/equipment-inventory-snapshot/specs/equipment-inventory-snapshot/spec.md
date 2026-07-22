@@ -196,6 +196,19 @@ with no insignificant whitespace, and direct UTF-8 encoding of normalized Unicod
 Optional generation metadata such as `generated_at` and `source_row_count` SHALL be
 excluded from the identity payload.
 
+The runtime loader SHALL independently recompute the expected schema-v1 `snapshot_id`
+from the actually loaded and validated `schema_version` and canonical `records` using this
+exact canonical identity algorithm before publishing an `EquipmentInventory`. The loader
+SHALL compare the recomputed value with the declared `snapshot_id`. A syntactically valid
+declared `snapshot_id` that does not equal the recomputed value SHALL make the snapshot
+invalid; loading SHALL fail as `INVALID_SNAPSHOT`, and no inventory, records, or indexes
+from that snapshot SHALL be published.
+
+Importer generation and runtime verification SHALL share the same normative canonical
+serialization and digest semantics. They SHALL NOT use different key ordering, record
+ordering, Unicode normalization, optional metadata, or whitespace rules when calculating
+or verifying the identity.
+
 #### Scenario: Same canonical content is imported twice
 
 - **WHEN** two imports produce identical normalized canonical records
@@ -208,6 +221,14 @@ excluded from the identity payload.
 - **WHEN** at least one canonical identity field or canonical record membership changes
 - **THEN** the resulting canonical identity payload changes
 - **AND** the newly generated snapshot uses the SHA-256 identity derived from that changed payload
+
+#### Scenario: Declared snapshot identity does not match loaded content
+
+- **GIVEN** a schema-v1 snapshot has otherwise valid canonical fields and records
+- **AND** its declared `snapshot_id` is syntactically valid but does not equal the value recomputed from the loaded `schema_version` and canonical `records`
+- **WHEN** the runtime loader validates the snapshot before publication
+- **THEN** loading fails with category `INVALID_SNAPSHOT`
+- **AND** no `EquipmentInventory`, partial records, or partial indexes from that snapshot are published
 
 ### Requirement: Structured runtime inventory load failure contract
 
@@ -230,7 +251,7 @@ The category semantics SHALL be:
 - `UNREADABLE`: the snapshot exists but cannot be read as required because of filesystem or access failure;
 - `INVALID_FORMAT`: the file can be read but is not valid UTF-8 JSON;
 - `UNSUPPORTED_SCHEMA`: the JSON root declares a `schema_version` other than integer `1`;
-- `INVALID_SNAPSHOT`: the JSON value has an invalid root shape, missing/invalid required fields, duplicate normalized `record_id`, invalid canonical field values/types, an invalid schema-v1 `snapshot_id`, or otherwise violates the canonical schema contract.
+- `INVALID_SNAPSHOT`: the JSON value has an invalid root shape, missing/invalid required fields, duplicate normalized `record_id`, invalid canonical field values/types, a malformed schema-v1 `snapshot_id`, a declared `snapshot_id` that does not match the digest recomputed from the actual canonical content, or otherwise violates the canonical schema contract.
 
 A failed load SHALL NOT publish a partial `EquipmentInventory`, partial records, or partial
 indexes. Runtime consumers SHALL NOT need to inspect raw `FileNotFoundError`,
