@@ -5,7 +5,7 @@
 - [ ] 1.3 Identify authoritative source fields for equipment identity, model, IP address, room identity, room display name, and equipment type.
 - [ ] 1.4 Define and document the schema-v1 `record_id` provenance rule from the inspected source contract: use a normalized authoritative unique equipment ID when available; otherwise use only an explicitly reviewed deterministic derivation from stable source identity fields. Random UUIDs, timestamps, per-import values, and row numbers/order are forbidden unless row order is explicitly authoritative in the reviewed source contract. If no stable unique identity can be defined, block source mapping until architectural review.
 - [ ] 1.5 Define the source-model/type normalization mapping needed to produce canonical `device_kind` values from the schema-v1 closed vocabulary `pdu`, `video_codec`, or `other`, plus optional `diagnostic_model` values, without fabricating unsupported mappings.
-- [ ] 1.6 Define synthetic fixtures covering unique lookup, duplicate IP, missing room, invalid IP, unsupported/unmapped model, multiple relevant devices in one room, duplicate authoritative/derived `record_id`, reordered source rows, and every structured runtime load-failure category.
+- [ ] 1.6 Define synthetic fixtures covering unique lookup, duplicate IP, missing room, invalid IP, unsupported/unmapped model, multiple relevant devices in one room, duplicate authoritative/derived `record_id`, reordered source rows, every structured runtime load-failure category, and a syntactically valid but content-mismatched `snapshot_id`.
 
 ## 2. Canonical runtime inventory model
 
@@ -14,7 +14,8 @@
 - [ ] 2.3 Implement deterministic application-root resolution for the default deployment-local `equipment_inventory.local.json` path while allowing tests/callers to supply an explicit path.
 - [ ] 2.4 Load canonical snapshots with Python standard-library JSON support and expose a structured safe load-failure contract using `NOT_FOUND`, `UNREADABLE`, `INVALID_FORMAT`, `UNSUPPORTED_SCHEMA`, or `INVALID_SNAPSHOT`; no failed load may partially publish an `EquipmentInventory`.
 - [ ] 2.5 Reject duplicate canonical `record_id` values and invalid canonical field types/values as `INVALID_SNAPSHOT` rather than silently repairing them at runtime load.
-- [ ] 2.6 Ensure normal application runtime import of the inventory module does not import or require `openpyxl` or another spreadsheet library.
+- [ ] 2.6 Recompute the expected schema-v1 `snapshot_id` from the actually loaded canonical `schema_version` and canonical `records` using the exact approved canonical serialization/digest algorithm before publishing an inventory; reject any declared/recomputed mismatch as `INVALID_SNAPSHOT` with no partial publication.
+- [ ] 2.7 Ensure normal application runtime import of the inventory module does not import or require `openpyxl` or another spreadsheet library.
 
 ## 3. Indexed inventory query surface
 
@@ -49,19 +50,20 @@
 ## 6. Focused regression coverage
 
 - [ ] 6.1 Test valid schema-v1 JSON loading and exact structured load-failure classification for absent file (`NOT_FOUND`), unreadable file (`UNREADABLE`), invalid JSON (`INVALID_FORMAT`), unsupported schema version (`UNSUPPORTED_SCHEMA`), and invalid canonical root/records including duplicate `record_id` (`INVALID_SNAPSHOT`).
-- [ ] 6.2 Test every load failure publishes no partial `EquipmentInventory` and leaves any previously published inventory instance outside the loader unchanged.
-- [ ] 6.3 Test deterministic default-path resolution independent of current working directory.
-- [ ] 6.4 Test unique IP lookup and zero-match lookup.
-- [ ] 6.5 Test duplicate IP lookup returns every matching record and never silently chooses one.
-- [ ] 6.6 Test room and room/device-kind indexes with zero, one, and multiple matches, including exact `video_codec` vocabulary use.
-- [ ] 6.7 Test records with missing room, missing IP, invalid source IP, and unsupported/unmapped diagnostic model retain the approved explicit unresolved semantics.
-- [ ] 6.8 Test importer row accounting and structured fatal versus non-fatal issue behavior with synthetic workbook data.
-- [ ] 6.9 Test identical normalized logical source inventory produces the same `record_id` values, deterministic canonical record order, and `snapshot_id`; changed canonical content produces a different `snapshot_id`; optional generation metadata does not affect snapshot identity.
-- [ ] 6.10 Test reordering source workbook rows does not change `record_id`, canonical record order, or `snapshot_id` when source row order is not part of the reviewed authoritative source contract.
-- [ ] 6.11 Test duplicate normalized authoritative IDs and collisions in an approved derived-identity rule are fatal and are not repaired by arbitrary suffixes.
-- [ ] 6.12 Test a failed import before complete publication preserves the previous valid production snapshot byte-for-byte and leaves no partial output exposed at the production snapshot path.
-- [ ] 6.13 Test runtime inventory imports and JSON loading in an environment where the spreadsheet library is unavailable.
-- [ ] 6.14 Test production local inventory paths are ignored while synthetic fixtures remain tracked.
+- [ ] 6.2 Test a snapshot with otherwise valid canonical content and a syntactically valid but stale or incorrect declared `snapshot_id` is rejected as `INVALID_SNAPSHOT` after loader recomputation and publishes no `EquipmentInventory`.
+- [ ] 6.3 Test every load failure publishes no partial `EquipmentInventory` and leaves any previously published inventory instance outside the loader unchanged.
+- [ ] 6.4 Test deterministic default-path resolution independent of current working directory.
+- [ ] 6.5 Test unique IP lookup and zero-match lookup.
+- [ ] 6.6 Test duplicate IP lookup returns every matching record and never silently chooses one.
+- [ ] 6.7 Test room and room/device-kind indexes with zero, one, and multiple matches, including exact `video_codec` vocabulary use.
+- [ ] 6.8 Test records with missing room, missing IP, invalid source IP, and unsupported/unmapped diagnostic model retain the approved explicit unresolved semantics.
+- [ ] 6.9 Test importer row accounting and structured fatal versus non-fatal issue behavior with synthetic workbook data.
+- [ ] 6.10 Test identical normalized logical source inventory produces the same `record_id` values, deterministic canonical record order, and `snapshot_id`; changed canonical content produces a different `snapshot_id`; optional generation metadata does not affect snapshot identity.
+- [ ] 6.11 Test reordering source workbook rows does not change `record_id`, canonical record order, or `snapshot_id` when source row order is not part of the reviewed authoritative source contract.
+- [ ] 6.12 Test duplicate normalized authoritative IDs and collisions in an approved derived-identity rule are fatal and are not repaired by arbitrary suffixes.
+- [ ] 6.13 Test a failed import before complete publication preserves the previous valid production snapshot byte-for-byte and leaves no partial output exposed at the production snapshot path.
+- [ ] 6.14 Test runtime inventory imports and JSON loading in an environment where the spreadsheet library is unavailable.
+- [ ] 6.15 Test production local inventory paths are ignored while synthetic fixtures remain tracked.
 
 ## 7. Validation and handoff
 
