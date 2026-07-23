@@ -1,170 +1,196 @@
 ## Context
 
-The diagnostic application currently owns device diagnostic lifecycles for codecs,
-Matrix, PDU, audio DSP, and DMP, but it has no external equipment-inventory boundary.
-The planned room-context feature needs to resolve a diagnosed PDU IP into inventory
-records, identify the PDU room, and later locate codec candidates in that room.
+The diagnostic application already owns device diagnostic lifecycles for codecs, Matrix,
+PDU, audio DSP, and DMP, but it has no external equipment-inventory boundary. The planned
+room-context feature needs to resolve a diagnosed PDU IP into inventory records, identify
+the PDU room, and later locate codec candidates in that room.
 
 The source inventory is an organization-owned Excel workbook with approximately 17,000
-rows and about 15 columns. The exact workbook sheet names, column headers, and source
-model/type conventions have not yet been inspected in this change. Those source details
-must not leak into the runtime API or be guessed during implementation.
-
-The current repository already has strong precedents that this change must preserve:
-
-- application/composition code owns orchestration and device credential policy;
-- protocol workers and handlers must not acquire unrelated application responsibilities;
-- stale operation policy remains separate from data lookup policy;
-- secrets and sensitive operational data must not be emitted casually;
-- focused domain components are preferred over a generic universal manager.
+rows. The relevant source-column semantics have now been inspected and confirmed for this
+change. The source remains external operational data; only the mapping contract belongs in
+the repository.
 
 This change creates only the inventory data foundation. The later
-`pdu-room-codec-enrichment` change will own the application orchestration that consumes
-accepted PDU context and starts an independent read-only codec-status lifecycle.
+`pdu-room-codec-enrichment` change owns application orchestration that consumes accepted
+PDU context and starts an independent read-only codec-status lifecycle.
+
+The existing architectural principles remain unchanged:
+
+- application/composition code owns cross-device orchestration and credential policy;
+- handlers and workers do not acquire unrelated application responsibilities;
+- stale-operation policy remains separate from inventory lookup policy;
+- secrets and sensitive operational data are not emitted casually;
+- focused domain components are preferred over a generic universal manager;
+- ambiguity is preserved unless a reviewed contract defines authority to resolve it.
 
 ## Goals
 
-- Decouple runtime inventory lookup from Excel workbook structure and spreadsheet
-  libraries.
-- Define a stable, normative, versioned canonical JSON snapshot contract.
-- Preserve source ambiguity instead of silently selecting first matches or deduplicating
-  conflicting equipment records.
-- Build efficient in-memory indexes once at load time for the expected 17,000-record
-  scale.
-- Keep runtime consumers independent of JSON so SQLite can be introduced later without
-  changing lookup semantics.
-- Make production inventory deployment-local and keep real organization data out of Git.
-- Provide enough canonical model/type metadata for later room-to-codec resolution
-  without performing any network operation in this change.
-- Make inventory revision identity deterministic from canonical content so later
-  application lifecycles can compare revisions without depending on import timestamps.
-- Make canonical record identity deterministic from the reviewed source contract so
-  logically unchanged inventory does not acquire a new revision solely because import
-  execution details or source row order changed.
+- Decouple runtime inventory lookup from Excel workbook structure and spreadsheet libraries.
+- Define a strict, versioned canonical JSON snapshot contract.
+- Encode the confirmed source-to-canonical mapping explicitly rather than guessing at implementation time.
+- Make `SmartRoomID` the stable authoritative equipment-record identity for this source.
+- Keep `ID комнаты` authoritative for room identity and `Название комнаты` display-only.
+- Preserve invalid-field, multiplicity, and consistency evidence without silently correcting source data.
+- Build efficient immutable in-memory indexes for the expected 17,000-record scale.
+- Keep runtime consumers storage-independent so SQLite remains a future option.
+- Keep real production inventory and workbook content outside Git.
+- Preserve deterministic snapshot identity and validate that identity at runtime load.
 
 ## Non-Goals
 
-- Do not change `PDUController`, `PDUScreen`, `VCSDiagnosticApp`, codec screens, codec
-  interactive sessions, codec polling, credentials, transport fallback, or network
-  workers.
-- Do not trigger inventory lookup automatically after a PDU refresh.
-- Do not select a codec for a room or define multi-codec primary-selection policy beyond
-  preserving the data needed for the later change.
+- Do not change `PDUController`, `PDUScreen`, `VCSDiagnosticApp`, codec screens, codec interactive sessions, codec polling, credentials, transport fallback, or network workers.
+- Do not trigger inventory lookup after a PDU refresh in this change.
+- Do not select a codec or PDU when multiple candidates exist in one room.
 - Do not add SQLite in the first implementation.
-- Do not turn the equipment inventory into an editable application database.
-- Do not commit the real Excel workbook or a generated production snapshot.
-- Do not hard-code guessed organization-specific Excel sheet names or column headers.
-- Do not make generation timestamps part of inventory revision identity.
-- Do not invent per-import `record_id` values or silently repair conflicting source
-  identities with arbitrary suffixes.
-- Do not guess source columns for the source database ID, MAC address, serial number, or
-  other source fields before inspecting the real workbook or a sanitized schema/header
-  sample.
+- Do not turn the inventory into an editable application database.
+- Do not commit the real workbook or generated production snapshot.
+- Do not add a runtime controller relation or controller index from `SmartRoomID контроллера`.
+- Do not use secondary consistency evidence to rewrite authoritative canonical fields.
+- Do not invent fallback `record_id` values when `SmartRoomID` is missing or duplicated.
 
-## Decision 1: Excel is an offline import format, not a runtime dependency
+## Decision 1: Excel is an offline import format
 
-The approved boundary is:
+The approved boundary remains:
 
 ```text
 Excel source
   -> offline importer
-  -> canonical snapshot
+  -> canonical snapshot + structured import report
   -> runtime loader
   -> indexed EquipmentInventory
 ```
 
-The importer may use an import-only dependency such as `openpyxl`. The normal
-diagnostic runtime must not import the workbook parser or require the spreadsheet
-library to start, load inventory, or execute device diagnostics.
+The importer may use an import-only dependency such as `openpyxl`. Normal diagnostic
+runtime modules must not import the workbook parser or require a spreadsheet library to
+start, load inventory, or execute device diagnostics.
 
 The importer owns all source-specific concerns:
 
 - workbook and worksheet selection;
-- source-column mapping;
-- normalization of blank cells and source value types;
-- source model/type alias mapping;
-- conversion of valid IP values to canonical normalized strings;
-- conversion of valid MAC values to canonical normalized strings;
-- normalization of optional serial-number text;
-- mapping source room fields into canonical room identity/display fields;
-- reviewed canonical `record_id` provenance and derivation;
-- import diagnostics and row accounting.
+- confirmed source-column mapping;
+- normalization of source values;
+- authoritative identity mapping;
+- source model and device-kind mapping;
+- explicit reviewed diagnostic-model mapping;
+- invalid-field and consistency diagnostics;
+- source-row accounting;
+- canonical snapshot generation and atomic publication.
 
-The real workbook, or at minimum a sanitized workbook schema/header sample, must be
-inspected before implementing its concrete mapping. If the source layout is ambiguous,
-the implementer must stop and request clarification rather than infer column semantics.
-The same source-data gate applies to equipment identity: implementation must not invent a
-`record_id` strategy before the source contract is inspected.
+The runtime owns only canonical schema validation, snapshot identity verification, index
+construction, and the storage-independent query boundary.
 
-The preferred schema-v1 identity rule is:
+## Decision 2: Confirmed source-to-canonical mapping
+
+The confirmed organization mapping is:
 
 ```text
-authoritative stable database record ID
-    -> canonical record_id
+SmartRoomID       -> record_id
+ID комнаты        -> room_id
+Название комнаты  -> room_name
+Наименование      -> source_model
+IP                -> ip_address
+MAC               -> mac_address
+Серийный номер    -> serial_number
+Тип модели        -> device_kind
 ```
 
-This rule applies only after source analysis confirms the corresponding workbook column
-and verifies that the source database ID is stable for normal record edits, including IP,
-room, MAC, serial-number, or other mutable attribute changes. Deleting a source record and
-creating a replacement may legitimately produce a new database ID, representing a new
-canonical equipment record.
+`diagnostic_model` is not copied from one source column. It is populated only by a
+separate explicit reviewed mapping from supported source manufacturer/model evidence to
+application-supported diagnostic model names.
 
-## Decision 2: JSON is the first canonical runtime storage format
+`Производитель` and `Модель` remain importer-side evidence. They may support explicit
+`diagnostic_model` mapping and consistency diagnostics, but schema v1 does not store them
+as separate canonical fields.
 
-For the current expected scale, approximately 17,000 records, a fully loaded immutable
-snapshot with dictionary indexes is simpler than introducing a query database. JSON is
-human-inspectable, easy to produce offline, and can be loaded with Python's standard
-library.
-
-SQLite is intentionally deferred. The runtime contract must nevertheless avoid exposing
-JSON-specific details to consumers. A future SQLite loader may construct the same
-`EquipmentInventory` abstraction and preserve the same query/result semantics.
-
-The recommended deployment-local default snapshot name is:
+`SmartRoomID контроллера` also remains importer-side evidence. It is not required by the
+runtime path:
 
 ```text
-equipment_inventory.local.json
+PDU IP -> record -> room_id -> equipment in room
 ```
 
-Path resolution should be deterministic and independent of the process current working
-directory, following the repository's existing local-configuration precedent. Tests may
-supply an explicit path.
+Therefore schema v1 does not add `controller_record_id`, a controller relation, or a
+controller index solely to represent this source column.
 
-## Decision 3: Schema v1 is a strict intercomponent contract
+## Decision 3: SmartRoomID is authoritative record identity
 
-The schema-v1 root is a UTF-8 JSON object with required fields:
+The source analysis confirmed these semantics:
+
+- `SmartRoomID` is unique for each equipment database record;
+- it is always expected to be populated;
+- ordinary edits to IP, room, model, MAC, serial number, and other attributes do not change it;
+- deleting a record and creating a new one may legitimately create a new `SmartRoomID`.
+
+The normative mapping is therefore:
 
 ```text
-schema_version: integer, exactly 1
-snapshot_id: non-empty string with schema-v1 deterministic SHA-256 identity format
-records: JSON array
+SmartRoomID -> canonical record_id
 ```
 
-The only initially approved optional root generation metadata is:
+There is no fallback identity strategy for this source. Missing or blank-after-normalization
+`SmartRoomID` is fatal. Duplicate canonical `SmartRoomID` is fatal.
+
+The importer must not recover from either condition by using:
+
+- workbook row number or row order;
+- IP address;
+- MAC address;
+- serial number;
+- room identity or display name;
+- model text;
+- random UUID;
+- timestamp or counter;
+- suffixing a duplicate ID.
+
+A fatal identity failure blocks publication of the complete candidate snapshot. The
+previous valid production snapshot remains intact under the atomic-publication contract.
+
+## Decision 4: ID комнаты is authoritative room identity
+
+The source analysis confirmed:
 
 ```text
-generated_at: RFC 3339 UTC string
-source_row_count: non-negative integer
+ID комнаты       -> room_id
+Название комнаты -> room_name
 ```
 
-Generation metadata is informational only. It does not affect inventory identity or
-runtime lookup semantics.
+`room_id` is authoritative. `room_name` is a display attribute and never becomes a fallback
+room identity automatically.
 
-Every schema-v1 canonical equipment record contains exactly:
+The importer must preserve source evidence rather than force consistency:
+
+- same `room_id` with different `room_name` values: preserve all records, report consistency issue;
+- same `room_name` with different `room_id` values: preserve distinct rooms, do not merge;
+- `room_name` present with missing `room_id`: preserve display text, use `room_id = null`;
+- missing room identity is non-fatal when the record remains otherwise representable.
+
+Runtime indexes use `room_id`, never `room_name`, as the room key.
+
+## Decision 5: Наименование is source_model
+
+The source analysis confirmed that `Наименование` is the human-readable source model value,
+for example `Huawei TE20`.
+
+The canonical rule is:
 
 ```text
-record_id: non-empty string
-source_model: string | null
-diagnostic_model: string | null
-ip_address: canonical IPv4 string | null
-mac_address: canonical MAC address string | null
-serial_number: string | null
-room_id: non-empty normalized string | null
-room_name: non-empty normalized string | null
-device_kind: canonical string
+Наименование -> source_model
 ```
 
-Schema-v1 `device_kind` is deliberately a closed vocabulary:
+The importer normalizes and preserves this value. It must not silently reconstruct or
+replace it from `Производитель + Модель` when `Наименование` already has a source value.
+
+`Производитель` and `Модель` may be used for:
+
+- an explicit reviewed `diagnostic_model` mapping;
+- consistency diagnostics when the source fields appear contradictory.
+
+A mismatch between the three source fields is non-fatal by itself and does not authorize
+rewriting canonical `source_model`.
+
+## Decision 6: Device kind follows exact source type authority
+
+Schema-v1 `device_kind` remains a closed vocabulary:
 
 ```text
 pdu
@@ -172,159 +198,69 @@ video_codec
 other
 ```
 
-This vocabulary is a contract for the later `pdu-room-codec-enrichment` change. A source
-workbook may use any organization-specific type names, but the importer must map them
-explicitly into these canonical values. Unknown or unmapped equipment becomes `other`;
-the importer must not emit aliases such as `codec`, `vcs_codec`, or `video-codec`.
-
-Canonical textual normalization uses NFC Unicode normalization and trims leading and
-trailing whitespace. Empty nullable text becomes null, including empty `serial_number`.
-`record_id` must remain non-empty and unique after normalization. Case and internal text
-are preserved unless the inspected source contract has an explicitly reviewed stronger
-authoritative identifier rule.
-
-`record_id` provenance is part of the concrete reviewed source mapping, not an importer
-implementation detail. The preferred rule is to use a stable authoritative unique
-equipment identifier supplied by the source, after canonical normalization. If the
-inspected source has no such field, a derived `record_id` is allowed only when a reviewed
-deterministic derivation can be defined from stable source identity fields.
-
-Schema-v1 explicitly separates record identity from physical device identifiers and
-network attributes:
-
-- `record_id` identifies the stable source database equipment record;
-- `mac_address` and `serial_number` identify or describe the physical device when source
-  data provides usable values;
-- `ip_address` is a mutable network attribute and must not drive canonical record
-  identity when an authoritative stable database ID is available.
-
-Random UUIDs, timestamps, per-import counters, and other execution-specific values are
-forbidden. Source row number or row order is also forbidden unless the reviewed source
-contract explicitly declares row position authoritative. Mutable placement, display,
-network, or device-attribute fields such as `ip_address`, `mac_address`,
-`serial_number`, `room_id`, or `room_name` must not be used merely as convenient
-disambiguators; they may participate only when the reviewed source contract explicitly
-makes them part of the equipment identity key.
-
-Duplicate normalized authoritative IDs and collisions from an approved deterministic
-derivation are fatal source-contract failures. The importer must not append arbitrary
-suffixes, counters, timestamps, or row numbers to manufacture uniqueness. If the real
-source contract does not provide enough stable information to define unique deterministic
-record identity, mapping and publication remain blocked until architectural review defines
-the rule.
-
-`ip_address`, when present, is canonical dotted-decimal IPv4 text. Invalid source IP text
-is reported and does not become an index key.
-
-`mac_address`, when present, is canonical lowercase colon-separated 48-bit MAC text:
+The confirmed exact mapping from `Тип модели` is:
 
 ```text
-aa:bb:cc:dd:ee:ff
+Video Conference -> video_codec
+БРП              -> pdu
+all other values  -> other
 ```
 
-The importer must accept common textual representations of the same 48-bit MAC when they
-can be unambiguously normalized to that canonical representation. A missing or blank MAC
-becomes null. Invalid non-empty MAC source text is reported as an observable data-quality
-issue and produces canonical `mac_address = null` when the rest of the record can still
-be safely imported. MAC addresses are canonical equipment attributes; schema v1 does not
-introduce a MAC index without a proven runtime need. Duplicate MAC values must not cause
-arbitrary deletion, deduplication, or first-match selection.
+This is an authority rule, not a heuristic. The importer must not use fuzzy matching,
+substring matching, manufacturer names, model names, or known diagnostic-model recognition
+to silently change `device_kind`.
 
-`serial_number`, when present, uses the general canonical text normalization contract. A
-missing serial number or a value that normalizes to an empty string becomes null. Schema
-v1 does not assume global serial-number uniqueness, does not introduce a serial-number
-index without a proven runtime need, and does not allow serial number to replace the
-authoritative database ID as `record_id`.
+Secondary evidence may show a likely source inconsistency. For example, a known codec model
+may arrive with an unexpected `Тип модели`. That can produce a consistency issue such as a
+known-model/type mismatch, but recognized model evidence does not override the exact source
+type mapping.
 
-The canonical snapshot is intentionally not a wholesale copy of all Excel columns.
-Additional fields require a reviewed schema change rather than ad hoc importer output.
-
-## Decision 4: snapshot_id identifies canonical data, not an import execution
-
-`snapshot_id` is deterministic identity for one canonical data revision.
-
-Required semantics:
+The principle is:
 
 ```text
-identical normalized canonical content
-    -> identical snapshot_id
-
-changed canonical content
-    -> changed snapshot_id in ordinary operation
+consistency evidence != mapping authority
+recognized model != permission to override source type
 ```
 
-Schema v1 uses:
+## Decision 7: Schema v1 remains minimal and runtime-focused
+
+The canonical root contains:
 
 ```text
-snapshot_id = "sha256:" + lowercase_sha256_hex(canonical_identity_payload)
+schema_version: integer, exactly 1
+snapshot_id: deterministic content-derived string
+records: JSON array
 ```
 
-The identity payload contains exactly `schema_version` and `records`. Records are sorted
-in deterministic ascending normalized `record_id` order. Because `record_id` itself is
-stable under the reviewed source contract, reordering non-authoritative workbook rows does
-not change canonical order or `snapshot_id`. The canonical JSON identity serialization
-uses sorted object keys, compact separators with no insignificant whitespace, and direct
-UTF-8 encoding of normalized Unicode text.
-
-Because `mac_address` and `serial_number` are canonical record fields, they are included
-in canonical `records` content and therefore participate in snapshot identity:
+Optional generation metadata may include:
 
 ```text
-change mac_address or serial_number
-    -> canonical records change
-    -> snapshot_id changes
+generated_at
+source_row_count
 ```
 
-They must not be moved into optional generation metadata.
+Each canonical record contains exactly:
 
-Optional generation metadata such as `generated_at` and `source_row_count` is excluded
-from the identity payload. Therefore importing the same canonical data at two different
-times produces the same `snapshot_id`, even if informational timestamps differ.
+```text
+record_id: non-empty string
+source_model: string | null
+diagnostic_model: string | null
+ip_address: canonical IPv4 string | null
+mac_address: canonical MAC string | null
+serial_number: string | null
+room_id: non-empty normalized string | null
+room_name: non-empty normalized string | null
+device_kind: pdu | video_codec | other
+```
 
-This choice removes the previous ambiguity between random revision IDs and content-based
-revision identity. The later enrichment lifecycle may safely capture `snapshot_id` and
-compare equality to determine whether inventory canonical content changed.
+Required record fields are:
 
-## Decision 5: Import validation separates fatal structure from data-quality issues
+```text
+record_id
+device_kind
+```
 
-The importer must produce a structured report and account for each source row. A source
-row must not disappear silently.
-
-Fatal import conditions include cases such as:
-
-- workbook/sheet selection cannot be resolved;
-- required source-column mapping is unavailable;
-- no reviewed stable unique `record_id` rule can be defined from the inspected source;
-- duplicate normalized authoritative equipment identifiers are present;
-- an approved deterministic derived-identity rule produces a collision;
-- canonical root/schema construction fails;
-- duplicate canonical `record_id` values remain after the approved identity rule;
-- complete schema-v1 validation fails before publication.
-
-Fatal conditions prevent publication of a new canonical snapshot. Identity conflicts are
-not repaired silently by suffixing or by switching to row numbers or another unreviewed
-fallback rule.
-
-Non-fatal data-quality conditions may include:
-
-- blank IP address;
-- invalid IP text that cannot be normalized;
-- blank MAC address;
-- invalid MAC text that cannot be normalized;
-- missing serial number;
-- missing room identity;
-- unmapped/unsupported diagnostic model;
-- duplicate IP address across multiple records;
-- duplicate MAC address across multiple records;
-- duplicate serial number across multiple records;
-- multiple devices of the same relevant kind in one room.
-
-These conditions are reported but are not automatically "fixed" by deleting records or
-selecting one candidate. Where possible the canonical record is retained with a null or
-unresolved field. Invalid source IP text must never become an index key. Invalid source
-MAC text must never become a valid canonical MAC value.
-
-Schema v1 permits null for these record fields:
+Nullable record fields are:
 
 ```text
 source_model
@@ -336,40 +272,178 @@ room_id
 room_name
 ```
 
-Only `record_id` and `device_kind` remain required non-null record fields. Missing or
-invalid nullable source data must not silently drop the source row, block the whole
-snapshot by itself, or turn incomplete data into an automatically invalid record when the
-canonical record can still be safely represented. Missing or invalid authoritative
-`record_id` remains a separate identity/source-contract failure, and unknown equipment
-type continues to normalize to `device_kind = other`.
-
-The report should use structured issue codes, counts, and source row/record identities.
-It must avoid dumping entire source rows or unrelated organization data into logs.
-
-## Decision 6: Snapshot publication is atomic
-
-A candidate production snapshot is not published until the complete import has finished
-and the candidate passes canonical schema validation.
-
-The normative behavior is:
+The core rule is:
 
 ```text
-failed import before complete publication
-    -> previous production snapshot remains intact
-    -> no partial candidate appears at the production snapshot path
+incomplete optional data != automatically invalid record
 ```
 
-A temporary file in the target filesystem followed by atomic replacement is the expected
-implementation approach, but the exact filesystem mechanism is an implementation detail.
-The invariant, not the specific API call, is part of the capability contract.
+Invalid or absent nullable source data is represented as null when safe and made observable
+through importer diagnostics. It does not silently drop an otherwise representable row.
 
-This protection applies to every failure before successful publication, including failure
-to establish or apply the approved stable `record_id` rule.
+`mac_address` uses lowercase colon-separated 48-bit canonical text. `serial_number` uses
+general normalized text. Neither replaces `SmartRoomID` as record identity, and neither
+requires a runtime index in schema v1.
 
-## Decision 7: Runtime load failures have stable machine-readable categories
+## Decision 8: Authoritative mapping and consistency expectations are separate
 
-The runtime loader exposes safe structured failures independent of the underlying Python
-exception implementation. The categories are:
+The source database is maintained by people and cannot be assumed perfectly consistent.
+The importer must distinguish authority from evidence.
+
+Authoritative mappings are the rules that produce canonical fields. Consistency
+expectations are checks that may indicate likely source-data problems but do not grant
+permission to rewrite canonical values.
+
+The importer diagnostics must distinguish at least three semantic classes:
+
+```text
+1. fatal source-contract issues
+2. non-fatal invalid-field/data-quality issues
+3. cross-row/source consistency issues
+```
+
+### Fatal source-contract issues
+
+At minimum:
+
+- missing or unusable `SmartRoomID`;
+- duplicate canonical `SmartRoomID`;
+- missing required source structure needed to apply the confirmed mapping;
+- failure to construct a complete valid candidate snapshot.
+
+Fatal issues block publication of the new snapshot.
+
+### Non-fatal invalid-field/data-quality issues
+
+Examples include:
+
+- invalid or missing IP address;
+- invalid or missing MAC address;
+- missing serial number;
+- missing room identity;
+- unmapped/unsupported `diagnostic_model`;
+- duplicate IP, MAC, or serial values.
+
+When a canonical record remains safely representable, these issues do not block the whole
+snapshot and do not remove the record.
+
+### Cross-row/source consistency issues
+
+Examples include:
+
+- same `room_id` with conflicting room names;
+- same room name reused across different room IDs;
+- room name present while room ID is absent;
+- mismatch between `Наименование`, `Производитель`, and `Модель`;
+- known diagnostic model with unexpected source `Тип модели`;
+- multiple PDU or multiple codecs in one room;
+- inconsistent controller references.
+
+Consistency issues do not authorize:
+
+- deleting or deduplicating records;
+- guessing missing values;
+- first-match selection;
+- changing `record_id`;
+- changing `device_kind`;
+- merging rooms;
+- rewriting `source_model`.
+
+Each source row is still accounted for as a canonical record or a structured issue. No row
+disappears silently.
+
+## Decision 9: Controller reference is consistency evidence only
+
+`SmartRoomID контроллера` may be inspected for source consistency. Potential non-fatal
+issues include:
+
+- different equipment rows in one `room_id` referring to different controller IDs;
+- controller reference missing from only part of a room;
+- referenced controller ID matching no source equipment `SmartRoomID`;
+- one room indirectly containing several controller IDs.
+
+These checks do not modify canonical records. They do not make a complete otherwise-valid
+snapshot fatal by themselves. They also do not justify adding a controller relation to
+runtime schema v1.
+
+## Decision 10: Multiplicity is preserved
+
+Operational expectations do not become uniqueness constraints automatically.
+
+The importer and runtime must preserve:
+
+- duplicate IP assignments;
+- duplicate MAC values;
+- duplicate serial values;
+- multiple PDU records in one room;
+- multiple video codecs in one room;
+- any other non-identity multiplicity that can be represented safely.
+
+Only duplicate `SmartRoomID` is a fatal identity conflict because it violates the confirmed
+record identity contract.
+
+Runtime indexes therefore remain multi-value:
+
+```text
+ip_address -> tuple[EquipmentRecord, ...]
+room_id -> tuple[EquipmentRecord, ...]
+(room_id, device_kind) -> tuple[EquipmentRecord, ...]
+```
+
+Normal lookup returns zero, one, or many records. The inventory layer never hides ambiguity
+by returning only `records[0]`.
+
+## Decision 11: Snapshot identity is deterministic and verified
+
+Schema v1 uses deterministic content identity:
+
+```text
+snapshot_id = "sha256:" + lowercase_sha256_hex(canonical_identity_payload)
+```
+
+The identity payload contains exactly:
+
+```text
+schema_version
+records
+```
+
+Records are sorted by normalized `record_id`. JSON object keys are sorted, insignificant
+whitespace is excluded, and normalized Unicode text is encoded directly as UTF-8.
+
+Optional generation metadata such as `generated_at` and `source_row_count` is excluded.
+All canonical record fields, including MAC address and serial number, remain part of
+`records` and therefore participate in revision identity.
+
+The runtime loader independently recomputes the expected digest from the loaded canonical
+content before publishing an `EquipmentInventory`. A syntactically valid but stale or wrong
+`snapshot_id` fails as `INVALID_SNAPSHOT`.
+
+Importer generation and runtime verification must share exactly the same canonical identity
+algorithm.
+
+## Decision 12: Snapshot publication is atomic
+
+A candidate production snapshot is published only after complete import and validation.
+
+The invariant is:
+
+```text
+fatal import before complete publication
+    -> previous production snapshot remains intact
+    -> no partial candidate appears under the production snapshot path
+```
+
+This applies to missing or duplicate `SmartRoomID`, source-structure failure, schema
+failure, snapshot-identity failure during candidate validation, and any other fatal
+pre-publication condition.
+
+A temporary file followed by atomic replacement is an expected implementation approach,
+but the exact filesystem API is an implementation detail.
+
+## Decision 13: Runtime load failures are structured
+
+The runtime loader exposes one of these machine-readable categories:
 
 ```text
 NOT_FOUND
@@ -379,25 +453,14 @@ UNSUPPORTED_SCHEMA
 INVALID_SNAPSHOT
 ```
 
-Their meanings are:
+`INVALID_SNAPSHOT` includes invalid canonical shape/content, duplicate record IDs, invalid
+canonical field values, or declared/recomputed `snapshot_id` mismatch.
 
-- `NOT_FOUND`: configured snapshot path does not exist;
-- `UNREADABLE`: the file exists but cannot be read because of filesystem/access failure;
-- `INVALID_FORMAT`: readable content is not valid UTF-8 JSON;
-- `UNSUPPORTED_SCHEMA`: declared schema version is not integer `1`;
-- `INVALID_SNAPSHOT`: JSON shape or canonical content violates schema v1, including
-  duplicate normalized `record_id` or invalid canonical field values.
+No failed load publishes partial records, indexes, or an `EquipmentInventory`. Application
+consumers do not need to inspect raw Python exception strings to classify inventory
+availability.
 
-No failed load publishes a partial `EquipmentInventory`, partial records, or partial
-indexes. Application consumers, including the later PDU-room enrichment controller, must
-not need to catch raw `FileNotFoundError`, `JSONDecodeError`, or other storage-specific
-exceptions to understand inventory availability.
-
-The later integration change may map these loader failures into higher-level application
-states such as inventory unavailable/configuration invalid, but it must consume this
-stable structured boundary rather than inventing classifications from exception strings.
-
-## Decision 8: Runtime abstraction and module boundary
+## Decision 14: Runtime boundary stays storage-independent
 
 The preferred focused runtime location is:
 
@@ -408,38 +471,23 @@ core/equipment_inventory.py
 It owns:
 
 - immutable `EquipmentRecord` representation;
-- immutable loaded snapshot metadata;
-- `EquipmentInventory` query surface;
-- JSON snapshot loading and canonical schema validation;
-- structured safe load-failure classification;
-- in-memory index construction;
-- normalized lookup input validation.
+- immutable snapshot metadata;
+- JSON snapshot loading and schema validation;
+- `snapshot_id` verification;
+- structured load-failure classification;
+- immutable index construction;
+- query input normalization;
+- the `EquipmentInventory` query surface.
 
-The preferred offline import location is:
+The preferred offline importer location is:
 
 ```text
 tools/import_equipment_inventory.py
 ```
 
-The importer must not be imported by normal application runtime modules.
+The importer is not imported by normal application runtime modules.
 
-A later implementation may split these files if they become materially large, but it
-must not introduce a generic persistence framework or a cross-device lifecycle manager
-for this change.
-
-## Decision 9: Build indexes once and preserve multiplicity
-
-On successful load, `EquipmentInventory` builds immutable indexes equivalent to:
-
-```text
-ip_address -> tuple[EquipmentRecord, ...]
-room_id -> tuple[EquipmentRecord, ...]
-(room_id, device_kind) -> tuple[EquipmentRecord, ...]
-```
-
-Normal lookup methods use these indexes and do not repeatedly scan all records.
-
-The public query surface should be equivalent to:
+The public query surface remains equivalent to:
 
 ```text
 find_by_ip(ip_address)
@@ -447,115 +495,79 @@ find_room_equipment(room_id)
 find_by_room_and_kind(room_id, device_kind)
 ```
 
-Exact Python names may vary only if the reviewed semantics remain unchanged.
+No MAC, serial-number, room-name, or controller-reference index is added without a future
+reviewed runtime requirement.
 
-All query methods return zero or more records. They never hide ambiguity by returning
-only the first matching row. Result ordering follows deterministic canonical record order.
-Callers in the later integration change will decide how a zero, one, or multiple-match
-result maps to `NOT_FOUND`, `RESOLVED`, or `AMBIGUOUS`.
+## Decision 15: Production inventory remains local operational data
 
-## Decision 10: Loaded inventory is immutable and revision-identifiable
-
-A loaded `EquipmentInventory` represents one canonical snapshot revision. Its records and
-indexes are not mutated in place by runtime consumers. Replacing inventory data means
-loading a new complete validated snapshot and publishing a new inventory instance through
-the later application composition boundary.
-
-`snapshot_id` is non-secret deterministic content identity carried by the loaded
-inventory. Loading another file with identical canonical identity content yields the same
-`snapshot_id`; loading changed canonical identity content yields the identity derived from
-that changed content.
-
-This change does not add automatic runtime reload or GUI controls for snapshot
-replacement.
-
-## Decision 11: Production inventory is local operational data
-
-The real organization workbook and generated production snapshot may contain internal IP
-addresses, room structure, equipment identities, and other operational information. They
-are not repository fixtures.
+The real workbook and generated production snapshot contain internal infrastructure data.
+They are not repository fixtures.
 
 Implementation must:
 
-- ignore the deployment-local production snapshot in Git;
+- ignore `equipment_inventory.local.json` in Git;
 - avoid adding the real workbook to the repository;
-- use synthetic inventory fixtures in tests;
-- avoid full-record dumps in ordinary logs and public errors;
-- keep import reports scoped to the minimum data needed to identify and correct issues.
+- use only synthetic inventory fixtures in tests;
+- avoid full-row and full-inventory dumps in diagnostics;
+- expose only minimal safe row references, safe `record_id` where available, issue class,
+  issue code, and short safe descriptions.
 
-A tracked example snapshot may exist only when every value is synthetic.
+Source-only evidence such as controller references must also remain absent from synthetic
+fixtures unless represented with fully synthetic values.
 
-## Alternatives Considered
+## Alternatives considered
 
-### Read Excel directly in runtime
+### Read Excel directly at runtime
 
-Rejected. It couples production behavior to workbook layout, adds spreadsheet parsing to
-normal runtime dependency/loading paths, and makes source-data validation part of device
-diagnostics.
+Rejected. It couples device diagnostics to workbook structure and adds spreadsheet parsing
+to the normal runtime dependency path.
 
 ### Use SQLite immediately
 
-Rejected for the first version. The current lookup requirements are small and
-index-oriented, and approximately 17,000 records fit comfortably in memory. The storage
-abstraction keeps SQLite available later without paying its complexity now.
+Rejected for the first implementation. The current scale and lookup needs fit an immutable
+in-memory snapshot with indexes. The storage-independent boundary keeps SQLite available
+later.
 
-### Use a random UUID for record_id
+### Generate fallback record identity
 
-Rejected. It makes logically unchanged source inventory produce different canonical
-records and therefore different `snapshot_id` values on each import. Schema v1 requires
-record identity to come from a stable authoritative source identifier or an explicitly
-reviewed deterministic derivation from stable source identity fields.
+Rejected for the confirmed source. `SmartRoomID` is the authoritative stable identity.
+Missing or duplicate values are source-contract failures, not opportunities to manufacture
+identity from mutable attributes or row order.
 
-### Use source row number as record_id
+### Infer device kind from model names
 
-Rejected by default. Reordering workbook rows would change canonical identity even when
-the logical inventory is unchanged. Row position may participate only when the reviewed
-authoritative source contract explicitly defines it as part of equipment identity.
+Rejected. Exact `Тип модели` mapping is authoritative. Model recognition is consistency
+evidence only and cannot silently override `device_kind`.
 
-### Repair duplicate equipment identities with suffixes
+### Merge rooms by display name
 
-Rejected. Silent suffixing hides a source-contract identity conflict and makes identity
-semantics depend on importer behavior or row order. Duplicate authoritative IDs or derived
-identity collisions are fatal until the source mapping or architecture defines a stable
-unique rule.
+Rejected. `ID комнаты` is authoritative room identity; `Название комнаты` is display data.
 
-### Use a random UUID for snapshot_id
+### Add controller relation to schema v1
 
-Rejected. It makes repeated imports of identical canonical content appear to be different
-inventory revisions and conflicts with deterministic importer output. Schema v1 uses
-content-derived identity instead.
+Rejected. The current runtime path does not need it. `SmartRoomID контроллера` may support
+importer-side consistency diagnostics without expanding the canonical runtime contract.
 
-### Include generation timestamp in snapshot identity
+### Store one record per IP
 
-Rejected. A timestamp describes an import execution, not canonical inventory content. It
-may exist as optional informational metadata but is excluded from `snapshot_id`.
+Rejected. IP is not unique identity. Multi-value indexes preserve duplicate assignments and
+ambiguity.
 
-### Store one record per IP in a dictionary
+## Handoff to the next change
 
-Rejected. Duplicate IP assignments are a real data-quality/ambiguity condition. A
-single-value dictionary would silently discard evidence and force an arbitrary winner.
-
-### Put room/codec orchestration in PDUController
-
-Out of scope and architecturally rejected for the subsequent change. `PDUController`
-remains PDU-specific. This change only creates the inventory data boundary that later
-application/composition orchestration will consume.
-
-## Handoff to the Next Change
-
-After this change is implemented, reviewed, validated, archived, and merged, the planned
-`pdu-room-codec-enrichment` change may depend only on the stable inventory surface:
+After this change is implemented, independently validated, archived, and merged, the
+planned `pdu-room-codec-enrichment` change may rely on:
 
 ```text
 accepted PDU IP
   -> EquipmentInventory.find_by_ip(...)
-  -> resolve unique room
+  -> resolve authoritative room_id
   -> EquipmentInventory.find_by_room_and_kind(room_id, "video_codec")
-  -> resolve codec candidate
+  -> resolve zero/one/many codec candidates
 ```
 
-The next change may also consume the stable inventory load-failure categories and capture
-`snapshot_id` when it needs to bind derived room/codec context to one inventory revision.
+The next change may also consume structured inventory load failures and capture
+`snapshot_id` to bind derived context to one validated inventory revision.
 
 That later change owns PDU accepted-result integration, room-context result modeling,
 codec lifecycle, credentials, network I/O, stale-operation protection, and GUI
