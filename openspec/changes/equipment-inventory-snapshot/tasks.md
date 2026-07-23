@@ -1,74 +1,85 @@
 ## 1. Source contract and preparation
 
 - [ ] 1.1 Read `RULES.md`, confirm the implementation branch is based on the current published `master`, and preserve unrelated work.
-- [ ] 1.2 Inspect the real equipment workbook or a sanitized workbook/schema sample before implementing source mapping; record the exact worksheet and source-column mapping and do not guess organization-specific headers.
-- [ ] 1.3 Identify authoritative source fields for equipment identity, model, IP address, MAC address, serial number, room identity, room display name, and equipment type.
-- [ ] 1.4 Define and document the schema-v1 `record_id` provenance rule from the inspected source contract: prefer the authoritative stable source database record ID after its column and stability semantics are confirmed; otherwise use only an explicitly reviewed deterministic derivation from stable source identity fields. Random UUIDs, timestamps, per-import values, mutable IP/MAC/serial/room attributes, and row numbers/order are forbidden unless the reviewed source contract explicitly makes them authoritative identity fields. If no stable unique identity can be defined, block source mapping until architectural review.
-- [ ] 1.5 Define the source-model/type normalization mapping needed to produce canonical `device_kind` values from the schema-v1 closed vocabulary `pdu`, `video_codec`, or `other`, plus optional `diagnostic_model` values, without fabricating unsupported mappings.
-- [ ] 1.6 Define synthetic fixtures covering unique lookup, duplicate IP, missing room, invalid IP, valid MAC normalization, equivalent textual MAC forms, missing MAC, invalid MAC, missing serial number, unsupported/unmapped model, multiple relevant devices in one room, duplicate authoritative/derived `record_id`, reordered source rows, mutable attribute edits that preserve `record_id`, every structured runtime load-failure category, and a syntactically valid but content-mismatched `snapshot_id`.
+- [ ] 1.2 Use the inspected organization workbook contract documented by this change. Do not guess worksheet semantics or introduce unreviewed aliases for confirmed source columns.
+- [ ] 1.3 Implement the confirmed schema-v1 source mapping exactly: `SmartRoomID -> record_id`, `ID комнаты -> room_id`, `Название комнаты -> room_name`, `Наименование -> source_model`, `IP -> ip_address`, `MAC -> mac_address`, `Серийный номер -> serial_number`, and `Тип модели -> device_kind`.
+- [ ] 1.4 Treat `SmartRoomID` as the only authoritative schema-v1 `record_id` source for this workbook. Missing, blank-after-normalization, or duplicate canonical `SmartRoomID` is fatal. Do not generate fallback identity from row number, IP, MAC, serial number, room, model, UUID, timestamp, or another field.
+- [ ] 1.5 Keep `ID комнаты` authoritative for `room_id`; keep `Название комнаты` display-only unless a future reviewed source contract explicitly changes that rule.
+- [ ] 1.6 Define the exact `Тип модели` mapping: exact `Video Conference -> video_codec`, exact `БРП -> pdu`, every other value -> `other`. Do not use fuzzy, substring, model-name, manufacturer, or heuristic overrides.
+- [ ] 1.7 Define the explicit reviewed mapping from supported source manufacturer/model evidence to optional `diagnostic_model`; do not infer a supported application model from approximate text.
+- [ ] 1.8 Keep `SmartRoomID контроллера` outside schema v1 and runtime indexes. It may be consumed only as importer-side consistency evidence.
+- [ ] 1.9 Define synthetic fixtures covering the confirmed mappings, fatal identity failures, nullable fields, room/source-model/device-kind inconsistencies, controller-reference inconsistencies, duplicate IP/MAC/serial values, multiple PDU/codecs per room, reordered rows, every runtime load-failure category, and a syntactically valid but content-mismatched `snapshot_id`.
 
 ## 2. Canonical runtime inventory model
 
 - [ ] 2.1 Add the focused runtime inventory boundary in `core/equipment_inventory.py` or an equivalently focused reviewed location.
-- [ ] 2.2 Implement immutable canonical record and snapshot representations for schema v1 with `schema_version` integer `1`, deterministic non-empty string `snapshot_id`, JSON-array `records`, required `record_id` and `device_kind`, nullable `source_model`, `diagnostic_model`, `ip_address`, `mac_address`, `serial_number`, `room_id`, and `room_name`, identifier normalization rules, and the closed `device_kind` vocabulary.
-- [ ] 2.3 Implement deterministic application-root resolution for the default deployment-local `equipment_inventory.local.json` path while allowing tests/callers to supply an explicit path.
-- [ ] 2.4 Load canonical snapshots with Python standard-library JSON support and expose a structured safe load-failure contract using `NOT_FOUND`, `UNREADABLE`, `INVALID_FORMAT`, `UNSUPPORTED_SCHEMA`, or `INVALID_SNAPSHOT`; no failed load may partially publish an `EquipmentInventory`.
-- [ ] 2.5 Reject duplicate canonical `record_id` values and invalid canonical field types/values as `INVALID_SNAPSHOT` rather than silently repairing them at runtime load.
-- [ ] 2.6 Recompute the expected schema-v1 `snapshot_id` from the actually loaded canonical `schema_version` and canonical `records` using the exact approved canonical serialization/digest algorithm before publishing an inventory; reject any declared/recomputed mismatch as `INVALID_SNAPSHOT` with no partial publication.
-- [ ] 2.7 Ensure normal application runtime import of the inventory module does not import or require `openpyxl` or another spreadsheet library.
-- [ ] 2.8 Validate canonical `mac_address` as lowercase colon-separated 48-bit MAC text when present, and reject malformed non-null canonical MAC values as `INVALID_SNAPSHOT`.
+- [ ] 2.2 Implement immutable schema-v1 records with required `record_id` and `device_kind`, plus nullable `source_model`, `diagnostic_model`, `ip_address`, `mac_address`, `serial_number`, `room_id`, and `room_name`.
+- [ ] 2.3 Implement deterministic application-root resolution for the deployment-local `equipment_inventory.local.json` path while allowing explicit paths for tests and callers.
+- [ ] 2.4 Load canonical snapshots with Python standard-library JSON support and expose structured safe failures using `NOT_FOUND`, `UNREADABLE`, `INVALID_FORMAT`, `UNSUPPORTED_SCHEMA`, or `INVALID_SNAPSHOT`; no failed load may partially publish an `EquipmentInventory`.
+- [ ] 2.5 Reject invalid canonical field types/values and duplicate canonical `record_id` values as `INVALID_SNAPSHOT`; runtime loading must never repair them.
+- [ ] 2.6 Recompute schema-v1 `snapshot_id` from the actually loaded canonical `schema_version` and `records` with the exact approved canonical digest algorithm before publication; reject any declared/recomputed mismatch as `INVALID_SNAPSHOT`.
+- [ ] 2.7 Validate canonical `ip_address` and `mac_address` forms while preserving the approved nullable semantics for invalid source values handled by the importer.
+- [ ] 2.8 Ensure normal application runtime import of the inventory module does not import or require `openpyxl` or another spreadsheet library.
 
 ## 3. Indexed inventory query surface
 
-- [ ] 3.1 Build the IP index once at successful snapshot load as `ip_address -> tuple[EquipmentRecord, ...]` or an equivalent immutable multi-value structure.
+- [ ] 3.1 Build the IP index once at successful load as `ip_address -> tuple[EquipmentRecord, ...]` or an equivalent immutable multi-value structure.
 - [ ] 3.2 Build the room index once as `room_id -> tuple[EquipmentRecord, ...]`.
-- [ ] 3.3 Build the room/device-kind index once as `(room_id, device_kind) -> tuple[EquipmentRecord, ...]` or provide an equivalent indexed lookup without repeated full-record scans.
+- [ ] 3.3 Build the room/device-kind index once as `(room_id, device_kind) -> tuple[EquipmentRecord, ...]` or an equivalent indexed lookup.
 - [ ] 3.4 Implement ambiguity-preserving query methods equivalent to `find_by_ip`, `find_room_equipment`, and `find_by_room_and_kind`.
-- [ ] 3.5 Normalize and validate lookup IP input before index access; invalid input must not fall back to a linear or fuzzy match.
-- [ ] 3.6 Preserve duplicate IP matches and multiple same-room device matches in deterministic result order; never return an arbitrary first match as authoritative.
+- [ ] 3.5 Normalize and validate lookup IP input before index access; invalid input must not fall back to linear, fuzzy, or heuristic matching.
+- [ ] 3.6 Preserve every duplicate IP match and every same-room same-kind match in deterministic canonical order; never select an arbitrary first record as authoritative.
+- [ ] 3.7 Do not add runtime indexes for MAC address, serial number, `SmartRoomID контроллера`, or room name without a future reviewed runtime requirement.
 
 ## 4. Offline Excel importer
 
 - [ ] 4.1 Add an offline importer under `tools/` that is not imported by normal application runtime modules.
-- [ ] 4.2 Use the inspected explicit workbook/sheet/column mapping to translate source rows into canonical records.
-- [ ] 4.3 Generate each canonical `record_id` strictly from the reviewed source-identity rule: normalize the authoritative stable source database record ID when available, otherwise apply only the approved deterministic derivation from stable source identity fields. Do not use random/per-import identity, timestamps, mutable IP/MAC/serial/room attributes, or non-authoritative row position.
-- [ ] 4.4 Treat duplicate normalized authoritative IDs, collisions from the approved deterministic derivation, or absence of any reviewed stable unique identity rule as fatal source-contract failures. Do not silently append suffixes or invent another identity rule during import.
-- [ ] 4.5 Normalize blank values, IP addresses, MAC addresses, serial numbers, room fields, source model text, `device_kind`, and optional `diagnostic_model` according to the approved source mapping and schema-v1 canonical normalization rules.
-- [ ] 4.6 Account for every source row as imported or reported with a structured issue; do not silently drop rows.
-- [ ] 4.7 Treat fatal workbook/schema/mapping/identity failures as snapshot-publication blockers.
-- [ ] 4.8 Report non-fatal data-quality issues such as missing/invalid IP, missing/invalid MAC, missing serial number, missing room, unsupported model, duplicate IP, duplicate MAC, duplicate serial number, and multiple relevant room devices without silently correcting, deduplicating, or selecting a first match.
-- [ ] 4.9 If `openpyxl` or another spreadsheet dependency is added, keep it scoped to importer/development usage and prove normal runtime inventory loading remains independent of it.
-- [ ] 4.10 Produce canonical records in deterministic ascending normalized `record_id` order and compute schema-v1 `snapshot_id` deterministically from the canonical identity content (`schema_version` plus canonical `records`), excluding optional generation metadata such as timestamps.
-- [ ] 4.11 Publish the fully validated canonical snapshot atomically so any importer failure before successful publication leaves the previously published snapshot intact and never exposes partial output at the production snapshot path.
+- [ ] 4.2 Apply the confirmed source-to-canonical mapping exactly and keep organization-specific source-column handling inside the importer boundary.
+- [ ] 4.3 Normalize `SmartRoomID` into `record_id`; a missing/blank or duplicate canonical `SmartRoomID` is a fatal source-contract issue that blocks the complete new snapshot.
+- [ ] 4.4 Never synthesize fallback `record_id` for this source and never repair duplicate `SmartRoomID` with suffixes, row numbers, mutable attributes, or first-match selection.
+- [ ] 4.5 Normalize `ID комнаты` into nullable `room_id` and `Название комнаты` into nullable `room_name`; missing room identity remains non-fatal when required record fields are valid.
+- [ ] 4.6 Normalize `Наименование` directly into nullable `source_model`; do not reconstruct or overwrite it from `Производитель + Модель`. Manufacturer/model columns may be used only for explicit `diagnostic_model` mapping and consistency diagnostics.
+- [ ] 4.7 Map exact source `Тип модели` values to the closed `device_kind` vocabulary and map every unmatched value to `other`; do not override this result from recognized model evidence.
+- [ ] 4.8 Normalize nullable IP, MAC, serial-number, room, and model fields according to schema v1. Invalid optional source data must remain observable without dropping an otherwise representable record.
+- [ ] 4.9 Distinguish importer diagnostics into at least fatal source-contract issues, non-fatal invalid-field/data-quality issues, and cross-row/source consistency issues. Emit a machine-readable issue code, class, and only minimal safe row/record references.
+- [ ] 4.10 Detect room consistency issues without correcting source data: same `room_id` with conflicting `room_name`, same `room_name` reused by different `room_id`, and display name present while `room_id` is missing.
+- [ ] 4.11 Detect optional source-model consistency issues between `Наименование`, `Производитель`, and `Модель` without rewriting canonical `source_model`.
+- [ ] 4.12 Detect known diagnostic-model/type inconsistencies without overriding authoritative `Тип модели`-derived `device_kind`.
+- [ ] 4.13 Preserve multiple PDU, multiple video codecs, duplicate IP/MAC/serial values, and other non-identity multiplicity; report relevant data-quality/consistency evidence without deleting records or choosing a winner.
+- [ ] 4.14 Optionally use `SmartRoomID контроллера` only for non-fatal consistency checks such as conflicting controller references within one room, missing references, or references to absent equipment IDs; do not emit a controller relation into schema v1.
+- [ ] 4.15 Account for every source equipment row as either a canonical record or a structured issue; no source row may disappear silently.
+- [ ] 4.16 Produce canonical records in deterministic ascending normalized `record_id` order and compute schema-v1 `snapshot_id` from `schema_version` plus canonical `records`, excluding generation metadata.
+- [ ] 4.17 Publish the fully validated snapshot atomically so any fatal import failure leaves the previous production snapshot intact and never exposes partial output.
+- [ ] 4.18 If `openpyxl` or another spreadsheet dependency is added, keep it scoped to importer/development usage and prove normal runtime inventory loading remains independent of it.
 
 ## 5. Local-data and observability protection
 
 - [ ] 5.1 Add the deployment-local production snapshot name to `.gitignore` and ensure real organization workbook data is not added to the repository.
-- [ ] 5.2 Keep tracked inventory fixtures fully synthetic and free of real organization IP addresses, room identities, equipment IDs, and other operational data.
-- [ ] 5.3 Ensure importer and runtime errors identify issue categories and minimal row/record references without dumping full source rows or the complete inventory.
-- [ ] 5.4 Confirm canonical snapshots contain only approved runtime fields and do not copy all source Excel columns by default.
+- [ ] 5.2 Keep tracked inventory fixtures fully synthetic and free of real organization IP addresses, room identities, equipment IDs, controller references, and other operational data.
+- [ ] 5.3 Ensure importer/runtime diagnostics expose only issue class, issue code, minimal row reference, safe `record_id` when available, and a short safe description; do not dump complete source rows or the complete inventory.
+- [ ] 5.4 Confirm canonical snapshots contain only approved schema-v1 fields and do not copy source-only evidence columns such as `Производитель`, `Модель`, or `SmartRoomID контроллера` by default.
 
 ## 6. Focused regression coverage
 
-- [ ] 6.1 Test valid schema-v1 JSON loading and exact structured load-failure classification for absent file (`NOT_FOUND`), unreadable file (`UNREADABLE`), invalid JSON (`INVALID_FORMAT`), unsupported schema version (`UNSUPPORTED_SCHEMA`), and invalid canonical root/records including duplicate `record_id` (`INVALID_SNAPSHOT`).
-- [ ] 6.2 Test a snapshot with otherwise valid canonical content and a syntactically valid but stale or incorrect declared `snapshot_id` is rejected as `INVALID_SNAPSHOT` after loader recomputation and publishes no `EquipmentInventory`.
-- [ ] 6.3 Test every load failure publishes no partial `EquipmentInventory` and leaves any previously published inventory instance outside the loader unchanged.
-- [ ] 6.4 Test deterministic default-path resolution independent of current working directory.
-- [ ] 6.5 Test unique IP lookup and zero-match lookup.
-- [ ] 6.6 Test duplicate IP lookup returns every matching record and never silently chooses one.
-- [ ] 6.7 Test room and room/device-kind indexes with zero, one, and multiple matches, including exact `video_codec` vocabulary use.
-- [ ] 6.8 Test records with missing room, missing IP, missing MAC, missing serial number, invalid source IP, invalid source MAC, and unsupported/unmapped diagnostic model retain the approved explicit unresolved semantics and remain accounted for when the canonical record is otherwise safe to import.
-- [ ] 6.9 Test valid source MAC values and common textual representations of the same 48-bit MAC normalize to the canonical lowercase colon-separated form.
-- [ ] 6.10 Test invalid source MAC becomes canonical `mac_address = null` plus an observable structured data-quality issue, not a valid canonical MAC and not a whole-row drop when required fields remain valid.
-- [ ] 6.11 Test missing serial number and empty normalized serial-number text become `serial_number = null`.
-- [ ] 6.12 Test importer row accounting and structured fatal versus non-fatal issue behavior with synthetic workbook data, including preservation of rows with missing nullable fields.
-- [ ] 6.13 Test identical normalized logical source inventory produces the same `record_id` values, deterministic canonical record order, and `snapshot_id`; changed canonical content, including changed `mac_address` or `serial_number`, produces a different `snapshot_id`; optional generation metadata does not affect snapshot identity.
-- [ ] 6.14 Test reordering source workbook rows does not change `record_id`, canonical record order, or `snapshot_id` when source row order is not part of the reviewed authoritative source contract.
-- [ ] 6.15 Test the confirmed authoritative database ID is used as `record_id` after source-column mapping is reviewed, and editing mutable attributes such as IP, MAC, serial number, room, or model does not require changing `record_id`.
-- [ ] 6.16 Test duplicate normalized authoritative IDs and collisions in an approved derived-identity rule are fatal and are not repaired by arbitrary suffixes.
-- [ ] 6.17 Test duplicate MAC or duplicate serial number does not automatically delete records, deduplicate records, or select a first match.
-- [ ] 6.18 Test a failed import before complete publication preserves the previous valid production snapshot byte-for-byte and leaves no partial output exposed at the production snapshot path.
-- [ ] 6.19 Test runtime inventory imports and JSON loading in an environment where the spreadsheet library is unavailable.
+- [ ] 6.1 Test `SmartRoomID` is normalized and used as `record_id`.
+- [ ] 6.2 Test missing/blank `SmartRoomID` is fatal, creates no fallback identity, blocks publication, and preserves the previous published snapshot.
+- [ ] 6.3 Test duplicate normalized `SmartRoomID` is fatal, is not suffix-repaired or first-match-selected, and preserves the previous published snapshot.
+- [ ] 6.4 Test `ID комнаты` maps to `room_id`, `Название комнаты` maps to `room_name`, and devices sharing one `room_id` are returned by the same room index.
+- [ ] 6.5 Test identical `room_id` with conflicting `room_name` values preserves all canonical records and reports a non-fatal consistency issue without selecting one name as authoritative.
+- [ ] 6.6 Test identical `room_name` under different `room_id` values does not merge rooms or change authoritative room identity.
+- [ ] 6.7 Test `room_name` present with missing `ID комнаты` produces `room_id = null`, preserves the record when required fields are valid, and reports the inconsistency/data-quality condition.
+- [ ] 6.8 Test `Наименование` maps directly to `source_model`; manufacturer/model disagreement may be reported but does not silently rewrite `source_model`.
+- [ ] 6.9 Test exact `Тип модели = Video Conference` maps to `video_codec`, exact `Тип модели = БРП` maps to `pdu`, and all other values map to `other`.
+- [ ] 6.10 Test a recognized diagnostic model with an unexpected `Тип модели` does not silently override `device_kind` and may produce a structured consistency issue.
+- [ ] 6.11 Test multiple PDU or multiple video codecs in one room remain multiple indexed records with zero/one/many semantics and no implicit primary selection.
+- [ ] 6.12 Test inconsistent `SmartRoomID контроллера` evidence can be reported as non-fatal consistency diagnostics without adding a controller field or index to runtime schema v1.
+- [ ] 6.13 Test every nullable schema-v1 field may be absent without whole-row drop when `record_id` and `device_kind` remain valid.
+- [ ] 6.14 Test invalid source IP/MAC and missing serial number retain the approved nullable semantics and produce appropriate non-fatal diagnostics.
+- [ ] 6.15 Test duplicate IP/MAC/serial values preserve every record and never deduplicate or select a first match.
+- [ ] 6.16 Test importer diagnostics distinguish fatal source-contract, non-fatal data-quality, and consistency classes while redacting unrelated source-row data.
+- [ ] 6.17 Test a syntactically valid but stale/wrong declared `snapshot_id` is rejected as `INVALID_SNAPSHOT` after loader recomputation with no partial publication.
+- [ ] 6.18 Test deterministic canonical ordering and `snapshot_id`, including row reordering and mutable attribute changes that preserve `SmartRoomID`.
+- [ ] 6.19 Test valid runtime snapshot loading, every structured load-failure category, default-path resolution, and runtime operation without the spreadsheet dependency.
 - [ ] 6.20 Test production local inventory paths are ignored while synthetic fixtures remain tracked.
 
 ## 7. Validation and handoff
@@ -78,5 +89,5 @@
 - [ ] 7.3 Run `.\openspec.cmd validate equipment-inventory-snapshot --strict`.
 - [ ] 7.4 Run `.\openspec.cmd validate --all --strict`.
 - [ ] 7.5 Run `git diff --check`.
-- [ ] 7.6 Confirm the change introduces no PDU-to-room orchestration, codec network I/O, codec session reuse, credential-policy changes, or GUI behavior changes.
-- [ ] 7.7 Commit and push the implementation/evidence before requesting independent validation; the implementation session must not issue its own final `APPROVE`.
+- [ ] 7.6 Confirm the implementation introduces no PDU-to-room orchestration, codec network I/O, codec session reuse, credential-policy changes, transport changes, or GUI behavior changes.
+- [ ] 7.7 Commit and push implementation/evidence before requesting independent validation; the implementation session must not issue its own final `APPROVE`.
