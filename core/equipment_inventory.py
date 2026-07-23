@@ -8,6 +8,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
@@ -17,6 +18,19 @@ from typing import Any, Mapping
 SCHEMA_VERSION = 1
 SNAPSHOT_FILENAME = "equipment_inventory.local.json"
 DEVICE_KINDS = frozenset({"pdu", "video_codec", "other"})
+SUPPORTED_DIAGNOSTIC_MODELS = frozenset(
+    {
+        "Huawei TE20",
+        "Huawei TE40",
+        "CloudLink Bar 310",
+        "Polycom RPG 310",
+        "Extron IN1804",
+        "Aten PE8208AV",
+        "Extron IPL T PCS4i",
+        "Biamp Tesira Forte CI",
+        "Extron DMP 64 Plus",
+    }
+)
 RECORD_FIELDS = (
     "record_id",
     "source_model",
@@ -31,6 +45,7 @@ RECORD_FIELDS = (
 ROOT_FIELDS = frozenset({"schema_version", "snapshot_id", "records", "generated_at", "source_row_count"})
 REQUIRED_ROOT_FIELDS = frozenset({"schema_version", "snapshot_id", "records"})
 SNAPSHOT_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+RFC3339_UTC_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 
 
 class InventoryLoadFailure(str, Enum):
@@ -172,7 +187,11 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
     root_keys = set(document)
     if not REQUIRED_ROOT_FIELDS.issubset(root_keys) or not root_keys.issubset(ROOT_FIELDS):
         _invalid_snapshot("Snapshot root fields do not match schema v1.")
-    if document["schema_version"] != SCHEMA_VERSION:
+    if (
+        not isinstance(document["schema_version"], int)
+        or isinstance(document["schema_version"], bool)
+        or document["schema_version"] != SCHEMA_VERSION
+    ):
         raise EquipmentInventoryLoadError(
             InventoryLoadFailure.UNSUPPORTED_SCHEMA,
             "Equipment inventory snapshot schema is not supported.",
@@ -182,7 +201,7 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
     if not isinstance(document["records"], list):
         _invalid_snapshot("Snapshot records must be an array.")
     generated_at = document.get("generated_at")
-    if generated_at is not None and not isinstance(generated_at, str):
+    if generated_at is not None and not _is_rfc3339_utc(generated_at):
         _invalid_snapshot("Snapshot generated_at metadata is invalid.")
     source_row_count = document.get("source_row_count")
     if source_row_count is not None:
@@ -282,6 +301,8 @@ def _parse_record(document: Any) -> EquipmentRecord:
 
     source_model = _canonical_nullable_string(document["source_model"], "source_model")
     diagnostic_model = _canonical_nullable_string(document["diagnostic_model"], "diagnostic_model")
+    if diagnostic_model is not None and diagnostic_model not in SUPPORTED_DIAGNOSTIC_MODELS:
+        _invalid_snapshot("Canonical record has unsupported diagnostic_model.")
     ip_address = document["ip_address"]
     if ip_address is not None:
         if not isinstance(ip_address, str) or normalize_ip_address(ip_address) != ip_address:
@@ -342,6 +363,16 @@ def _normalize_json_text(value: Any) -> Any:
 
 def _freeze_index(index: dict[Any, list[EquipmentRecord]]) -> Mapping[Any, tuple[EquipmentRecord, ...]]:
     return MappingProxyType({key: tuple(value) for key, value in index.items()})
+
+
+def _is_rfc3339_utc(value: Any) -> bool:
+    if not isinstance(value, str) or not RFC3339_UTC_PATTERN.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == UTC.utcoffset(None)
 
 
 def _invalid_snapshot(message: str) -> None:

@@ -167,7 +167,7 @@ def import_equipment_inventory(
         return ImportResult(False, output, None, None, 0, 0, None, tuple(issues))
 
     rows = workbook["rows_by_sheet"][layout.worksheet]
-    source_rows = rows[layout.header_row :]
+    source_rows = [row for row in rows if row[0] > layout.header_row]
     records, row_issues = _build_records(layout, source_rows)
     issues.extend(row_issues)
     issues.extend(_detect_cross_row_issues(records, source_rows, layout))

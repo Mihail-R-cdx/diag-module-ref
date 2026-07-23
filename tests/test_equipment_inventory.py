@@ -98,7 +98,7 @@ def _column_name(index):
     return name
 
 
-def _sheet_xml(rows, headers=HEADERS):
+def _sheet_xml(rows, headers=HEADERS, header_row=1):
     def cell(reference, value):
         if value is None:
             return f'<c r="{reference}"/>'
@@ -108,12 +108,12 @@ def _sheet_xml(rows, headers=HEADERS):
     sheet_rows = []
     all_rows = [dict(zip(headers, headers))]
     all_rows.extend(rows)
-    for row_index, row in enumerate(all_rows, start=1):
+    for row_index, row in enumerate(all_rows, start=header_row):
         cells = [cell(f"{_column_name(col_index)}{row_index}", row.get(header)) for col_index, header in enumerate(headers, start=1)]
         sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<dimension ref="A1:K{len(all_rows)}"/>
+<dimension ref="A{header_row}:K{header_row + len(all_rows) - 1}"/>
 <sheetData>{''.join(sheet_rows)}</sheetData>
 </worksheet>"""
 
@@ -128,8 +128,8 @@ def write_xlsx_sheets(path, sheets, active_index=0):
         for index, _sheet in enumerate(sheets, start=1)
     )
     sheet_entries = "\n".join(
-        f'<sheet name="{name}" sheetId="{index}" r:id="rId{index}"/>'
-        for index, (name, _rows, _headers) in enumerate(sheets, start=1)
+        f'<sheet name="{sheet[0]}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, sheet in enumerate(sheets, start=1)
     )
     rel_entries = "\n".join(
         f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>'
@@ -157,8 +157,13 @@ def write_xlsx_sheets(path, sheets, active_index=0):
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 {rel_entries}
 </Relationships>""")
-        for index, (_name, sheet_rows, sheet_headers) in enumerate(sheets, start=1):
-            archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet_rows, sheet_headers))
+        for index, sheet in enumerate(sheets, start=1):
+            if len(sheet) == 4:
+                _name, sheet_rows, sheet_headers, header_row = sheet
+            else:
+                _name, sheet_rows, sheet_headers = sheet
+                header_row = 1
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet_rows, sheet_headers, header_row))
 
 
 class EquipmentInventoryRuntimeTests(unittest.TestCase):
@@ -196,6 +201,7 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             lambda doc: doc["records"][0].update({"ip_address": "999.1.1.1"}),
             lambda doc: doc["records"][0].update({"mac_address": "bad-mac"}),
             lambda doc: doc["records"][0].update({"device_kind": "codec"}),
+            lambda doc: doc["records"][0].update({"diagnostic_model": "Completely Unsupported Device"}),
         ):
             invalid = copy.deepcopy(valid)
             mutation(invalid)
@@ -203,6 +209,20 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             with self.assertRaises(EquipmentInventoryLoadError) as error:
                 inventory_from_document(invalid)
             self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
+
+    def test_rejects_invalid_root_metadata(self):
+        valid = snapshot_document([record("RID-1", diagnostic_model="Huawei TE20")], generated_at="2026-07-23T00:00:00Z")
+        invalid_schema = copy.deepcopy(valid)
+        invalid_schema["schema_version"] = True
+        with self.assertRaises(EquipmentInventoryLoadError) as error:
+            inventory_from_document(invalid_schema)
+        self.assertEqual(InventoryLoadFailure.UNSUPPORTED_SCHEMA, error.exception.category)
+
+        invalid_generated_at = copy.deepcopy(valid)
+        invalid_generated_at["generated_at"] = "nonsense"
+        with self.assertRaises(EquipmentInventoryLoadError) as error:
+            inventory_from_document(invalid_generated_at)
+        self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
 
     def test_load_failure_categories_and_default_path_resolution(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -377,6 +397,22 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
         self.assertFalse(result.published)
         self.assertFalse(output.exists())
         self.assertEqual(("SOURCE_STRUCTURE_MISSING",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_sparse_worksheet_header_row_uses_excel_row_numbers_not_list_indexes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx_sheets(
+                source,
+                [("SparseRows", [source_row("RID-1"), source_row("RID-2", ip="192.0.2.11")], HEADERS, 5)],
+            )
+            result = import_equipment_inventory(source, output_path=output)
+            inventory = load_equipment_inventory(output)
+        self.assertTrue(result.published)
+        self.assertEqual("SparseRows", result.worksheet)
+        self.assertEqual(5, result.header_row)
+        self.assertEqual(2, result.source_row_count)
+        self.assertEqual(("RID-1", "RID-2"), tuple(record.record_id for record in inventory.records))
 
     def test_multiple_matching_worksheets_are_ambiguous_even_when_one_is_active(self):
         with tempfile.TemporaryDirectory() as directory:
