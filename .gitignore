@@ -6,6 +6,9 @@ node_modules/
 # Per-workstation device credentials. Never add this file to Git.
 credentials.local.json
 
+# Deployment-local equipment inventory snapshot. Never add production inventory to Git.
+equipment_inventory.local.json
+
 logs/
 *.log
 *.lnk
