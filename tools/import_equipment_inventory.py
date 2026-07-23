@@ -57,8 +57,8 @@ REQUIRED_SOURCE_COLUMNS = tuple(SOURCE_COLUMNS.values())
 OPTIONAL_EVIDENCE_COLUMNS = tuple(EVIDENCE_COLUMNS.values())
 
 DIAGNOSTIC_MODEL_BY_EVIDENCE = {
-    ("huawei", "te20"): "Huawei TE-20",
-    ("huawei", "te40"): "Huawei TE-40",
+    ("huawei", "te20"): "Huawei TE20",
+    ("huawei", "te40"): "Huawei TE40",
     ("huawei", "bar 310"): "CloudLink Bar 310",
     ("cloudlink", "bar 310"): "CloudLink Bar 310",
     ("polycom", "rpg 310"): "Polycom RPG 310",
@@ -68,8 +68,8 @@ DIAGNOSTIC_MODEL_BY_EVIDENCE = {
     ("aten", "pe8208av"): "Aten PE8208AV",
 }
 EXPECTED_KIND_BY_DIAGNOSTIC_MODEL = {
-    "Huawei TE-20": "video_codec",
-    "Huawei TE-40": "video_codec",
+    "Huawei TE20": "video_codec",
+    "Huawei TE40": "video_codec",
     "CloudLink Bar 310": "video_codec",
     "Polycom RPG 310": "video_codec",
     "Extron IN1804": "other",
@@ -361,10 +361,6 @@ def _select_layout(workbook: dict[str, Any], issues: list[ImportIssue]) -> Works
         return None
     if len(candidates) == 1:
         return candidates[0]
-    active = workbook["active_sheet"]
-    active_candidates = [candidate for candidate in candidates if candidate.worksheet == active]
-    if len(active_candidates) == 1:
-        return active_candidates[0]
     issues.append(ImportIssue("fatal", "SOURCE_STRUCTURE_AMBIGUOUS", description="Multiple worksheets contain the confirmed source columns."))
     return None
 

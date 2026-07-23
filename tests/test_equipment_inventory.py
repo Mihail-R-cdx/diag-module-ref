@@ -1,6 +1,6 @@
 import copy
-import importlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -90,14 +90,15 @@ def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", source_mode
     }
 
 
-def write_xlsx(path, rows, headers=HEADERS):
-    def column_name(index):
-        name = ""
-        while index:
-            index, remainder = divmod(index - 1, 26)
-            name = chr(65 + remainder) + name
-        return name
+def _column_name(index):
+    name = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
 
+
+def _sheet_xml(rows, headers=HEADERS):
     def cell(reference, value):
         if value is None:
             return f'<c r="{reference}"/>'
@@ -108,35 +109,56 @@ def write_xlsx(path, rows, headers=HEADERS):
     all_rows = [dict(zip(headers, headers))]
     all_rows.extend(rows)
     for row_index, row in enumerate(all_rows, start=1):
-        cells = [cell(f"{column_name(col_index)}{row_index}", row.get(header)) for col_index, header in enumerate(headers, start=1)]
+        cells = [cell(f"{_column_name(col_index)}{row_index}", row.get(header)) for col_index, header in enumerate(headers, start=1)]
         sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<dimension ref="A1:K{len(all_rows)}"/>
+<sheetData>{''.join(sheet_rows)}</sheetData>
+</worksheet>"""
+
+
+def write_xlsx(path, rows, headers=HEADERS):
+    write_xlsx_sheets(path, [("SyntheticInventory", rows, headers)])
+
+
+def write_xlsx_sheets(path, sheets, active_index=0):
+    sheet_overrides = "\n".join(
+        f'<Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        for index, _sheet in enumerate(sheets, start=1)
+    )
+    sheet_entries = "\n".join(
+        f'<sheet name="{name}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, (name, _rows, _headers) in enumerate(sheets, start=1)
+    )
+    rel_entries = "\n".join(
+        f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>'
+        for index, _sheet in enumerate(sheets, start=1)
+    )
 
     with ZipFile(path, "w", ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8"?>
+        archive.writestr("[Content_Types].xml", f"""<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+{sheet_overrides}
 </Types>""")
         archive.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>""")
-        archive.writestr("xl/workbook.xml", """<?xml version="1.0" encoding="UTF-8"?>
+        archive.writestr("xl/workbook.xml", f"""<?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<bookViews><workbookView activeTab="0"/></bookViews>
-<sheets><sheet name="SyntheticInventory" sheetId="1" r:id="rId1"/></sheets>
+<bookViews><workbookView activeTab="{active_index}"/></bookViews>
+<sheets>{sheet_entries}</sheets>
 </workbook>""")
-        archive.writestr("xl/_rels/workbook.xml.rels", """<?xml version="1.0" encoding="UTF-8"?>
+        archive.writestr("xl/_rels/workbook.xml.rels", f"""<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+{rel_entries}
 </Relationships>""")
-        archive.writestr("xl/worksheets/sheet1.xml", f"""<?xml version="1.0" encoding="UTF-8"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<dimension ref="A1:K{len(all_rows)}"/>
-<sheetData>{''.join(sheet_rows)}</sheetData>
-</worksheet>""")
+        for index, (_name, sheet_rows, sheet_headers) in enumerate(sheets, start=1):
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet_rows, sheet_headers))
 
 
 class EquipmentInventoryRuntimeTests(unittest.TestCase):
@@ -145,11 +167,16 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             record("RID-1", ip_address="192.0.2.10", room_id="ROOM-1", room_name="Room One", device_kind="pdu"),
             record("RID-2", ip_address="192.0.2.10", room_id="ROOM-1", room_name="Room One", device_kind="video_codec"),
             record("RID-3", ip_address="192.0.2.30", room_id="ROOM-1", room_name="Room One", device_kind="video_codec"),
+            record("RID-4", ip_address="192.0.2.40", room_id="ROOM-2", room_name="Room Two", device_kind="pdu"),
         ]
         inventory = inventory_from_document(snapshot_document(records, generated_at="2026-07-23T00:00:00Z", source_row_count=3))
         self.assertEqual((), inventory.find_by_ip("192.0.2.99"))
+        self.assertEqual(("RID-4",), tuple(item.record_id for item in inventory.find_by_ip("192.0.2.40")))
         self.assertEqual(("RID-1", "RID-2"), tuple(item.record_id for item in inventory.find_by_ip("192.0.2.10")))
+        self.assertEqual((), inventory.find_room_equipment("ROOM-404"))
+        self.assertEqual(("RID-4",), tuple(item.record_id for item in inventory.find_room_equipment("ROOM-2")))
         self.assertEqual(("RID-1", "RID-2", "RID-3"), tuple(item.record_id for item in inventory.find_room_equipment("ROOM-1")))
+        self.assertEqual(("RID-1",), tuple(item.record_id for item in inventory.find_by_room_and_kind("ROOM-1", "pdu")))
         self.assertEqual(("RID-2", "RID-3"), tuple(item.record_id for item in inventory.find_by_room_and_kind("ROOM-1", "video_codec")))
         self.assertEqual((), inventory.find_by_room_and_kind("ROOM-404", "video_codec"))
         self.assertFalse(hasattr(inventory, "find_by_mac"))
@@ -190,6 +217,12 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
                 load_equipment_inventory(invalid_json)
             self.assertEqual(InventoryLoadFailure.INVALID_FORMAT, error.exception.category)
 
+            invalid_utf8 = Path(directory) / "invalid_utf8.json"
+            invalid_utf8.write_bytes(b"\xff\xfe\xfa")
+            with self.assertRaises(EquipmentInventoryLoadError) as error:
+                load_equipment_inventory(invalid_utf8)
+            self.assertEqual(InventoryLoadFailure.INVALID_FORMAT, error.exception.category)
+
             unsupported = Path(directory) / "unsupported.json"
             unsupported.write_text(json.dumps({"schema_version": 2, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
             with self.assertRaises(EquipmentInventoryLoadError) as error:
@@ -198,7 +231,7 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
 
             unreadable = Path(directory) / "unreadable.json"
             unreadable.write_text("{}", encoding="utf-8")
-            with patch.object(Path, "read_text", side_effect=PermissionError("synthetic")):
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("synthetic")):
                 with self.assertRaises(EquipmentInventoryLoadError) as error:
                     load_equipment_inventory(unreadable)
             self.assertEqual(InventoryLoadFailure.UNREADABLE, error.exception.category)
@@ -207,11 +240,21 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
 
     def test_runtime_does_not_import_spreadsheet_dependency(self):
         sys.modules.pop("openpyxl", None)
-        module = importlib.import_module("core.equipment_inventory")
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "snapshot.json"
             write_snapshot(path, [record("RID-1")])
-            module.load_equipment_inventory(path)
+            script = f"""
+import builtins
+original_import = builtins.__import__
+def reject_spreadsheet_import(name, *args, **kwargs):
+    if name == "openpyxl" or name.startswith("openpyxl."):
+        raise AssertionError("runtime inventory attempted to import openpyxl")
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = reject_spreadsheet_import
+from core.equipment_inventory import load_equipment_inventory
+load_equipment_inventory({str(path)!r})
+"""
+            subprocess.run([sys.executable, "-c", script], check=True, cwd=application_root())
         self.assertNotIn("openpyxl", sys.modules)
 
 
@@ -270,6 +313,7 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
                 source_row("RID-4", room_id="ROOM-1", room_name="Room Beta", source_type="Video Conference", manufacturer="Huawei", model="TE20", ip="192.0.2.44", mac="66:77:88:99:aa:bb", controller="CTRL-A"),
                 source_row("RID-5", room_id="ROOM-1", room_name="Room Beta", source_type="БРП", manufacturer="Aten", model="PE8208AV", ip="192.0.2.45", mac="66:77:88:99:aa:bc", controller="CTRL-B"),
                 source_row("RID-6", room_id="ROOM-1", room_name="Room Beta", source_type="Video Conference", manufacturer="Huawei", model="TE20", ip="192.0.2.46", mac="66:77:88:99:aa:bd", controller="CTRL-B"),
+                source_row("RID-7", room_id="ROOM-3", room_name="Room Gamma", source_model="Huawei TE40", source_type="Video Conference", manufacturer="Huawei", model="TE40", ip="192.0.2.47", mac="66:77:88:99:aa:be", serial="SER-TE40", controller="RID-7"),
             ])
             result = import_equipment_inventory(source, output_path=output)
             inventory = load_equipment_inventory(output)
@@ -278,7 +322,8 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             self.assertEqual("RID-1", first.record_id)
             self.assertEqual("Source Name", first.source_model)
             self.assertEqual("other", first.device_kind)
-            self.assertEqual("Huawei TE-20", first.diagnostic_model)
+            self.assertEqual("Huawei TE20", first.diagnostic_model)
+            self.assertEqual("Huawei TE40", inventory.records[-1].diagnostic_model)
             self.assertEqual(("RID-2", "RID-3"), tuple(item.record_id for item in inventory.find_by_ip("192.0.2.10")))
             self.assertEqual(("RID-2", "RID-5"), tuple(item.record_id for item in inventory.find_by_room_and_kind("ROOM-1", "pdu")))
             self.assertEqual(("RID-4", "RID-6"), tuple(item.record_id for item in inventory.find_by_room_and_kind("ROOM-1", "video_codec")))
@@ -332,6 +377,23 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
         self.assertFalse(result.published)
         self.assertFalse(output.exists())
         self.assertEqual(("SOURCE_STRUCTURE_MISSING",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_multiple_matching_worksheets_are_ambiguous_even_when_one_is_active(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx_sheets(
+                source,
+                [
+                    ("First", [source_row("RID-1")], HEADERS),
+                    ("Second", [source_row("RID-2")], HEADERS),
+                ],
+                active_index=1,
+            )
+            result = import_equipment_inventory(source, output_path=output)
+        self.assertFalse(result.published)
+        self.assertFalse(output.exists())
+        self.assertEqual(("SOURCE_STRUCTURE_AMBIGUOUS",), tuple(issue.code for issue in result.fatal_issues))
 
 
 class EquipmentInventoryGitignoreTests(unittest.TestCase):

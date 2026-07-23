@@ -135,7 +135,7 @@ def default_snapshot_path() -> Path:
 def load_equipment_inventory(path: str | Path | None = None) -> EquipmentInventory:
     snapshot_path = Path(path) if path is not None else default_snapshot_path()
     try:
-        raw = snapshot_path.read_text(encoding="utf-8")
+        raw_bytes = snapshot_path.read_bytes()
     except FileNotFoundError as exc:
         raise EquipmentInventoryLoadError(
             InventoryLoadFailure.NOT_FOUND,
@@ -148,8 +148,16 @@ def load_equipment_inventory(path: str | Path | None = None) -> EquipmentInvento
         ) from exc
 
     try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise EquipmentInventoryLoadError(
+            InventoryLoadFailure.INVALID_FORMAT,
+            "Equipment inventory snapshot is not valid UTF-8 JSON.",
+        ) from exc
+
+    try:
         document = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError as exc:
         raise EquipmentInventoryLoadError(
             InventoryLoadFailure.INVALID_FORMAT,
             "Equipment inventory snapshot is not valid UTF-8 JSON.",

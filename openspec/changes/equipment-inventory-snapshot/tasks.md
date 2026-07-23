@@ -89,8 +89,8 @@
 
 - [x] 7.1 Run focused inventory/importer tests.
 - [x] 7.2 Run `python -m unittest discover -s tests -p "test_*.py"`.
-- [ ] 7.3 Run `.\openspec.cmd validate equipment-inventory-snapshot --strict`.
-- [ ] 7.4 Run `.\openspec.cmd validate --all --strict`.
+- [x] 7.3 Run `.\openspec.cmd validate equipment-inventory-snapshot --strict`.
+- [x] 7.4 Run `.\openspec.cmd validate --all --strict`.
 - [x] 7.5 Run `git diff --check`.
 - [x] 7.6 Confirm the implementation introduces no PDU-to-room orchestration, codec network I/O, codec session reuse, credential-policy changes, transport changes, or GUI behavior changes.
 - [x] 7.7 Commit and push implementation/evidence before requesting independent validation; the implementation session must not issue its own final `APPROVE`.
