@@ -29,7 +29,8 @@
 - [ ] 3.4 Implement ambiguity-preserving query methods equivalent to `find_by_ip`, `find_room_equipment`, and `find_by_room_and_kind`.
 - [ ] 3.5 Normalize and validate lookup IP input before index access; invalid input must not fall back to linear, fuzzy, or heuristic matching.
 - [ ] 3.6 Preserve every duplicate IP match and every same-room same-kind match in deterministic canonical order; never select an arbitrary first record as authoritative.
-- [ ] 3.7 Do not add runtime indexes for MAC address, serial number, `SmartRoomID контроллера`, or room name without a future reviewed runtime requirement.
+- [ ] 3.7 Make every normal inventory lookup return a result collection containing zero, one, or many records. A valid lookup with no matching IP, no matching room, or no matching room/device-kind pair must return an empty collection rather than `None`, a connection-style error, or an inventory-layer `NOT_FOUND` state; interpretation as `NOT_FOUND`, `RESOLVED`, or `AMBIGUOUS` belongs to later application/composition orchestration.
+- [ ] 3.8 Do not add runtime indexes for MAC address, serial number, `SmartRoomID контроллера`, or room name without a future reviewed runtime requirement.
 
 ## 4. Offline Excel importer
 
@@ -81,6 +82,8 @@
 - [ ] 6.18 Test deterministic canonical ordering and `snapshot_id`, including row reordering and mutable attribute changes that preserve `SmartRoomID`.
 - [ ] 6.19 Test valid runtime snapshot loading, every structured load-failure category, default-path resolution, and runtime operation without the spreadsheet dependency.
 - [ ] 6.20 Test production local inventory paths are ignored while synthetic fixtures remain tracked.
+- [ ] 6.21 Test `find_by_ip` explicitly for zero, one, and many matches: zero returns an empty collection, one returns exactly one record, and many returns every match in deterministic canonical order without converting an ordinary zero-match into `None`, an exception, or a connection-style error.
+- [ ] 6.22 Test room and room/device-kind lookups return an empty collection for zero matches and preserve one/many result collections; verify the inventory layer does not classify zero/one/many results as `NOT_FOUND`, `RESOLVED`, or `AMBIGUOUS`.
 
 ## 7. Validation and handoff
 
