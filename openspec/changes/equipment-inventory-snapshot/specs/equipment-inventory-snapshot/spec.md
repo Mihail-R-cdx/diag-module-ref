@@ -507,6 +507,21 @@ find_by_room_and_kind(room_id, device_kind)
 Normal lookups SHALL use the prebuilt indexes rather than repeatedly scan all records.
 Index values SHALL preserve all matches and deterministic canonical order.
 
+Every normal inventory query SHALL return a result collection containing zero or more
+canonical records. A valid lookup with no match SHALL return an empty result collection:
+
+```text
+no IP match               -> empty result collection
+no room match             -> empty result collection
+no room/device-kind match -> empty result collection
+```
+
+An ordinary zero-match SHALL NOT return `None`, raise a device-connection-style error, or
+produce an inventory-layer resolution status. The inventory layer SHALL preserve zero,
+one, or many result semantics only. Interpretation of those result counts as
+`NOT_FOUND`, `RESOLVED`, or `AMBIGUOUS` belongs to the later application/composition
+orchestration and SHALL NOT be embedded in `EquipmentInventory`.
+
 Schema v1 SHALL expose `mac_address` and `serial_number` only as canonical record
 attributes. It SHALL NOT require indexes for MAC address, serial number, room name, or
 `SmartRoomID контроллера` without a future reviewed runtime requirement.
@@ -515,11 +530,35 @@ The default deployment snapshot path SHALL be `equipment_inventory.local.json`, 
 deterministically from the application/project root rather than the process current working
 directory. Explicit callers and tests MAY provide another path.
 
+#### Scenario: IP lookup has no match
+
+- **WHEN** `find_by_ip` receives a valid normalized IP address that is absent from the inventory
+- **THEN** it returns an empty result collection
+- **AND** it does not return `None`, raise a connection-style error, or synthesize `NOT_FOUND`
+
+#### Scenario: Room lookup has no match
+
+- **WHEN** `find_room_equipment` receives a canonical `room_id` with no indexed records
+- **THEN** it returns an empty result collection
+- **AND** it does not invent room data from `room_name`
+
+#### Scenario: Room and device-kind lookup has no match
+
+- **WHEN** `find_by_room_and_kind` receives a canonical room/device-kind pair with no indexed records
+- **THEN** it returns an empty result collection
+- **AND** the inventory layer does not classify the result as `NOT_FOUND`
+
 #### Scenario: Devices in one room are queried
 
 - **WHEN** an application consumer queries one canonical `room_id`
 - **THEN** the inventory returns all records indexed under that authoritative room ID
 - **AND** it does not merge records from a different `room_id` merely because `room_name` matches
+
+#### Scenario: Query result multiplicity is interpreted by application orchestration
+
+- **WHEN** an inventory lookup returns zero, one, or multiple records
+- **THEN** `EquipmentInventory` returns that result collection without assigning `NOT_FOUND`, `RESOLVED`, or `AMBIGUOUS`
+- **AND** any such resolution state is determined only by later application/composition orchestration
 
 ### Requirement: Immutable snapshot revision identity
 
