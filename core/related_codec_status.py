@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from core.exceptions import ProtocolError
+
 
 UNKNOWN_STATUS = "unknown"
-UNAVAILABLE_STATUS = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -36,18 +37,18 @@ class RelatedCodecStatusAdapter:
 
     def read_status(self, handler: Any, model: str) -> RelatedCodecStatus:
         if model not in self.supported_models:
-            return RelatedCodecStatus(UNAVAILABLE_STATUS, UNAVAILABLE_STATUS)
+            raise ProtocolError("Related codec status model is unsupported.")
         get_status = getattr(handler, "get_status", None)
         if not callable(get_status):
-            return RelatedCodecStatus(UNAVAILABLE_STATUS, UNAVAILABLE_STATUS)
+            raise ProtocolError("Related codec handler does not expose status.")
         raw_status = get_status()
         if not isinstance(raw_status, Mapping):
-            return RelatedCodecStatus(UNAVAILABLE_STATUS, UNAVAILABLE_STATUS)
+            raise ProtocolError("Related codec status response is invalid.")
         return self.normalize(model, raw_status)
 
     def normalize(self, model: str, raw_status: Mapping[str, Any]) -> RelatedCodecStatus:
         if model not in self.supported_models:
-            return RelatedCodecStatus(UNAVAILABLE_STATUS, UNAVAILABLE_STATUS)
+            raise ProtocolError("Related codec status model is unsupported.")
         call_status = _string_value(
             raw_status.get("call_status")
             or raw_status.get("Статус звонка")
@@ -59,6 +60,8 @@ class RelatedCodecStatusAdapter:
             or raw_status.get("presentation_local")
             or raw_status.get("Режим презентации")
         )
+        if call_status is None and presentation_status is None:
+            raise ProtocolError("Related codec status fields are unavailable.")
         return RelatedCodecStatus(
             call_status=call_status or UNKNOWN_STATUS,
             presentation_status=presentation_status or UNKNOWN_STATUS,

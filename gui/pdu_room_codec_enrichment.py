@@ -65,6 +65,7 @@ class EnrichmentPresentation:
     warnings: tuple[str, ...] = ()
     safe_message: str | None = None
     pending: bool = False
+    reset: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +87,7 @@ class EnrichmentPresentation:
             "warnings": self.warnings,
             "safe_message": self.safe_message,
             "pending": self.pending,
+            "reset": self.reset,
         }
 
 
@@ -158,7 +160,7 @@ class PDURoomCodecEnrichmentController(QObject):
                 pdu_generation=context.pdu_generation,
                 pdu_refresh_operation_id=context.refresh_operation_id,
                 pdu_credential_context_revision=context.credential_context_revision,
-                resolution_status=RoomResolutionStatus.INVENTORY_UNAVAILABLE.value,
+                resolution_status="PENDING",
                 codec_diagnostic_status=CodecDiagnosticStatus.PENDING.value,
                 pending=True,
             )
@@ -245,6 +247,7 @@ class PDURoomCodecEnrichmentController(QObject):
                     codec_status=CodecDiagnosticStatus.UNAVAILABLE,
                     safe_message="Related codec status is unavailable.",
                 )
+                self._terminate_session_context()
 
     def supersede_pdu_context(self, event: PDUContextSuperseded) -> None:
         if self._shutdown:
@@ -261,10 +264,9 @@ class PDURoomCodecEnrichmentController(QObject):
                 operation_id=operation_id,
                 pdu_generation=event.pdu_generation_or_revision,
                 pdu_refresh_operation_id=None,
-                pdu_credential_context_revision=event.pdu_generation_or_revision,
-                resolution_status=RoomResolutionStatus.INVENTORY_UNAVAILABLE.value,
+                resolution_status="NOT_STARTED",
                 codec_diagnostic_status=CodecDiagnosticStatus.NOT_STARTED.value,
-                safe_message=event.reason,
+                reset=True,
             )
         )
 
@@ -300,6 +302,7 @@ class PDURoomCodecEnrichmentController(QObject):
         value = payload.get("value")
         if not hasattr(value, "as_dict"):
             self._publish_current_failure(generation, operation_id, CodecDiagnosticStatus.PROTOCOL_FAILED)
+            self._terminate_session_context()
             return
         presentation = self._last_presentation_with_status(
             generation,
@@ -319,6 +322,7 @@ class PDURoomCodecEnrichmentController(QObject):
                 profile if isinstance(profile, Mapping) else None,
             )
         self._publish(presentation)
+        self._terminate_session_context()
 
     def _on_session_error(self, payload: dict[str, Any]) -> None:
         operation_id = payload.get("client_token")
@@ -333,6 +337,7 @@ class PDURoomCodecEnrichmentController(QObject):
             CodecFailureCategory.PROTOCOL.value: CodecDiagnosticStatus.PROTOCOL_FAILED,
         }.get(category, CodecDiagnosticStatus.UNAVAILABLE)
         self._publish_current_failure(generation, operation_id, status)
+        self._terminate_session_context()
 
     def _on_session_dropped(self, _payload: dict[str, Any]) -> None:
         return
@@ -449,6 +454,12 @@ class PDURoomCodecEnrichmentController(QObject):
             and self._generation == generation
             and self._current_operation_id == operation_id
         )
+
+    def _terminate_session_context(self) -> None:
+        if self._current_session_generation is None:
+            return
+        self._current_session_generation = None
+        self._session.invalidate_context()
 
 
 def _safe_inventory_message(error: EquipmentInventoryLoadError | None) -> str:

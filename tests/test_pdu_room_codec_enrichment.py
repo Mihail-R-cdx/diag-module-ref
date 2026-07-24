@@ -1,6 +1,6 @@
 import os
+import threading
 import unittest
-from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -14,14 +14,19 @@ from core.equipment_inventory import (
     EquipmentInventoryMetadata,
     EquipmentRecord,
 )
-from core.related_codec_status import RelatedCodecStatusAdapter
+from core.exceptions import CodecFailureCategory, ProtocolError
+from core.interactive_session import (
+    InteractiveOperation,
+    InteractiveSessionController,
+    OperationSemantic,
+)
+from core.related_codec_status import RelatedCodecStatus, RelatedCodecStatusAdapter
 from core.room_context import (
     ROOM_NAME_CONFLICT,
     RoomContextResolver,
     RoomResolutionStatus,
 )
 from gui.pdu_room_codec_enrichment import (
-    CodecDiagnosticStatus,
     PDUAcceptedRefreshContext,
     PDUContextSuperseded,
     PDURoomCodecEnrichmentController,
@@ -109,25 +114,59 @@ class RoomContextResolverTests(unittest.TestCase):
             self.resolve(
                 [
                     pdu,
-                    record("C1", ip_address="192.0.2.20", device_kind="video_codec", diagnostic_model="Huawei TE20"),
-                    record("C2", ip_address="192.0.2.21", device_kind="video_codec", diagnostic_model="Huawei TE40"),
+                    record(
+                        "C1",
+                        ip_address="192.0.2.20",
+                        device_kind="video_codec",
+                        diagnostic_model="Huawei TE20",
+                    ),
+                    record(
+                        "C2",
+                        ip_address="192.0.2.21",
+                        device_kind="video_codec",
+                        diagnostic_model="Huawei TE40",
+                    ),
                 ]
             ).status,
         )
         self.assertEqual(
             RoomResolutionStatus.CODEC_IP_MISSING,
             self.resolve(
-                [pdu, record("C1", ip_address=None, device_kind="video_codec", diagnostic_model="Huawei TE20")]
+                [
+                    pdu,
+                    record(
+                        "C1",
+                        ip_address=None,
+                        device_kind="video_codec",
+                        diagnostic_model="Huawei TE20",
+                    ),
+                ]
             ).status,
         )
         self.assertEqual(
             RoomResolutionStatus.CODEC_UNSUPPORTED,
             self.resolve(
-                [pdu, record("C1", ip_address="192.0.2.20", device_kind="video_codec", diagnostic_model=None)]
+                [
+                    pdu,
+                    record(
+                        "C1",
+                        ip_address="192.0.2.20",
+                        device_kind="video_codec",
+                        diagnostic_model=None,
+                    ),
+                ]
             ).status,
         )
         resolved = self.resolve(
-            [pdu, record("C1", ip_address="192.0.2.20", device_kind="video_codec", diagnostic_model="Huawei TE20")]
+            [
+                pdu,
+                record(
+                    "C1",
+                    ip_address="192.0.2.20",
+                    device_kind="video_codec",
+                    diagnostic_model="Huawei TE20",
+                ),
+            ]
         )
         self.assertEqual(RoomResolutionStatus.RESOLVED, resolved.status)
         self.assertEqual("ROOM-1", resolved.context.room_id)
@@ -136,7 +175,12 @@ class RoomContextResolverTests(unittest.TestCase):
     def test_conflicting_room_names_continue_by_room_id_without_selecting_name(self):
         result = self.resolve(
             [
-                record("PDU-1", ip_address="192.0.2.10", room_name="Room A", device_kind="pdu"),
+                record(
+                    "PDU-1",
+                    ip_address="192.0.2.10",
+                    room_name="Room A",
+                    device_kind="pdu",
+                ),
                 record(
                     "C1",
                     ip_address="192.0.2.20",
@@ -157,7 +201,10 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
         shapes = {
             "Huawei TE20": {"call_status": "No Call", "presentation_local": "Stopped"},
             "Huawei TE40": {"call_status": "Calling", "presentation": "Start"},
-            "CloudLink Bar 310": {"Статус звонка": "Вызов", "Режим презентации": "Старт"},
+            "CloudLink Bar 310": {
+                "call_status": "In Call",
+                "presentation_status": "Start",
+            },
             "Polycom RPG 310": {"call": {"status": "Connected"}, "presentation": "content"},
         }
         for model, raw in shapes.items():
@@ -170,21 +217,29 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
                     set(normalized.as_dict()),
                 )
 
+    def test_allows_one_authoritative_field_but_rejects_uninterpretable_status(self):
+        adapter = RelatedCodecStatusAdapter()
+        normalized = adapter.normalize("Huawei TE20", {"call_status": "No Call"})
+        self.assertEqual("No Call", normalized.call_status)
+        self.assertEqual("unknown", normalized.presentation_status)
+
+        with self.assertRaises(ProtocolError):
+            adapter.normalize("Huawei TE20", {"error": "synthetic read failure"})
+        with self.assertRaises(ProtocolError):
+            adapter.normalize("Huawei TE20", {})
+        with self.assertRaises(ProtocolError):
+            adapter.read_status(object(), "Huawei TE20")
+        with self.assertRaises(ProtocolError):
+            adapter.read_status(type("Handler", (), {"get_status": lambda self: []})(), "Huawei TE20")
+
 
 class DummySession:
     def __init__(self):
         self.invalidate_calls = 0
         self.activate_calls = []
         self.submits = []
-        self.signals = type(
-            "Signals",
-            (),
-            {
-                "result": _Signal(),
-                "error": _Signal(),
-                "dropped": _Signal(),
-            },
-        )()
+        self.shutdown_wait = None
+        self.signals = _SessionSignals()
 
     def invalidate_context(self):
         self.invalidate_calls += 1
@@ -200,6 +255,13 @@ class DummySession:
 
     def shutdown(self, wait=True):
         self.shutdown_wait = wait
+
+
+class _SessionSignals:
+    def __init__(self):
+        self.result = _Signal()
+        self.error = _Signal()
+        self.dropped = _Signal()
 
 
 class _Signal:
@@ -239,6 +301,19 @@ class EnrichmentControllerTests(unittest.TestCase):
             session_controller=session or DummySession(),
         )
 
+    def resolved_inventory(self):
+        return inventory(
+            [
+                record("PDU-1", ip_address="192.0.2.10", device_kind="pdu"),
+                record(
+                    "C1",
+                    ip_address="192.0.2.20",
+                    device_kind="video_codec",
+                    diagnostic_model="Huawei TE20",
+                ),
+            ]
+        )
+
     def test_inventory_unavailable_does_not_start_codec_work(self):
         session = DummySession()
         controller = self.build_controller(None, session=session)
@@ -250,13 +325,7 @@ class EnrichmentControllerTests(unittest.TestCase):
 
     def test_resolved_context_force_rollover_and_queued_status_submission(self):
         session = DummySession()
-        inv = inventory(
-            [
-                record("PDU-1", ip_address="192.0.2.10", device_kind="pdu"),
-                record("C1", ip_address="192.0.2.20", device_kind="video_codec", diagnostic_model="Huawei TE20"),
-            ]
-        )
-        controller = self.build_controller(inv, session=session)
+        controller = self.build_controller(self.resolved_inventory(), session=session)
         controller.accept_pdu_refresh(self.accepted_context())
         controller.accept_pdu_refresh(self.accepted_context())
         self.assertEqual(2, session.invalidate_calls)
@@ -269,8 +338,117 @@ class EnrichmentControllerTests(unittest.TestCase):
         controller = self.build_controller(None, session=session)
         controller.supersede_pdu_context(PDUContextSuperseded(8, "user_refresh_started"))
         self.assertEqual(1, session.invalidate_calls)
+        self.assertTrue(self.presentations[-1]["reset"])
         self.assertEqual("NOT_STARTED", self.presentations[-1]["codec_diagnostic_status"])
-        self.assertEqual("user_refresh_started", self.presentations[-1]["safe_message"])
+        self.assertIsNone(self.presentations[-1]["safe_message"])
+
+    def test_terminal_success_persists_and_cleans_up_session(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": RelatedCodecStatus("Connected", "Start"),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertEqual("SUCCESS", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual(1, len(self.persisted))
+        self.assertEqual(2, session.invalidate_calls)
+
+    def test_uninterpretable_status_result_is_protocol_failure_without_persistence(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": object(),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertEqual("PROTOCOL_FAILED", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual([], self.persisted)
+        self.assertEqual(2, session.invalidate_calls)
+
+    def test_terminal_error_cleans_up_without_persistence(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        session.signals.error.emit(
+            {
+                "client_token": token,
+                "category": CodecFailureCategory.PROTOCOL.value,
+            }
+        )
+
+        self.assertEqual("PROTOCOL_FAILED", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual([], self.persisted)
+        self.assertEqual(2, session.invalidate_calls)
+
+    def test_stale_in_flight_success_cannot_restore_presentation_or_persist(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        controller.supersede_pdu_context(PDUContextSuperseded(8, "user_refresh_started"))
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": RelatedCodecStatus("Connected", "Start"),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertTrue(self.presentations[-1]["reset"])
+        self.assertEqual([], self.persisted)
+
+
+class InteractiveSessionStaleWorkTests(unittest.TestCase):
+    def test_queued_stale_work_drops_before_handler_factory(self):
+        blocked = threading.Event()
+        entered = threading.Event()
+        handler_factory_calls = []
+
+        def handler_factory(*args, **kwargs):
+            handler_factory_calls.append((args, kwargs))
+            raise AssertionError("stale work must not acquire a handler")
+
+        session = InteractiveSessionController(handler_factory=handler_factory)
+        blocker = session._executor.submit(lambda: (entered.set(), blocked.wait(5)))
+        try:
+            self.assertTrue(entered.wait(1))
+            generation = session.activate_context(
+                "Huawei TE20",
+                "192.0.2.20",
+                [{"username": "u", "password": "p"}],
+            )
+            submitted = session.submit(
+                InteractiveOperation(
+                    kind="pdu_room_codec_status",
+                    method="read_status",
+                    semantic=OperationSemantic.READ_ONLY,
+                ),
+                generation=generation,
+            )
+            self.assertIsNotNone(submitted)
+            session.invalidate_context()
+            blocked.set()
+            blocker.result(timeout=2)
+            session.wait_until_idle(timeout=2)
+            self.assertEqual([], handler_factory_calls)
+        finally:
+            blocked.set()
+            session.shutdown(wait=True)
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
@@ -303,6 +481,30 @@ class PDUIntegrationScreenTests(unittest.TestCase):
         critical.assert_not_called()
         self.assertEqual("ROOM-1", screen.related_rows["room_id"].value_display.text())
         self.assertTrue(screen.outlets)
+
+    def test_pdu_screen_reset_payload_clears_related_room_without_warning(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = PDUScreen()
+        screen.set_related_room_codec(
+            {
+                "resolution_status": "RESOLVED",
+                "codec_diagnostic_status": "SUCCESS",
+                "room_id": "ROOM-1",
+                "codec_diagnostic_model": "Huawei TE20",
+                "codec_ip_address": "192.0.2.20",
+                "call_status": "Connected",
+                "presentation_status": "Start",
+            }
+        )
+        screen.set_related_room_codec({"reset": True})
+
+        self.assertEqual("", screen.related_message.text())
+        for row in screen.related_rows.values():
+            self.assertNotIn(
+                row.value_display.text(),
+                {"ROOM-1", "Huawei TE20", "192.0.2.20", "Connected", "Start"},
+            )
 
 
 if __name__ == "__main__":

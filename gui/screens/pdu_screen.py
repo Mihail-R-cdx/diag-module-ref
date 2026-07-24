@@ -279,6 +279,9 @@ class PDUScreen(BaseScreen):
         if not hasattr(self, "related_rows"):
             return
         payload = dict(payload or {})
+        if payload.get("reset"):
+            self.reset_related_room_codec()
+            return
         state = "normal"
         if payload.get("pending"):
             state = "inactive"
