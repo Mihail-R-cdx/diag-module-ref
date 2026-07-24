@@ -232,6 +232,140 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             adapter.read_status(type("Handler", (), {"get_status": lambda self: []})(), "Huawei TE20")
 
+    def test_authoritative_huawei_status_reads_model_specific_command_fields(self):
+        cases = {
+            "Huawei TE20": (
+                "get_presentation_local",
+                "Calling",
+                "Start",
+                1,
+                "auxOpen",
+            ),
+            "Huawei TE40": (
+                "get_presentation",
+                "Calling",
+                "Stop",
+                2,
+                "auxClose",
+            ),
+            "CloudLink Bar 310": (
+                "get_presentation",
+                "Connected",
+                "Start",
+                3,
+                "auxOpen",
+            ),
+        }
+        for model, (presentation_command, call_text, presentation_text, callstate, aux_state) in cases.items():
+            with self.subTest(model=model):
+                handler = FakeHuaweiStatusHandler(
+                    {
+                        "get_call_status": success_response({"state": {"callstate": callstate}}),
+                        presentation_command: success_response({"isSendAux": aux_state}),
+                    }
+                )
+                status = RelatedCodecStatusAdapter().read_status(handler, model)
+                self.assertEqual(call_text, status.call_status)
+                self.assertEqual(presentation_text, status.presentation_status)
+
+    def test_bar310_related_status_does_not_trust_get_status_defaults(self):
+        handler = FakeHuaweiStatusHandler(
+            {
+                "get_call_status": {"success": 0, "error": {"code": 1}},
+                "get_presentation": {"success": 0, "error": {"code": 2}},
+            },
+            get_status_payload={"call_status": "No Call", "presentation": "Stop"},
+        )
+
+        with self.assertRaises(ProtocolError):
+            RelatedCodecStatusAdapter().read_status(handler, "CloudLink Bar 310")
+        self.assertFalse(handler.get_status_called)
+        self.assertEqual(["get_call_status", "get_presentation"], handler.commands)
+
+    def test_bar310_related_status_allows_one_authoritative_field_only(self):
+        handler = FakeHuaweiStatusHandler(
+            {
+                "get_call_status": {"success": 0, "error": {"code": 1}},
+                "get_presentation": success_response({"isSendAux": "auxOpen"}),
+            }
+        )
+
+        status = RelatedCodecStatusAdapter().read_status(handler, "CloudLink Bar 310")
+        self.assertEqual("unknown", status.call_status)
+        self.assertEqual("Start", status.presentation_status)
+
+    def test_bar310_related_status_rejects_missing_or_malformed_authoritative_fields(self):
+        adapter = RelatedCodecStatusAdapter()
+        missing_fields = FakeHuaweiStatusHandler(
+            {
+                "get_call_status": success_response({"state": {}}),
+                "get_presentation": success_response({}),
+            }
+        )
+        malformed = FakeHuaweiStatusHandler(
+            {
+                "get_call_status": success_response("{not-json"),
+                "get_presentation": success_response([]),
+            }
+        )
+
+        with self.assertRaises(ProtocolError):
+            adapter.read_status(missing_fields, "CloudLink Bar 310")
+        with self.assertRaises(ProtocolError):
+            adapter.read_status(malformed, "CloudLink Bar 310")
+
+    def test_polycom_related_status_uses_narrow_methods_without_get_status_defaults(self):
+        handler = FakePolycomStatusHandler(call_status="Active", presentation_status="Stop")
+        status = RelatedCodecStatusAdapter().read_status(handler, "Polycom RPG 310")
+
+        self.assertEqual("Active", status.call_status)
+        self.assertEqual("Stop", status.presentation_status)
+        self.assertFalse(handler.get_status_called)
+
+    def test_polycom_related_status_rejects_both_fields_unavailable(self):
+        with self.assertRaises(ProtocolError):
+            RelatedCodecStatusAdapter().read_status(
+                FakePolycomStatusHandler(call_status=None, presentation_status=None),
+                "Polycom RPG 310",
+            )
+
+
+def success_response(data):
+    return {"success": 1, "data": data}
+
+
+class FakeHuaweiStatusHandler:
+    def __init__(self, responses, *, get_status_payload=None):
+        self.responses = dict(responses)
+        self.get_status_payload = get_status_payload or {}
+        self.get_status_called = False
+        self.commands = []
+
+    def send_command(self, command):
+        self.commands.append(command)
+        return self.responses.get(command)
+
+    def get_status(self):
+        self.get_status_called = True
+        return dict(self.get_status_payload)
+
+
+class FakePolycomStatusHandler:
+    def __init__(self, *, call_status, presentation_status):
+        self.call_status = call_status
+        self.presentation_status = presentation_status
+        self.get_status_called = False
+
+    def _get_call_status(self):
+        return self.call_status
+
+    def get_presentation_status(self):
+        return self.presentation_status
+
+    def get_status(self):
+        self.get_status_called = True
+        return {"call_status": "No Call", "presentation": "Stop"}
+
 
 class DummySession:
     def __init__(self):
