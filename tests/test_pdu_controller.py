@@ -464,6 +464,67 @@ class PDUControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(1, len(started))
         self.window.set_ui_state.assert_not_called()
 
+    def test_accepted_user_refresh_publishes_room_codec_context(self):
+        accepted = []
+        superseded = []
+        self.window.pdu_controller._accepted_refresh_callback = accepted.append
+        self.window.pdu_controller._superseded_callback = superseded.append
+        self.window.on_device_data_received = Mock()
+        started = []
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.screens["pdu"].refresh()
+            worker = started[-1]
+
+        self.assertEqual(1, len(superseded))
+        self.assertEqual("user_refresh_started", superseded[0].reason)
+        self.window.on_pdu_refresh_result(
+            {
+                "device_info": {"model": "IPL T PCS4i"},
+                "outlets": [{"number": 1, "status": "on"}],
+                "ip_address": "192.0.2.44",
+            },
+            worker,
+            worker.descriptor,
+        )
+
+        self.assertEqual(1, len(accepted))
+        self.assertEqual(worker.descriptor.operation_id, accepted[0].refresh_operation_id)
+        self.assertEqual("192.0.2.44", accepted[0].ip_address)
+
+    def test_reconciliation_refresh_does_not_publish_enrichment_trigger(self):
+        accepted = []
+        self.window.pdu_controller._accepted_refresh_callback = accepted.append
+        started = []
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "information"):
+            self.assertTrue(self.window.control_pdu_outlet(1, "on"))
+            mutation_worker = started[-1]
+            self.window.on_pdu_command_result(
+                {
+                    "success": True,
+                    "operation": COMMAND_ON,
+                    "outlet_number": 1,
+                    "state_changing_send_attempted": True,
+                },
+                mutation_worker,
+                mutation_worker.descriptor,
+            )
+
+            reconciliation = started[-1]
+            self.window.on_pdu_refresh_result(
+                {
+                    "device_info": {"model": "IPL T PCS4i"},
+                    "outlets": [{"number": 1, "status": "on"}],
+                    "ip_address": "192.0.2.44",
+                },
+                reconciliation,
+                reconciliation.descriptor,
+            )
+            self.window.on_pdu_refresh_finished(reconciliation, reconciliation.descriptor)
+
+        self.assertEqual([], accepted)
+
 
 if __name__ == "__main__":
     unittest.main()

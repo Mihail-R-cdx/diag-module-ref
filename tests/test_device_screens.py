@@ -152,7 +152,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(2, len(screen.findChildren(SectionCard)))
+        self.assertEqual(3, len(screen.findChildren(SectionCard)))
         self.assertEqual("2.4.1", screen.info_labels["firmware"].text())
         self.assertEqual("Подключено", screen.info_labels["status"].text())
         self.assertEqual(

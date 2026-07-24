@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QScrollArea,
     QSizePolicy,
@@ -69,6 +70,7 @@ class PDUScreen(BaseScreen):
         )
         main_layout.setSpacing(SPACING["md"])
         self.create_info_panel(main_layout)
+        self.create_related_room_codec_panel(main_layout)
         self.create_outlets_table(main_layout)
         self.scroll_area.setWidget(self.content)
         root_layout.addWidget(self.scroll_area)
@@ -94,6 +96,33 @@ class PDUScreen(BaseScreen):
             self.info_labels[field] = row.value_display
             self.info_group.add_widget(row)
         parent_layout.addWidget(self.info_group)
+
+    def create_related_room_codec_panel(self, parent_layout):
+        self.related_group = SectionCard(
+            "Комната и связанный кодек", "◇", self
+        )
+        self.related_rows = {}
+        fields = (
+            ("resolution_status", "Статус inventory"),
+            ("codec_diagnostic_status", "Статус кодека"),
+            ("room_id", "ID комнаты"),
+            ("room_name", "Название комнаты"),
+            ("codec_diagnostic_model", "Модель кодека"),
+            ("codec_ip_address", "IP кодека"),
+            ("call_status", "Статус звонка"),
+            ("presentation_status", "Презентация"),
+        )
+        for field, title in fields:
+            row = ParameterRow(title, "—", self.related_group)
+            row.value_display.setProperty("data_field", True)
+            self.related_rows[field] = row
+            self.related_group.add_widget(row)
+        self.related_message = QLabel("", self.related_group)
+        self.related_message.setWordWrap(True)
+        self.related_message.setProperty("uiRole", "secondary")
+        self.related_group.add_widget(self.related_message)
+        parent_layout.addWidget(self.related_group)
+        self.reset_related_room_codec()
 
     def create_outlets_table(self, parent_layout):
         self.outlets_group = SectionCard(
@@ -186,6 +215,7 @@ class PDUScreen(BaseScreen):
         self.mutation_busy = False
         self.mutation_context = None
         self.mutation_kind = None
+        self.reset_related_room_codec()
         self._sync_bulk_controls()
 
     def update_data(self, data):
@@ -235,6 +265,49 @@ class PDUScreen(BaseScreen):
         elif "status" in self.device_info:
             self.info_rows["status"].set_value(self.device_info["status"])
             self.info_rows["status"].set_state("normal")
+
+    def reset_related_room_codec(self):
+        if not hasattr(self, "related_rows"):
+            return
+        for row in self.related_rows.values():
+            row.set_value("—")
+            row.set_state("inactive")
+        if hasattr(self, "related_message"):
+            self.related_message.setText("")
+
+    def set_related_room_codec(self, payload):
+        if not hasattr(self, "related_rows"):
+            return
+        payload = dict(payload or {})
+        state = "normal"
+        if payload.get("pending"):
+            state = "inactive"
+        elif payload.get("resolution_status") == "RESOLVED" and payload.get("codec_diagnostic_status") == "SUCCESS":
+            state = "success"
+        elif payload.get("resolution_status") != "RESOLVED" or payload.get("codec_diagnostic_status") not in {"NOT_STARTED", "PENDING", "SUCCESS"}:
+            state = "warning"
+
+        values = {
+            "resolution_status": payload.get("resolution_status"),
+            "codec_diagnostic_status": payload.get("codec_diagnostic_status"),
+            "room_id": payload.get("room_id"),
+            "room_name": payload.get("room_name"),
+            "codec_diagnostic_model": payload.get("codec_diagnostic_model") or payload.get("codec_source_model"),
+            "codec_ip_address": payload.get("codec_ip_address"),
+            "call_status": payload.get("call_status"),
+            "presentation_status": payload.get("presentation_status"),
+        }
+        for field, row in self.related_rows.items():
+            value = values.get(field)
+            row.set_value("—" if value in (None, "", (), []) else str(value))
+            row.set_state(state if value not in (None, "", (), []) else "inactive")
+        message_parts = []
+        warnings = payload.get("warnings") or ()
+        if warnings:
+            message_parts.append(", ".join(str(item) for item in warnings))
+        if payload.get("safe_message"):
+            message_parts.append(str(payload["safe_message"]))
+        self.related_message.setText(" · ".join(message_parts))
 
     @staticmethod
     def _is_outlet_on(value):
