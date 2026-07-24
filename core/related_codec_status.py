@@ -10,6 +10,15 @@ from core.exceptions import ProtocolError
 
 
 UNKNOWN_STATUS = "unknown"
+_NON_AUTHORITATIVE_STRINGS = frozenset(
+    {
+        "",
+        "n/a",
+        "unknown",
+        "unavailable",
+        "none",
+    }
+)
 
 _HUAWEI_CALL_COMMANDS = {
     "Huawei TE20": "get_call_status",
@@ -47,6 +56,16 @@ _CALL_STATUS_MAPS = {
 class RelatedCodecStatus:
     call_status: str
     presentation_status: str
+    call_authoritative: bool = False
+    presentation_authoritative: bool = False
+
+    @property
+    def complete(self) -> bool:
+        return self.call_authoritative and self.presentation_authoritative
+
+    @property
+    def has_authoritative_status(self) -> bool:
+        return self.call_authoritative or self.presentation_authoritative
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -95,6 +114,8 @@ class RelatedCodecStatusAdapter:
         return RelatedCodecStatus(
             call_status=call_status or UNKNOWN_STATUS,
             presentation_status=presentation_status or UNKNOWN_STATUS,
+            call_authoritative=call_status is not None,
+            presentation_authoritative=presentation_status is not None,
         )
 
     def _read_huawei_status(self, handler: Any, model: str) -> RelatedCodecStatus:
@@ -108,6 +129,8 @@ class RelatedCodecStatusAdapter:
         return RelatedCodecStatus(
             call_status=call_status or UNKNOWN_STATUS,
             presentation_status=presentation_status or UNKNOWN_STATUS,
+            call_authoritative=call_status is not None,
+            presentation_authoritative=presentation_status is not None,
         )
 
     def _read_polycom_status(self, handler: Any) -> RelatedCodecStatus:
@@ -115,21 +138,17 @@ class RelatedCodecStatusAdapter:
         presentation_status = None
         get_call_status = getattr(handler, "_get_call_status", None)
         if callable(get_call_status):
-            try:
-                call_status = _string_value(get_call_status())
-            except Exception:
-                call_status = None
+            call_status = _string_value(get_call_status())
         get_presentation_status = getattr(handler, "get_presentation_status", None)
         if callable(get_presentation_status):
-            try:
-                presentation_status = _string_value(get_presentation_status())
-            except Exception:
-                presentation_status = None
+            presentation_status = _string_value(get_presentation_status())
         if call_status is None and presentation_status is None:
             raise ProtocolError("Related codec status fields are unavailable.")
         return RelatedCodecStatus(
             call_status=call_status or UNKNOWN_STATUS,
             presentation_status=presentation_status or UNKNOWN_STATUS,
+            call_authoritative=call_status is not None,
+            presentation_authoritative=presentation_status is not None,
         )
 
 
@@ -145,7 +164,7 @@ def _read_huawei_call_status(send_command: Any, model: str) -> str | None:
         call_state = int(state["callstate"])
     except (TypeError, ValueError):
         return None
-    return _CALL_STATUS_MAPS[model].get(call_state, "Unknown")
+    return _CALL_STATUS_MAPS[model].get(call_state)
 
 
 def _read_huawei_presentation_status(send_command: Any, model: str) -> str | None:
@@ -155,7 +174,11 @@ def _read_huawei_presentation_status(send_command: Any, model: str) -> str | Non
     data = _object_data(result.get("data"))
     if "isSendAux" not in data:
         return None
-    return "Start" if data.get("isSendAux") == "auxOpen" else "Stop"
+    if data.get("isSendAux") == "auxOpen":
+        return "Start"
+    if data.get("isSendAux") == "auxClose":
+        return "Stop"
+    return None
 
 
 def _successful_result(result: Any) -> Mapping[str, Any] | None:
@@ -186,6 +209,6 @@ def _string_value(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
-    if not text or text.upper() == "N/A":
+    if text.casefold() in _NON_AUTHORITATIVE_STRINGS:
         return None
     return text

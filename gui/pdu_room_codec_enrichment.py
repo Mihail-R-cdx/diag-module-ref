@@ -304,6 +304,10 @@ class PDURoomCodecEnrichmentController(QObject):
             self._publish_current_failure(generation, operation_id, CodecDiagnosticStatus.PROTOCOL_FAILED)
             self._terminate_session_context()
             return
+        if not bool(getattr(value, "has_authoritative_status", True)):
+            self._publish_current_failure(generation, operation_id, CodecDiagnosticStatus.PROTOCOL_FAILED)
+            self._terminate_session_context()
+            return
         presentation = self._last_presentation_with_status(
             generation,
             operation_id,
@@ -314,7 +318,7 @@ class PDURoomCodecEnrichmentController(QObject):
             return
         profile = payload.get("connection_profile")
         credential_index = payload.get("credential_index")
-        if isinstance(credential_index, int):
+        if bool(getattr(value, "complete", False)) and isinstance(credential_index, int):
             self._success_persistence(
                 presentation.codec_diagnostic_model or payload.get("model"),
                 presentation.codec_ip_address or payload.get("ip_address"),

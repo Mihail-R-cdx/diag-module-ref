@@ -14,7 +14,7 @@ from core.equipment_inventory import (
     EquipmentInventoryMetadata,
     EquipmentRecord,
 )
-from core.exceptions import CodecFailureCategory, ProtocolError
+from core.exceptions import AuthenticationError, CodecFailureCategory, ProtocolError
 from core.interactive_session import (
     InteractiveOperation,
     InteractiveSessionController,
@@ -212,6 +212,9 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
                 normalized = adapter.normalize(model, raw)
                 self.assertNotEqual("unknown", normalized.call_status)
                 self.assertNotEqual("unknown", normalized.presentation_status)
+                self.assertTrue(normalized.call_authoritative)
+                self.assertTrue(normalized.presentation_authoritative)
+                self.assertTrue(normalized.complete)
                 self.assertEqual(
                     {"call_status", "presentation_status"},
                     set(normalized.as_dict()),
@@ -222,9 +225,26 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
         normalized = adapter.normalize("Huawei TE20", {"call_status": "No Call"})
         self.assertEqual("No Call", normalized.call_status)
         self.assertEqual("unknown", normalized.presentation_status)
+        self.assertTrue(normalized.call_authoritative)
+        self.assertFalse(normalized.presentation_authoritative)
+        self.assertFalse(normalized.complete)
+
+        normalized = adapter.normalize("Huawei TE20", {"presentation_status": "Start"})
+        self.assertEqual("unknown", normalized.call_status)
+        self.assertEqual("Start", normalized.presentation_status)
+        self.assertFalse(normalized.call_authoritative)
+        self.assertTrue(normalized.presentation_authoritative)
+        self.assertFalse(normalized.complete)
 
         with self.assertRaises(ProtocolError):
             adapter.normalize("Huawei TE20", {"error": "synthetic read failure"})
+        for sentinel in ("", "N/A", "Unknown", "unknown", "Unavailable", "unavailable", "None"):
+            with self.subTest(sentinel=sentinel):
+                with self.assertRaises(ProtocolError):
+                    adapter.normalize(
+                        "Huawei TE20",
+                        {"call_status": sentinel, "presentation_status": sentinel},
+                    )
         with self.assertRaises(ProtocolError):
             adapter.normalize("Huawei TE20", {})
         with self.assertRaises(ProtocolError):
@@ -267,6 +287,69 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
                 status = RelatedCodecStatusAdapter().read_status(handler, model)
                 self.assertEqual(call_text, status.call_status)
                 self.assertEqual(presentation_text, status.presentation_status)
+                self.assertTrue(status.call_authoritative)
+                self.assertTrue(status.presentation_authoritative)
+                self.assertTrue(status.complete)
+
+    def test_huawei_unknown_protocol_values_are_not_authoritative(self):
+        adapter = RelatedCodecStatusAdapter()
+        cases = (
+            ("Huawei TE20", "get_presentation_local", 99, "auxOpen", "Start"),
+            ("Huawei TE40", "get_presentation", 99, "auxClose", "Stop"),
+            ("CloudLink Bar 310", "get_presentation", 99, "auxOpen", "Start"),
+        )
+        for model, presentation_command, callstate, aux_state, presentation_text in cases:
+            with self.subTest(model=model):
+                handler = FakeHuaweiStatusHandler(
+                    {
+                        "get_call_status": success_response({"state": {"callstate": callstate}}),
+                        presentation_command: success_response({"isSendAux": aux_state}),
+                    }
+                )
+                status = adapter.read_status(handler, model)
+                self.assertEqual("unknown", status.call_status)
+                self.assertEqual(presentation_text, status.presentation_status)
+                self.assertFalse(status.call_authoritative)
+                self.assertTrue(status.presentation_authoritative)
+                self.assertFalse(status.complete)
+
+    def test_huawei_unknown_presentation_values_are_not_authoritative(self):
+        adapter = RelatedCodecStatusAdapter()
+        cases = (
+            ("Huawei TE20", "get_presentation_local", "auxOpening"),
+            ("Huawei TE40", "get_presentation", ""),
+            ("CloudLink Bar 310", "get_presentation", "0"),
+        )
+        for model, presentation_command, aux_state in cases:
+            with self.subTest(model=model):
+                handler = FakeHuaweiStatusHandler(
+                    {
+                        "get_call_status": success_response({"state": {"callstate": 1}}),
+                        presentation_command: success_response({"isSendAux": aux_state}),
+                    }
+                )
+                status = adapter.read_status(handler, model)
+                self.assertNotEqual("unknown", status.call_status)
+                self.assertEqual("unknown", status.presentation_status)
+                self.assertTrue(status.call_authoritative)
+                self.assertFalse(status.presentation_authoritative)
+                self.assertFalse(status.complete)
+
+    def test_huawei_rejects_when_both_protocol_values_are_unknown(self):
+        for model, presentation_command in (
+            ("Huawei TE20", "get_presentation_local"),
+            ("Huawei TE40", "get_presentation"),
+            ("CloudLink Bar 310", "get_presentation"),
+        ):
+            with self.subTest(model=model):
+                handler = FakeHuaweiStatusHandler(
+                    {
+                        "get_call_status": success_response({"state": {"callstate": 99}}),
+                        presentation_command: success_response({"isSendAux": "auxOpening"}),
+                    }
+                )
+                with self.assertRaises(ProtocolError):
+                    RelatedCodecStatusAdapter().read_status(handler, model)
 
     def test_bar310_related_status_does_not_trust_get_status_defaults(self):
         handler = FakeHuaweiStatusHandler(
@@ -293,6 +376,22 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
         status = RelatedCodecStatusAdapter().read_status(handler, "CloudLink Bar 310")
         self.assertEqual("unknown", status.call_status)
         self.assertEqual("Start", status.presentation_status)
+        self.assertFalse(status.call_authoritative)
+        self.assertTrue(status.presentation_authoritative)
+        self.assertFalse(status.complete)
+
+        handler = FakeHuaweiStatusHandler(
+            {
+                "get_call_status": success_response({"state": {"callstate": 3}}),
+                "get_presentation": {"success": 0, "error": {"code": 2}},
+            }
+        )
+        status = RelatedCodecStatusAdapter().read_status(handler, "CloudLink Bar 310")
+        self.assertEqual("Connected", status.call_status)
+        self.assertEqual("unknown", status.presentation_status)
+        self.assertTrue(status.call_authoritative)
+        self.assertFalse(status.presentation_authoritative)
+        self.assertFalse(status.complete)
 
     def test_bar310_related_status_rejects_missing_or_malformed_authoritative_fields(self):
         adapter = RelatedCodecStatusAdapter()
@@ -320,12 +419,56 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
 
         self.assertEqual("Active", status.call_status)
         self.assertEqual("Stop", status.presentation_status)
+        self.assertTrue(status.call_authoritative)
+        self.assertTrue(status.presentation_authoritative)
+        self.assertTrue(status.complete)
         self.assertFalse(handler.get_status_called)
 
+    def test_polycom_related_status_allows_one_authoritative_field_only(self):
+        status = RelatedCodecStatusAdapter().read_status(
+            FakePolycomStatusHandler(call_status="Active", presentation_status="Unknown"),
+            "Polycom RPG 310",
+        )
+        self.assertEqual("Active", status.call_status)
+        self.assertEqual("unknown", status.presentation_status)
+        self.assertTrue(status.call_authoritative)
+        self.assertFalse(status.presentation_authoritative)
+        self.assertFalse(status.complete)
+
+        status = RelatedCodecStatusAdapter().read_status(
+            FakePolycomStatusHandler(call_status="Unavailable", presentation_status="Stop"),
+            "Polycom RPG 310",
+        )
+        self.assertEqual("unknown", status.call_status)
+        self.assertEqual("Stop", status.presentation_status)
+        self.assertFalse(status.call_authoritative)
+        self.assertTrue(status.presentation_authoritative)
+        self.assertFalse(status.complete)
+
     def test_polycom_related_status_rejects_both_fields_unavailable(self):
-        with self.assertRaises(ProtocolError):
+        for call_status, presentation_status in (
+            (None, None),
+            ("", "N/A"),
+            ("Unknown", "Unavailable"),
+            ("unknown", "none"),
+        ):
+            with self.subTest(call_status=call_status, presentation_status=presentation_status):
+                with self.assertRaises(ProtocolError):
+                    RelatedCodecStatusAdapter().read_status(
+                        FakePolycomStatusHandler(
+                            call_status=call_status,
+                            presentation_status=presentation_status,
+                        ),
+                        "Polycom RPG 310",
+                    )
+
+    def test_polycom_structured_status_errors_propagate_to_session_controller(self):
+        with self.assertRaises(AuthenticationError):
             RelatedCodecStatusAdapter().read_status(
-                FakePolycomStatusHandler(call_status=None, presentation_status=None),
+                FakePolycomStatusHandler(
+                    call_status=AuthenticationError("bad credentials"),
+                    presentation_status="Stop",
+                ),
                 "Polycom RPG 310",
             )
 
@@ -357,9 +500,13 @@ class FakePolycomStatusHandler:
         self.get_status_called = False
 
     def _get_call_status(self):
+        if isinstance(self.call_status, BaseException):
+            raise self.call_status
         return self.call_status
 
     def get_presentation_status(self):
+        if isinstance(self.presentation_status, BaseException):
+            raise self.presentation_status
         return self.presentation_status
 
     def get_status(self):
@@ -484,14 +631,71 @@ class EnrichmentControllerTests(unittest.TestCase):
         session.signals.result.emit(
             {
                 "client_token": token,
-                "value": RelatedCodecStatus("Connected", "Start"),
+                "value": RelatedCodecStatus(
+                    "Connected",
+                    "Start",
+                    call_authoritative=True,
+                    presentation_authoritative=True,
+                ),
                 "credential_index": 0,
                 "connection_profile": {"port": 80, "use_ssl": False},
             }
         )
 
         self.assertEqual("SUCCESS", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual("Connected", self.presentations[-1]["call_status"])
+        self.assertEqual("Start", self.presentations[-1]["presentation_status"])
         self.assertEqual(1, len(self.persisted))
+        self.assertEqual(2, session.invalidate_calls)
+
+    def test_partial_call_only_success_does_not_persist_credentials(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": RelatedCodecStatus(
+                    "Connected",
+                    "unknown",
+                    call_authoritative=True,
+                    presentation_authoritative=False,
+                ),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertEqual("SUCCESS", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual("Connected", self.presentations[-1]["call_status"])
+        self.assertEqual("unknown", self.presentations[-1]["presentation_status"])
+        self.assertEqual([], self.persisted)
+        self.assertEqual(2, session.invalidate_calls)
+
+    def test_partial_presentation_only_success_does_not_persist_credentials(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": RelatedCodecStatus(
+                    "unknown",
+                    "Start",
+                    call_authoritative=False,
+                    presentation_authoritative=True,
+                ),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertEqual("SUCCESS", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual("unknown", self.presentations[-1]["call_status"])
+        self.assertEqual("Start", self.presentations[-1]["presentation_status"])
+        self.assertEqual([], self.persisted)
         self.assertEqual(2, session.invalidate_calls)
 
     def test_uninterpretable_status_result_is_protocol_failure_without_persistence(self):
@@ -503,6 +707,24 @@ class EnrichmentControllerTests(unittest.TestCase):
             {
                 "client_token": token,
                 "value": object(),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertEqual("PROTOCOL_FAILED", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual([], self.persisted)
+        self.assertEqual(2, session.invalidate_calls)
+
+    def test_non_authoritative_status_result_is_protocol_failure_without_persistence(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": RelatedCodecStatus("unknown", "unknown"),
                 "credential_index": 0,
                 "connection_profile": {"port": 80, "use_ssl": False},
             }
@@ -537,7 +759,35 @@ class EnrichmentControllerTests(unittest.TestCase):
         session.signals.result.emit(
             {
                 "client_token": token,
-                "value": RelatedCodecStatus("Connected", "Start"),
+                "value": RelatedCodecStatus(
+                    "Connected",
+                    "Start",
+                    call_authoritative=True,
+                    presentation_authoritative=True,
+                ),
+                "credential_index": 0,
+                "connection_profile": {"port": 80, "use_ssl": False},
+            }
+        )
+
+        self.assertTrue(self.presentations[-1]["reset"])
+        self.assertEqual([], self.persisted)
+
+    def test_stale_partial_success_cannot_restore_presentation_or_persist(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        controller.supersede_pdu_context(PDUContextSuperseded(8, "user_refresh_started"))
+        session.signals.result.emit(
+            {
+                "client_token": token,
+                "value": RelatedCodecStatus(
+                    "Connected",
+                    "unknown",
+                    call_authoritative=True,
+                    presentation_authoritative=False,
+                ),
                 "credential_index": 0,
                 "connection_profile": {"port": 80, "use_ssl": False},
             }
