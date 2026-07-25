@@ -841,6 +841,26 @@ class PDUIntegrationScreenTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    TERMINAL_RESOLUTION_MESSAGES = {
+        "INVENTORY_UNAVAILABLE": "База оборудования недоступна.",
+        "PDU_NOT_FOUND": "PDU не найден в базе оборудования.",
+        "AMBIGUOUS_PDU_IP": "В базе найдено несколько устройств с этим IP-адресом.",
+        "PDU_KIND_MISMATCH": "Устройство с этим IP-адресом не классифицировано как PDU.",
+        "ROOM_UNRESOLVED": "Для PDU не указано помещение.",
+        "CODEC_NOT_FOUND": "В помещении не найден кодек ВКС.",
+        "AMBIGUOUS_CODEC": "В помещении найдено несколько кодеков ВКС.",
+        "CODEC_IP_MISSING": "Для связанного кодека не указан IP-адрес.",
+        "CODEC_UNSUPPORTED": "Модель связанного кодека не поддерживается.",
+    }
+
+    def _assert_no_raw_related_fields(self, screen):
+        self.assertNotIn("room_id", screen.related_rows)
+        self.assertNotIn("resolution_status", screen.related_rows)
+        rendered_values = {
+            row.value_display.text() for row in screen.related_rows.values()
+        }
+        self.assertNotIn("ROOM-1", rendered_values)
+
     def test_pdu_screen_renders_inline_failure_without_modal(self):
         from gui.screens.pdu_screen import PDUScreen
 
@@ -864,8 +884,7 @@ class PDUIntegrationScreenTests(unittest.TestCase):
                 }
             )
         critical.assert_not_called()
-        self.assertNotIn("room_id", screen.related_rows)
-        self.assertNotIn("resolution_status", screen.related_rows)
+        self._assert_no_raw_related_fields(screen)
         self.assertEqual(
             "TRANSPORT_FAILED",
             screen.related_rows["codec_diagnostic_status"].value_display.text(),
@@ -876,6 +895,144 @@ class PDUIntegrationScreenTests(unittest.TestCase):
             screen.related_message.text(),
         )
         self.assertTrue(screen.outlets)
+
+    def test_pdu_screen_renders_terminal_resolution_messages_inline(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        for status, expected_message in self.TERMINAL_RESOLUTION_MESSAGES.items():
+            with self.subTest(status=status):
+                screen = PDUScreen()
+                with (
+                    unittest.mock.patch.object(QMessageBox, "critical") as critical,
+                    unittest.mock.patch.object(QMessageBox, "warning") as warning,
+                    unittest.mock.patch.object(QMessageBox, "information") as information,
+                    unittest.mock.patch.object(QMessageBox, "question") as question,
+                ):
+                    screen.update_data(
+                        {
+                            "outlets": [
+                                {"number": 1, "name": "Codec", "status": "on"}
+                            ]
+                        }
+                    )
+                    screen.set_related_room_codec(
+                        {
+                            "resolution_status": status,
+                            "codec_diagnostic_status": "NOT_STARTED",
+                            "room_id": "ROOM-1",
+                            "room_name": "Room One",
+                            "codec_diagnostic_model": "Huawei TE20",
+                            "codec_ip_address": "192.0.2.20",
+                        }
+                    )
+
+                critical.assert_not_called()
+                warning.assert_not_called()
+                information.assert_not_called()
+                question.assert_not_called()
+                self._assert_no_raw_related_fields(screen)
+                self.assertEqual(expected_message, screen.related_message.text())
+                self.assertNotIn(status, screen.related_message.text())
+                self.assertTrue(screen.outlets)
+                self.assertEqual(1, screen.outlets_table.rowCount())
+
+    def test_pdu_screen_resolved_pending_and_success_do_not_show_resolution_failure(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        cases = ("PENDING", "SUCCESS")
+        for codec_status in cases:
+            with self.subTest(codec_status=codec_status):
+                screen = PDUScreen()
+                screen.set_related_room_codec(
+                    {
+                        "resolution_status": "RESOLVED",
+                        "codec_diagnostic_status": codec_status,
+                        "room_id": "ROOM-1",
+                        "room_name": "Room One",
+                        "codec_diagnostic_model": "Huawei TE20",
+                        "codec_ip_address": "192.0.2.20",
+                    }
+                )
+
+                self._assert_no_raw_related_fields(screen)
+                self.assertEqual("", screen.related_message.text())
+
+    def test_pdu_screen_preserves_codec_safe_message_for_resolved_failure(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = PDUScreen()
+        screen.set_related_room_codec(
+            {
+                "resolution_status": "RESOLVED",
+                "codec_diagnostic_status": "TRANSPORT_FAILED",
+                "room_id": "ROOM-1",
+                "room_name": "Room One",
+                "codec_diagnostic_model": "Huawei TE20",
+                "codec_ip_address": "192.0.2.20",
+                "safe_message": "Не удалось получить статус связанного кодека.",
+            }
+        )
+
+        self._assert_no_raw_related_fields(screen)
+        self.assertEqual(
+            "Не удалось получить статус связанного кодека.",
+            screen.related_message.text(),
+        )
+
+    def test_pdu_screen_composes_resolution_warnings_and_safe_message_once(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = PDUScreen()
+        screen.set_related_room_codec(
+            {
+                "resolution_status": "CODEC_NOT_FOUND",
+                "codec_diagnostic_status": "NOT_STARTED",
+                "warnings": (
+                    "В помещении не найден кодек ВКС.",
+                    "ROOM_NAME_CONFLICT",
+                ),
+                "safe_message": "ROOM_NAME_CONFLICT",
+            }
+        )
+
+        self.assertEqual(
+            "В помещении не найден кодек ВКС. · ROOM_NAME_CONFLICT",
+            screen.related_message.text(),
+        )
+
+    def test_pdu_screen_suppresses_legacy_inventory_default_when_localized(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = PDUScreen()
+        screen.set_related_room_codec(
+            {
+                "resolution_status": "INVENTORY_UNAVAILABLE",
+                "codec_diagnostic_status": "NOT_STARTED",
+                "safe_message": "Equipment inventory is unavailable.",
+            }
+        )
+
+        self.assertEqual(
+            "База оборудования недоступна.",
+            screen.related_message.text(),
+        )
+
+    def test_pdu_screen_preserves_non_default_inventory_safe_message(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = PDUScreen()
+        screen.set_related_room_codec(
+            {
+                "resolution_status": "INVENTORY_UNAVAILABLE",
+                "codec_diagnostic_status": "NOT_STARTED",
+                "safe_message": "Equipment inventory unavailable: parse_error.",
+            }
+        )
+
+        self.assertEqual(
+            "База оборудования недоступна. · Equipment inventory unavailable: parse_error.",
+            screen.related_message.text(),
+        )
 
     def test_pdu_screen_reset_payload_clears_related_room_without_warning(self):
         from gui.screens.pdu_screen import PDUScreen

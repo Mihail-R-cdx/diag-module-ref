@@ -25,6 +25,20 @@ from ..theme import SPACING
 from .base_screen import BaseScreen
 
 
+RESOLUTION_STATUS_MESSAGES = {
+    "INVENTORY_UNAVAILABLE": "База оборудования недоступна.",
+    "PDU_NOT_FOUND": "PDU не найден в базе оборудования.",
+    "AMBIGUOUS_PDU_IP": "В базе найдено несколько устройств с этим IP-адресом.",
+    "PDU_KIND_MISMATCH": "Устройство с этим IP-адресом не классифицировано как PDU.",
+    "ROOM_UNRESOLVED": "Для PDU не указано помещение.",
+    "CODEC_NOT_FOUND": "В помещении не найден кодек ВКС.",
+    "AMBIGUOUS_CODEC": "В помещении найдено несколько кодеков ВКС.",
+    "CODEC_IP_MISSING": "Для связанного кодека не указан IP-адрес.",
+    "CODEC_UNSUPPORTED": "Модель связанного кодека не поддерживается.",
+}
+LEGACY_INVENTORY_UNAVAILABLE_MESSAGE = "Equipment inventory is unavailable."
+
+
 class PDUScreen(BaseScreen):
     """Aten outlet status and control screen."""
 
@@ -315,13 +329,51 @@ class PDUScreen(BaseScreen):
             value = values.get(field)
             row.set_value("—" if value in (None, "", (), []) else str(value))
             row.set_state(state if value not in (None, "", (), []) else "inactive")
-        message_parts = []
-        warnings = payload.get("warnings") or ()
-        if warnings:
-            message_parts.append(", ".join(str(item) for item in warnings))
-        if payload.get("safe_message"):
-            message_parts.append(str(payload["safe_message"]))
+        message_parts = self._related_message_parts(payload)
         self.related_message.setText(" · ".join(message_parts))
+
+    @classmethod
+    def _related_message_parts(cls, payload):
+        message_parts = []
+        resolution_message = cls._resolution_message_for(
+            payload.get("resolution_status")
+        )
+        cls._append_unique_message(message_parts, resolution_message)
+        for warning in payload.get("warnings") or ():
+            cls._append_unique_message(message_parts, warning)
+
+        safe_message = payload.get("safe_message")
+        if not cls._is_redundant_legacy_inventory_message(
+            payload.get("resolution_status"),
+            safe_message,
+            resolution_message,
+        ):
+            cls._append_unique_message(message_parts, safe_message)
+        return message_parts
+
+    @staticmethod
+    def _resolution_message_for(status):
+        status_value = getattr(status, "value", status)
+        return RESOLUTION_STATUS_MESSAGES.get(status_value)
+
+    @staticmethod
+    def _append_unique_message(message_parts, message):
+        text = str(message or "").strip()
+        if text and text not in message_parts:
+            message_parts.append(text)
+
+    @staticmethod
+    def _is_redundant_legacy_inventory_message(
+        resolution_status,
+        safe_message,
+        resolution_message,
+    ):
+        status_value = getattr(resolution_status, "value", resolution_status)
+        return (
+            status_value == "INVENTORY_UNAVAILABLE"
+            and resolution_message
+            and str(safe_message or "").strip() == LEGACY_INVENTORY_UNAVAILABLE_MESSAGE
+        )
 
     @staticmethod
     def _is_outlet_on(value):
