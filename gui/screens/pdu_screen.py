@@ -70,8 +70,8 @@ class PDUScreen(BaseScreen):
         )
         main_layout.setSpacing(SPACING["md"])
         self.create_info_panel(main_layout)
-        self.create_related_room_codec_panel(main_layout)
         self.create_outlets_table(main_layout)
+        self.create_related_room_codec_panel(main_layout)
         self.scroll_area.setWidget(self.content)
         root_layout.addWidget(self.scroll_area)
         self.outlet_control_signal.connect(self.on_outlet_control)
@@ -87,7 +87,6 @@ class PDUScreen(BaseScreen):
             ("model", "Модель"),
             ("ip_address", "IP-адрес"),
             ("firmware", "Прошивка"),
-            ("status", "Состояние"),
         )
         for field, title in fields:
             row = ParameterRow(title, "—", self.info_group)
@@ -101,11 +100,10 @@ class PDUScreen(BaseScreen):
         self.related_group = SectionCard(
             "Комната и связанный кодек", "◇", self
         )
+        self.related_group.setProperty("density", "compact")
         self.related_rows = {}
         fields = (
-            ("resolution_status", "Статус inventory"),
             ("codec_diagnostic_status", "Статус кодека"),
-            ("room_id", "ID комнаты"),
             ("room_name", "Название комнаты"),
             ("codec_diagnostic_model", "Модель кодека"),
             ("codec_ip_address", "IP кодека"),
@@ -113,7 +111,7 @@ class PDUScreen(BaseScreen):
             ("presentation_status", "Презентация"),
         )
         for field, title in fields:
-            row = ParameterRow(title, "—", self.related_group)
+            row = ParameterRow(title, "—", self.related_group, compact=True)
             row.value_display.setProperty("data_field", True)
             self.related_rows[field] = row
             self.related_group.add_widget(row)
@@ -249,22 +247,37 @@ class PDUScreen(BaseScreen):
             self._sync_bulk_controls()
 
     def update_info_panel(self):
-        for field in ("model", "ip_address", "firmware"):
+        hide_firmware = self._uses_aten_pe8208av_firmware_rule()
+        firmware_row = self.info_rows["firmware"]
+        firmware_row.setVisible(not hide_firmware)
+
+        for field in ("model", "ip_address"):
             if field in self.device_info:
                 self.info_rows[field].set_value(self.device_info[field])
                 self.info_rows[field].set_state("normal")
 
-        if "connected" in self.device_info:
-            connected = bool(self.device_info["connected"])
-            self.info_rows["status"].set_value(
-                "Подключено" if connected else "Отключено"
-            )
-            self.info_rows["status"].set_state(
-                "success" if connected else "error"
-            )
-        elif "status" in self.device_info:
-            self.info_rows["status"].set_value(self.device_info["status"])
-            self.info_rows["status"].set_state("normal")
+        if hide_firmware:
+            firmware_row.set_value("—")
+            firmware_row.set_state("inactive")
+        elif "firmware" in self.device_info:
+            firmware_row.set_value(self.device_info["firmware"])
+            firmware_row.set_state("normal")
+        else:
+            firmware_row.set_value("—")
+            firmware_row.set_state("inactive")
+
+    def _uses_aten_pe8208av_firmware_rule(self):
+        model_names = [self.device_info.get("model")]
+        parent = getattr(self, "parent", None)
+        device_combo = getattr(parent, "device_combo", None)
+        if device_combo is not None:
+            model_names.append(device_combo.currentText())
+        return any(self._is_aten_pe8208av_model(model) for model in model_names)
+
+    @staticmethod
+    def _is_aten_pe8208av_model(model):
+        normalized = str(model or "").strip()
+        return normalized in {"Aten PE8208AV", "PE8208AV"}
 
     def reset_related_room_codec(self):
         if not hasattr(self, "related_rows"):
@@ -291,9 +304,7 @@ class PDUScreen(BaseScreen):
             state = "warning"
 
         values = {
-            "resolution_status": payload.get("resolution_status"),
             "codec_diagnostic_status": payload.get("codec_diagnostic_status"),
-            "room_id": payload.get("room_id"),
             "room_name": payload.get("room_name"),
             "codec_diagnostic_model": payload.get("codec_diagnostic_model") or payload.get("codec_source_model"),
             "codec_ip_address": payload.get("codec_ip_address"),

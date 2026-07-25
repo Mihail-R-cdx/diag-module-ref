@@ -857,13 +857,24 @@ class PDUIntegrationScreenTests(unittest.TestCase):
                     "resolution_status": "RESOLVED",
                     "codec_diagnostic_status": "TRANSPORT_FAILED",
                     "room_id": "ROOM-1",
+                    "room_name": "Room One",
                     "codec_diagnostic_model": "Huawei TE20",
                     "codec_ip_address": "192.0.2.20",
                     "safe_message": "Codec connection failed.",
                 }
             )
         critical.assert_not_called()
-        self.assertEqual("ROOM-1", screen.related_rows["room_id"].value_display.text())
+        self.assertNotIn("room_id", screen.related_rows)
+        self.assertNotIn("resolution_status", screen.related_rows)
+        self.assertEqual(
+            "TRANSPORT_FAILED",
+            screen.related_rows["codec_diagnostic_status"].value_display.text(),
+        )
+        self.assertEqual("Room One", screen.related_rows["room_name"].value_display.text())
+        self.assertEqual(
+            "Codec connection failed.",
+            screen.related_message.text(),
+        )
         self.assertTrue(screen.outlets)
 
     def test_pdu_screen_reset_payload_clears_related_room_without_warning(self):
