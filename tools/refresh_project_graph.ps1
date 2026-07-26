@@ -19,6 +19,7 @@ Set-StrictMode -Version Latest
 $ExpectedGraphifyVersion = "0.9.26"
 $GraphDirName = "graphify-out"
 $TempDirName = ".graphify-tmp"
+$ApprovedPostArchiveValidationEvidence = "openspec/validation/frozen-project-graph-baseline.post-archive.json"
 $AllowedGenerated = @(
     "graphify-out/graph.json",
     "graphify-out/manifest.json",
@@ -113,6 +114,40 @@ function Test-GitAncestor($Root, $Ancestor, $Descendant) {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
+    $output = (& git -C $Root @Arguments 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail "$FailureMessage`: $output"
+    }
+    return $output
+}
+
+function Assert-TrackedHeadEvidence($SourceRoot, $EvidenceFull) {
+    $relativeEvidencePath = RelPath $EvidenceFull $SourceRoot
+    if ($relativeEvidencePath -ne $ApprovedPostArchiveValidationEvidence) {
+        Fail "Post-archive validation evidence must be exactly $ApprovedPostArchiveValidationEvidence."
+    }
+
+    & git -C $SourceRoot check-ignore --no-index --quiet -- $relativeEvidencePath
+    if ($LASTEXITCODE -eq 0) {
+        Fail "Post-archive validation evidence must not be ignored: $relativeEvidencePath"
+    }
+    if ($LASTEXITCODE -ne 1) {
+        Fail "Unable to verify ignore status for post-archive validation evidence: $relativeEvidencePath"
+    }
+
+    [void](Invoke-GitChecked $SourceRoot @("ls-files", "--error-unmatch", "--", $relativeEvidencePath) "Post-archive validation evidence must be tracked in Git")
+    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:$relativeEvidencePath") "Post-archive validation evidence must exist in SourceRoot HEAD")
+
+    $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:$relativeEvidencePath") "Unable to read HEAD blob for post-archive validation evidence"
+    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$relativeEvidencePath", "--", $EvidenceFull) "Unable to hash working-tree post-archive validation evidence"
+    if ($headBlob -ne $workingBlob) {
+        Fail "Post-archive validation evidence working-tree bytes must match SourceRoot HEAD blob."
+    }
+
+    return $relativeEvidencePath
+}
+
 function Assert-EvidenceCheckPassed($Evidence, $Name) {
     if ($Evidence.PSObject.Properties.Name -notcontains $Name) {
         Fail "Post-archive validation evidence is missing required check: $Name"
@@ -139,13 +174,11 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
     if (-not (Test-Path -LiteralPath $evidenceFull -PathType Leaf)) {
         Fail "Post-archive validation evidence file is missing: $EvidencePath"
     }
+    [void](Assert-TrackedHeadEvidence $SourceRoot $evidenceFull)
     $evidence = Assert-Json $evidenceFull
 
     if ($evidence.change_name -ne "frozen-project-graph-baseline") {
         Fail "Post-archive validation evidence change_name must be frozen-project-graph-baseline."
-    }
-    if ($evidence.validated_source_commit -ne $SourceCommit) {
-        Fail "Post-archive validation evidence validated_source_commit must equal SourceRoot HEAD."
     }
     if ([string]$evidence.archive_commit -notmatch "^[0-9a-f]{40}$") {
         Fail "Post-archive validation evidence archive_commit must be a full commit SHA."
@@ -182,6 +215,9 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
 
     foreach ($check in @("openspec_change_validation", "openspec_all_validation", "python_tests", "git_diff_check")) {
         Assert-EvidenceCheckPassed $evidence $check
+    }
+    if ($evidence.validated_source_commit -ne $SourceCommit) {
+        Fail "Post-archive validation evidence validated_source_commit must equal SourceRoot HEAD."
     }
 }
 
@@ -932,7 +968,6 @@ if ($Mode -eq "InstallExact") {
 }
 
 Assert-GraphifyIgnore $outputRootFull
-Assert-CleanGit $sourceRootFull "Source"
 
 $baselineStageValue = Get-BaselineStageValue $BaselineStage
 $sourceCommit = Get-GitSha $sourceRootFull "HEAD"
@@ -944,6 +979,7 @@ if ($baselineStageValue -eq "final") {
     Assert-FinalSourceContainsGraphifyTooling $sourceRootFull
     Assert-FinalWorkflowGate $sourceRootFull $sourceCommit $PostArchiveValidationEvidence
 }
+Assert-CleanGit $sourceRootFull "Source"
 
 $version = Get-GraphVersion
 if ($version -ne $ExpectedGraphifyVersion) {

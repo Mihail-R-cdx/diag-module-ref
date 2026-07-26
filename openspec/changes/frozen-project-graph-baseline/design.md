@@ -65,12 +65,15 @@ integrity review.
 
 Final generation is gated by repository-verifiable evidence, not by a manual
 boolean flag. The wrapper requires a project-owned post-archive validation JSON
-inside the source tree with `change_name`, `archive_commit`,
-`validated_source_commit`, `openspec_change_validation`,
-`openspec_all_validation`, `python_tests`, and `git_diff_check`. The archive
-commit must be a full SHA and an ancestor of the final source commit, the
-validated source commit must equal source `HEAD`, and all required checks must
-have `status = pass`.
+inside the source tree at exactly
+`openspec/validation/frozen-project-graph-baseline.post-archive.json` with
+`change_name`, `archive_commit`, `validated_source_commit`,
+`openspec_change_validation`, `openspec_all_validation`, `python_tests`, and
+`git_diff_check`. The evidence must be tracked by Git, exist in the source
+`HEAD` tree, not be ignored, and hash to the same Git blob as the committed
+`HEAD` blob after repository filters. The archive commit must be a full SHA and
+an ancestor of the final source commit, the validated source commit must equal
+source `HEAD`, and all required checks must have `status = pass`.
 
 ### 4. Source commit boundary
 
@@ -150,9 +153,12 @@ hostname, credentials, inventory data, ambiguous `indexed_branch`, or
    resolves to source `HEAD`;
 4. verifies final-mode source contains the Graphify wrapper, `.graphifyignore`,
    runbook, and `RULES.md`;
-5. verifies final-mode post-archive evidence JSON, archived change existence,
-   active change absence, archive ancestry, validated source SHA, and required
-   pass-status checks before Graphify generation;
+5. verifies final-mode post-archive evidence JSON uses the exact approved
+   repository path, is tracked, exists in source `HEAD`, is not ignored, has
+   working-tree content hashing to the committed `HEAD` blob after repository
+   filters, and passes archived change existence, active change absence,
+   archive ancestry, validated source SHA, and required pass-status checks
+   before Graphify generation;
 6. requires Graphify exactly 0.9.26;
 7. optionally installs only that exact version in an explicit install mode;
 8. validates `.graphifyignore`;

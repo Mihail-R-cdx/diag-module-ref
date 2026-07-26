@@ -7,6 +7,9 @@ Latest update closes the follow-up non-blocking review note that `BaselineStage
 Final` still needed a repository-verifiable archive/post-archive validation
 gate.
 
+Latest correction addresses the independent `CHANGES REQUIRED` findings for
+`.graphifyignore` hash integrity and stricter final evidence provenance.
+
 ## Git and PR gate
 
 - Repository: `Mihail-R-cdx/diag-module-ref`
@@ -62,12 +65,19 @@ force-push, or Ready-for-review transition was performed.
 ## Final workflow gate
 
 Final-mode wrapper execution now requires
-`-PostArchiveValidationEvidence <path-inside-source-tree>`. This is a
-project-owned JSON evidence file, not a manual `ValidationPassed` flag.
+`-PostArchiveValidationEvidence openspec/validation/frozen-project-graph-baseline.post-archive.json`.
+This is a project-owned JSON evidence file, not a manual `ValidationPassed`
+flag.
 
 The wrapper verifies:
 
 - valid JSON;
+- exact approved repository path;
+- tracked Git file;
+- blob exists in `SourceRoot` `HEAD`;
+- evidence is not ignored;
+- working-tree content hashes to the committed `HEAD` blob after repository
+  filters;
 - `change_name = frozen-project-graph-baseline`;
 - `validated_source_commit` equals `SourceRoot` `HEAD`;
 - `archive_commit` is a full SHA and an ancestor of `SourceRoot` `HEAD`;
@@ -83,6 +93,20 @@ message requiring project-owned post-archive validation evidence. No archive,
 validation evidence file, final graph, or graph rebuild was created in this
 session.
 
+Disposable negative fixtures verified nonzero rejection before Graphify
+generation for missing evidence, evidence in `logs/`, ignored evidence,
+untracked evidence, evidence staged but absent from `HEAD`, modified evidence,
+invalid JSON, wrong `change_name`, unresolved archive commit, failing check
+status, `validated_source_commit` mismatch, missing archived change, and active
+change still present.
+
+A true positive fixture with evidence already committed in `SourceRoot HEAD`
+and `validated_source_commit == SourceRoot HEAD` is self-referential: the commit
+SHA would have to be known inside a blob that participates in the same commit
+SHA. The wrapper therefore enforces the requested invariant, but a real positive
+fixture cannot be constructed without amending the evidence model or using
+non-production Git replacement tricks, which were not used.
+
 ## Current bootstrap graph evidence
 
 - Graphify version: `0.9.26`
@@ -94,7 +118,7 @@ session.
 - Visualization: disabled/rejected; no `graph.html` committed
 - Node count: `3106`
 - Edge count: `8563`
-- Graph SHA-256: `b2923dd69102df258c62f0e216c12694256fe8676982f680d1ed8c0df74bc8e9`
+- Graph SHA-256: `ecc1baf1cf9acf52221720318975657fc40dc2ebcfeb3113837b48efa7b42d0e`
 - Ignore SHA-256: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
 - Generated allowlist: exactly `graphify-out/graph.json`,
   `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and
@@ -144,6 +168,20 @@ previous accepted bootstrap output.
 - Byte-for-byte graph hash may vary with Graphify clustering/report ordering;
   topology and source identities match.
 
+## Ignore hash correction
+
+The bootstrap graph was rebuilt through `tools/refresh_project_graph.ps1` from
+exact `origin/master` using the current committed `.graphifyignore` as the
+authoritative policy. The hash was not edited manually.
+
+- Actual `.graphifyignore` SHA-256 from `Get-FileHash`: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
+- `baseline.json.ignore_file_sha256`: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
+- Hash match: `true`
+- Repro source-file set diff: `0`
+- Repro node identity diff: `0`
+- Repro link identity diff: `0`
+- Repro counts before/after: `3106/8563 -> 3106/8563`
+
 ## Incremental probe
 
 Disposable source worktree started at
@@ -192,7 +230,7 @@ changed.
   passed.
 - Latest `.\openspec.cmd validate --all --strict`: `10 passed, 0 failed`.
 - Latest `python -X faulthandler -m unittest discover -s tests -p "test_*.py"`:
-  `Ran 474 tests in 40.218s`, `OK`.
+  `Ran 474 tests in 40.387s`, `OK`.
 - Latest `git diff --check`: passed.
 
 Implementation status: `READY FOR INDEPENDENT REVIEW` after commit, push, and

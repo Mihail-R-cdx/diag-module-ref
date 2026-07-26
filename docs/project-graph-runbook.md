@@ -102,10 +102,23 @@ Final mode also requires explicit repository-verifiable post-archive validation
 evidence:
 
 ```powershell
--PostArchiveValidationEvidence <path-inside-source-tree>
+-PostArchiveValidationEvidence openspec/validation/frozen-project-graph-baseline.post-archive.json
 ```
 
-The evidence file is project-owned JSON in the source tree. It must contain:
+The evidence file is project-owned JSON in the source tree. The only approved
+repository path is:
+
+```text
+openspec/validation/frozen-project-graph-baseline.post-archive.json
+```
+
+The evidence path must be inside the source tree, match this approved
+repository-relative path exactly, be tracked by Git, exist in `SourceRoot`
+`HEAD`, not be ignored, and hash to the same Git blob as the committed `HEAD`
+blob after repository filters. Ignored, untracked, locally modified,
+missing-from-`HEAD`, or wrong-path evidence is rejected before semantic checks.
+
+It must contain:
 
 ```json
 {
@@ -125,8 +138,9 @@ an ancestor of `SourceRoot` `HEAD`, that an archived
 `frozen-project-graph-baseline` artifact exists under
 `openspec/changes/archive/`, that the active
 `openspec/changes/frozen-project-graph-baseline/` directory is absent, and that
-all required checks have `status = pass`. A pre-archive source tree or missing
-evidence fails nonzero before Graphify generation.
+all required checks have `status = pass`. A pre-archive source tree, missing
+evidence, or evidence that is not committed in `SourceRoot` `HEAD` fails
+nonzero before Graphify generation.
 
 The wrapper reads metadata from `SourceRoot`, stages Graphify execution in a
 temporary build copy, and writes accepted artifacts only under
@@ -173,7 +187,7 @@ reviewed source commit `S` on `agent/frozen-project-graph-baseline` and build
 from a clean source worktree whose `HEAD` equals that explicit source ref:
 
 ```powershell
-.\tools\refresh_project_graph.ps1 -Mode FullRebuild -BaselineStage Final -SourceRoot <post-archive-source-worktree> -SourceRef agent/frozen-project-graph-baseline -OutputRoot . -TargetBranch master -PostArchiveValidationEvidence <path-inside-source-tree>
+.\tools\refresh_project_graph.ps1 -Mode FullRebuild -BaselineStage Final -SourceRoot <post-archive-source-worktree> -SourceRef agent/frozen-project-graph-baseline -OutputRoot . -TargetBranch master -PostArchiveValidationEvidence openspec/validation/frozen-project-graph-baseline.post-archive.json
 ```
 
 The final graph commit must contain only the allowlisted generated artifacts.
@@ -186,7 +200,7 @@ Use incremental refresh only after a completed approved workflow checkpoint,
 normally after archive and post-archive validation:
 
 ```powershell
-.\tools\refresh_project_graph.ps1 -Mode Incremental -BaselineStage Final -SourceRef agent/frozen-project-graph-baseline -TargetBranch master -PostArchiveValidationEvidence <path-inside-source-tree>
+.\tools\refresh_project_graph.ps1 -Mode Incremental -BaselineStage Final -SourceRef agent/frozen-project-graph-baseline -TargetBranch master -PostArchiveValidationEvidence openspec/validation/frozen-project-graph-baseline.post-archive.json
 ```
 
 The wrapper runs Graphify update-check before update in a temporary build copy
@@ -214,7 +228,7 @@ nodes appear, integrity validation fails, topology unexpectedly shrinks, a
 large-change threshold is reached, or an architect explicitly requests rebuild:
 
 ```powershell
-.\tools\refresh_project_graph.ps1 -Mode FullRebuild -BaselineStage Final -SourceRef agent/frozen-project-graph-baseline -TargetBranch master -PostArchiveValidationEvidence <path-inside-source-tree>
+.\tools\refresh_project_graph.ps1 -Mode FullRebuild -BaselineStage Final -SourceRef agent/frozen-project-graph-baseline -TargetBranch master -PostArchiveValidationEvidence openspec/validation/frozen-project-graph-baseline.post-archive.json
 ```
 
 Full rebuild regenerates from a clean source state through the same temporary

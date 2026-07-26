@@ -92,6 +92,11 @@ secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
   `RULES.md`
 - **AND** the wrapper verifies valid project-owned evidence JSON with
   `change_name = frozen-project-graph-baseline`
+- **AND** the evidence path is exactly
+  `openspec/validation/frozen-project-graph-baseline.post-archive.json`
+- **AND** the evidence is tracked by Git, exists in the source `HEAD` tree, is
+  not ignored, and hashes to the same Git blob as the committed `HEAD` blob
+  after repository filters
 - **AND** `validated_source_commit` equals the source worktree `HEAD`
 - **AND** `archive_commit` is an ancestor of the source worktree `HEAD`
 - **AND** an archived `frozen-project-graph-baseline` artifact exists under
@@ -101,6 +106,14 @@ secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
   `python_tests`, and `git_diff_check` have `status = pass`
 - **AND** the final graph-only commit contains only allowlisted generated graph
   artifacts.
+
+#### Scenario: Final evidence is local-only or tampered
+
+- **WHEN** final generation receives evidence from an ignored path, untracked
+  file, file absent from source `HEAD`, wrong repository path, or tracked file
+  modified after commit
+- **THEN** the wrapper fails nonzero before Graphify generation
+- **AND** does not publish graph artifacts.
 
 #### Scenario: Graph artifacts are stored in a following commit
 
