@@ -1,12 +1,14 @@
 ﻿{
-    "schema_version":  1,
+    "schema_version":  2,
     "generator":  "graphify",
     "graphify_version":  "0.9.26",
     "mode":  "code-only",
+    "baseline_stage":  "bootstrap",
     "indexed_source_commit":  "7e83d303dd997f59987d5007fff9ea56b7d10efc",
-    "indexed_branch":  "master",
-    "generated_at":  "2026-07-26T12:20:38Z",
-    "graph_sha256":  "ccb423f992d3b1b147807fc177ca95e5d75c3f00fdba05045a51906383d972fe",
+    "indexed_source_ref":  "origin/master",
+    "target_branch":  "master",
+    "generated_at":  "2026-07-26T15:23:19Z",
+    "graph_sha256":  "b2923dd69102df258c62f0e216c12694256fe8676982f680d1ed8c0df74bc8e9",
     "ignore_file_sha256":  "755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f",
     "node_count":  3106,
     "edge_count":  8563

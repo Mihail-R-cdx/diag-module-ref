@@ -4,17 +4,21 @@
 - cluster-only mode — file stats not available
 
 ## Summary
-- 3106 nodes · 8563 edges · 121 communities (91 shown, 30 thin omitted)
+- 3106 nodes · 8563 edges · 120 communities (91 shown, 29 thin omitted)
 - Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 1099 edges (avg confidence: 0.52)
 - Token cost: 0 input · 0 output
 
-## Frozen Baseline Policy
+## Bootstrap Frozen Baseline Policy
 - Built from source commit: `7e83d303dd997f59987d5007fff9ea56b7d10efc`
-- This is a frozen project baseline.
+- Indexed source ref: `origin/master`
+- Target branch: `master`
+- Stage: bootstrap, pre-archive, non-final.
+- This frozen project baseline verifies the initial Graphify integration, wrapper, corpus filters, security scans, smoke queries, and reproducibility.
+- This graph is not the navigation baseline for the next change.
 - Do not rebuild or incrementally update the graph during active implementation, review, testing, or validation.
 - Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.
 - Compare `indexed_source_commit` with the current branch and analyze the branch diff separately.
-- Refresh only at the approved post-archive graph checkpoint.
+- Build the final baseline only after independent review, archive, and post-archive validation.
 
 ## Community Hubs (Navigation)
 - Community 0
@@ -50,7 +54,7 @@
 - Community 31
 - Community 32
 - Community 33
-- Community 35
+- Community 34
 - Community 36
 - Community 37
 - Community 38
@@ -72,9 +76,9 @@
 - Community 54
 - Community 55
 - Community 56
-- Community 57
 - Community 58
 - Community 59
+- Community 60
 - Community 61
 - Community 62
 - Community 63
@@ -82,7 +86,7 @@
 - Community 65
 - Community 66
 - Community 67
-- Community 68
+- Community 69
 - Community 70
 - Community 71
 - Community 72
@@ -113,15 +117,14 @@
 - Community 99
 - Community 100
 - Community 101
-- Community 102
 - Community 103
 - Community 104
 - Community 105
 - Community 106
 - Community 107
 - Community 108
-- Community 110
-- Community 112
+- Community 109
+- Community 111
 - Community 113
 - Community 114
 - Community 115
@@ -156,7 +159,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (121 total, 30 thin omitted)
+## Communities (120 total, 29 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.05
@@ -254,65 +257,65 @@ Nodes (11): ExtronIN1804Handler, Обработчик для видеоматр�
 Cohesion: 0.10
 Nodes (3): HandlerSessionFailureTests, RaisingOpener, RequestsResponse
 
-### Community 31 - "Community 31"
+### Community 30 - "Community 30"
+Cohesion: 0.12
+Nodes (9): is_supported_dmp64_plus_variant(), require_assigned_credentials(), ExtronDMP64PlusHandler, _looks_like_paramiko_authentication(), _ParamikoDMPSession, Any, BaseException, Extron DMP 64 Plus SIS-over-SSH meter handler. (+1 more)
+
+### Community 32 - "Community 32"
 Cohesion: 0.12
 Nodes (14): CommandError, CommandOutcomeUnknownError, CredentialRequired, ParseError, The device requested a credential, but none was assigned for this attempt., Ошибка выполнения команды на устройстве, Ошибка парсинга данных, A state-changing command may have reached the device without a reply. (+6 more)
 
-### Community 35 - "Community 35"
+### Community 36 - "Community 36"
 Cohesion: 0.13
 Nodes (17): Credential, normalize_credential(), Any, Resolve an explicitly requested or device-mapped profile., Resolve ordered candidates while keeping single-provider compatibility., Validate direct caller/test injection with the same profile rules., Apply source priority: direct input, explicit profile, model mapping., Apply source priority and return all request-scoped candidates. (+9 more)
 
-### Community 36 - "Community 36"
+### Community 37 - "Community 37"
 Cohesion: 0.10
 Nodes (26): build_identity_command(), build_read_command(), build_recovery_command(), _channel_result(), _clean_command_echo(), _clean_frame(), dbfs_from_raw_meter(), DMPMeterChannel (+18 more)
 
-### Community 37 - "Community 37"
+### Community 38 - "Community 38"
 Cohesion: 0.17
 Nodes (3): ExtronIPLTPCS4iHandler, Any, Handler for PCS4i authoritative Telnet control and optional HTTP names.
 
-### Community 38 - "Community 38"
+### Community 39 - "Community 39"
 Cohesion: 0.14
 Nodes (13): BaseScreen, QWidget, Обновление данных экрана, Apply a shared state without replacing device-specific layouts., coerce_ui_state(), Enum, str, Shared semantic states for device screens and application operations. (+5 more)
 
-### Community 39 - "Community 39"
+### Community 40 - "Community 40"
 Cohesion: 0.15
 Nodes (12): Обновление данных в зависимости от устройства, Refresh Biamp Tesira Forte CI read-only audio-DSP status., Start one Bar 310 attempt with the GUI-selected credential., Start one TE20 attempt with the GUI-selected credential., Обновление данных Huawei TE40 с перебором credentials, Обновление данных Polycom RPG 310 с перебором credentials, Обновление данных Extron IN1804 с перебором credentials, Исправление SIP регистрации для Huawei TE20 (+4 more)
 
-### Community 40 - "Community 40"
+### Community 41 - "Community 41"
 Cohesion: 0.09
 Nodes (8): CallLogWindow, QDialog, Window for displaying the last codec call records., Fill the table with up to ten latest call records., Placeholder for device-specific call history commands., PasswordDialog, ReleaseUIOffscreenTest, SavedPasswordDisclosureRegressionTest
 
-### Community 41 - "Community 41"
+### Community 42 - "Community 42"
 Cohesion: 0.11
 Nodes (6): CodecScreen, Обработчик нажатия кнопки "Исправить" для SIP регистрации, Обновление отображения статуса презентации в GUI., Осветлить HEX цвет на указанный процент, Обновление данных экрана, Совместимый helper: разделение теперь задаёт общая тема строк.
 
-### Community 43 - "Community 43"
+### Community 44 - "Community 44"
 Cohesion: 0.14
 Nodes (16): order_codec_profiles(), _profile_key(), Any, Pure model/runtime codec transport ordering shared by all codec paths., Return the currently supported default profiles for one codec model., Put a supported saved profile first and deduplicate by port/SSL mode., supported_codec_profiles(), HuaweiTE20Worker (+8 more)
 
-### Community 44 - "Community 44"
+### Community 45 - "Community 45"
 Cohesion: 0.15
 Nodes (21): application_root(), CredentialProvider, default_credentials_path(), ABC, Path, Local credential profile resolution at the application/core boundary.  Only th, Replaceable source of resolved request-scoped credentials., Resolve the project root from this stable module path, never ``cwd``. (+13 more)
 
-### Community 45 - "Community 45"
+### Community 46 - "Community 46"
 Cohesion: 0.18
 Nodes (5): build_meter_snapshot(), DMPTransportSession, Serialized SIS transaction layer for one DMP SSH channel/session., DMPProtocolTests, FakeChannel
 
-### Community 46 - "Community 46"
+### Community 47 - "Community 47"
 Cohesion: 0.10
 Nodes (11): ProtocolFactory, Фабрика для создания обработчиков протоколов., Зарегистрировать новый обработчик, Создает обработчик протокола указанного типа, Получить список поддерживаемых устройств, Core package exports with lazy imports., AtenPDUDataParser, Парсер данных для PDU Aten (+3 more)
 
-### Community 47 - "Community 47"
+### Community 48 - "Community 48"
 Cohesion: 0.14
 Nodes (10): BiampTesiraForteCIDataParser, Parser for Biamp Tesira Forte CI read-only audio-DSP status., BiampTesiraForteCIHandler, Collect read-only Input/Meter subscription values from Tesira TTP., Handler package exports with lazy imports., BiampGUIBoundaryTest, BiampHandlerParserTest, BiampMainWindowRoutingTest (+2 more)
 
-### Community 48 - "Community 48"
+### Community 49 - "Community 49"
 Cohesion: 0.11
 Nodes (13): ClickableImageWidget, load_database_excel(), load_database_json(), MainSchemeWindow, QWidget, Фильтрует список помещений в ComboBox на основе текста в поиске., Обновляет элементы в ComboBox, сохраняя текущий выбор, если возможно., Вызывается при выборе помещения в списке (клик или Enter). (+5 more)
-
-### Community 49 - "Community 49"
-Cohesion: 0.14
-Nodes (9): DMPCancellationToken, DMPCancelled, The application-owned polling context was cancelled or superseded., Small thread-safe cancellation handle owned by the composition layer., wait_cancelable(), ExtronDMP64PlusMeterWorker, QRunnable, Long-lived DMP 64 Plus physical meter polling worker. (+1 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.15
@@ -335,78 +338,78 @@ Cohesion: 0.11
 Nodes (14): ExtronIN1804DataParser, Парсер данных для Extron IN1804, Преобразование сырых данных в формат для GUI, MatrixBackgroundOperation, _MatrixCleanupOperation, MatrixOperationFailure, MatrixOperationHandle, MatrixOperationSignals (+6 more)
 
 ### Community 56 - "Community 56"
-Cohesion: 0.12
-Nodes (9): is_supported_dmp64_plus_variant(), require_assigned_credentials(), ExtronDMP64PlusHandler, _looks_like_paramiko_authentication(), _ParamikoDMPSession, Any, BaseException, Extron DMP 64 Plus SIS-over-SSH meter handler. (+1 more)
-
-### Community 57 - "Community 57"
-Cohesion: 0.18
-Nodes (3): Обновление отображения громкости в GUI, Обновление данных на экране, Преобразует строку вида '12' или '12%' в число.
-
-### Community 58 - "Community 58"
 Cohesion: 0.11
 Nodes (8): QDialog, Compatibility delegate for Extron DMP 64 Plus polling., Показать диалог ввода пароля с кастомными стилями, Показать диалог ввода логина и пароля., Вернуть логин по умолчанию для устройства., Создание верхней панели с выпадающим списком и IP-адресом, Обработка изменения выбранного устройства, QLineEdit
 
-### Community 61 - "Community 61"
+### Community 58 - "Community 58"
 Cohesion: 0.21
 Nodes (5): active_chain(), Bar310CredentialRetryOwnershipTests, collect_outcomes(), RemainingProductionWorkerRetryOwnershipTests, TE20CredentialRetryOwnershipTests
 
-### Community 62 - "Community 62"
+### Community 59 - "Community 59"
 Cohesion: 0.20
 Nodes (9): build_output_dir(), main(), parse_args(), prompt_value(), Namespace, Path, SSHHelpCollector, strip_ansi() (+1 more)
 
-### Community 63 - "Community 63"
+### Community 60 - "Community 60"
 Cohesion: 0.11
 Nodes (3): Return one finite request cursor without mutating successful-index memory., Обновление IP адреса для выбранного устройства, Resolve all candidates once before any worker or handler is created.
 
-### Community 65 - "Community 65"
+### Community 61 - "Community 61"
+Cohesion: 0.16
+Nodes (4): Обновление отображения громкости в GUI, Преобразование данных из парсера в формат GUI, Обновление данных на экране, Преобразует строку вида '12' или '12%' в число.
+
+### Community 63 - "Community 63"
+Cohesion: 0.14
+Nodes (9): DMPCancellationToken, DMPCancelled, The application-owned polling context was cancelled or superseded., Small thread-safe cancellation handle owned by the composition layer., wait_cancelable(), ExtronDMP64PlusMeterWorker, QRunnable, Long-lived DMP 64 Plus physical meter polling worker. (+1 more)
+
+### Community 64 - "Community 64"
 Cohesion: 0.13
 Nodes (6): Исправление SIP регистрации для Huawei TE40, Обработчик нажатия кнопки 'Исправить' для SIP регистрации, Исправление SIP регистрации для Polycom RPG 310, Подготовить параметры подключения для SIP fix., Запустить установку SIP сервера в фоновом потоке., Исправление SIP регистрации для CloudLink Bar 310.
 
-### Community 66 - "Community 66"
+### Community 65 - "Community 65"
 Cohesion: 0.17
 Nodes (4): MatrixScreen, Reset displayed values without losing the selected route., Extron routing screen with the original switching contract., Publish a non-secret route intent.
 
-### Community 68 - "Community 68"
+### Community 67 - "Community 67"
 Cohesion: 0.13
 Nodes (9): Any, Получить информацию об устройстве, Получить системную информацию, Получить статус вызова, Получить статус аудио, Получить статус видео, Return TE20 HTTPS transport diagnostics before any network activity starts., Очистка строки версии от служебных символов (+1 more)
 
-### Community 70 - "Community 70"
+### Community 69 - "Community 69"
 Cohesion: 0.16
 Nodes (6): HuaweiTE40DataParser, Парсер данных для Huawei TE40, Парсинг сырых данных от Huawei кодеков, Очистка версии ПО - ИСПРАВЛЕНО, Преобразование статуса презентации, RequestLifecycleRegressionTests
 
-### Community 71 - "Community 71"
+### Community 70 - "Community 70"
 Cohesion: 0.12
 Nodes (5): EthernetClientInterface, EthernetClass, SerialClass, SerialOverEthernetClass, SerialInterface
 
-### Community 72 - "Community 72"
+### Community 71 - "Community 71"
 Cohesion: 0.17
 Nodes (3): AudioDSPScreen, Read-only Biamp signal status screen., BiampAudioDSPScreenTest
 
-### Community 73 - "Community 73"
+### Community 72 - "Community 72"
 Cohesion: 0.14
 Nodes (4): Submit desired presentation state without blocking the GUI thread., Возвращает актуальные credentials с учётом IP-специфичного индекса., Read speaker volume on the serialized background lane., Read microphone mute/gain on the serialized background lane.
 
-### Community 75 - "Community 75"
+### Community 74 - "Community 74"
 Cohesion: 0.29
 Nodes (3): JsonCredentialProvider, Version-one plain-text JSON provider using only the standard ``json`` module., JsonCredentialProviderTests
 
-### Community 76 - "Community 76"
+### Community 75 - "Community 75"
 Cohesion: 0.19
 Nodes (7): HuaweiBar310DataParser, Парсер данных для Huawei CloudLink Bar 310, Парсинг сырых данных от Huawei CloudLink Bar 310, Преобразование типа вызова, Преобразование состояния конференции, Преобразование режима сна, Преобразование статуса микрофона (для Bar 310: On - выключен, Off - включен)
 
-### Community 77 - "Community 77"
+### Community 76 - "Community 76"
 Cohesion: 0.18
 Nodes (6): ExtronIN1804Worker, QRunnable, Worker для опроса матрицы Extron IN1804, collect(), ExtronIN1804WorkerRuntimeTests, ProductionWorkerOutcomeContractTests
 
-### Community 78 - "Community 78"
+### Community 77 - "Community 77"
 Cohesion: 0.18
 Nodes (7): PolycomDataParser, Преобразование статуса SIP, Парсер данных для Polycom устройств, Парсинг сырых данных от Polycom устройств, Преобразование статуса Selfview, Преобразование настроек LAN, Преобразование статуса двух мониторов
 
-### Community 79 - "Community 79"
-Cohesion: 0.19
-Nodes (3): Изменение громкости на 1 единицу, Submit an absolute target, preserving relative-button intent metadata., Возвращает текущее значение громкости из кеша или из отображаемой строки.
+### Community 78 - "Community 78"
+Cohesion: 0.16
+Nodes (3): Перестраивает карточки, сохраняя публичные ссылки на controls., Создаёт строки через общие компоненты этапа 4., Match firmware value edges to the two detail value columns.
 
-### Community 80 - "Community 80"
+### Community 79 - "Community 79"
 Cohesion: 0.17
 Nodes (8): Any, Получить текст ошибки, Получение полного статуса устройства, Получить информацию об устройстве, Получить системную информацию, Получить статус вызова, Получить статус аудио, Получить статус видео
 
@@ -419,8 +422,8 @@ Cohesion: 0.28
 Nodes (14): build_action_path(), http_post(), load_credentials(), load_ip_list(), main(), parse_args(), parse_json(), ping_probe() (+6 more)
 
 ### Community 85 - "Community 85"
-Cohesion: 0.14
-Nodes (4): Обработчик нажатия кнопки изменения громкости, Перестраивает карточки, сохраняя публичные ссылки на controls., Создаёт строки через общие компоненты этапа 4., Match firmware value edges to the two detail value columns.
+Cohesion: 0.15
+Nodes (5): Обработчик нажатия кнопки изменения громкости, Изменение громкости на 1 единицу, Submit an absolute target, preserving relative-button intent metadata., Submit mute/gain as an absolute desired state, never as a toggle., Возвращает текущее значение громкости из кеша или из отображаемой строки.
 
 ### Community 86 - "Community 86"
 Cohesion: 0.15
@@ -458,23 +461,23 @@ Nodes (8): @fission-ai/openspec, description, devDependencies, @fission-ai/opens
 Cohesion: 0.25
 Nodes (4): Инициализация интерфейса, Создание виджета-заглушки с надписью Обновите данные, Apply the centralized theme for direct window construction., Создание панели времени обновления
 
-### Community 102 - "Community 102"
+### Community 103 - "Community 103"
 Cohesion: 0.33
 Nodes (5): ParserFactory, Any, Фабрика для получения парсера по типу устройства, Получить парсер для указанного типа устройства, Удобный метод для парсинга данных
 
-### Community 103 - "Community 103"
+### Community 104 - "Community 104"
 Cohesion: 0.33
 Nodes (3): QLabel, Compact round SIP registration state without an external icon pack., SIPRegistrationIndicator
 
-### Community 107 - "Community 107"
+### Community 108 - "Community 108"
 Cohesion: 0.47
 Nodes (5): build_legacy_context(), main(), parse_args(), Namespace, SSLContext
 
-### Community 108 - "Community 108"
+### Community 109 - "Community 109"
 Cohesion: 0.60
 Nodes (4): inspect_media_nodes(), main(), Inspect the Huawei endpoint UI without changing the diagnostic application.  U, visible_summary()
 
-### Community 112 - "Community 112"
+### Community 113 - "Community 113"
 Cohesion: 0.50
 Nodes (4): main(), parse_args(), Namespace, Run one sanitized, read-only GUI refresh against approved hardware.  The scrip
 
@@ -485,16 +488,16 @@ Nodes (3): main(), Read Huawei endpoint SSH CLI help without changing configurat
 ## Knowledge Gaps
 - **5 isolated node(s):** `name`, `private`, `description`, `@fission-ai/openspec`, `node`
   These have ≤1 connection - possible missing edges or undocumented components.
-- **30 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **29 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `VCSDiagnosticApp` connect `Community 9` to `Community 0`, `Community 6`, `Community 8`, `Community 13`, `Community 17`, `Community 18`, `Community 22`, `Community 23`, `Community 25`, `Community 27`, `Community 32`, `Community 35`, `Community 36`, `Community 38`, `Community 39`, `Community 40`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 48`, `Community 49`, `Community 58`, `Community 63`, `Community 64`, `Community 65`, `Community 70`, `Community 74`, `Community 75`, `Community 81`, `Community 86`, `Community 87`, `Community 88`, `Community 92`, `Community 100`, `Community 101`, `Community 104`, `Community 109`, `Community 112`?**
+- **Why does `VCSDiagnosticApp` connect `Community 9` to `Community 0`, `Community 6`, `Community 8`, `Community 13`, `Community 17`, `Community 18`, `Community 22`, `Community 23`, `Community 25`, `Community 27`, `Community 33`, `Community 36`, `Community 37`, `Community 39`, `Community 40`, `Community 41`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 49`, `Community 56`, `Community 60`, `Community 62`, `Community 63`, `Community 64`, `Community 69`, `Community 73`, `Community 74`, `Community 81`, `Community 86`, `Community 87`, `Community 88`, `Community 92`, `Community 100`, `Community 101`, `Community 105`, `Community 110`, `Community 113`?**
   _High betweenness centrality (0.212) - this node is a cross-community bridge._
-- **Why does `AuthenticationError` connect `Community 8` to `Community 0`, `Community 1`, `Community 3`, `Community 5`, `Community 6`, `Community 9`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 19`, `Community 20`, `Community 24`, `Community 26`, `Community 28`, `Community 29`, `Community 31`, `Community 36`, `Community 37`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 49`, `Community 50`, `Community 54`, `Community 56`, `Community 61`, `Community 67`, `Community 77`, `Community 87`, `Community 88`, `Community 94`, `Community 95`, `Community 96`, `Community 105`?**
+- **Why does `AuthenticationError` connect `Community 8` to `Community 0`, `Community 1`, `Community 3`, `Community 5`, `Community 6`, `Community 9`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 19`, `Community 20`, `Community 24`, `Community 26`, `Community 28`, `Community 29`, `Community 30`, `Community 32`, `Community 37`, `Community 38`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 50`, `Community 54`, `Community 58`, `Community 63`, `Community 66`, `Community 76`, `Community 87`, `Community 88`, `Community 94`, `Community 95`, `Community 96`, `Community 106`?**
   _High betweenness centrality (0.167) - this node is a cross-community bridge._
-- **Why does `ConnectionError` connect `Community 8` to `Community 0`, `Community 1`, `Community 3`, `Community 5`, `Community 6`, `Community 9`, `Community 14`, `Community 15`, `Community 19`, `Community 24`, `Community 26`, `Community 28`, `Community 31`, `Community 36`, `Community 37`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 47`, `Community 49`, `Community 50`, `Community 56`, `Community 64`, `Community 87`, `Community 88`, `Community 94`, `Community 95`, `Community 105`, `Community 115`?**
+- **Why does `ConnectionError` connect `Community 8` to `Community 0`, `Community 1`, `Community 3`, `Community 5`, `Community 6`, `Community 9`, `Community 14`, `Community 15`, `Community 19`, `Community 24`, `Community 26`, `Community 28`, `Community 30`, `Community 32`, `Community 37`, `Community 38`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 48`, `Community 50`, `Community 62`, `Community 63`, `Community 87`, `Community 88`, `Community 94`, `Community 95`, `Community 106`, `Community 115`?**
   _High betweenness centrality (0.116) - this node is a cross-community bridge._
 - **Are the 41 inferred relationships involving `VCSDiagnosticApp` (e.g. with `CredentialAttemptPlan` and `JsonCredentialProvider`) actually correct?**
   _`VCSDiagnosticApp` has 41 INFERRED edges - model-reasoned connections that need verification._

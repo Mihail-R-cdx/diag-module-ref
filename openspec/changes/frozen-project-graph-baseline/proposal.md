@@ -10,8 +10,9 @@ Agents currently orient themselves by repeatedly opening broad portions of the r
 - Pin the pilot generator to `graphifyy==0.9.26`; Graphify remains isolated developer tooling, not an application runtime dependency.
 - Add a human-authored `.graphifyignore`, `docs/project-graph-runbook.md`, and `tools/refresh_project_graph.ps1`.
 - Commit only approved generated artifacts: `graphify-out/graph.json`, `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and project-owned `graphify-out/baseline.json`, subject to implementation-time verification of actual 0.9.26 output requirements.
-- Build the initial graph with code-only, no-visualization behavior; do not index OpenSpec Markdown, real inventory, secrets, temporary worktrees, or generated graph output.
-- Freeze the graph throughout active implementation and validation. Refresh only after archive and post-archive validation, in a separate graph-only commit.
+- Build the implementation-review graph as an explicit `bootstrap` baseline with code-only, no-visualization behavior; do not index OpenSpec Markdown, real inventory, secrets, temporary worktrees, or generated graph output.
+- Treat bootstrap as pre-archive and non-final. Build the `final` baseline only after independent review, archive, and post-archive validation, in a separate graph-only commit.
+- Freeze the graph throughout ordinary active implementation and validation. Refresh only at approved workflow checkpoints.
 - Define source authority, staleness, evidence, reproducibility, incremental-update, full-rebuild, deletion/rename, security, and failure policies.
 - Add only a short Graphify policy section to `RULES.md`; detailed operation belongs in the runbook.
 

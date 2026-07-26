@@ -29,6 +29,11 @@ a frozen baseline tied to `graphify-out/baseline.json`, not a model of every
 active branch and not a replacement for this file, OpenSpec, current source, or
 tests.
 
+If `baseline.json.baseline_stage` is `bootstrap`, the graph is pre-archive and
+non-final. Use it only for implementation review of the Graphify workflow; the
+next ordinary change uses the `final` baseline produced after independent
+review, archive, post-archive validation, and a graph-only commit.
+
 Before using the graph, read this file, applicable OpenSpec artifacts,
 `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`. Verify the
 full `indexed_source_commit` and analyze the current branch diff separately.

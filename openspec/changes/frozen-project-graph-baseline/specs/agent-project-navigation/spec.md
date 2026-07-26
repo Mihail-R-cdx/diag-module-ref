@@ -38,7 +38,11 @@ The pilot generator SHALL be the isolated package `graphifyy==0.9.26`, invoked t
 #### Scenario: Wrapper starts a build or refresh
 
 - **WHEN** `tools/refresh_project_graph.ps1` starts graph generation
-- **THEN** it verifies the repository root, exact Graphify version, clean required source state, full source SHA, and `.graphifyignore`
+- **THEN** it verifies the repository root, exact Graphify version, clean
+  required source state, explicit baseline stage, source ref, target branch,
+  full source SHA, and `.graphifyignore`
+- **AND** it verifies that the explicit source ref resolves to the source
+  worktree `HEAD`
 - **AND** fails nonzero when any prerequisite or Graphify command fails.
 
 ### Requirement: Initial graph is local code-only and has no visualization
@@ -54,7 +58,31 @@ The first baseline SHALL index only the actual supported code corpus using code-
 
 ### Requirement: Baseline metadata proves the indexed source
 
-`graphify-out/baseline.json` SHALL use schema version 1 and record generator, exact Graphify version, mode, full indexed source SHA, indexed branch, UTC generation time, graph and ignore-file SHA-256 hashes, and node/edge counts. It SHALL contain no user-specific path or secret.
+`graphify-out/baseline.json` SHALL use schema version 2 and record generator,
+exact Graphify version, mode, baseline stage, full indexed source SHA, indexed
+source ref, target branch, UTC generation time, graph and ignore-file SHA-256
+hashes, and node/edge counts. It SHALL NOT contain user-specific paths,
+secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
+
+#### Scenario: Bootstrap graph is generated
+
+- **WHEN** bootstrap generation runs
+- **THEN** metadata records `baseline_stage = bootstrap`
+- **AND** `indexed_source_ref` resolves to the exact indexed source commit
+- **AND** `target_branch` identifies the merge target
+- **AND** the report states that the graph is pre-archive, non-final, and not
+  the navigation baseline for the next ordinary change.
+
+#### Scenario: Final graph is generated
+
+- **WHEN** final generation runs after independent review, archive, and
+  post-archive validation
+- **THEN** metadata records `baseline_stage = final`
+- **AND** the source commit includes the reviewed production/test state,
+  archived OpenSpec state, Graphify wrapper, `.graphifyignore`, runbook, and
+  `RULES.md`
+- **AND** the final graph-only commit contains only allowlisted generated graph
+  artifacts.
 
 #### Scenario: Graph artifacts are stored in a following commit
 
@@ -86,6 +114,14 @@ During architecture implementation, independent review, testing, and validation,
 ### Requirement: Refresh occurs at a controlled post-archive checkpoint
 
 The standard graph-enabled workflow SHALL refresh after archive and post-archive validation, using the final source state, followed by a separate graph-only commit and lightweight integrity review.
+
+#### Scenario: Implementation review uses bootstrap only
+
+- **WHEN** the architecture implementation is still under independent review
+- **THEN** agents may rebuild the bootstrap graph to validate the Graphify
+  workflow
+- **AND** they SHALL NOT build the final graph, archive, merge, or mark the PR
+  ready.
 
 #### Scenario: Small completed change qualifies for incremental refresh
 

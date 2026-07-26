@@ -1,6 +1,9 @@
 param(
     [ValidateSet("Initial", "Incremental", "FullRebuild", "InstallExact")]
     [string]$Mode = "Initial",
+    [string]$BaselineStage = "",
+    [string]$SourceRef = "origin/master",
+    [string]$TargetBranch = "master",
     [string]$SourceRoot = "",
     [string]$OutputRoot = "",
     [int]$MaxChangedFilesForIncremental = 25,
@@ -63,6 +66,27 @@ function Assert-CleanGit($Root, $Purpose) {
     }
     if ($status) {
         Fail "$Purpose worktree is not clean. Refusing to publish graph metadata for uncommitted bytes."
+    }
+}
+
+function Get-BaselineStageValue($BaselineStage) {
+    if ($BaselineStage -notin @("Bootstrap", "Final")) {
+        Fail "BaselineStage is required and must be either Bootstrap or Final."
+    }
+    return $BaselineStage.ToLowerInvariant()
+}
+
+function Assert-FinalSourceContainsGraphifyTooling($SourceRoot) {
+    $required = @(
+        "tools/refresh_project_graph.ps1",
+        ".graphifyignore",
+        "docs/project-graph-runbook.md",
+        "RULES.md"
+    )
+    foreach ($item in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $item))) {
+            Fail "Final baseline source is missing required graph workflow file: $item"
+        }
     }
 }
 
@@ -344,22 +368,41 @@ function Remove-UncommittedGraphifyByproducts($GraphDir) {
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 }
 
-function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit) {
+function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch) {
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
     if (-not (Test-Path -LiteralPath $reportPath)) {
         return
     }
 
     $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8
-    $policy = @(
-        "## Frozen Baseline Policy",
-        "- Built from source commit: ``$SourceCommit``",
-        "- This is a frozen project baseline.",
-        "- Do not rebuild or incrementally update the graph during active implementation, review, testing, or validation.",
-        '- Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.',
-        '- Compare `indexed_source_commit` with the current branch and analyze the branch diff separately.',
-        "- Refresh only at the approved post-archive graph checkpoint."
-    ) -join "`r`n"
+    if ($BaselineStage -eq "bootstrap") {
+        $policy = @(
+            "## Bootstrap Frozen Baseline Policy",
+            "- Built from source commit: ``$SourceCommit``",
+            "- Indexed source ref: ``$SourceRef``",
+            "- Target branch: ``$TargetBranch``",
+            "- Stage: bootstrap, pre-archive, non-final.",
+            "- This frozen project baseline verifies the initial Graphify integration, wrapper, corpus filters, security scans, smoke queries, and reproducibility.",
+            "- This graph is not the navigation baseline for the next change.",
+            "- Do not rebuild or incrementally update the graph during active implementation, review, testing, or validation.",
+            '- Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.',
+            '- Compare `indexed_source_commit` with the current branch and analyze the branch diff separately.',
+            "- Build the final baseline only after independent review, archive, and post-archive validation."
+        ) -join "`r`n"
+    } else {
+        $policy = @(
+            "## Final Frozen Baseline Policy",
+            "- Built from post-archive validated source commit: ``$SourceCommit``",
+            "- Indexed source ref: ``$SourceRef``",
+            "- Target branch: ``$TargetBranch``",
+            "- Stage: final.",
+            "- This is the frozen project baseline for subsequent project navigation.",
+            "- Do not rebuild or incrementally update the graph during active implementation, review, testing, or validation.",
+            '- Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.',
+            '- Compare `indexed_source_commit` with the current branch and analyze the branch diff separately.',
+            "- Refresh only at the approved post-archive graph checkpoint."
+        ) -join "`r`n"
+    }
 
     $pattern = "(?s)## Graph Freshness.*?(?=^## |\z)"
     if ($report -match $pattern) {
@@ -372,7 +415,7 @@ function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit) {
     Set-Content -LiteralPath $reportPath -Value $report -Encoding UTF8
 }
 
-function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit) {
+function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch) {
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
     if (-not (Test-Path -LiteralPath $reportPath)) {
         return
@@ -384,13 +427,13 @@ function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit) {
     $report = $report.Replace($buildFull, $projectLabel).Replace($buildForward, $projectLabel)
     $report = $report.TrimEnd()
     Set-Content -LiteralPath $reportPath -Value $report -Encoding UTF8
-    Set-FrozenGraphReportPolicy $GraphDir $SourceCommit
+    Set-FrozenGraphReportPolicy $GraphDir $SourceCommit $BaselineStage $SourceRef $TargetBranch
 
     $updated = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8
     if ($updated -match [regex]::Escape($ForbiddenFreshnessAdvice)) {
         Fail "GRAPH_REPORT.md still contains forbidden generated freshness advice."
     }
-    if ($updated -notmatch "frozen project baseline") {
+    if ($updated -notmatch "(Bootstrap|Final) Frozen Baseline Policy" -or $updated -notmatch "frozen project baseline") {
         Fail "GRAPH_REPORT.md does not contain the frozen baseline policy block."
     }
 }
@@ -570,19 +613,21 @@ function Assert-NoGraphifyIntegrations($OutputRoot) {
     }
 }
 
-function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $IndexedBranch, $GraphifyVersion, $Graph, $GraphPath) {
+function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch, $GraphifyVersion, $Graph, $GraphPath) {
     $counts = Count-Graph $Graph
     if ($counts.Nodes -le 0 -or $counts.Edges -le 0) {
         Fail "Graph must contain nonzero nodes and edges. Found nodes=$($counts.Nodes), edges=$($counts.Edges)."
     }
 
     $baseline = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         generator = "graphify"
         graphify_version = $GraphifyVersion
         mode = "code-only"
+        baseline_stage = $BaselineStage
         indexed_source_commit = $SourceCommit
-        indexed_branch = $IndexedBranch
+        indexed_source_ref = $SourceRef
+        target_branch = $TargetBranch
         generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         graph_sha256 = Get-Sha256 $GraphPath
         ignore_file_sha256 = Get-Sha256 (Join-Path $OutputRoot ".graphifyignore")
@@ -595,12 +640,18 @@ function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $IndexedBranch, $
     return (Assert-Json $baselinePath)
 }
 
-function Assert-Metadata($OutputRoot, $GraphDir, $Graph, $Baseline, $SourceCommit, $IndexedBranch, $Version) {
+function Assert-Metadata($OutputRoot, $SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommit, $BaselineStage, $SourceRef, $SourceRefSha, $TargetBranch, $Version) {
     $counts = Count-Graph $Graph
     $graphPath = Join-Path $GraphDir "graph.json"
     $ignorePath = Join-Path $OutputRoot ".graphifyignore"
+    if ([int]$Baseline.schema_version -ne 2) { Fail "baseline.schema_version mismatch." }
+    if ($Baseline.PSObject.Properties.Name -contains "indexed_branch") { Fail "baseline.indexed_branch is obsolete and must not be present." }
+    if ($Baseline.generator -ne "graphify") { Fail "baseline.generator mismatch." }
     if ($Baseline.indexed_source_commit -ne $SourceCommit) { Fail "baseline.indexed_source_commit mismatch." }
-    if ($Baseline.indexed_branch -ne $IndexedBranch) { Fail "baseline.indexed_branch mismatch." }
+    if ($Baseline.baseline_stage -ne $BaselineStage) { Fail "baseline.baseline_stage mismatch." }
+    if ($Baseline.indexed_source_ref -ne $SourceRef) { Fail "baseline.indexed_source_ref mismatch." }
+    if ($Baseline.target_branch -ne $TargetBranch) { Fail "baseline.target_branch mismatch." }
+    if ((Get-GitSha $SourceRoot $SourceRef) -ne $SourceRefSha) { Fail "SourceRef no longer resolves to the generation source commit." }
     if ($Baseline.graphify_version -ne $Version) { Fail "baseline.graphify_version mismatch." }
     if ($Baseline.mode -ne "code-only") { Fail "baseline.mode mismatch." }
     if ($Baseline.graph_sha256 -ne (Get-Sha256 $graphPath)) { Fail "baseline.graph_sha256 mismatch." }
@@ -706,7 +757,7 @@ function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, 
     }
 }
 
-function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $SourceCommit, $IndexedBranch, $Version) {
+function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $SourceCommit, $BaselineStage, $SourceRef, $SourceRefSha, $TargetBranch, $Version) {
     $graphPath = Join-Path $GraphDir "graph.json"
     $manifestPath = Join-Path $GraphDir "manifest.json"
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
@@ -717,16 +768,16 @@ function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $Sour
     }
 
     Remove-UncommittedGraphifyByproducts $GraphDir
-    Sanitize-GraphReport $GraphDir $BuildRoot $SourceCommit
+    Sanitize-GraphReport $GraphDir $BuildRoot $SourceCommit $BaselineStage $SourceRef $TargetBranch
 
     $graph = Assert-Json $graphPath
     $manifest = Assert-Json $manifestPath
-    $baseline = Write-Baseline $OutputRoot $GraphDir $SourceCommit $IndexedBranch $Version $graph $graphPath
+    $baseline = Write-Baseline $OutputRoot $GraphDir $SourceCommit $BaselineStage $SourceRef $TargetBranch $Version $graph $graphPath
     $baseline = Assert-Json (Join-Path $GraphDir "baseline.json")
 
     Assert-GeneratedAllowlist (Split-Path -Parent $GraphDir) $GraphDir
     Assert-SecretScan $GraphDir $graph $manifest $baseline
-    Assert-Metadata $OutputRoot $GraphDir $graph $baseline $SourceCommit $IndexedBranch $Version
+    Assert-Metadata $OutputRoot $SourceRoot $GraphDir $graph $baseline $SourceCommit $BaselineStage $SourceRef $SourceRefSha $TargetBranch $Version
     $smoke = Invoke-SmokeQueries $SourceRoot $graph
     $confidence = Get-ConfidenceSummary $graph
 
@@ -739,7 +790,7 @@ function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $Sour
     }
 }
 
-function Publish-AcceptedGraph($OutputRoot, $CandidateGraphDir) {
+function Publish-ValidatedGraph($OutputRoot, $CandidateGraphDir) {
     $target = Join-Path $OutputRoot $GraphDirName
     $tempParent = Join-Path $OutputRoot $TempDirName
     $backup = Join-Path $tempParent "accepted-backup-$PID-$([Guid]::NewGuid().ToString('N'))"
@@ -760,7 +811,7 @@ function Publish-AcceptedGraph($OutputRoot, $CandidateGraphDir) {
         if (Test-Path -LiteralPath $backup) {
             Copy-Item -LiteralPath $backup -Destination $target -Recurse -Force
         }
-        Fail "Atomic graph publication failed and previous accepted output was restored: $($_.Exception.Message)"
+        Fail "Validated graph publication failed; previous accepted output was restored from backup: $($_.Exception.Message)"
     }
 }
 
@@ -788,13 +839,14 @@ if ($Mode -eq "InstallExact") {
 Assert-GraphifyIgnore $outputRootFull
 Assert-CleanGit $sourceRootFull "Source"
 
+$baselineStageValue = Get-BaselineStageValue $BaselineStage
 $sourceCommit = Get-GitSha $sourceRootFull "HEAD"
-$masterSha = Get-GitSha $outputRootFull "origin/master"
-$indexedBranch = if ($sourceCommit -eq $masterSha) { "master" } else { "detached" }
-if ($Mode -eq "Initial") {
-    if ($sourceCommit -ne $masterSha) {
-        Fail "Initial source HEAD must equal current origin/master. source=$sourceCommit origin/master=$masterSha"
-    }
+$sourceRefSha = Get-GitSha $sourceRootFull $SourceRef
+if ($sourceCommit -ne $sourceRefSha) {
+    Fail "Source HEAD must equal SourceRef. source=$sourceCommit SourceRef($SourceRef)=$sourceRefSha"
+}
+if ($baselineStageValue -eq "final") {
+    Assert-FinalSourceContainsGraphifyTooling $sourceRootFull
 }
 
 $version = Get-GraphVersion
@@ -832,8 +884,8 @@ try {
         $incrementalEvidence = Assert-IncrementalIntegrity $sourceRootFull $previousBaseline $preGraph $preManifest $postGraph $postManifest $sourceCommit
     }
 
-    $result = Assert-Candidate $sourceRootFull $outputRootFull $buildRoot $candidateGraphDir $sourceCommit $indexedBranch $version
-    Publish-AcceptedGraph $outputRootFull $candidateGraphDir
+    $result = Assert-Candidate $sourceRootFull $outputRootFull $buildRoot $candidateGraphDir $sourceCommit $baselineStageValue $SourceRef $sourceRefSha $TargetBranch $version
+    Publish-ValidatedGraph $outputRootFull $candidateGraphDir
 } finally {
     Remove-TempOutputs $outputRootFull
 }
@@ -844,13 +896,15 @@ $acceptedManifest = Assert-Json (Join-Path $acceptedGraphDir "manifest.json")
 $acceptedBaseline = Assert-Json (Join-Path $acceptedGraphDir "baseline.json")
 Assert-GeneratedAllowlist $outputRootFull $acceptedGraphDir
 Assert-SecretScan $acceptedGraphDir $acceptedGraph $acceptedManifest $acceptedBaseline
-Assert-Metadata $outputRootFull $acceptedGraphDir $acceptedGraph $acceptedBaseline $sourceCommit $indexedBranch $version
+Assert-Metadata $outputRootFull $sourceRootFull $acceptedGraphDir $acceptedGraph $acceptedBaseline $sourceCommit $baselineStageValue $SourceRef $sourceRefSha $TargetBranch $version
 Assert-NoGraphifyIntegrations $outputRootFull
 Assert-CleanGit $sourceRootFull "Source"
 
 Write-Host "Graphify version: $version"
+Write-Host "Baseline stage: $baselineStageValue"
 Write-Host "Indexed source commit: $sourceCommit"
-Write-Host "Indexed branch: $indexedBranch"
+Write-Host "Indexed source ref: $SourceRef"
+Write-Host "Target branch: $TargetBranch"
 Write-Host "Mode: code-only"
 Write-Host "No-viz: true"
 Write-Host "Graph SHA-256: $($acceptedBaseline.graph_sha256)"
