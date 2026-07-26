@@ -247,18 +247,32 @@ class ParameterRow(QFrame):
         name: str,
         value: object = "—",
         parent: Optional[QWidget] = None,
+        compact: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setProperty("uiRole", "parameterRow")
+        if compact:
+            self.setProperty("density", "compact")
 
         layout = QGridLayout(self)
-        layout.setContentsMargins(SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"])
+        layout.setContentsMargins(
+            SPACING["sm"] if compact else SPACING["md"],
+            SPACING["xs"] if compact else SPACING["sm"],
+            SPACING["sm"] if compact else SPACING["md"],
+            SPACING["xs"] if compact else SPACING["sm"],
+        )
         layout.setHorizontalSpacing(SPACING["md"])
-        layout.setVerticalSpacing(SPACING["xs"])
+        layout.setVerticalSpacing(SPACING["xxs"] if compact else SPACING["xs"])
 
         self.name_label = QLabel(name, self)
         self.name_label.setObjectName("parameterName")
         self.value_display = ValueDisplay(value, self)
+        if compact:
+            self.name_label.setProperty("parameterDensity", "compact")
+            self.value_display.setProperty("density", "compact")
+            self.value_display.setProperty("parameterDensity", "compact")
+            self.value_display.setMinimumHeight(SIZES["control_height_compact"])
+            self.value_display.setMaximumHeight(SIZES["control_height_compact"])
         self.value_display.setMinimumWidth(110)
         self.value_display.setMaximumWidth(360)
 

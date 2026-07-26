@@ -24,6 +24,7 @@ from core.pdu import (
     normalize_pdu_credential_candidates,
 )
 from core.worker import PDUOperationWorker
+from .pdu_room_codec_enrichment import PDUAcceptedRefreshContext, PDUContextSuperseded
 from .ui_states import UIState
 
 
@@ -71,10 +72,14 @@ class PDUController:
         shell,
         screen_provider: Callable[[], object],
         thread_pool: Optional[QThreadPool] = None,
+        accepted_refresh_callback: Optional[Callable[[PDUAcceptedRefreshContext], None]] = None,
+        superseded_callback: Optional[Callable[[PDUContextSuperseded], None]] = None,
     ):
         self.shell = shell
         self._screen_provider = screen_provider
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
+        self._accepted_refresh_callback = accepted_refresh_callback
+        self._superseded_callback = superseded_callback
         self._context_revision = 0
         self._operation_serial = itertools.count(1)
         self._refresh_lane: Optional[PDURefreshLane] = None
@@ -90,6 +95,7 @@ class PDUController:
     def invalidate_context(self) -> None:
         self._context_revision += 1
         self._state_epoch += 1
+        self._publish_superseded("context_invalidated")
         self._refresh_lane = None
         self._mutation_lane = None
         self._current_outlet_context = None
@@ -133,6 +139,7 @@ class PDUController:
             return False
 
         try:
+            self._publish_superseded("user_refresh_started")
             if not self._ensure_common_request(device_name, ip_address):
                 return False
             creds_list = self._credential_candidates(device_name, ip_address)
@@ -697,6 +704,9 @@ class PDUController:
         rendered = dict(data or {})
         rendered["_credential_policy_handled"] = True
         self.shell.on_device_data_received(rendered, worker, descriptor.generation)
+        lane = self._refresh_lane
+        if lane is not None and lane.originating_mutation_operation_id is None:
+            self._publish_accepted_refresh(descriptor)
 
     def on_refresh_error(self, error_info, worker, descriptor):
         if not self.is_refresh_descriptor_current(descriptor, worker):
@@ -1083,6 +1093,31 @@ class PDUController:
             model=descriptor.model,
             ip_address=descriptor.ip_address,
             credential_context_revision=descriptor.credential_context or 0,
+        )
+
+    def _publish_accepted_refresh(self, descriptor: PDUOperationDescriptor) -> None:
+        callback = self._accepted_refresh_callback
+        if callback is None:
+            return
+        callback(
+            PDUAcceptedRefreshContext(
+                pdu_generation=descriptor.generation,
+                refresh_operation_id=descriptor.operation_id,
+                model=descriptor.model,
+                ip_address=descriptor.ip_address,
+                credential_context_revision=descriptor.credential_context or 0,
+            )
+        )
+
+    def _publish_superseded(self, reason: str) -> None:
+        callback = self._superseded_callback
+        if callback is None:
+            return
+        callback(
+            PDUContextSuperseded(
+                pdu_generation_or_revision=self._context_revision,
+                reason=reason,
+            )
         )
 
     def _screen(self):

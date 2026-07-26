@@ -337,6 +337,10 @@ def build_stylesheet() -> str:
             min-height: {s["control_height_compact"] - 2}px;
             max-height: {s["control_height_compact"] - 2}px;
         }}
+        QLabel[parameterDensity="compact"],
+        QLineEdit[parameterDensity="compact"] {{
+            font-size: {t["caption"]}pt;
+        }}
         QLineEdit[uiRole="valueDisplay"][uiState="success"] {{
             color: {c["success"]};
             border-color: {c["success"]};

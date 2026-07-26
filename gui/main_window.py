@@ -14,8 +14,10 @@ from .components import EmptyState, StatusIndicator
 from .dmp_polling_controller import DMP_DEVICE_NAME, DMPPollingController
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
+from .pdu_room_codec_enrichment import PDURoomCodecEnrichmentController
 from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
+from core.equipment_inventory import EquipmentInventoryLoadError, load_equipment_inventory
 from core.worker import (
     HuaweiTE40Worker,
     HuaweiBar310Worker,
@@ -185,12 +187,19 @@ class VCSDiagnosticApp(QMainWindow):
         for device in self.device_credentials:
             self.current_credential_index[device] = 0
         self.device_connection_profiles = {}
+        self.equipment_inventory = None
+        self.equipment_inventory_load_error = None
+        try:
+            self.equipment_inventory = load_equipment_inventory()
+        except EquipmentInventoryLoadError as error:
+            self.equipment_inventory_load_error = error
         self.progress_dialog = None
         self.ui_state = UIState.IDLE
         self._request_serial = 0
         self._active_request = None
         self._credential_attempt_plans = {}
         self._matrix_credential_context_revision = 0
+        self._pdu_room_codec_enrichment_enabled = True
         self.matrix_controller = MatrixController(
             context_provider=self._matrix_public_context,
             credential_candidates_provider=self._matrix_credential_candidates,
@@ -202,6 +211,19 @@ class VCSDiagnosticApp(QMainWindow):
         self.pdu_controller = PDUController(
             shell=self,
             screen_provider=lambda: getattr(self, "screens", {}).get("pdu"),
+            accepted_refresh_callback=self._on_pdu_refresh_accepted_for_enrichment,
+            superseded_callback=self._on_pdu_context_superseded_for_enrichment,
+        )
+        self.pdu_room_codec_enrichment_controller = PDURoomCodecEnrichmentController(
+            inventory_provider=lambda: self.equipment_inventory,
+            inventory_failure_provider=lambda: self.equipment_inventory_load_error,
+            credential_candidates_provider=self._related_codec_credential_candidates,
+            credential_index_provider=self._related_codec_credential_index,
+            credential_revision_provider=self._related_codec_credential_revision,
+            connection_profile_provider=self.get_device_connection_profile,
+            success_persistence=self._persist_related_codec_success,
+            presentation_callback=self._render_pdu_room_codec_enrichment,
+            parent=self,
         )
         self.dmp_polling_controller = DMPPollingController(
             shell=self,
@@ -561,16 +583,77 @@ class VCSDiagnosticApp(QMainWindow):
     def _pdu_controller(self):
         controller = self.__dict__.get("pdu_controller")
         if controller is None:
+            enrichment_enabled = self.__dict__.get("_pdu_room_codec_enrichment_enabled", False)
             controller = PDUController(
                 shell=self,
                 screen_provider=lambda: getattr(self, "screens", {}).get("pdu"),
                 thread_pool=QThreadPool.globalInstance(),
+                accepted_refresh_callback=(
+                    self._on_pdu_refresh_accepted_for_enrichment
+                    if enrichment_enabled
+                    else None
+                ),
+                superseded_callback=(
+                    self._on_pdu_context_superseded_for_enrichment
+                    if enrichment_enabled
+                    else None
+                ),
             )
             self.__dict__["pdu_controller"] = controller
         return controller
 
     def _invalidate_pdu_context(self):
         self._pdu_controller().invalidate_context()
+
+    def _pdu_room_codec_controller(self):
+        controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
+        if controller is None:
+            controller = PDURoomCodecEnrichmentController(
+                inventory_provider=lambda: self.equipment_inventory,
+                inventory_failure_provider=lambda: self.equipment_inventory_load_error,
+                credential_candidates_provider=self._related_codec_credential_candidates,
+                credential_index_provider=self._related_codec_credential_index,
+                credential_revision_provider=self._related_codec_credential_revision,
+                connection_profile_provider=self.get_device_connection_profile,
+                success_persistence=self._persist_related_codec_success,
+                presentation_callback=self._render_pdu_room_codec_enrichment,
+                parent=self,
+            )
+            self.__dict__["pdu_room_codec_enrichment_controller"] = controller
+        return controller
+
+    def _on_pdu_refresh_accepted_for_enrichment(self, context):
+        if not self.__dict__.get("_pdu_room_codec_enrichment_enabled", False):
+            return
+        self._pdu_room_codec_controller().accept_pdu_refresh(context)
+
+    def _on_pdu_context_superseded_for_enrichment(self, event):
+        if not self.__dict__.get("_pdu_room_codec_enrichment_enabled", False):
+            return
+        self._pdu_room_codec_controller().supersede_pdu_context(event)
+
+    def _related_codec_credential_candidates(self, device_name, ip_address):
+        return tuple(self.device_credentials.get(device_name) or ())
+
+    def _related_codec_credential_index(self, device_name, ip_address, candidates):
+        return self.get_valid_current_credential_index(
+            device_name,
+            tuple(candidates or ()),
+            ip_address,
+        )
+
+    def _related_codec_credential_revision(self):
+        return self.__dict__.get("_related_codec_credential_context_revision", 0)
+
+    def _persist_related_codec_success(self, device_name, ip_address, credential_index, profile):
+        self.set_current_credential_index(device_name, credential_index, ip_address)
+        if profile:
+            self.set_device_connection_profile(device_name, dict(profile), ip_address)
+
+    def _render_pdu_room_codec_enrichment(self, payload):
+        screen = getattr(self, "screens", {}).get("pdu")
+        if screen is not None and hasattr(screen, "set_related_room_codec"):
+            screen.set_related_room_codec(payload)
 
     def _dmp_controller(self):
         controller = self.__dict__.get("dmp_polling_controller")
@@ -628,6 +711,12 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
     def _on_credential_configuration_changed(self, device_name=None):
+        self.__dict__["_related_codec_credential_context_revision"] = (
+            self.__dict__.get("_related_codec_credential_context_revision", 0) + 1
+        )
+        controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
+        if controller is not None:
+            controller.invalidate_context("credential_context_changed")
         if device_name in (None, MATRIX_DEVICE_NAME):
             self._matrix_credential_context_revision = (
                 self.__dict__.get("_matrix_credential_context_revision", 0) + 1
@@ -2912,6 +3001,9 @@ class VCSDiagnosticApp(QMainWindow):
         dialog.activateWindow()
 
     def closeEvent(self, event):
+        controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
+        if controller is not None:
+            controller.shutdown()
         self._dmp_controller().shutdown()
         codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
         if codec_screen and hasattr(codec_screen, "shutdown_interactive_controller"):

@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QScrollArea,
     QSizePolicy,
@@ -22,6 +23,20 @@ from ..components import (
 )
 from ..theme import SPACING
 from .base_screen import BaseScreen
+
+
+RESOLUTION_STATUS_MESSAGES = {
+    "INVENTORY_UNAVAILABLE": "База оборудования недоступна.",
+    "PDU_NOT_FOUND": "PDU не найден в базе оборудования.",
+    "AMBIGUOUS_PDU_IP": "В базе найдено несколько устройств с этим IP-адресом.",
+    "PDU_KIND_MISMATCH": "Устройство с этим IP-адресом не классифицировано как PDU.",
+    "ROOM_UNRESOLVED": "Для PDU не указано помещение.",
+    "CODEC_NOT_FOUND": "В помещении не найден кодек ВКС.",
+    "AMBIGUOUS_CODEC": "В помещении найдено несколько кодеков ВКС.",
+    "CODEC_IP_MISSING": "Для связанного кодека не указан IP-адрес.",
+    "CODEC_UNSUPPORTED": "Модель связанного кодека не поддерживается.",
+}
+LEGACY_INVENTORY_UNAVAILABLE_MESSAGE = "Equipment inventory is unavailable."
 
 
 class PDUScreen(BaseScreen):
@@ -70,6 +85,7 @@ class PDUScreen(BaseScreen):
         main_layout.setSpacing(SPACING["md"])
         self.create_info_panel(main_layout)
         self.create_outlets_table(main_layout)
+        self.create_related_room_codec_panel(main_layout)
         self.scroll_area.setWidget(self.content)
         root_layout.addWidget(self.scroll_area)
         self.outlet_control_signal.connect(self.on_outlet_control)
@@ -85,7 +101,6 @@ class PDUScreen(BaseScreen):
             ("model", "Модель"),
             ("ip_address", "IP-адрес"),
             ("firmware", "Прошивка"),
-            ("status", "Состояние"),
         )
         for field, title in fields:
             row = ParameterRow(title, "—", self.info_group)
@@ -94,6 +109,32 @@ class PDUScreen(BaseScreen):
             self.info_labels[field] = row.value_display
             self.info_group.add_widget(row)
         parent_layout.addWidget(self.info_group)
+
+    def create_related_room_codec_panel(self, parent_layout):
+        self.related_group = SectionCard(
+            "Комната и связанный кодек", "◇", self
+        )
+        self.related_group.setProperty("density", "compact")
+        self.related_rows = {}
+        fields = (
+            ("codec_diagnostic_status", "Статус кодека"),
+            ("room_name", "Название комнаты"),
+            ("codec_diagnostic_model", "Модель кодека"),
+            ("codec_ip_address", "IP кодека"),
+            ("call_status", "Статус звонка"),
+            ("presentation_status", "Презентация"),
+        )
+        for field, title in fields:
+            row = ParameterRow(title, "—", self.related_group, compact=True)
+            row.value_display.setProperty("data_field", True)
+            self.related_rows[field] = row
+            self.related_group.add_widget(row)
+        self.related_message = QLabel("", self.related_group)
+        self.related_message.setWordWrap(True)
+        self.related_message.setProperty("uiRole", "secondary")
+        self.related_group.add_widget(self.related_message)
+        parent_layout.addWidget(self.related_group)
+        self.reset_related_room_codec()
 
     def create_outlets_table(self, parent_layout):
         self.outlets_group = SectionCard(
@@ -186,6 +227,7 @@ class PDUScreen(BaseScreen):
         self.mutation_busy = False
         self.mutation_context = None
         self.mutation_kind = None
+        self.reset_related_room_codec()
         self._sync_bulk_controls()
 
     def update_data(self, data):
@@ -219,22 +261,119 @@ class PDUScreen(BaseScreen):
             self._sync_bulk_controls()
 
     def update_info_panel(self):
-        for field in ("model", "ip_address", "firmware"):
+        hide_firmware = self._uses_aten_pe8208av_firmware_rule()
+        firmware_row = self.info_rows["firmware"]
+        firmware_row.setVisible(not hide_firmware)
+
+        for field in ("model", "ip_address"):
             if field in self.device_info:
                 self.info_rows[field].set_value(self.device_info[field])
                 self.info_rows[field].set_state("normal")
 
-        if "connected" in self.device_info:
-            connected = bool(self.device_info["connected"])
-            self.info_rows["status"].set_value(
-                "Подключено" if connected else "Отключено"
-            )
-            self.info_rows["status"].set_state(
-                "success" if connected else "error"
-            )
-        elif "status" in self.device_info:
-            self.info_rows["status"].set_value(self.device_info["status"])
-            self.info_rows["status"].set_state("normal")
+        if hide_firmware:
+            firmware_row.set_value("—")
+            firmware_row.set_state("inactive")
+        elif "firmware" in self.device_info:
+            firmware_row.set_value(self.device_info["firmware"])
+            firmware_row.set_state("normal")
+        else:
+            firmware_row.set_value("—")
+            firmware_row.set_state("inactive")
+
+    def _uses_aten_pe8208av_firmware_rule(self):
+        model_names = [self.device_info.get("model")]
+        parent = getattr(self, "parent", None)
+        device_combo = getattr(parent, "device_combo", None)
+        if device_combo is not None:
+            model_names.append(device_combo.currentText())
+        return any(self._is_aten_pe8208av_model(model) for model in model_names)
+
+    @staticmethod
+    def _is_aten_pe8208av_model(model):
+        normalized = str(model or "").strip()
+        return normalized in {"Aten PE8208AV", "PE8208AV"}
+
+    def reset_related_room_codec(self):
+        if not hasattr(self, "related_rows"):
+            return
+        for row in self.related_rows.values():
+            row.set_value("—")
+            row.set_state("inactive")
+        if hasattr(self, "related_message"):
+            self.related_message.setText("")
+
+    def set_related_room_codec(self, payload):
+        if not hasattr(self, "related_rows"):
+            return
+        payload = dict(payload or {})
+        if payload.get("reset"):
+            self.reset_related_room_codec()
+            return
+        state = "normal"
+        if payload.get("pending"):
+            state = "inactive"
+        elif payload.get("resolution_status") == "RESOLVED" and payload.get("codec_diagnostic_status") == "SUCCESS":
+            state = "success"
+        elif payload.get("resolution_status") != "RESOLVED" or payload.get("codec_diagnostic_status") not in {"NOT_STARTED", "PENDING", "SUCCESS"}:
+            state = "warning"
+
+        values = {
+            "codec_diagnostic_status": payload.get("codec_diagnostic_status"),
+            "room_name": payload.get("room_name"),
+            "codec_diagnostic_model": payload.get("codec_diagnostic_model") or payload.get("codec_source_model"),
+            "codec_ip_address": payload.get("codec_ip_address"),
+            "call_status": payload.get("call_status"),
+            "presentation_status": payload.get("presentation_status"),
+        }
+        for field, row in self.related_rows.items():
+            value = values.get(field)
+            row.set_value("—" if value in (None, "", (), []) else str(value))
+            row.set_state(state if value not in (None, "", (), []) else "inactive")
+        message_parts = self._related_message_parts(payload)
+        self.related_message.setText(" · ".join(message_parts))
+
+    @classmethod
+    def _related_message_parts(cls, payload):
+        message_parts = []
+        resolution_message = cls._resolution_message_for(
+            payload.get("resolution_status")
+        )
+        cls._append_unique_message(message_parts, resolution_message)
+        for warning in payload.get("warnings") or ():
+            cls._append_unique_message(message_parts, warning)
+
+        safe_message = payload.get("safe_message")
+        if not cls._is_redundant_legacy_inventory_message(
+            payload.get("resolution_status"),
+            safe_message,
+            resolution_message,
+        ):
+            cls._append_unique_message(message_parts, safe_message)
+        return message_parts
+
+    @staticmethod
+    def _resolution_message_for(status):
+        status_value = getattr(status, "value", status)
+        return RESOLUTION_STATUS_MESSAGES.get(status_value)
+
+    @staticmethod
+    def _append_unique_message(message_parts, message):
+        text = str(message or "").strip()
+        if text and text not in message_parts:
+            message_parts.append(text)
+
+    @staticmethod
+    def _is_redundant_legacy_inventory_message(
+        resolution_status,
+        safe_message,
+        resolution_message,
+    ):
+        status_value = getattr(resolution_status, "value", resolution_status)
+        return (
+            status_value == "INVENTORY_UNAVAILABLE"
+            and resolution_message
+            and str(safe_message or "").strip() == LEGACY_INVENTORY_UNAVAILABLE_MESSAGE
+        )
 
     @staticmethod
     def _is_outlet_on(value):
