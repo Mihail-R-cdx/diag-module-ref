@@ -97,8 +97,14 @@ secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
 - **AND** the evidence is tracked by Git, exists in the source `HEAD` tree, is
   not ignored, and hashes to the same Git blob as the committed `HEAD` blob
   after repository filters
-- **AND** `validated_source_commit` equals the source worktree `HEAD`
-- **AND** `archive_commit` is an ancestor of the source worktree `HEAD`
+- **AND** `archive_commit` is a full SHA and an ancestor of
+  `validated_source_commit`
+- **AND** `validated_source_commit` is a full SHA and an ancestor of the source
+  worktree `HEAD`
+- **AND** the delta from `validated_source_commit` to source worktree `HEAD`
+  contains only
+  `openspec/validation/frozen-project-graph-baseline.post-archive.json`
+- **AND** that evidence path is absent from `validated_source_commit`
 - **AND** an archived `frozen-project-graph-baseline` artifact exists under
   `openspec/changes/archive/`
 - **AND** active `openspec/changes/frozen-project-graph-baseline/` is absent
@@ -115,11 +121,21 @@ secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
 - **THEN** the wrapper fails nonzero before Graphify generation
 - **AND** does not publish graph artifacts.
 
+#### Scenario: Final evidence commit contains extra changes
+
+- **WHEN** final generation receives committed evidence but the delta from
+  `validated_source_commit` to source worktree `HEAD` contains production,
+  test, wrapper, ignore, documentation, graph, dependency, archived OpenSpec,
+  or any other non-evidence path
+- **THEN** the wrapper fails nonzero before Graphify generation
+- **AND** does not publish graph artifacts.
+
 #### Scenario: Graph artifacts are stored in a following commit
 
-- **GIVEN** source commit `S` is checked out and indexed
+- **GIVEN** archive commit `A` is an ancestor of validated source commit `S`
+- **AND** evidence-only commit `E` records validation of `S`
 - **WHEN** graph artifacts are committed in following graph-only commit `G`
-- **THEN** `indexed_source_commit` equals `S`
+- **THEN** `indexed_source_commit` equals `E`
 - **AND** `G` is not considered missing from the graph because graph artifacts are excluded from the corpus.
 
 ### Requirement: Generated committed files use an allowlist

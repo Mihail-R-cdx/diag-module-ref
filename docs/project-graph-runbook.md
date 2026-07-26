@@ -132,15 +132,32 @@ It must contain:
 }
 ```
 
-The wrapper verifies valid JSON, `change_name`, that
-`validated_source_commit` equals `SourceRoot` `HEAD`, that `archive_commit` is
-an ancestor of `SourceRoot` `HEAD`, that an archived
+The final workflow uses four ordered commits:
+
+```text
+A = archive commit
+S = post-archive validated source commit
+E = evidence commit
+G = graph-only commit
+```
+
+The wrapper verifies valid JSON, `change_name`, that `archive_commit` and
+`validated_source_commit` resolve to full commits, that `archive_commit` is an
+ancestor of `validated_source_commit`, that `validated_source_commit` is an
+ancestor of `SourceRoot` `HEAD`, and that the `S..E` delta from
+`validated_source_commit` to `SourceRoot` `HEAD` contains exactly one path:
+`openspec/validation/frozen-project-graph-baseline.post-archive.json`. The
+evidence file must be created by the evidence commit and absent from
+`validated_source_commit`. The wrapper also verifies that an archived
 `frozen-project-graph-baseline` artifact exists under
 `openspec/changes/archive/`, that the active
 `openspec/changes/frozen-project-graph-baseline/` directory is absent, and that
-all required checks have `status = pass`. A pre-archive source tree, missing
-evidence, or evidence that is not committed in `SourceRoot` `HEAD` fails
-nonzero before Graphify generation.
+all required checks have `status = pass`.
+
+A pre-archive source tree, missing evidence, evidence that is not committed in
+`SourceRoot` `HEAD`, a missing archive, a failed check status, an ignored,
+untracked, modified, or wrong-path evidence file, or any non-evidence change
+between `S` and `E` fails nonzero before Graphify generation.
 
 The wrapper reads metadata from `SourceRoot`, stages Graphify execution in a
 temporary build copy, and writes accepted artifacts only under
@@ -183,16 +200,19 @@ This is not claimed as a single-step filesystem rename guarantee.
 
 Do not run the final baseline build during implementation review. After
 independent review approval, archive, and post-archive validation, identify the
-reviewed source commit `S` on `agent/frozen-project-graph-baseline` and build
-from a clean source worktree whose `HEAD` equals that explicit source ref:
+post-archive validation source commit `S` on
+`agent/frozen-project-graph-baseline`, add the evidence-only commit `E`, and
+build from a clean source worktree whose `HEAD` equals `E` and whose source ref
+resolves to `E`:
 
 ```powershell
 .\tools\refresh_project_graph.ps1 -Mode FullRebuild -BaselineStage Final -SourceRoot <post-archive-source-worktree> -SourceRef agent/frozen-project-graph-baseline -OutputRoot . -TargetBranch master -PostArchiveValidationEvidence openspec/validation/frozen-project-graph-baseline.post-archive.json
 ```
 
-The final graph commit must contain only the allowlisted generated artifacts.
-Keep the PR Draft until the final graph-only commit receives lightweight graph
-integrity review.
+The final graph indexes `E`, so `baseline.json.indexed_source_commit` equals
+the evidence commit. The following graph commit `G` must contain only the
+allowlisted generated artifacts. Keep the PR Draft until `G` receives
+lightweight graph integrity review.
 
 ## Incremental Refresh
 

@@ -142,10 +142,33 @@ function Assert-TrackedHeadEvidence($SourceRoot, $EvidenceFull) {
     $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:$relativeEvidencePath") "Unable to read HEAD blob for post-archive validation evidence"
     $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$relativeEvidencePath", "--", $EvidenceFull) "Unable to hash working-tree post-archive validation evidence"
     if ($headBlob -ne $workingBlob) {
-        Fail "Post-archive validation evidence working-tree bytes must match SourceRoot HEAD blob."
+        Fail "Post-archive validation evidence working-tree content must hash to the SourceRoot HEAD blob after repository filters."
     }
 
     return $relativeEvidencePath
+}
+
+function Assert-EvidenceOnlyCommitDelta($SourceRoot, $ValidatedSourceCommit, $SourceCommit) {
+    $previousEvidencePath = (& git -C $SourceRoot ls-tree -r --name-only $ValidatedSourceCommit -- $ApprovedPostArchiveValidationEvidence 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Unable to verify post-archive validation evidence absence from validated_source_commit: $previousEvidencePath"
+    }
+    if ($previousEvidencePath) {
+        Fail "Post-archive validation evidence must be created by the evidence commit and absent from validated_source_commit."
+    }
+
+    $diffOutput = (& git -C $SourceRoot diff --name-only $ValidatedSourceCommit $SourceCommit -- 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Unable to verify evidence-only delta from validated_source_commit to SourceRoot HEAD: $diffOutput"
+    }
+    $changedPaths = @($diffOutput -split "`r?`n" |
+        Where-Object { $_.Trim() } |
+        ForEach-Object { $_.Trim().Replace("\", "/") } |
+        Sort-Object -Unique)
+    if ($changedPaths.Count -ne 1 -or $changedPaths[0] -ne $ApprovedPostArchiveValidationEvidence) {
+        $actual = if ($changedPaths.Count -eq 0) { "<none>" } else { $changedPaths -join ", " }
+        Fail "Final evidence commit delta from validated_source_commit to SourceRoot HEAD must contain only $ApprovedPostArchiveValidationEvidence; actual: $actual"
+    }
 }
 
 function Assert-EvidenceCheckPassed($Evidence, $Name) {
@@ -184,9 +207,17 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
         Fail "Post-archive validation evidence archive_commit must be a full commit SHA."
     }
     $archiveCommit = Get-GitSha $SourceRoot ([string]$evidence.archive_commit)
-    if (-not (Test-GitAncestor $SourceRoot $archiveCommit $SourceCommit)) {
-        Fail "Post-archive validation evidence archive_commit must be an ancestor of SourceRoot HEAD."
+    if ([string]$evidence.validated_source_commit -notmatch "^[0-9a-f]{40}$") {
+        Fail "Post-archive validation evidence validated_source_commit must be a full commit SHA."
     }
+    $validatedSourceCommit = Get-GitSha $SourceRoot ([string]$evidence.validated_source_commit)
+    if (-not (Test-GitAncestor $SourceRoot $archiveCommit $validatedSourceCommit)) {
+        Fail "Post-archive validation evidence archive_commit must be an ancestor of validated_source_commit."
+    }
+    if (-not (Test-GitAncestor $SourceRoot $validatedSourceCommit $SourceCommit)) {
+        Fail "Post-archive validation evidence validated_source_commit must be an ancestor of SourceRoot HEAD."
+    }
+    Assert-EvidenceOnlyCommitDelta $SourceRoot $validatedSourceCommit $SourceCommit
 
     $archiveRoot = Join-Path $SourceRoot "openspec/changes/archive"
     if (-not (Test-Path -LiteralPath $archiveRoot -PathType Container)) {
@@ -215,9 +246,6 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
 
     foreach ($check in @("openspec_change_validation", "openspec_all_validation", "python_tests", "git_diff_check")) {
         Assert-EvidenceCheckPassed $evidence $check
-    }
-    if ($evidence.validated_source_commit -ne $SourceCommit) {
-        Fail "Post-archive validation evidence validated_source_commit must equal SourceRoot HEAD."
     }
 }
 

@@ -71,22 +71,30 @@ inside the source tree at exactly
 `openspec_change_validation`, `openspec_all_validation`, `python_tests`, and
 `git_diff_check`. The evidence must be tracked by Git, exist in the source
 `HEAD` tree, not be ignored, and hash to the same Git blob as the committed
-`HEAD` blob after repository filters. The archive commit must be a full SHA and
-an ancestor of the final source commit, the validated source commit must equal
-source `HEAD`, and all required checks must have `status = pass`.
+`HEAD` blob after repository filters. The archive commit and validated source
+commit must be full SHAs. The archive commit must be an ancestor of the
+validated source commit, the validated source commit must be an ancestor of the
+source `HEAD`, and the delta from validated source commit to source `HEAD` must
+contain only the approved evidence JSON, which is created by that evidence
+commit. All required checks must have `status = pass`.
 
 ### 4. Source commit boundary
 
 ```text
-source commit S
--> Graphify indexes checkout exactly at S
+archive commit A
+-> validated source commit S
+-> evidence commit E
+-> Graphify indexes checkout exactly at E
 -> graph-only commit G stores outputs
 ```
 
-`baseline.json.indexed_source_commit` is full SHA `S`. Commit `G` is not in the
+`baseline.json.indexed_source_commit` is full SHA `E`. Commit `G` is not in the
 graph and does not make the map stale because graph output is excluded from the
-corpus. The wrapper records the explicitly supplied `indexed_source_ref` and
-`target_branch`; it does not infer `master` or `detached` from SHA equality.
+corpus. The evidence commit `E` is allowed to differ from `S` only by
+`openspec/validation/frozen-project-graph-baseline.post-archive.json`, whose
+contents point back to `A` and `S`. The wrapper records the explicitly supplied
+`indexed_source_ref` and `target_branch`; it does not infer `master` or
+`detached` from SHA equality.
 
 ### 5. Code-only corpus
 
@@ -157,8 +165,9 @@ hostname, credentials, inventory data, ambiguous `indexed_branch`, or
    repository path, is tracked, exists in source `HEAD`, is not ignored, has
    working-tree content hashing to the committed `HEAD` blob after repository
    filters, and passes archived change existence, active change absence,
-   archive ancestry, validated source SHA, and required pass-status checks
-   before Graphify generation;
+   archive-to-validated-source ancestry, validated-source-to-`HEAD` ancestry,
+   evidence-only `S..E` delta, and required pass-status checks before Graphify
+   generation;
 6. requires Graphify exactly 0.9.26;
 7. optionally installs only that exact version in an explicit install mode;
 8. validates `.graphifyignore`;
@@ -208,10 +217,11 @@ architecture APPROVE
 -> implementation
 -> bootstrap graph build for integration review
 -> independent review and validation
--> archive change
--> post-archive validation
--> final Graphify refresh from final source commit
--> final graph-only commit
+-> archive change in commit A
+-> post-archive validation on commit S
+-> evidence-only commit E
+-> final Graphify refresh from evidence commit E
+-> final graph-only commit G
 -> lightweight graph integrity review
 -> merge
 ```

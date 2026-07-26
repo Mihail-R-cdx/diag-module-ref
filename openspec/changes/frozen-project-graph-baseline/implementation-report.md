@@ -7,8 +7,9 @@ Latest update closes the follow-up non-blocking review note that `BaselineStage
 Final` still needed a repository-verifiable archive/post-archive validation
 gate.
 
-Latest correction addresses the independent `CHANGES REQUIRED` findings for
-`.graphifyignore` hash integrity and stricter final evidence provenance.
+Latest correction addresses the independent `CHANGES REQUIRED` finding that the
+previous final evidence model required the evidence blob to name its own commit.
+The gate now uses the approved `A -> S -> E -> G` workflow.
 
 ## Git and PR gate
 
@@ -19,6 +20,8 @@ Latest correction addresses the independent `CHANGES REQUIRED` findings for
   `agent/frozen-project-graph-baseline`
 - Architecture amendment start HEAD: `aab0ae74a4e8ac43b1143b8adb03c0a2e94a7f69`
 - Final gate session start HEAD: `f7e3ac777d1b35b8e20bef550dd291791b46c4b4`
+- Evidence commit model correction start HEAD:
+  `717817688d5bfadf639ddf0bdb929ad3a72a5180`
 - `origin/master` used for bootstrap source:
   `7e83d303dd997f59987d5007fff9ea56b7d10efc`
 - Worktree before changes: clean; local branch matched remote feature HEAD.
@@ -69,6 +72,17 @@ Final-mode wrapper execution now requires
 This is a project-owned JSON evidence file, not a manual `ValidationPassed`
 flag.
 
+The final workflow commits are:
+
+- `A`: archive commit containing the archived
+  `frozen-project-graph-baseline` change under `openspec/changes/archive/`.
+- `S`: post-archive source commit that receives strict OpenSpec validation,
+  full Python tests, and `git diff --check`.
+- `E`: evidence-only commit adding
+  `openspec/validation/frozen-project-graph-baseline.post-archive.json`.
+- `G`: graph-only commit containing only allowlisted generated Graphify
+  artifacts.
+
 The wrapper verifies:
 
 - valid JSON;
@@ -79,33 +93,43 @@ The wrapper verifies:
 - working-tree content hashes to the committed `HEAD` blob after repository
   filters;
 - `change_name = frozen-project-graph-baseline`;
-- `validated_source_commit` equals `SourceRoot` `HEAD`;
-- `archive_commit` is a full SHA and an ancestor of `SourceRoot` `HEAD`;
+- `archive_commit` resolves to a full SHA;
+- `validated_source_commit` resolves to a full SHA;
+- `archive_commit` is an ancestor of `validated_source_commit`;
+- `validated_source_commit` is an ancestor of `SourceRoot` `HEAD`;
+- the delta from `validated_source_commit` to `SourceRoot` `HEAD` contains
+  exactly
+  `openspec/validation/frozen-project-graph-baseline.post-archive.json`;
+- that evidence path is absent from `validated_source_commit` and created by
+  evidence commit `E`;
 - archived `frozen-project-graph-baseline` artifact exists under
   `openspec/changes/archive/`;
 - active `openspec/changes/frozen-project-graph-baseline/` is absent;
 - `openspec_change_validation`, `openspec_all_validation`, `python_tests`, and
   `git_diff_check` have `status = pass`.
 
-The gate runs before Graphify version checks or graph generation. In the
+The gate runs before Graphify generation. In the
 current pre-archive state, `BaselineStage Final` exits nonzero with a safe
 message requiring project-owned post-archive validation evidence. No archive,
 validation evidence file, final graph, or graph rebuild was created in this
 session.
 
 Disposable negative fixtures verified nonzero rejection before Graphify
-generation for missing evidence, evidence in `logs/`, ignored evidence,
-untracked evidence, evidence staged but absent from `HEAD`, modified evidence,
-invalid JSON, wrong `change_name`, unresolved archive commit, failing check
-status, `validated_source_commit` mismatch, missing archived change, and active
-change still present.
+generation for missing evidence, nonexistent `validated_source_commit`,
+validated source not ancestor of `HEAD`, archive commit not ancestor of
+validated source, production change in `S..E`, test change in `S..E`,
+wrapper/ignore change in `S..E`, evidence plus another file in `S..E`, ignored
+evidence, untracked evidence, modified evidence, wrong-path evidence, and a
+failed validation status.
 
-A true positive fixture with evidence already committed in `SourceRoot HEAD`
-and `validated_source_commit == SourceRoot HEAD` is self-referential: the commit
-SHA would have to be known inside a blob that participates in the same commit
-SHA. The wrapper therefore enforces the requested invariant, but a real positive
-fixture cannot be constructed without amending the evidence model or using
-non-production Git replacement tricks, which were not used.
+A disposable positive `A -> S -> E` fixture archived the change, committed an
+empty validated source checkpoint, committed only the approved evidence JSON,
+and reached the fake Graphify sentinel. That proves the gate can pass without
+using a self-referential commit SHA. The latest disposable positive fixture
+used `A=c5d2f7db576a87dfe280a2ff3dfca6fec01eb3b4`,
+`S=21a7b6d8aaae5edf175a7e4294572990933ae777`, and
+`E=dcafc5371365048615d3ccfb29c11a3d20f5dfa4`; these fixture commits were
+unreferenced after cleanup and were not pushed.
 
 ## Current bootstrap graph evidence
 
@@ -232,6 +256,22 @@ changed.
 - Latest `python -X faulthandler -m unittest discover -s tests -p "test_*.py"`:
   `Ran 474 tests in 40.387s`, `OK`.
 - Latest `git diff --check`: passed.
+- Evidence-model correction `BaselineStage Final` pre-archive rejection check:
+  passed at `717817688d5bfadf639ddf0bdb929ad3a72a5180`, exited nonzero before
+  Graphify generation with:
+  `Final baseline requires -PostArchiveValidationEvidence pointing to project-owned post-archive validation JSON.`
+- Evidence-model correction disposable final-gate fixtures: 12 negative cases
+  rejected before the fake Graphify sentinel; positive `A -> S -> E` fixture
+  reached the fake Graphify sentinel.
+- Evidence-model correction `.\openspec.cmd validate frozen-project-graph-baseline --strict`:
+  passed.
+- Evidence-model correction `.\openspec.cmd validate --all --strict`:
+  `10 passed, 0 failed`.
+- Evidence-model correction Python tests:
+  `C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -X faulthandler -m unittest discover -s tests -p "test_*.py"`,
+  `Ran 474 tests in 40.274s`, `OK`. The bare `python` command was unavailable
+  in this sandbox PATH.
+- Evidence-model correction `git diff --check`: passed.
 
 Implementation status: `READY FOR INDEPENDENT REVIEW` after commit, push, and
 PR body update. PR must remain Draft.

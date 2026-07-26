@@ -10,7 +10,7 @@
 - [x] Install `graphifyy==0.9.26` in an isolated tool environment; do not add it to application dependencies.
 - [x] Capture `graphify --version` and help for `extract`, `check-update`, and `update`.
 - [x] Implement `tools/refresh_project_graph.ps1` with explicit initial, incremental, full-rebuild, opt-in exact-install modes, clean `SourceRoot`/`OutputRoot` separation, required `BaselineStage`/`SourceRef`/`TargetBranch`, schema-v2 metadata, and no dirty publish mode.
-- [x] Enforce final-mode workflow gate requiring project-owned post-archive validation evidence at the approved repository path, tracked Git evidence, `HEAD` blob presence, working-tree content hashing to the `HEAD` blob after repository filters, archived change presence, active change absence, archive ancestry, validated source SHA match, and pass statuses before Graphify generation.
+- [x] Enforce final-mode workflow gate requiring project-owned post-archive validation evidence at the approved repository path, tracked Git evidence, `HEAD` blob presence, working-tree content hashing to the `HEAD` blob after repository filters, archived change presence, active change absence, archive-to-validated-source ancestry, validated-source-to-`HEAD` ancestry, evidence-only `S..E` delta, and pass statuses before Graphify generation.
 - [x] Ensure wrapper failures remain nonzero and no automatic commit, push, merge, archive, hook, watch, MCP, or skill installation occurs.
 - [x] Clarify publication as validated backup-and-restore copy, not a single-step filesystem rename guarantee.
 - [x] Add `docs/project-graph-runbook.md` covering authority, bootstrap/final metadata, frozen behavior, ChatGPT/Codex use, commands, staleness, security, Windows operation, troubleshooting, and upgrade policy.
@@ -35,7 +35,7 @@
 - [x] In a disposable probe outside the production branch, add/rename/delete a synthetic source file and verify incremental integrity rejection or full-rebuild escalation without replacing the accepted baseline on failure.
 - [x] Restore the bootstrap baseline and ensure no probe artifacts are committed.
 - [x] Verify full-rebuild triggers for version/ignore/root/package changes, mass rename/delete, ghost nodes, integrity failure, unexpected topology shrink, threshold, and architect request.
-- [x] Verify disposable final-gate negative cases for missing, wrong-path, ignored, untracked, added-but-not-in-`HEAD`, modified-after-commit, invalid JSON, and semantic-failure evidence, plus a positive fixture that passes the gate before the fake Graphify sentinel.
+- [x] Verify disposable final-gate negative cases for missing, wrong-path, ignored, untracked, added-but-not-in-`HEAD`, modified-after-commit, invalid JSON, nonexistent validated source, validated source not ancestor of `HEAD`, archive not ancestor of validated source, failed check status, and extra `S..E` changes in production, tests, wrapper/ignore, and other files, plus a positive `A -> S -> E` fixture that passes the gate before the fake Graphify sentinel.
 
 ## 4. Implementation validation
 
@@ -54,9 +54,10 @@
 - [ ] Archive the OpenSpec change only after the approval verdict permits archive.
 - [ ] Run post-archive strict OpenSpec validation, full Python tests, and `git diff --check`.
 - [ ] Create project-owned post-archive validation evidence JSON at `openspec/validation/frozen-project-graph-baseline.post-archive.json` containing `change_name`, `archive_commit`, `validated_source_commit`, `openspec_change_validation`, `openspec_all_validation`, `python_tests`, and `git_diff_check`.
-- [ ] Identify final source commit `S` after archive/post-archive validation.
-- [ ] Generate the final baseline with `baseline_stage = final`, explicit source ref, `target_branch = master`, and `-PostArchiveValidationEvidence`.
-- [ ] Commit only allowlisted graph artifacts in graph-only commit `G`, with `baseline.json.indexed_source_commit = S`.
+- [ ] Identify archive commit `A` and post-archive validated source commit `S`.
+- [ ] Commit only the approved post-archive validation evidence JSON in evidence commit `E`, with no other `S..E` changes.
+- [ ] Generate the final baseline from `E` with `baseline_stage = final`, explicit source ref, `target_branch = master`, and `-PostArchiveValidationEvidence`.
+- [ ] Commit only allowlisted graph artifacts in graph-only commit `G`, with `baseline.json.indexed_source_commit = E`.
 - [ ] Perform lightweight graph integrity review.
 - [ ] Verify remote feature HEAD equals reviewed `G` before merge.
 - [ ] Merge only after the final graph-only commit review permits it.
