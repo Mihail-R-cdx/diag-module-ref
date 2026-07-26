@@ -143,6 +143,16 @@ MAY come from the system `PATH` or a portable installation supplied by the
 environment. Rules and scripts MUST NOT contain a user-specific absolute Node
 path.
 
+Current known portable Node location for this local validation environment:
+
+```text
+C:\Users\Mih\AppData\Local\Temp\diag-node-portable\node-v20.19.0-win-x64
+```
+
+Use it by setting `DIAG_NODE_HOME` in the current process or shell before
+dependency preparation or OpenSpec validation. Do not persist it into the
+system `PATH`.
+
 ```powershell
 $nodeHome = $env:DIAG_NODE_HOME
 if (-not $nodeHome -or -not (Test-Path "$nodeHome\node.exe")) {
