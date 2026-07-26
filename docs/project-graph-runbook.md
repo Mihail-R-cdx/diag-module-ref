@@ -66,6 +66,23 @@ The indexed source commit is the exact source state that Graphify processed.
 The following graph artifact commit may be newer than that source commit
 because `graphify-out/` is excluded from the corpus.
 
+## Source And Output Boundary
+
+The wrapper separates the indexed source from the publication target:
+
+```powershell
+.\tools\refresh_project_graph.ps1 -Mode Initial -SourceRoot <clean-source-worktree> -OutputRoot <implementation-worktree>
+```
+
+`SourceRoot` must be a clean Git worktree. For the initial pilot it must be the
+exact current `origin/master` commit. The wrapper reads metadata from
+`SourceRoot`, stages Graphify execution in a temporary build copy, and writes
+accepted artifacts only under `OutputRoot/graphify-out/`.
+
+The temporary build copy receives the committed `.graphifyignore` as a tooling
+overlay so the source worktree remains clean. The source commit, not the output
+branch commit and not the temporary copy, is recorded in `baseline.json`.
+
 ## Initial Build
 
 Use the isolated pinned tool:
@@ -78,16 +95,19 @@ graphify check-update --help
 graphify update --help
 ```
 
-Build only from a clean intended source state:
+Build only from a clean detached worktree at the current `origin/master` SHA:
 
 ```powershell
-.\tools\refresh_project_graph.ps1 -Mode Initial
+$masterSha = git rev-parse origin/master
+git worktree add --detach .worktrees/graph-source-$($masterSha.Substring(0, 8)) $masterSha
+.\tools\refresh_project_graph.ps1 -Mode Initial -SourceRoot .worktrees/graph-source-$($masterSha.Substring(0, 8)) -OutputRoot .
 ```
 
 The wrapper verifies the exact Graphify version, clean source state,
 `.graphifyignore`, JSON validity, hashes, counts, output allowlist, no HTML,
-secret/inventory/path scans, no hooks/watch/MCP/skills, and project-specific
-smoke queries.
+frozen report policy, secret/inventory/path scans, no hooks/watch/MCP/skills,
+and project-specific structured smoke queries. It builds in a temporary
+directory and publishes to `graphify-out/` only after all acceptance checks pass.
 
 ## Incremental Refresh
 
@@ -98,9 +118,22 @@ normally after archive and post-archive validation:
 .\tools\refresh_project_graph.ps1 -Mode Incremental
 ```
 
-The wrapper runs Graphify update-check before update. A normal active feature
-implementation or validation session must not silently rebuild or refresh the
-graph.
+The wrapper runs Graphify update-check before update in a temporary build copy
+seeded with the last accepted `graphify-out/`. It records the source range from
+the previous `baseline.json.indexed_source_commit` to the current clean source
+commit, classifies `git diff --name-status --find-renames`, and enforces:
+
+- deleted paths must disappear from manifest and graph nodes;
+- old renamed paths must not remain as ghost nodes;
+- new renamed paths must appear when they are in the corpus;
+- unchanged node identities must not disappear;
+- node/edge deltas must fit configurable per-changed-file limits;
+- failed integrity leaves the last accepted baseline intact.
+
+Any ghost node, unverifiable rename/delete, unexpected topology shrink or jump,
+or excessive source delta fails nonzero and requires `FullRebuild`. A normal
+active feature implementation or validation session must not silently rebuild or
+refresh the graph.
 
 ## Full Rebuild
 
@@ -113,8 +146,9 @@ large-change threshold is reached, or an architect explicitly requests rebuild:
 .\tools\refresh_project_graph.ps1 -Mode FullRebuild
 ```
 
-Full rebuild removes only generated `graphify-out/` contents and regenerates
-from the clean source state. It does not commit or push.
+Full rebuild regenerates from a clean source state through the same temporary
+build and atomic publication path. It does not commit, push, archive, merge, or
+install integrations.
 
 ## ChatGPT Consumption
 
@@ -171,11 +205,14 @@ Excel workbooks, real inventory snapshots, secret-bearing test output,
 temporary worktree paths, Git credential storage, or user-specific absolute
 paths.
 
-The wrapper scans generated outputs for Windows drive paths, UNC paths, POSIX
-checkout paths, `.env`, key markers, cookie/session/token terms, inventory
-local filenames, Excel paths, `.worktrees`, and graph output self-indexing. If
-a scan finds a sensitive value, report only the safe finding type and artifact
-path, not the matched secret.
+The wrapper scans all four committed artifacts: `graph.json`, `manifest.json`,
+`GRAPH_REPORT.md`, and `baseline.json`. It checks Windows drive paths, UNC
+paths, POSIX checkout paths, `.env` and local deployment files, private-key
+blocks, bearer tokens, common API-key prefixes, assignment-like credential
+literals, URL-embedded credentials, token/cookie/session values, token-like
+high-entropy scalars, inventory local filenames, Excel paths, temporary
+worktrees, and graph output self-indexing. Secret findings print artifact, JSON
+path or safe scalar location, category, and a redacted fingerprint only.
 
 ## Smoke Queries
 
@@ -190,8 +227,10 @@ credential fallback ownership
 PDU refresh to related codec status
 ```
 
-For each query, record command exit code, relevant node, existing source file,
-source confirmation, and honest confidence classification.
+For each query, record command exit code, matched node ids, source paths, edge
+ids/types, actual edge confidence or `NOT_AVAILABLE`, and source confirmation.
+`INFERRED` may be recorded only as a navigation hint with separate source
+confirmation. `AMBIGUOUS` is not successful evidence.
 
 ## Reproducibility
 
@@ -204,6 +243,7 @@ or ordering may vary:
 - node/edge counts;
 - absence of checkout-specific absolute paths;
 - portability across worktrees.
+- committed `.graphifyignore` byte hash.
 
 Classify differences as `semantic`, `non-semantic`, or `unexpected`.
 Unexpected differences block readiness.

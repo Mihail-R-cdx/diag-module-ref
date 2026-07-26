@@ -3,11 +3,11 @@
     "generator":  "graphify",
     "graphify_version":  "0.9.26",
     "mode":  "code-only",
-    "indexed_source_commit":  "e9cce86df67386b4e4c5c15cbe250bdc4d563e08",
+    "indexed_source_commit":  "7e83d303dd997f59987d5007fff9ea56b7d10efc",
     "indexed_branch":  "master",
-    "generated_at":  "2026-07-26T11:17:36Z",
-    "graph_sha256":  "3bc1e404206c14075f50ac0d52e67bdbce438b9bad90597d7a727edcb4db2b30",
+    "generated_at":  "2026-07-26T12:20:38Z",
+    "graph_sha256":  "ccb423f992d3b1b147807fc177ca95e5d75c3f00fdba05045a51906383d972fe",
     "ignore_file_sha256":  "755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f",
-    "node_count":  3122,
-    "edge_count":  8590
+    "node_count":  3106,
+    "edge_count":  8563
 }

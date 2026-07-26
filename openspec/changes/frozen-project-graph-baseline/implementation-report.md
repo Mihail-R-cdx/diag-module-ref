@@ -1,114 +1,134 @@
-# Implementation Report: Frozen Project Graph Baseline
+# Implementation Report: Frozen Project Graph Baseline Corrections
 
-This is implementation evidence, not an independent validation verdict.
+This is implementation evidence after review status `CHANGES REQUIRED`, not an
+independent validation verdict.
 
 ## Git and PR gate
 
 - Repository: `Mihail-R-cdx/diag-module-ref`
+- Branch: `agent/frozen-project-graph-baseline`
 - PR: `#14` (`Architecture: frozen project graph baseline`)
-- PR state before implementation: open Draft, base `master`, head `agent/frozen-project-graph-baseline`
-- Architecture HEAD verified before work: `6108c8529717bb0d7b92c9d98196396d26f370de`
-- Implementation worktree started clean from `origin/agent/frozen-project-graph-baseline`
+- PR state before corrections: open Draft, base `master`, head `agent/frozen-project-graph-baseline`
+- Previous reviewed HEAD: `1798dd8d74ff85b0af891682a18d6e37f116b6f7`
+- Correction start HEAD: `1798dd8d74ff85b0af891682a18d6e37f116b6f7`
+- Current `origin/master` used for initial baseline: `7e83d303dd997f59987d5007fff9ea56b7d10efc`
+- Worktree before changes: clean; local HEAD matched remote feature HEAD.
 
-## Tool evidence
+## Findings closed
 
-- `uv`: `0.11.32`
-- Graphify package: `graphifyy==0.9.26`
-- Graphify CLI: `graphify`
-- `graphify --version`: `graphify 0.9.26`
-- `graphify extract --help`, `graphify check-update --help`, and `graphify update --help` returned exit code `0`; this build prints detailed command help through `graphify --help`.
-- Actual initial build syntax used by the wrapper:
+### HIGH 1 - inaccurate `indexed_branch`
 
-```powershell
-graphify extract <repo-root> --code-only --no-viz
-graphify cluster-only <repo-root> --no-viz --no-label
-```
+- Fixed files: `tools/refresh_project_graph.ps1`, `graphify-out/baseline.json`, generated graph artifacts.
+- Fix: initial mode now requires clean `SourceRoot` at the exact current `origin/master` SHA and records metadata from that source root, not the implementation worktree.
+- Evidence: corrected baseline records `indexed_source_commit = 7e83d303dd997f59987d5007fff9ea56b7d10efc` and `indexed_branch = master`.
 
-`extract` produced `graph.json`, `manifest.json`, and `.graphify_analysis.json`; Graphify then instructed running `cluster-only` to generate `GRAPH_REPORT.md`. The wrapper runs that command and removes uncommitted cache/analysis/root/html/dated-backup byproducts before acceptance.
+### HIGH 2 - publishable dirty mode
 
-## Implemented files
+- Fixed file: `tools/refresh_project_graph.ps1`.
+- Fix: removed `-AllowDirty`; all publish modes require a clean source Git worktree. Synthetic probes use committed disposable source states, not uncommitted bytes.
+- Evidence: source clean checks run before and after generation; failed incremental candidates do not replace accepted output.
 
-- `RULES.md`: short frozen-baseline policy section.
-- `.graphifyignore`: repository-specific ignore policy for graph generation.
-- `docs/project-graph-runbook.md`: authority, operation, staleness, security, reproducibility, ChatGPT/Codex use, and upgrade policy.
-- `tools/refresh_project_graph.ps1`: pinned explicit initial/incremental/full-rebuild wrapper.
-- `graphify-out/baseline.json`
-- `graphify-out/graph.json`
-- `graphify-out/GRAPH_REPORT.md`
-- `graphify-out/manifest.json`
+### HIGH 3 - unsafe generated freshness advice
 
-No production Python code, runtime tests, or runtime dependencies were changed.
+- Fixed files: `tools/refresh_project_graph.ps1`, `graphify-out/GRAPH_REPORT.md`.
+- Fix: wrapper replaces Graphify's generated freshness section with a project-owned frozen baseline policy and fails if `graphify update . after code changes` remains.
+- Evidence: committed report contains `Frozen Baseline Policy` and the full source commit; forbidden advice is absent.
+
+### HIGH 4 - incremental integrity enforcement
+
+- Fixed files: `tools/refresh_project_graph.ps1`, `docs/project-graph-runbook.md`.
+- Fix: incremental mode records previous-to-current Git diff, compares manifest source set, node identities, link identities, counts, deleted paths, renamed paths, ghost nodes, unchanged-node retention, and topology deltas. Failed integrity is nonzero and leaves the last accepted graph intact.
+- Evidence: disposable add/rename/delete probes showed Graphify 0.9.26 `update` creates large topology jumps (`+1246`, `+1242`, `+1238` nodes for one source change); wrapper rejected each with `FullRebuild` guidance and preserved/restored accepted output.
+
+### MEDIUM 1 - substring smoke tests
+
+- Fixed file: `tools/refresh_project_graph.ps1`.
+- Fix: smoke checks parse `graph.json` and verify concrete node ids, source paths, file existence, source confirmation, edge ids/types, and actual edge confidence.
+- Evidence: wrapper output lists structured evidence for `PDUController`, `InteractiveSessionController`, `EquipmentInventory`, credential fallback ownership, accepted PDU refresh to enrichment, related-codec resolver, and related-codec status operation.
+
+### MEDIUM 2 - confidence defaulting
+
+- Fixed files: `tools/refresh_project_graph.ps1`, this report.
+- Fix: edge confidence is read from the matched graph element; missing confidence is reported as `NOT_AVAILABLE`; no default `EXTRACTED` is assigned.
+- Evidence: final smoke evidence reports exact edge confidence: `EXTRACTED` for confirmed extracted edges and `INFERRED` only for the related-codec status navigation hint with separate source confirmation.
+
+### MEDIUM 3 - secret scan
+
+- Fixed file: `tools/refresh_project_graph.ps1`.
+- Fix: scans all four committed artifacts for absolute paths, local deployment files, private keys, bearer tokens, common API-key prefixes, assignment-like credential literals, URL credentials, token/cookie/session values, token-like high-entropy values, inventory/Excel names, temporary worktrees, and graph self-indexing. Findings print only category, artifact, JSON path, and redacted fingerprint.
+- Evidence: final wrapper acceptance passed the strengthened scan.
 
 ## Baseline evidence
 
-- Indexed source commit: `e9cce86df67386b4e4c5c15cbe250bdc4d563e08`
 - Graphify version: `0.9.26`
+- Source worktree: clean detached worktree at `7e83d303dd997f59987d5007fff9ea56b7d10efc`
+- Indexed branch: `master`
 - Mode: `code-only`
 - Visualization: disabled/rejected; no `graph.html` committed
-- Node count: `3122`
-- Edge count: `8590`
-- Graph SHA-256: `3bc1e404206c14075f50ac0d52e67bdbce438b9bad90597d7a727edcb4db2b30`
-- Ignore SHA-256 from generation worktree bytes: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
-- Generated allowlist: exactly the four approved files.
-- Graphify warning: `database.json` produced zero nodes; it is a JSON data file and no required source symbol depends on it for this baseline.
+- Node count: `3106`
+- Edge count: `8563`
+- Graph SHA-256: `ccb423f992d3b1b147807fc177ca95e5d75c3f00fdba05045a51906383d972fe`
+- Ignore SHA-256 from committed bytes: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
+- Generated allowlist: exactly `graphify-out/graph.json`, `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and `graphify-out/baseline.json`.
+- Graphify warning: `database.json` produced zero nodes; it is JSON data and no smoke evidence depends on it.
 
-## Security and integration checks
+## Structured smoke evidence
 
-Committed graph artifacts scanned clean for:
+- `PDUController`: node `gui_pdu_controller_pducontroller`, source `gui/pdu_controller.py`, type `code`, source-confirmed.
+- `InteractiveSessionController`: node `core_interactive_session_interactivesessioncontroller`, source `core/interactive_session.py`, type `code`, source-confirmed.
+- `EquipmentInventory`: node `core_equipment_inventory_equipmentinventory`, source `core/equipment_inventory.py`, type `code`, source-confirmed.
+- `credential fallback ownership`: edge `core_interactive_session_interactivesessioncontroller_acquire_handler|calls|core_credentials_credentialattemptplan`, confidence `EXTRACTED`, source `core/interactive_session.py`, source-confirmed.
+- `accepted PDU refresh to enrichment controller`: edge `gui_main_window_vcsdiagnosticapp_on_pdu_refresh_accepted_for_enrichment|calls|gui_main_window_vcsdiagnosticapp_pdu_room_codec_controller`, confidence `EXTRACTED`, source `gui/main_window.py`, source-confirmed.
+- `related codec resolver navigation hint`: edge `core_room_context_roomcontextresolver_resolve_related_codec|references|core_equipment_inventory_equipmentinventory`, confidence `EXTRACTED`, source `core/room_context.py`, source-confirmed.
+- `related codec status operation navigation hint`: edge `gui_pdu_room_codec_enrichment_pduroomcodecenrichmentcontroller_handler_factory|indirect_call|core_related_codec_status_relatedcodecstatusadapter_read_status`, confidence `INFERRED`, source `gui/pdu_room_codec_enrichment.py`, source-confirmed.
 
-- Windows drive paths
-- UNC paths
-- POSIX checkout paths
-- `.env`
-- private-key markers
-- `equipment_inventory.local.json`
-- Excel file references
-- `.worktrees`
-- graph output self-reference
+Confidence summary:
 
-No repository Graphify hooks, watch integration, MCP configuration, skill files, `AGENTS.md`, `.codex/hooks.json`, or Graphify merge driver were created.
-
-Vocabulary terms such as password, token, cookie, session, and csrf appear as project source vocabulary in the code graph. The wrapper reports them as review notes rather than secret matches; no secret value was printed or committed.
-
-## Smoke queries
-
-Each query exited through the wrapper with exit code `0`, found graph content, and was confirmed in source:
-
-- `PDUController` -> `gui/pdu_controller.py`, confidence `EXTRACTED`
-- `InteractiveSessionController` -> `core/interactive_session.py`, confidence `EXTRACTED`
-- `EquipmentInventory` -> `core/equipment_inventory.py`, confidence `EXTRACTED`
-- `Credential` -> `core/credentials.py`, confidence `EXTRACTED`
-- `RelatedCodec` -> `core/related_codec_status.py`, confidence `EXTRACTED`
-
-Graph confidence summary:
-
-- `EXTRACTED`: `7491`
+- `EXTRACTED`: `7464`
 - `INFERRED`: `1099`
 - `AMBIGUOUS`: `0`
 
 ## Reproducibility
 
-A disposable worktree at the same exact source commit was generated and compared.
+A repeated initial build of exact `origin/master` was compared against the
+previous accepted output.
 
-- Source-file set: identical (`121` vs `121`)
-- Node identities: identical (`3122` vs `3122`, diff `0`)
-- Link identities: identical (`8590` vs `8590`, diff `0`)
-- Node count: identical (`3122`)
-- Edge count: identical (`8590`)
-- Absolute checkout paths: absent after report sanitization
-- Difference classification: non-semantic byte/hash differences only, caused by Graphify clustering ordering/report metadata and working-tree line ending differences for `.graphifyignore`; topology matched exactly.
+- Source-file set diff: `0`
+- Node identity diff: `0`
+- Link identity diff: `0`
+- Confidence category mismatch keys: `0`
+- Counts before/after: `3106/8563` and `3106/8563`
+- `.graphifyignore` byte hash before/after: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
+- Checkout path/probe scan: no hits.
+- Byte-for-byte graph hash varies with Graphify clustering/report ordering; topology and source identities match.
 
 ## Incremental probe
 
-Disposable probe in a separate worktree:
+Disposable source worktree started at `7e83d303dd997f59987d5007fff9ea56b7d10efc`.
 
-1. Added `tools/graphify_probe_sample.py` with `GraphifyProbeNode`.
-2. `graphify check-update .` exit code `0`.
-3. `graphify update .` exit code `0`.
-4. `GraphifyProbeNode` appeared in `graph.json`.
-5. Deleted the synthetic file.
-6. `graphify check-update .` exit code `0`.
-7. `graphify update .` exit code `0`.
-8. `GraphifyProbeNode` disappeared from `graph.json`.
+1. Added committed `tools/graphify_probe_sample.py`.
+2. Direct full rebuild for the disposable source confirmed node `GraphifyProbeNode` and probe file edges appear.
+3. Incremental add from master baseline was rejected nonzero due unexpected topology jump `+1246` nodes for one changed source file; accepted master baseline remained intact.
+4. Renamed the synthetic file and committed the disposable source change.
+5. Incremental rename was rejected nonzero due unexpected topology jump `+1242` nodes for one changed source file; no failed candidate was published.
+6. Deleted the synthetic file and committed the disposable source change.
+7. Incremental delete was rejected nonzero due unexpected topology jump `+1238` nodes for one changed source file; no failed candidate was published.
+8. Final accepted output was restored by a clean `Initial` build from exact `origin/master`.
 
-Observed Graphify behavior: `update` emits `graph.html` and dated backup byproducts and produced a large topology jump in the disposable probe. The wrapper removes byproducts and the runbook documents full-rebuild escalation when topology changes unexpectedly. No probe files or probe graph state are committed.
+No probe artifact is committed.
+
+## Security and integration checks
+
+Committed graph artifacts passed scans for Windows drive paths, UNC paths,
+POSIX checkout paths, `.env`/local deployment files, private-key blocks, bearer
+tokens, common API-key prefixes, assignment-like credential values, URL
+credentials, token/cookie/session values, high-entropy token-like values, real
+inventory local filename, Excel filenames, `.worktrees`, graph output
+self-indexing, and probe paths.
+
+No repository Graphify hooks, watch integration, MCP configuration, skill files,
+`AGENTS.md`, `.codex/hooks.json`, or Graphify merge driver were created.
+
+No production Python code, runtime tests, runtime dependencies, GUI code,
+handlers, credentials/recovery behavior, real inventory, or root specs were
+changed.

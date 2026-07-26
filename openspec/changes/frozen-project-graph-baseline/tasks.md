@@ -12,29 +12,29 @@
 
 - [x] Install `graphifyy==0.9.26` in an isolated tool environment; do not add it to application dependencies.
 - [x] Capture `graphify --version` and help for `extract`, `check-update`, and `update`.
-- [x] Implement `tools/refresh_project_graph.ps1` with explicit initial, incremental, full-rebuild, and opt-in exact-install modes.
+- [x] Implement `tools/refresh_project_graph.ps1` with explicit initial, incremental, full-rebuild, opt-in exact-install modes, clean `SourceRoot`/`OutputRoot` separation, atomic publication, and no dirty publish mode.
 - [x] Ensure wrapper failures remain nonzero and no automatic commit, push, merge, archive, hook, watch, MCP, or skill installation occurs.
 - [x] Add `docs/project-graph-runbook.md` covering authority, metadata, frozen behavior, ChatGPT/Codex use, commands, staleness, security, Windows operation, troubleshooting, and upgrade policy.
 
 ## 3. Real initial baseline
 
-- [x] Check out a clean exact source commit and run real Graphify 0.9.26 code-only extraction with visualization disabled.
+- [x] Check out a clean exact `origin/master` source commit and run real Graphify 0.9.26 code-only extraction with visualization disabled.
 - [x] Verify actual 0.9.26 output files and commit only the approved allowlist.
-- [x] Create `graphify-out/baseline.json` with full indexed source SHA, exact version, hashes, counts, and no local identity/path data.
+- [x] Create `graphify-out/baseline.json` with full indexed `origin/master` source SHA, exact version, hashes, counts, and no local identity/path data.
 - [x] Validate graph and manifest JSON, nonzero nodes/edges, repository-relative source paths, excluded-path absence, and no self-indexing.
 - [x] Confirm no HTML, semantic caches, converted documents, cost/API outputs, logs, environments, or package files are committed.
 
 ## 4. Security and query evidence
 
-- [x] Run textual and structured scans for credentials, `.env`, keys, cookies, Session IDs, CSRF/access tokens, real inventory, Excel data, and user-specific absolute paths.
+- [x] Run textual and structured scans across all committed graph artifacts for credentials, `.env`, keys, cookies, Session IDs, CSRF/access tokens, real inventory, Excel data, high-entropy token-like values, graph self-indexing, and user-specific absolute paths.
 - [x] Select at least five symbols/flows verified in current source, including available equivalents of `PDUController`, `InteractiveSessionController`, `EquipmentInventory`, credential-fallback ownership, and the PDU-to-related-codec path.
-- [x] For each smoke query, record exit 0, relevant node, existing source file, source confirmation, and honest confidence classification.
+- [x] For each smoke query, record exit 0, matched node ids, source paths, edge ids/types, actual edge confidence or `NOT_AVAILABLE`, and source confirmation.
 
 ## 5. Reproducibility and incremental behavior
 
 - [x] Repeat build or compare topology on the same source commit and verify identical source-file set and node identities, with extracted-edge differences explained.
 - [x] Repeat portability checks from another clean worktree and verify no checkout-specific absolute paths.
-- [x] In a disposable probe outside the production branch, add a synthetic node/edge, run incremental update, then delete/rename it and verify correct removal or full-rebuild escalation.
+- [x] In a disposable probe outside the production branch, add a synthetic node/edge, run incremental update, then delete/rename it and verify correct removal or enforced full-rebuild escalation without replacing the accepted baseline on failure.
 - [x] Restore the original baseline and ensure no probe artifacts are committed.
 - [x] Verify full-rebuild triggers for version/ignore/root/package changes, mass rename/delete, ghost nodes, integrity failure, unexpected topology shrink, threshold, and architect request.
 
