@@ -116,7 +116,6 @@ gh auth login
 
 
 
-
 ### OpenSpec execution
 
 All repository OpenSpec operations MUST use the tracked repository-local
@@ -143,15 +142,9 @@ MAY come from the system `PATH` or a portable installation supplied by the
 environment. Rules and scripts MUST NOT contain a user-specific absolute Node
 path.
 
-Current known portable Node location for this local validation environment:
-
-```text
-C:\Users\Mih\AppData\Local\Temp\diag-node-portable\node-v20.19.0-win-x64
-```
-
-Use it by setting `DIAG_NODE_HOME` in the current process or shell before
-dependency preparation or OpenSpec validation. Do not persist it into the
-system `PATH`.
+When Node is not available on the initial `PATH`, the execution environment
+MUST provide the approved portable Node directory through the process-local
+`DIAG_NODE_HOME` variable. Agents MUST NOT guess or hardcode that directory.
 
 ```powershell
 $nodeHome = $env:DIAG_NODE_HOME
@@ -189,6 +182,30 @@ Set-Content -Path .\specs\example.md -Encoding UTF8 -Value $content
 
 Incorrectly displayed Cyrillic MUST NOT be treated as corruption until the file
 has been read again explicitly as UTF-8.
+
+### Equipment inventory work
+
+Before any task involving the equipment database, Excel import, canonical
+inventory, PDU-to-room resolution, or related-room codec lookup, agents MUST
+read:
+
+- `docs/equipment-inventory-runbook.md`;
+- `openspec/specs/equipment-inventory-snapshot/spec.md`;
+- `openspec/specs/pdu-room-codec-enrichment/spec.md` when that capability is
+  present on the current branch.
+
+When the PDU-room-codec root specification is not yet present on the current
+branch, agents MUST read the current active or archived
+`pdu-room-codec-enrichment` change instead. Root OpenSpec specifications are
+normative; the runbook is a navigation and operational summary.
+
+Agents MUST NOT rely on remembered workbook structure or prior chat context.
+They MUST verify the current repository implementation and specifications.
+
+Any change to source-column mapping, canonical schema, identity authority,
+ambiguity handling, PDU-room resolution, codec selection, or enrichment
+lifecycle requires a semantic OpenSpec change before production
+implementation.
 
 ### Validation evidence
 
