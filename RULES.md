@@ -14,6 +14,14 @@ If Git reports a repository-ownership error, follow the scoped
 `safe.directory` fallback in the validation workflow below. It is not a required
 prefix for ordinary Git commands.
 
+### Equipment inventory runbook
+
+For any task involving equipment inventory, the Excel importer, canonical
+inventory snapshots, PDU-to-room resolution, or related-codec enrichment, agents
+MUST read `docs/equipment-inventory-runbook.md` after this file and before
+changing code, tests, specifications, or operational data. Current root OpenSpec
+specifications remain normative if the runbook and a specification conflict.
+
 ## Python Interpreter
 
 Use the repository-supported Python interpreter. An explicit interpreter path
