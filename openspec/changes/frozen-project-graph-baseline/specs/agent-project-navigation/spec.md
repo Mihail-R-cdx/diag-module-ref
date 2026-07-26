@@ -4,7 +4,7 @@
 
 ### Requirement: Published project graph is a frozen navigation baseline
 
-The repository SHALL MAY publish a committed Graphify map of one exact stable source commit for read-only agent navigation. The map SHALL NOT be treated as architecture, workflow state, validation evidence, or a substitute for current source and tests.
+The repository MAY publish a committed Graphify map of one exact stable source commit for read-only agent navigation. The map SHALL NOT be treated as architecture, workflow state, validation evidence, or a substitute for current source and tests.
 
 #### Scenario: Agent begins graph-assisted orientation
 
