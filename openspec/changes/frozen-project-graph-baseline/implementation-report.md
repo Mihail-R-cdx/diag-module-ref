@@ -3,6 +3,10 @@
 This is implementation evidence after review status `CHANGES REQUIRED -
 ARCHITECTURE AMENDMENT REQUIRED`, not an independent validation verdict.
 
+Latest update closes the follow-up non-blocking review note that `BaselineStage
+Final` still needed a repository-verifiable archive/post-archive validation
+gate.
+
 ## Git and PR gate
 
 - Repository: `Mihail-R-cdx/diag-module-ref`
@@ -10,7 +14,8 @@ ARCHITECTURE AMENDMENT REQUIRED`, not an independent validation verdict.
 - PR: `#14` (`Architecture: frozen project graph baseline`)
 - PR state at session start: open Draft, base `master`, head
   `agent/frozen-project-graph-baseline`
-- Session start HEAD: `aab0ae74a4e8ac43b1143b8adb03c0a2e94a7f69`
+- Architecture amendment start HEAD: `aab0ae74a4e8ac43b1143b8adb03c0a2e94a7f69`
+- Final gate session start HEAD: `f7e3ac777d1b35b8e20bef550dd291791b46c4b4`
 - `origin/master` used for bootstrap source:
   `7e83d303dd997f59987d5007fff9ea56b7d10efc`
 - Worktree before changes: clean; local branch matched remote feature HEAD.
@@ -53,6 +58,30 @@ force-push, or Ready-for-review transition was performed.
   on failure; no single-step filesystem rename guarantee is claimed.
 - Split tasks into implementation-review work and unchecked post-review final
   baseline/merge checkpoint work.
+
+## Final workflow gate
+
+Final-mode wrapper execution now requires
+`-PostArchiveValidationEvidence <path-inside-source-tree>`. This is a
+project-owned JSON evidence file, not a manual `ValidationPassed` flag.
+
+The wrapper verifies:
+
+- valid JSON;
+- `change_name = frozen-project-graph-baseline`;
+- `validated_source_commit` equals `SourceRoot` `HEAD`;
+- `archive_commit` is a full SHA and an ancestor of `SourceRoot` `HEAD`;
+- archived `frozen-project-graph-baseline` artifact exists under
+  `openspec/changes/archive/`;
+- active `openspec/changes/frozen-project-graph-baseline/` is absent;
+- `openspec_change_validation`, `openspec_all_validation`, `python_tests`, and
+  `git_diff_check` have `status = pass`.
+
+The gate runs before Graphify version checks or graph generation. In the
+current pre-archive state, `BaselineStage Final` exits nonzero with a safe
+message requiring project-owned post-archive validation evidence. No archive,
+validation evidence file, final graph, or graph rebuild was created in this
+session.
 
 ## Current bootstrap graph evidence
 
@@ -155,9 +184,16 @@ changed.
 - `.\openspec.cmd validate --all --strict`: `10 passed, 0 failed`.
 - `python -X faulthandler -m unittest discover -s tests -p "test_*.py"`:
   `Ran 474 tests in 40.314s`, `OK`.
-- `git diff --check`: passed.
-- `git status --short`: only intended implementation-review files modified
-  before commit.
+- Final-mode pre-archive rejection check: passed. A clean pre-archive source
+  worktree at `f7e3ac777d1b35b8e20bef550dd291791b46c4b4` exited nonzero before
+  Graphify generation with:
+  `Final baseline requires -PostArchiveValidationEvidence pointing to project-owned post-archive validation JSON.`
+- Latest `.\openspec.cmd validate frozen-project-graph-baseline --strict`:
+  passed.
+- Latest `.\openspec.cmd validate --all --strict`: `10 passed, 0 failed`.
+- Latest `python -X faulthandler -m unittest discover -s tests -p "test_*.py"`:
+  `Ran 474 tests in 40.218s`, `OK`.
+- Latest `git diff --check`: passed.
 
 Implementation status: `READY FOR INDEPENDENT REVIEW` after commit, push, and
 PR body update. PR must remain Draft.

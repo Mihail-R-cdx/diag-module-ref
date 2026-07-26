@@ -45,6 +45,15 @@ The pilot generator SHALL be the isolated package `graphifyy==0.9.26`, invoked t
   worktree `HEAD`
 - **AND** fails nonzero when any prerequisite or Graphify command fails.
 
+#### Scenario: Final mode is attempted before archive validation
+
+- **WHEN** `tools/refresh_project_graph.ps1` is invoked with
+  `BaselineStage = Final` before the change is archived and post-archive
+  validation evidence exists
+- **THEN** it fails nonzero before Graphify generation
+- **AND** reports that final baseline generation requires project-owned
+  post-archive validation evidence.
+
 ### Requirement: Initial graph is local code-only and has no visualization
 
 The first baseline SHALL index only the actual supported code corpus using code-only behavior and SHALL disable/reject HTML visualization. It SHALL NOT require an external LLM API.
@@ -81,6 +90,15 @@ secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
 - **AND** the source commit includes the reviewed production/test state,
   archived OpenSpec state, Graphify wrapper, `.graphifyignore`, runbook, and
   `RULES.md`
+- **AND** the wrapper verifies valid project-owned evidence JSON with
+  `change_name = frozen-project-graph-baseline`
+- **AND** `validated_source_commit` equals the source worktree `HEAD`
+- **AND** `archive_commit` is an ancestor of the source worktree `HEAD`
+- **AND** an archived `frozen-project-graph-baseline` artifact exists under
+  `openspec/changes/archive/`
+- **AND** active `openspec/changes/frozen-project-graph-baseline/` is absent
+- **AND** `openspec_change_validation`, `openspec_all_validation`,
+  `python_tests`, and `git_diff_check` have `status = pass`
 - **AND** the final graph-only commit contains only allowlisted generated graph
   artifacts.
 

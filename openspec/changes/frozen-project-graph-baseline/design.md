@@ -63,6 +63,15 @@ workflow changes. The final graph-only commit contains only the allowlisted
 generated graph artifacts and becomes the merge HEAD after lightweight graph
 integrity review.
 
+Final generation is gated by repository-verifiable evidence, not by a manual
+boolean flag. The wrapper requires a project-owned post-archive validation JSON
+inside the source tree with `change_name`, `archive_commit`,
+`validated_source_commit`, `openspec_change_validation`,
+`openspec_all_validation`, `python_tests`, and `git_diff_check`. The archive
+commit must be a full SHA and an ancestor of the final source commit, the
+validated source commit must equal source `HEAD`, and all required checks must
+have `status = pass`.
+
 ### 4. Source commit boundary
 
 ```text
@@ -141,24 +150,27 @@ hostname, credentials, inventory data, ambiguous `indexed_branch`, or
    resolves to source `HEAD`;
 4. verifies final-mode source contains the Graphify wrapper, `.graphifyignore`,
    runbook, and `RULES.md`;
-5. requires Graphify exactly 0.9.26;
-6. optionally installs only that exact version in an explicit install mode;
-7. validates `.graphifyignore`;
-8. supports explicit initial, incremental, and full-rebuild modes;
-9. invokes only syntax accepted by pinned CLI help;
-10. suppresses/rejects visualization output;
-11. writes schema-v2 `baseline.json` after successful generation;
-12. computes hashes and node/edge counts;
-13. validates JSON and relative paths;
-14. scans for secrets, inventory, excluded files, and graph self-indexing;
-15. runs project-specific query smoke tests;
-16. checks deletion/rename and topology integrity;
-17. publishes by validated backup-and-restore copy after acceptance checks;
-18. prints stage, source SHA, source ref, target branch, version, mode, hashes,
+5. verifies final-mode post-archive evidence JSON, archived change existence,
+   active change absence, archive ancestry, validated source SHA, and required
+   pass-status checks before Graphify generation;
+6. requires Graphify exactly 0.9.26;
+7. optionally installs only that exact version in an explicit install mode;
+8. validates `.graphifyignore`;
+9. supports explicit initial, incremental, and full-rebuild modes;
+10. invokes only syntax accepted by pinned CLI help;
+11. suppresses/rejects visualization output;
+12. writes schema-v2 `baseline.json` after successful generation;
+13. computes hashes and node/edge counts;
+14. validates JSON and relative paths;
+15. scans for secrets, inventory, excluded files, and graph self-indexing;
+16. runs project-specific query smoke tests;
+17. checks deletion/rename and topology integrity;
+18. publishes by validated backup-and-restore copy after acceptance checks;
+19. prints stage, source SHA, source ref, target branch, version, mode, hashes,
     counts, queries, and exit evidence;
-19. propagates nonzero failures;
-20. never edits production code/tests;
-21. never commits, pushes, merges, archives, installs hooks, starts watch/MCP,
+20. propagates nonzero failures;
+21. never edits production code/tests;
+22. never commits, pushes, merges, archives, installs hooks, starts watch/MCP,
     or silently updates.
 
 ### 9. Refresh rules

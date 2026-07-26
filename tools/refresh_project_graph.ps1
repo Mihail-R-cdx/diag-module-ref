@@ -4,6 +4,7 @@ param(
     [string]$BaselineStage = "",
     [string]$SourceRef = "origin/master",
     [string]$TargetBranch = "master",
+    [string]$PostArchiveValidationEvidence = "",
     [string]$SourceRoot = "",
     [string]$OutputRoot = "",
     [int]$MaxChangedFilesForIncremental = 25,
@@ -87,6 +88,100 @@ function Assert-FinalSourceContainsGraphifyTooling($SourceRoot) {
         if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $item))) {
             Fail "Final baseline source is missing required graph workflow file: $item"
         }
+    }
+}
+
+function Get-PathUnderRoot($Root, $Path, $Purpose) {
+    if (-not $Path) {
+        Fail "$Purpose path is required."
+    }
+    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $candidate = if ([System.IO.Path]::IsPathRooted($Path)) {
+        [System.IO.Path]::GetFullPath($Path)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $Root $Path))
+    }
+    $rootPrefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+    if ($candidate -ne $rootFull -and -not $candidate.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Fail "$Purpose must be inside the source tree: $Path"
+    }
+    return $candidate
+}
+
+function Test-GitAncestor($Root, $Ancestor, $Descendant) {
+    & git -C $Root merge-base --is-ancestor $Ancestor $Descendant 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Assert-EvidenceCheckPassed($Evidence, $Name) {
+    if ($Evidence.PSObject.Properties.Name -notcontains $Name) {
+        Fail "Post-archive validation evidence is missing required check: $Name"
+    }
+    $value = $Evidence.$Name
+    $status = if ($value -is [string]) {
+        $value
+    } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains "status") {
+        [string]$value.status
+    } else {
+        ""
+    }
+    if ($status.ToLowerInvariant() -ne "pass") {
+        Fail "Post-archive validation evidence check '$Name' must have status pass."
+    }
+}
+
+function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
+    if (-not $EvidencePath) {
+        Fail "Final baseline requires -PostArchiveValidationEvidence pointing to project-owned post-archive validation JSON."
+    }
+
+    $evidenceFull = Get-PathUnderRoot $SourceRoot $EvidencePath "PostArchiveValidationEvidence"
+    if (-not (Test-Path -LiteralPath $evidenceFull -PathType Leaf)) {
+        Fail "Post-archive validation evidence file is missing: $EvidencePath"
+    }
+    $evidence = Assert-Json $evidenceFull
+
+    if ($evidence.change_name -ne "frozen-project-graph-baseline") {
+        Fail "Post-archive validation evidence change_name must be frozen-project-graph-baseline."
+    }
+    if ($evidence.validated_source_commit -ne $SourceCommit) {
+        Fail "Post-archive validation evidence validated_source_commit must equal SourceRoot HEAD."
+    }
+    if ([string]$evidence.archive_commit -notmatch "^[0-9a-f]{40}$") {
+        Fail "Post-archive validation evidence archive_commit must be a full commit SHA."
+    }
+    $archiveCommit = Get-GitSha $SourceRoot ([string]$evidence.archive_commit)
+    if (-not (Test-GitAncestor $SourceRoot $archiveCommit $SourceCommit)) {
+        Fail "Post-archive validation evidence archive_commit must be an ancestor of SourceRoot HEAD."
+    }
+
+    $archiveRoot = Join-Path $SourceRoot "openspec/changes/archive"
+    if (-not (Test-Path -LiteralPath $archiveRoot -PathType Container)) {
+        Fail "Final baseline requires archived OpenSpec changes under openspec/changes/archive/."
+    }
+    $archivedChangeDirs = @(Get-ChildItem -LiteralPath $archiveRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq "frozen-project-graph-baseline" -or $_.Name -like "*-frozen-project-graph-baseline" })
+    if ($archivedChangeDirs.Count -eq 0) {
+        Fail "Final baseline requires archived change artifact for frozen-project-graph-baseline under openspec/changes/archive/."
+    }
+    $archiveSpecFound = $false
+    foreach ($dir in $archivedChangeDirs) {
+        if (Test-Path -LiteralPath (Join-Path $dir.FullName "specs/agent-project-navigation/spec.md") -PathType Leaf) {
+            $archiveSpecFound = $true
+            break
+        }
+    }
+    if (-not $archiveSpecFound) {
+        Fail "Archived frozen-project-graph-baseline artifact must include specs/agent-project-navigation/spec.md."
+    }
+
+    $activeChange = Join-Path $SourceRoot "openspec/changes/frozen-project-graph-baseline"
+    if (Test-Path -LiteralPath $activeChange) {
+        Fail "Final baseline requires active openspec/changes/frozen-project-graph-baseline/ to be archived first."
+    }
+
+    foreach ($check in @("openspec_change_validation", "openspec_all_validation", "python_tests", "git_diff_check")) {
+        Assert-EvidenceCheckPassed $evidence $check
     }
 }
 
@@ -847,6 +942,7 @@ if ($sourceCommit -ne $sourceRefSha) {
 }
 if ($baselineStageValue -eq "final") {
     Assert-FinalSourceContainsGraphifyTooling $sourceRootFull
+    Assert-FinalWorkflowGate $sourceRootFull $sourceCommit $PostArchiveValidationEvidence
 }
 
 $version = Get-GraphVersion
