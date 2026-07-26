@@ -22,6 +22,25 @@ MUST read `docs/equipment-inventory-runbook.md` after this file and before
 changing code, tests, specifications, or operational data. Current root OpenSpec
 specifications remain normative if the runbook and a specification conflict.
 
+### Graphify frozen project graph
+
+Graphify is an optional navigation aid only. A committed `graphify-out/` map is
+a frozen baseline tied to `graphify-out/baseline.json`, not a model of every
+active branch and not a replacement for this file, OpenSpec, current source, or
+tests.
+
+Before using the graph, read this file, applicable OpenSpec artifacts,
+`docs/project-graph-runbook.md`, and `graphify-out/baseline.json`. Verify the
+full `indexed_source_commit` and analyze the current branch diff separately.
+Use graph output only to find candidate files, symbols, and relationships; all
+material conclusions and review findings must be verified in source. `INFERRED`
+and `AMBIGUOUS` relationships are not review evidence.
+
+During implementation and validation, agents MUST NOT silently rebuild or
+incrementally refresh the graph. Refresh is allowed only at an approved workflow
+checkpoint. An absent or stale graph does not block ordinary development; report
+that condition explicitly. Validation sessions must not modify graph artifacts.
+
 ## Python Interpreter
 
 Use the repository-supported Python interpreter. An explicit interpreter path
