@@ -47,30 +47,35 @@ The loader SHALL strictly validate each supported schema version against its own
 
 ### Requirement: VIP source mapping is explicit and closed
 
-For the inspected organization workbook, the exact source column `VIP` SHALL map to canonical `room_vip`.
+For the confirmed deployment workbook, the exact source column `VIP оборудование` SHALL map to canonical `room_vip`.
 
-The importer SHALL normalize only these semantic values after canonical trimming and case-insensitive comparison:
+The importer SHALL normalize only these semantic values:
 
 ```text
 Excel boolean true                  -> true
 Excel boolean false                 -> false
-1, "1", "да", "true", "yes"      -> true
-0, "0", "нет", "false", "no"     -> false
+"истина"                            -> true
+"ложь"                              -> false
 blank                               -> null
 ```
 
+Text comparison SHALL apply Unicode normalization, trim leading and trailing whitespace, and perform case-insensitive exact comparison. The confirmed workbook values are `ИСТИНА`, `ЛОЖЬ`, and blank. No other textual or numeric aliases are approved by this contract.
+
 Any other non-blank value SHALL become null plus a structured `INVALID_ROOM_VIP` non-fatal issue. Substring, fuzzy, approximate, or locale-guessing interpretation is forbidden.
 
-Before implementation, the exact source header and representative values SHALL be reconfirmed against the deployment workbook without committing or exposing organization inventory data. A mismatch between the inspected workbook and the approved `VIP` contract requires an OpenSpec correction before implementation proceeds.
+#### Scenario: Confirmed true textual VIP value is normalized
 
-#### Scenario: Supported textual VIP value is normalized
-
-- **WHEN** the source `VIP` cell contains `Да` with arbitrary surrounding whitespace or case
+- **WHEN** the source `VIP оборудование` cell contains `ИСТИНА` with arbitrary surrounding whitespace or case
 - **THEN** canonical `room_vip` is true
+
+#### Scenario: Confirmed false textual VIP value is normalized
+
+- **WHEN** the source `VIP оборудование` cell contains `ЛОЖЬ` with arbitrary surrounding whitespace or case
+- **THEN** canonical `room_vip` is false
 
 #### Scenario: Unsupported VIP value is preserved as unknown
 
-- **WHEN** the source `VIP` cell contains a non-blank value outside the closed mapping
+- **WHEN** the source `VIP оборудование` cell contains a non-blank value outside the closed mapping
 - **THEN** canonical `room_vip` is null
 - **AND** the importer reports `INVALID_ROOM_VIP`
 - **AND** the row is not silently dropped solely for this condition
