@@ -16,6 +16,11 @@ Windows `core.autocrlf=true` checkouts could rewrite `.graphifyignore` to CRLF
 and make the actual working-tree byte hash differ from
 `baseline.json.ignore_file_sha256`.
 
+Latest correction addresses the independent `CHANGES REQUIRED` finding that
+the generated `graphify-out/graph.json` bytes remained checkout-dependent.
+The wrapper now canonicalizes all four generated artifacts to UTF-8 without BOM
+and LF before validation, hash calculation, and publication.
+
 ## Git and PR gate
 
 - Repository: `Mihail-R-cdx/diag-module-ref`
@@ -29,6 +34,8 @@ and make the actual working-tree byte hash differ from
   `717817688d5bfadf639ddf0bdb929ad3a72a5180`
 - Line-ending pin correction start HEAD:
   `8e06878f9b42ab77e0f6bd933bdccc9263a7d858`
+- Generated artifact canonicalization start HEAD:
+  `574c9c9f7d6d4660b501addd85c1eb00667b92b2`
 - `origin/master` used for bootstrap source:
   `7e83d303dd997f59987d5007fff9ea56b7d10efc`
 - Worktree before changes: clean; local branch matched remote feature HEAD.
@@ -70,6 +77,13 @@ force-push, or Ready-for-review transition was performed.
 - Added repository-owned `.gitattributes` pin
   `/.graphifyignore text eol=lf` so `.graphifyignore` checkout bytes remain LF
   under Windows `core.autocrlf=true`.
+- Extended `.gitattributes` with exact LF pins for the four allowlisted
+  generated artifacts without adding a repository-wide line-ending policy.
+- Added strict wrapper canonicalization for `graph.json`, `manifest.json`,
+  `GRAPH_REPORT.md`, and `baseline.json`: valid UTF-8 with or without BOM is
+  accepted, invalid UTF-8 is rejected, CRLF and standalone CR are normalized to
+  LF, and deterministic UTF-8 without BOM is written before validation, hashes,
+  and publication.
 - Clarified publication as validated backup-and-restore copy with restoration
   on failure; no single-step filesystem rename guarantee is claimed.
 - Split tasks into implementation-review work and unchecked post-review final
@@ -152,7 +166,7 @@ unreferenced after cleanup and were not pushed.
 - Visualization: disabled/rejected; no `graph.html` committed
 - Node count: `3106`
 - Edge count: `8563`
-- Graph SHA-256: `c20df74a7845a130b036f6e7eaf5582adb79c91716c526239b0b13f492f7d1c4`
+- Graph SHA-256: `2f350bc3c05d74ded2a0a5ef82414cfdf9d83cb5344204566c84b3af30251e8a`
 - Ignore SHA-256: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
 - Generated allowlist: exactly `graphify-out/graph.json`,
   `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and
@@ -228,6 +242,74 @@ authoritative policy. The hash was not edited manually.
 - Fresh reproducibility source-file set diff: `0`
 - Fresh reproducibility node identity diff: `0`
 - Fresh reproducibility edge identity diff: `0`
+
+## Generated artifact canonicalization correction
+
+The generated artifacts were rebuilt through `tools/refresh_project_graph.ps1`
+after adding wrapper-level canonicalization. The hash fields were not edited
+manually.
+
+Canonical format:
+
+- Encoding: UTF-8 without BOM.
+- Line endings: LF only.
+- Pinned files: `.graphifyignore`, `graphify-out/graph.json`,
+  `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and
+  `graphify-out/baseline.json`.
+
+Byte-level checks on the current accepted artifacts:
+
+- `.graphifyignore`: valid UTF-8 `true`, BOM `false`, CRLF `false`,
+  standalone CR `false`, SHA-256
+  `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`.
+- `graphify-out/graph.json`: valid UTF-8 `true`, BOM `false`, CRLF `false`,
+  standalone CR `false`, SHA-256
+  `2f350bc3c05d74ded2a0a5ef82414cfdf9d83cb5344204566c84b3af30251e8a`.
+- `graphify-out/manifest.json`: valid UTF-8 `true`, BOM `false`, CRLF
+  `false`, standalone CR `false`, SHA-256
+  `b617ff29b60377e68cb497e0e4cf6bdaa0aa953d353b0b86e1e69daafc4eb262`.
+- `graphify-out/GRAPH_REPORT.md`: valid UTF-8 `true`, BOM `false`, CRLF
+  `false`, standalone CR `false`, SHA-256
+  `6e929666515119921d72d41ec2337401e431d926776987e44f0c58824bbb4bba`.
+- `graphify-out/baseline.json`: valid UTF-8 `true`, BOM `false`, CRLF
+  `false`, standalone CR `false`, SHA-256
+  `c810db7f216c2495b25ac710e2637323e4a003ec24dea05473bff00ff16a370f`.
+
+Metadata hash checks:
+
+- `baseline.json.graph_sha256`:
+  `2f350bc3c05d74ded2a0a5ef82414cfdf9d83cb5344204566c84b3af30251e8a`.
+- Actual canonical `graphify-out/graph.json` SHA-256:
+  `2f350bc3c05d74ded2a0a5ef82414cfdf9d83cb5344204566c84b3af30251e8a`.
+- Graph hash match: `true`.
+- `baseline.json.ignore_file_sha256`:
+  `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`.
+- Actual `.graphifyignore` SHA-256:
+  `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`.
+- Ignore hash match: `true`.
+
+Fresh repeated bootstrap comparison from exact `origin/master`:
+
+- Source-file set diff: `0`.
+- Node identity diff: `0`.
+- Edge identity diff: `0`.
+- Node/edge counts before/after: `3106/8563 -> 3106/8563`.
+- Canonical `manifest.json` SHA matched:
+  `b617ff29b60377e68cb497e0e4cf6bdaa0aa953d353b0b86e1e69daafc4eb262`.
+- Canonical `graph.json`, `GRAPH_REPORT.md`, and `baseline.json` byte hashes
+  varied between runs because Graphify clustering/community/report ordering and
+  `generated_at` remain non-byte-deterministic. The accepted contract is
+  topology-based reproducibility plus metadata describing the actual current
+  canonical published `graph.json` bytes.
+
+Final-gate regression after wrapper changes:
+
+- Positive `A -> S -> E` fixture reached the fake Graphify sentinel.
+- Twelve negative fixtures rejected before the fake Graphify sentinel: ignored
+  evidence, untracked evidence, modified evidence, wrong path, evidence absent
+  in `HEAD`, archive not ancestor of `S`, `S` not ancestor of `E`, evidence
+  already present in `S`, extra production file in `S..E`, `.graphifyignore` in
+  `S..E`, failed validation status, and active change exists.
 
 ## Incremental probe
 
@@ -305,6 +387,25 @@ changed.
   `C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -X faulthandler -m unittest discover -s tests -p "test_*.py"`,
   `Ran 474 tests in 40.527s`, `OK`.
 - Line-ending pin correction `git diff --check`: passed.
+- Generated artifact canonicalization `graphify --version`: `graphify 0.9.26`.
+- Generated artifact canonicalization bootstrap rebuild:
+  `tools/refresh_project_graph.ps1 -Mode Initial -BaselineStage Bootstrap`
+  passed from exact `origin/master`.
+- Generated artifact canonicalization `.\openspec.cmd validate frozen-project-graph-baseline --strict`:
+  passed with Node `v20.19.0` and npm `10.8.2`.
+- Generated artifact canonicalization `.\openspec.cmd validate --all --strict`:
+  `10 passed, 0 failed` with Node `v20.19.0` and npm `10.8.2`.
+- Generated artifact canonicalization Python tests:
+  `C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -X faulthandler -m unittest discover -s tests -p "test_*.py"`,
+  `Ran 474 tests in 40.483s`, `OK`.
+- Generated artifact canonicalization final-gate fixtures: positive `A -> S -> E`
+  reached the fake Graphify sentinel; 12 negative cases rejected before the
+  sentinel.
+- Generated artifact canonicalization latest `.\openspec.cmd validate frozen-project-graph-baseline --strict`:
+  passed after Markdown line-ending normalization.
+- Generated artifact canonicalization latest `.\openspec.cmd validate --all --strict`:
+  `10 passed, 0 failed` after Markdown line-ending normalization.
+- Generated artifact canonicalization latest `git diff --check`: passed.
 
 Implementation status: `READY FOR INDEPENDENT REVIEW` after commit, push, and
 PR body update. PR must remain Draft.

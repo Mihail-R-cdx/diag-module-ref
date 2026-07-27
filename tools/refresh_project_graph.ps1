@@ -26,6 +26,13 @@ $AllowedGenerated = @(
     "graphify-out/GRAPH_REPORT.md",
     "graphify-out/baseline.json"
 )
+$CanonicalGeneratedArtifacts = @(
+    "graph.json",
+    "manifest.json",
+    "GRAPH_REPORT.md",
+    "baseline.json"
+)
+$Utf8NoBomStrict = [System.Text.UTF8Encoding]::new($false, $true)
 $ForbiddenFreshnessAdvice = "graphify update . after code changes"
 
 function Fail($Message) {
@@ -51,6 +58,39 @@ function Get-RepoRootFrom($Path) {
 
 function Get-Sha256($Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function ConvertTo-CanonicalGeneratedTextArtifact($GraphDir, $ArtifactName) {
+    if ($CanonicalGeneratedArtifacts -notcontains $ArtifactName) {
+        Fail "Refusing to canonicalize unexpected generated artifact: $ArtifactName"
+    }
+
+    $graphDirFull = [System.IO.Path]::GetFullPath($GraphDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $path = Join-Path $graphDirFull $ArtifactName
+    if (-not (Test-Path -LiteralPath $path)) {
+        Fail "Generated artifact missing before canonicalization: $ArtifactName"
+    }
+
+    $pathFull = [System.IO.Path]::GetFullPath($path)
+    $graphDirPrefix = $graphDirFull + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $pathFull.StartsWith($graphDirPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Fail "Generated artifact canonicalization path escaped graph output: $ArtifactName"
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($pathFull)
+    $offset = 0
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $offset = 3
+    }
+
+    try {
+        $text = $Utf8NoBomStrict.GetString($bytes, $offset, ($bytes.Length - $offset))
+    } catch {
+        Fail "Generated artifact is not valid UTF-8: $ArtifactName"
+    }
+
+    $text = $text.Replace("`r`n", "`n").Replace("`r", "`n")
+    [System.IO.File]::WriteAllText($pathFull, $text, $Utf8NoBomStrict)
 }
 
 function Get-GitSha($Root, $Ref) {
@@ -571,7 +611,7 @@ function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit, $BaselineStage, $
     }
     $report = $report -replace [regex]::Escape($ForbiddenFreshnessAdvice), "frozen baseline refresh is controlled by project policy"
     $report = $report.TrimEnd()
-    Set-Content -LiteralPath $reportPath -Value $report -Encoding UTF8
+    [System.IO.File]::WriteAllText($reportPath, $report, $Utf8NoBomStrict)
 }
 
 function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch) {
@@ -585,7 +625,7 @@ function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit, $BaselineSta
     $projectLabel = "diag-module-ref@$($SourceCommit.Substring(0, 12))"
     $report = $report.Replace($buildFull, $projectLabel).Replace($buildForward, $projectLabel)
     $report = $report.TrimEnd()
-    Set-Content -LiteralPath $reportPath -Value $report -Encoding UTF8
+    [System.IO.File]::WriteAllText($reportPath, $report, $Utf8NoBomStrict)
     Set-FrozenGraphReportPolicy $GraphDir $SourceCommit $BaselineStage $SourceRef $TargetBranch
 
     $updated = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8
@@ -737,6 +777,20 @@ function Assert-GeneratedAllowlist($OutputRoot, $GraphDir) {
     }
 }
 
+function Assert-GeneratedCandidateBoundary($OutputRoot, $GraphDir) {
+    $files = Get-ChildItem -LiteralPath $GraphDir -File -Recurse | ForEach-Object { RelPath $_.FullName $OutputRoot }
+    $unexpected = @($files | Where-Object { $AllowedGenerated -notcontains $_ })
+    if ($unexpected.Count -gt 0) {
+        Fail ("Unexpected generated files before canonicalization: " + ($unexpected -join ", "))
+    }
+
+    foreach ($required in @("graphify-out/graph.json", "graphify-out/manifest.json", "graphify-out/GRAPH_REPORT.md")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $OutputRoot $required))) {
+            Fail "Required generated candidate missing before canonicalization: $required"
+        }
+    }
+}
+
 function Assert-NoGraphifyIntegrations($OutputRoot) {
     $forbidden = @(
         "AGENTS.md",
@@ -795,7 +849,9 @@ function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $BaselineStage, $
     }
 
     $baselinePath = Join-Path $GraphDir "baseline.json"
-    $baseline | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $baselinePath -Encoding UTF8
+    $baselineJson = $baseline | ConvertTo-Json -Depth 5
+    [System.IO.File]::WriteAllText($baselinePath, $baselineJson, $Utf8NoBomStrict)
+    ConvertTo-CanonicalGeneratedTextArtifact $GraphDir "baseline.json"
     return (Assert-Json $baselinePath)
 }
 
@@ -927,7 +983,12 @@ function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $Sour
     }
 
     Remove-UncommittedGraphifyByproducts $GraphDir
+    Assert-GeneratedCandidateBoundary (Split-Path -Parent $GraphDir) $GraphDir
+    foreach ($artifact in @("graph.json", "manifest.json", "GRAPH_REPORT.md")) {
+        ConvertTo-CanonicalGeneratedTextArtifact $GraphDir $artifact
+    }
     Sanitize-GraphReport $GraphDir $BuildRoot $SourceCommit $BaselineStage $SourceRef $TargetBranch
+    ConvertTo-CanonicalGeneratedTextArtifact $GraphDir "GRAPH_REPORT.md"
 
     $graph = Assert-Json $graphPath
     $manifest = Assert-Json $manifestPath

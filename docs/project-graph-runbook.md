@@ -72,11 +72,27 @@ explicit ref that resolved to the indexed source commit during generation;
 `target_branch` is the eventual merge target.
 
 `ignore_file_sha256` is the SHA-256 of the actual `.graphifyignore` bytes read
-from the output worktree. The repository pins `/.graphifyignore text eol=lf` in
-`.gitattributes` so Windows checkouts with `core.autocrlf=true` and LF checkouts
-produce the same policy-file bytes and the same metadata hash. Changing
-`.gitattributes` or `.graphifyignore` changes the graph policy and requires a
-full bootstrap or final rebuild at the appropriate workflow checkpoint.
+from the output worktree. `graph_sha256` is the SHA-256 of the actual
+canonical `graphify-out/graph.json` bytes published by the wrapper. The
+canonical generated artifact format is UTF-8 without BOM and LF line endings.
+
+The repository pins exact LF checkout rules in `.gitattributes`:
+
+```text
+/.graphifyignore text eol=lf
+/graphify-out/graph.json text eol=lf
+/graphify-out/manifest.json text eol=lf
+/graphify-out/GRAPH_REPORT.md text eol=lf
+/graphify-out/baseline.json text eol=lf
+```
+
+The wrapper canonicalizes the four generated artifacts before JSON parsing,
+structural validation, security/path scans, hash calculation, and publication.
+Windows checkouts with `core.autocrlf=true` and LF checkouts must therefore
+produce the same bytes and hashes for `.graphifyignore` and all generated
+artifacts. Changing `.gitattributes`, `.graphifyignore`, or generated artifact
+encoding and line-ending policy changes the graph policy and requires a full
+bootstrap or final rebuild at the appropriate workflow checkpoint.
 
 `baseline_stage` has two valid values:
 
@@ -358,8 +374,9 @@ or ordering may vary:
 - extracted edges, or documented non-semantic differences;
 - node/edge counts;
 - absence of checkout-specific absolute paths;
-- portability across worktrees.
-- committed `.graphifyignore` byte hash.
+- portability across worktrees;
+- committed `.graphifyignore` byte hash;
+- canonical UTF-8-without-BOM/LF bytes for all four generated artifacts.
 
 Classify differences as `semantic`, `non-semantic`, or `unexpected`.
 Unexpected differences block readiness.

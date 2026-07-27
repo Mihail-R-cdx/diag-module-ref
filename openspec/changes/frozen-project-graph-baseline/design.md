@@ -153,11 +153,21 @@ hostname, credentials, inventory data, ambiguous `indexed_branch`, or
 `detached` placeholder.
 
 `ignore_file_sha256` is the SHA-256 of the actual `.graphifyignore` file bytes
-read by Graphify. The repository pins `/.graphifyignore text eol=lf` in
-`.gitattributes` so `core.autocrlf=true` Windows checkouts do not rewrite the
-policy file to CRLF and invalidate the committed bootstrap contract. A change to
-either `.gitattributes` or `.graphifyignore` is treated as graph policy drift
-and requires a full rebuild rather than manual metadata editing.
+read by Graphify. `graph_sha256` is the SHA-256 of the actual canonical
+`graphify-out/graph.json` bytes published by the wrapper. The canonical
+generated artifact format is UTF-8 without BOM and LF line endings for
+`graphify-out/graph.json`, `graphify-out/manifest.json`,
+`graphify-out/GRAPH_REPORT.md`, and `graphify-out/baseline.json`.
+
+The repository pins only exact graph-policy paths in `.gitattributes`:
+`/.graphifyignore text eol=lf`, `/graphify-out/graph.json text eol=lf`,
+`/graphify-out/manifest.json text eol=lf`,
+`/graphify-out/GRAPH_REPORT.md text eol=lf`, and
+`/graphify-out/baseline.json text eol=lf`. `core.autocrlf=true` Windows
+checkouts and LF checkouts must produce identical bytes and hashes for these
+paths. A change to `.gitattributes`, `.graphifyignore`, or generated artifact
+encoding/line-ending policy is treated as graph policy drift and requires a full
+rebuild rather than manual metadata editing.
 
 ### 8. Wrapper contract
 
@@ -183,17 +193,20 @@ and requires a full rebuild rather than manual metadata editing.
 10. invokes only syntax accepted by pinned CLI help;
 11. suppresses/rejects visualization output;
 12. writes schema-v2 `baseline.json` after successful generation;
-13. computes hashes and node/edge counts;
-14. validates JSON and relative paths;
-15. scans for secrets, inventory, excluded files, and graph self-indexing;
-16. runs project-specific query smoke tests;
-17. checks deletion/rename and topology integrity;
-18. publishes by validated backup-and-restore copy after acceptance checks;
-19. prints stage, source SHA, source ref, target branch, version, mode, hashes,
+13. canonicalizes generated artifacts to UTF-8 without BOM and LF before JSON
+    parsing, structural validation, scans, hashes, and publication;
+14. computes hashes over actual canonical published bytes and node/edge counts;
+15. validates JSON and relative paths;
+16. scans for secrets, inventory, excluded files, and graph self-indexing;
+17. runs project-specific query smoke tests;
+18. checks deletion/rename and topology integrity;
+19. publishes canonical artifacts by validated backup-and-restore copy after
+    acceptance checks;
+20. prints stage, source SHA, source ref, target branch, version, mode, hashes,
     counts, queries, and exit evidence;
-20. propagates nonzero failures;
-21. never edits production code/tests;
-22. never commits, pushes, merges, archives, installs hooks, starts watch/MCP,
+21. propagates nonzero failures;
+22. never edits production code/tests;
+23. never commits, pushes, merges, archives, installs hooks, starts watch/MCP,
     or silently updates.
 
 ### 9. Refresh rules
