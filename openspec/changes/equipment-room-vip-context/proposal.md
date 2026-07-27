@@ -9,7 +9,7 @@ The PDU screen already renders room characteristics after an accepted refresh, w
 ## What Changes
 
 - extend the canonical equipment inventory snapshot with nullable room VIP state;
-- map the authoritative workbook column `VIP` into the canonical snapshot through explicit normalization;
+- map the authoritative workbook column `VIP оборудование` into the canonical snapshot through explicit closed normalization of confirmed boolean, `ИСТИНА`, `ЛОЖЬ`, and blank values;
 - preserve compatibility with existing schema-v1 snapshots while publishing new snapshots as schema v2;
 - resolve room address and VIP state for the currently selected equipment by exact inventory IP identity without network I/O;
 - add a visually prominent VIP line above the existing PDU room-characteristics block;
