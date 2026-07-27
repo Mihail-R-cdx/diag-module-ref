@@ -1,0 +1,29 @@
+{
+  "change_name": "frozen-project-graph-baseline",
+  "archive_commit": "2d7d57df53a1e40949ae511dd016cddc00f3c0e0",
+  "validated_source_commit": "2d7d57df53a1e40949ae511dd016cddc00f3c0e0",
+  "openspec_change_validation": {
+    "status": "pass",
+    "method": "post_archive_artifact_and_root_spec_verification",
+    "active_change_absent": true,
+    "archived_change_path": "openspec/changes/archive/2026-07-27-frozen-project-graph-baseline",
+    "archived_capability_spec": "openspec/changes/archive/2026-07-27-frozen-project-graph-baseline/specs/agent-project-navigation/spec.md",
+    "root_spec": "openspec/specs/agent-project-navigation/spec.md"
+  },
+  "openspec_all_validation": {
+    "status": "pass",
+    "command": ".\\openspec.cmd validate --all --strict",
+    "passed": 10,
+    "failed": 0
+  },
+  "python_tests": {
+    "status": "pass",
+    "command": "<repository-supported-python> -X faulthandler -m unittest discover -s tests -p \"test_*.py\"",
+    "python_version": "Python 3.12.9",
+    "test_count": 474
+  },
+  "git_diff_check": {
+    "status": "pass",
+    "command": "git diff --check"
+  }
+}
