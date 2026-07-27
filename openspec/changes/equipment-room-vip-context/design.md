@@ -42,20 +42,20 @@ The runtime loader accepts existing schema-v1 snapshots and adapts them to `room
 
 ### 2. Authoritative source mapping and normalization
 
-The inspected workbook column is `VIP`. The importer treats it as room display/context data rather than equipment identity.
+The confirmed deployment workbook column is exactly `VIP оборудование`. The importer treats it as room display/context data rather than equipment identity.
 
-Accepted source values are normalized explicitly:
+The closed source mapping is:
 
 ```text
 Excel boolean true                 -> true
 Excel boolean false                -> false
-1, "1", "да", "true", "yes"     -> true
-0, "0", "нет", "false", "no"    -> false
+"истина"                           -> true
+"ложь"                             -> false
 blank                              -> null
 any other non-blank value          -> null + structured INVALID_ROOM_VIP issue
 ```
 
-String comparison is trimmed and case-insensitive after Unicode normalization. Approximate or substring interpretation is forbidden.
+String comparison uses Unicode normalization, trimming, and case-insensitive exact comparison. Substring, fuzzy, approximate, or locale-guessing interpretation is forbidden. The confirmed workbook values are `ИСТИНА`, `ЛОЖЬ`, and blank; no unconfirmed textual or numeric aliases are part of the approved mapping.
 
 ### 3. Room VIP aggregation is room-wide and deterministic
 
