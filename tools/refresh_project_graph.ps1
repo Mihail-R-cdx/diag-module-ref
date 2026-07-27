@@ -795,33 +795,72 @@ function Assert-NoGraphifyIntegrations($OutputRoot) {
     $forbidden = @(
         "AGENTS.md",
         ".codex/hooks.json",
+        ".codex/mcp.json",
         ".agents/skills/graphify",
         ".cursor/rules/graphify.mdc",
-        ".kiro/skills/graphify"
+        ".cursor/mcp.json",
+        ".kiro/skills/graphify",
+        ".kiro/mcp.json",
+        ".mcp",
+        ".mcp.json",
+        "mcp.json"
     )
     foreach ($item in $forbidden) {
         if (Test-Path -LiteralPath (Join-Path $OutputRoot $item)) {
             Fail "Forbidden Graphify integration present: $item"
         }
     }
-    $hooks = Join-Path $OutputRoot ".git/hooks"
+
+    $hooksPath = (& git -C $OutputRoot rev-parse --git-path hooks 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $hooksPath) {
+        $hooks = if ([System.IO.Path]::IsPathRooted($hooksPath)) {
+            [System.IO.Path]::GetFullPath($hooksPath)
+        } else {
+            [System.IO.Path]::GetFullPath((Join-Path $OutputRoot $hooksPath))
+        }
+    } else {
+        $hooks = Join-Path $OutputRoot ".git/hooks"
+    }
     if (Test-Path -LiteralPath $hooks) {
         $hookHits = Get-ChildItem -LiteralPath $hooks -File -ErrorAction SilentlyContinue | Where-Object {
-            (Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue) -match "graphify"
+            $hookText = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue
+            $hookText -match "(?im)(^|[;&|]\s*)(exec\s+)?&?\s*['""]?graphify(\.exe)?['""]?(\s|$)" -or
+                $hookText -match "(?i)\bgraphify(\.exe)?\s+(extract|update|check-update|watch|mcp)\b"
         }
         if (@($hookHits).Count -gt 0) {
             Fail "Graphify hook integration present in .git/hooks."
         }
     }
+
+    $mergeDriverConfig = (& git -C $OutputRoot config --local --get-regexp "^merge\..*\.driver$" 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $mergeDriverConfig) {
+        Fail "Repository-local merge driver configuration present."
+    }
+    if ($LASTEXITCODE -notin @(0, 1)) {
+        Fail "Unable to inspect repository-local merge driver configuration: $mergeDriverConfig"
+    }
+
+    $gitattributes = Join-Path $OutputRoot ".gitattributes"
+    if (Test-Path -LiteralPath $gitattributes -PathType Leaf) {
+        $attributesText = Get-Content -LiteralPath $gitattributes -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+        if ($attributesText -match "(?im)^\s*[^#\r\n]+\s+merge\s*=\s*graphify\b") {
+            Fail "Graphify merge driver attribute present in .gitattributes."
+        }
+    }
+
+    $documentaryPathPattern = "^(openspec|docs)/|^RULES\.md$|^tools/refresh_project_graph\.ps1$"
     $repoTextFiles = Get-ChildItem -LiteralPath $OutputRoot -File -Recurse -Force -ErrorAction SilentlyContinue |
-        Where-Object { (RelPath $_.FullName $OutputRoot) -notmatch "^(\.git|graphify-out|node_modules|$TempDirName)/" -and $_.Length -lt 1048576 }
+        Where-Object {
+            $rel = RelPath $_.FullName $OutputRoot
+            $rel -notmatch "^(\.git|graphify-out|node_modules|$TempDirName)/" -and
+                $rel -notmatch $documentaryPathPattern -and
+                $_.Length -lt 1048576
+        }
     foreach ($file in $repoTextFiles) {
         $rel = RelPath $file.FullName $OutputRoot
-        $text = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
-        if ($text -match "graphify\s+watch|mcp|merge-driver") {
-            if ($rel -notin @("openspec/changes/frozen-project-graph-baseline/proposal.md", "openspec/changes/frozen-project-graph-baseline/design.md", "openspec/changes/frozen-project-graph-baseline/specs/agent-project-navigation/spec.md", "openspec/changes/frozen-project-graph-baseline/tasks.md", "openspec/changes/frozen-project-graph-baseline/implementation-report.md", "docs/project-graph-runbook.md", "tools/refresh_project_graph.ps1", "RULES.md")) {
-                Fail "Unexpected Graphify watch/MCP/merge-driver text in $rel."
-            }
+        $text = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+        if ($text -match "(?i)\bgraphify(\.exe)?\s+(watch|mcp)\b") {
+            Fail "Unexpected Graphify watch/MCP integration command in $rel."
         }
     }
 }
