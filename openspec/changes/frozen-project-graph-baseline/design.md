@@ -107,6 +107,7 @@ code-only mode and explicit ignore protections cover sensitive/non-code data.
 
 Human-authored:
 
+- `.gitattributes`
 - `.graphifyignore`
 - `docs/project-graph-runbook.md`
 - `tools/refresh_project_graph.ps1`
@@ -150,6 +151,13 @@ informative and excluded from reproducibility identity. Counts and hashes are
 derived from validated artifacts. The file contains no checkout path, username,
 hostname, credentials, inventory data, ambiguous `indexed_branch`, or
 `detached` placeholder.
+
+`ignore_file_sha256` is the SHA-256 of the actual `.graphifyignore` file bytes
+read by Graphify. The repository pins `/.graphifyignore text eol=lf` in
+`.gitattributes` so `core.autocrlf=true` Windows checkouts do not rewrite the
+policy file to CRLF and invalidate the committed bootstrap contract. A change to
+either `.gitattributes` or `.graphifyignore` is treated as graph policy drift
+and requires a full rebuild rather than manual metadata editing.
 
 ### 8. Wrapper contract
 

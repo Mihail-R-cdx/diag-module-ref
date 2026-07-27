@@ -11,6 +11,11 @@ Latest correction addresses the independent `CHANGES REQUIRED` finding that the
 previous final evidence model required the evidence blob to name its own commit.
 The gate now uses the approved `A -> S -> E -> G` workflow.
 
+Current correction addresses the independent `CHANGES REQUIRED` finding that
+Windows `core.autocrlf=true` checkouts could rewrite `.graphifyignore` to CRLF
+and make the actual working-tree byte hash differ from
+`baseline.json.ignore_file_sha256`.
+
 ## Git and PR gate
 
 - Repository: `Mihail-R-cdx/diag-module-ref`
@@ -22,6 +27,8 @@ The gate now uses the approved `A -> S -> E -> G` workflow.
 - Final gate session start HEAD: `f7e3ac777d1b35b8e20bef550dd291791b46c4b4`
 - Evidence commit model correction start HEAD:
   `717817688d5bfadf639ddf0bdb929ad3a72a5180`
+- Line-ending pin correction start HEAD:
+  `8e06878f9b42ab77e0f6bd933bdccc9263a7d858`
 - `origin/master` used for bootstrap source:
   `7e83d303dd997f59987d5007fff9ea56b7d10efc`
 - Worktree before changes: clean; local branch matched remote feature HEAD.
@@ -60,6 +67,9 @@ force-push, or Ready-for-review transition was performed.
   `.graphifyignore`, `docs/project-graph-runbook.md`, and `RULES.md`.
 - Marked the current generated report as `Bootstrap Frozen Baseline Policy`,
   pre-archive, non-final, and not the navigation baseline for the next change.
+- Added repository-owned `.gitattributes` pin
+  `/.graphifyignore text eol=lf` so `.graphifyignore` checkout bytes remain LF
+  under Windows `core.autocrlf=true`.
 - Clarified publication as validated backup-and-restore copy with restoration
   on failure; no single-step filesystem rename guarantee is claimed.
 - Split tasks into implementation-review work and unchecked post-review final
@@ -142,7 +152,7 @@ unreferenced after cleanup and were not pushed.
 - Visualization: disabled/rejected; no `graph.html` committed
 - Node count: `3106`
 - Edge count: `8563`
-- Graph SHA-256: `ecc1baf1cf9acf52221720318975657fc40dc2ebcfeb3113837b48efa7b42d0e`
+- Graph SHA-256: `c20df74a7845a130b036f6e7eaf5582adb79c91716c526239b0b13f492f7d1c4`
 - Ignore SHA-256: `755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f`
 - Generated allowlist: exactly `graphify-out/graph.json`,
   `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and
@@ -205,6 +215,19 @@ authoritative policy. The hash was not edited manually.
 - Repro node identity diff: `0`
 - Repro link identity diff: `0`
 - Repro counts before/after: `3106/8563 -> 3106/8563`
+- `.gitattributes` rule: `/.graphifyignore text eol=lf`
+- Windows `core.autocrlf=true` checkout attribute result: `text: set`, `eol: lf`
+- LF checkout attribute result: `text: set`, `eol: lf`
+- CRLF present in `.graphifyignore`: `false`
+- Windows checkout SHA-256 matched `baseline.json.ignore_file_sha256`: `true`
+- LF checkout SHA-256 matched `baseline.json.ignore_file_sha256`: `true`
+- Line-ending pin correction bootstrap rebuild: passed through
+  `tools/refresh_project_graph.ps1`, generated at `2026-07-27T06:28:24Z`.
+- Current graph SHA-256:
+  `c20df74a7845a130b036f6e7eaf5582adb79c91716c526239b0b13f492f7d1c4`
+- Fresh reproducibility source-file set diff: `0`
+- Fresh reproducibility node identity diff: `0`
+- Fresh reproducibility edge identity diff: `0`
 
 ## Incremental probe
 
@@ -272,6 +295,16 @@ changed.
   `Ran 474 tests in 40.274s`, `OK`. The bare `python` command was unavailable
   in this sandbox PATH.
 - Evidence-model correction `git diff --check`: passed.
+- Line-ending pin correction Graphify version:
+  `C:\Users\Mih\.local\bin\graphify.exe --version` -> `graphify 0.9.26`.
+- Line-ending pin correction `.\openspec.cmd validate frozen-project-graph-baseline --strict`:
+  passed with Node `v20.19.0` and npm `10.8.2`.
+- Line-ending pin correction `.\openspec.cmd validate --all --strict`:
+  `10 passed, 0 failed` with Node `v20.19.0` and npm `10.8.2`.
+- Line-ending pin correction Python tests:
+  `C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -X faulthandler -m unittest discover -s tests -p "test_*.py"`,
+  `Ran 474 tests in 40.527s`, `OK`.
+- Line-ending pin correction `git diff --check`: passed.
 
 Implementation status: `READY FOR INDEPENDENT REVIEW` after commit, push, and
 PR body update. PR must remain Draft.

@@ -73,12 +73,19 @@ source ref, target branch, UTC generation time, graph and ignore-file SHA-256
 hashes, and node/edge counts. It SHALL NOT contain user-specific paths,
 secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
 
+The ignore-file SHA-256 SHALL be computed from the actual `.graphifyignore`
+bytes read by Graphify. The repository SHALL pin `/.graphifyignore text eol=lf`
+in `.gitattributes` so Windows `core.autocrlf=true` checkouts preserve the same
+hash as LF checkouts.
+
 #### Scenario: Bootstrap graph is generated
 
 - **WHEN** bootstrap generation runs
 - **THEN** metadata records `baseline_stage = bootstrap`
 - **AND** `indexed_source_ref` resolves to the exact indexed source commit
 - **AND** `target_branch` identifies the merge target
+- **AND** `ignore_file_sha256` matches the actual LF `.graphifyignore`
+  working-tree bytes
 - **AND** the report states that the graph is pre-archive, non-final, and not
   the navigation baseline for the next ordinary change.
 

@@ -23,6 +23,7 @@ Graphify navigation index
 Human-authored files:
 
 ```text
+.gitattributes
 .graphifyignore
 docs/project-graph-runbook.md
 tools/refresh_project_graph.ps1
@@ -69,6 +70,13 @@ The following graph artifact commit may be newer than that source commit because
 `graphify-out/` is excluded from the corpus. `indexed_source_ref` is the
 explicit ref that resolved to the indexed source commit during generation;
 `target_branch` is the eventual merge target.
+
+`ignore_file_sha256` is the SHA-256 of the actual `.graphifyignore` bytes read
+from the output worktree. The repository pins `/.graphifyignore text eol=lf` in
+`.gitattributes` so Windows checkouts with `core.autocrlf=true` and LF checkouts
+produce the same policy-file bytes and the same metadata hash. Changing
+`.gitattributes` or `.graphifyignore` changes the graph policy and requires a
+full bootstrap or final rebuild at the appropriate workflow checkpoint.
 
 `baseline_stage` has two valid values:
 

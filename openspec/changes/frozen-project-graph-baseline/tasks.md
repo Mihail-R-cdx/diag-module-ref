@@ -7,6 +7,7 @@
 - [x] Enumerate actual Python source/test roots and root entry points; do not invent directories.
 - [x] Add a short `RULES.md` Graphify frozen-baseline section without duplicating the runbook.
 - [x] Add `.graphifyignore` with explicit protection for graph output, worktrees, inventory, Excel, secrets, deployment-local data, caches, logs, and temporary artifacts.
+- [x] Add `.gitattributes` with `/.graphifyignore text eol=lf` so Windows `core.autocrlf=true` checkouts preserve the committed ignore-file byte hash.
 - [x] Install `graphifyy==0.9.26` in an isolated tool environment; do not add it to application dependencies.
 - [x] Capture `graphify --version` and help for `extract`, `check-update`, and `update`.
 - [x] Implement `tools/refresh_project_graph.ps1` with explicit initial, incremental, full-rebuild, opt-in exact-install modes, clean `SourceRoot`/`OutputRoot` separation, required `BaselineStage`/`SourceRef`/`TargetBranch`, schema-v2 metadata, and no dirty publish mode.

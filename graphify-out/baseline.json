@@ -7,8 +7,8 @@
     "indexed_source_commit":  "7e83d303dd997f59987d5007fff9ea56b7d10efc",
     "indexed_source_ref":  "origin/master",
     "target_branch":  "master",
-    "generated_at":  "2026-07-26T18:57:09Z",
-    "graph_sha256":  "ecc1baf1cf9acf52221720318975657fc40dc2ebcfeb3113837b48efa7b42d0e",
+    "generated_at":  "2026-07-27T06:28:24Z",
+    "graph_sha256":  "c20df74a7845a130b036f6e7eaf5582adb79c91716c526239b0b13f492f7d1c4",
     "ignore_file_sha256":  "755a9a84666cd0a4aa978a7de113d63fc4bb9afdd0f5b8979c6f6ac821249b9f",
     "node_count":  3106,
     "edge_count":  8563
