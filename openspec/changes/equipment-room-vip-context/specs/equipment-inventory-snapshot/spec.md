@@ -75,18 +75,49 @@ Before implementation, the exact source header and representative values SHALL b
 - **AND** the importer reports `INVALID_ROOM_VIP`
 - **AND** the row is not silently dropped solely for this condition
 
-### Requirement: Conflicting room VIP evidence is observable
+### Requirement: Room VIP evidence uses normative room-wide aggregation
 
-The importer and runtime room-context layer SHALL preserve equipment-record multiplicity. When records sharing one non-null authoritative `room_id` contain both true and false non-null `room_vip` values, no value SHALL be selected as authoritative.
+The importer and runtime room-context layer SHALL preserve equipment-record multiplicity and SHALL evaluate VIP evidence across all records sharing one non-null authoritative `room_id`. Null means absence of authoritative VIP evidence for that record. Null SHALL NOT conflict with a consistent known boolean.
 
-The importer SHALL report a structured non-fatal `ROOM_VIP_CONFLICT` issue. Runtime room-context resolution SHALL expose conflicted or unknown VIP presentation state rather than selecting the first record or applying device-kind preference.
+The normative aggregation table is:
+
+```text
+no room records                         -> unresolved room
+all room_vip values null                -> NO_DATA
+one or more true, all others null/true  -> VIP_TRUE
+one or more false, all others null/false-> VIP_FALSE
+at least one true and at least one false-> CONFLICT
+```
+
+The importer SHALL report structured non-fatal `ROOM_VIP_CONFLICT` only when both true and false occur under the same authoritative `room_id`. It SHALL NOT report a conflict for `true + null`, `false + null`, repeated equal booleans, or all-null evidence.
+
+Runtime room-context resolution SHALL apply the same table exactly. It SHALL expose `ДА` for `VIP_TRUE`, `НЕТ` for `VIP_FALSE`, `НЕТ ДАННЫХ` for `NO_DATA`, `КОНФЛИКТ ДАННЫХ` for `CONFLICT`, and unresolved room state when no records exist for the authoritative room lookup. It SHALL NOT select the first record or apply device-kind preference.
+
+#### Scenario: All room VIP evidence is absent
+
+- **WHEN** all records sharing one authoritative `room_id` contain `room_vip = null`
+- **THEN** runtime VIP presentation is `НЕТ ДАННЫХ`
+- **AND** no conflict is reported
+
+#### Scenario: Known VIP evidence is mixed with null
+
+- **WHEN** records sharing one authoritative `room_id` contain one or more true values and all remaining values are true or null
+- **THEN** runtime VIP presentation is `ДА`
+- **AND** null does not weaken or conflict with the known consistent value
+
+#### Scenario: Known non-VIP evidence is mixed with null
+
+- **WHEN** records sharing one authoritative `room_id` contain one or more false values and all remaining values are false or null
+- **THEN** runtime VIP presentation is `НЕТ`
+- **AND** null does not weaken or conflict with the known consistent value
 
 #### Scenario: One room contains conflicting VIP flags
 
-- **WHEN** records sharing one authoritative `room_id` contain both true and false VIP values
+- **WHEN** records sharing one authoritative `room_id` contain at least one true and at least one false VIP value
 - **THEN** all otherwise valid records remain in the snapshot
-- **AND** the conflict is observable
-- **AND** runtime presentation does not claim either VIP or non-VIP authority
+- **AND** the importer reports `ROOM_VIP_CONFLICT`
+- **AND** runtime presentation is `КОНФЛИКТ ДАННЫХ`
+- **AND** runtime does not claim either VIP or non-VIP authority
 
 ### Requirement: Converter paths use repository-safe absolute configuration
 
