@@ -79,34 +79,27 @@ For non-PDU pages, changing the selected model, normalized IP address, page cont
 
 After invalidation, the application SHALL resolve room context for the new current `(model, normalized_ip, snapshot_id, page_context, generation)` from the immutable inventory without waiting for, depending on, or being triggered by device network success. The pure resolver MAY run synchronously. If coordination or publication is asynchronous, the result SHALL be rendered only after all bound context values and generation still match the current application context.
 
-Device refresh start, progress, success, failure, completion, and stale callbacks SHALL NOT be room-context publication authorities. Device results SHALL NOT independently rerun, republish, clear, or restore room context. A failed device refresh SHALL leave the independently resolved current room presentation available. Starting a device refresh for unchanged current context SHALL NOT create a second room-context authority.
+Device refresh start, progress, success, error, completion, and stale callbacks SHALL NOT be room-context publication authorities. They SHALL NOT rerun room resolution, publish room context, clear a valid independently resolved room context, or restore an older room context.
 
 #### Scenario: New IP resolves without device refresh
 
-- **GIVEN** a registered non-PDU equipment page is current
-- **WHEN** the operator selects a new model/IP context and does not start device refresh
-- **THEN** old room presentation is invalidated immediately
-- **AND** room context is resolved and published for the new current context from inventory alone
-- **AND** no device handler acquisition or network I/O is required
+- **GIVEN** a registered non-PDU page is current
+- **WHEN** the operator selects a new model/IP context without starting device refresh
+- **THEN** prior room presentation is invalidated immediately
+- **AND** room context for the new exact model/IP and current snapshot is resolved from inventory
+- **AND** matching room presentation may be published without device network I/O
 
-#### Scenario: Device refresh fails while inventory is available
+#### Scenario: Device refresh fails after room resolution
 
-- **GIVEN** current non-PDU room context has been resolved from inventory
+- **GIVEN** current room context was resolved and published from inventory
 - **WHEN** the device network refresh fails
-- **THEN** the current room address and VIP presentation remain available
-- **AND** the device failure does not republish, clear, or redefine room context
+- **THEN** the matching room address and VIP state remain available
+- **AND** the device failure does not clear, replace, or republish room context
 
-#### Scenario: Old refresh completes after selected IP changes
+#### Scenario: Old refresh completes after IP change
 
-- **GIVEN** an old device refresh is queued or in flight for one model/IP context
-- **WHEN** the operator selects a different model/IP context
-- **THEN** old room presentation is invalidated immediately
-- **AND** a new room-context generation is resolved for the new current context
-- **AND** completion of the old refresh cannot rerun or restore room context for either the old or new IP
-
-#### Scenario: Asynchronous room result becomes stale
-
-- **GIVEN** room-context publication is coordinated asynchronously
-- **WHEN** any bound model, normalized IP, snapshot ID, page context, or generation changes before publication
-- **THEN** the old room result is discarded
-- **AND** it performs no GUI update
+- **GIVEN** a device refresh for an old equipment context remains in flight
+- **WHEN** the selected IP changes and a new room-context generation becomes current
+- **AND** the old refresh later completes
+- **THEN** its callback cannot publish or restore room presentation
+- **AND** only room context bound to the new full context tuple may remain visible
