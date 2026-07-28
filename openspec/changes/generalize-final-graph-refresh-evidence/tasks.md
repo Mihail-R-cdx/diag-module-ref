@@ -51,6 +51,8 @@
 - [x] 4.10 Add negative coverage for invalid archive state, SHAs, ancestry, source binding, verdict, and checks.
 - [x] 4.11 Add coverage proving an older feature must be revalidated after incorporating repaired `master`.
 - [x] 4.12 Verify no regression to artifact scope, encoding, hashes, sensitive-data scans, ghost-node, topology, and publication checks.
+- [x] 4.13 Add focused coverage that a metadata-only or otherwise incomplete human-readable `verification-report.md` fails before Graphify generation.
+- [x] 4.14 Add focused coverage that malformed evidence and generated Graphify JSON fail with typed, non-sensitive categories.
 
 ## 5. Architecture validation
 

@@ -125,10 +125,10 @@ function Get-GitSha($Root, $Ref) {
 function Assert-CleanGit($Root, $Purpose) {
     $status = (& git -C $Root status --short 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
-        Fail "git status failed for $Purpose`: $status"
+        Fail-Contract "SOURCE_STATE" "git status failed for $Purpose."
     }
     if ($status) {
-        Fail "$Purpose worktree is not clean. Refusing to publish graph metadata for uncommitted bytes."
+        Fail-Contract "SOURCE_STATE" "$Purpose worktree is not clean. Refusing to publish graph metadata for uncommitted bytes."
     }
 }
 
@@ -274,8 +274,14 @@ function Assert-TrackedHeadEvidence($SourceRoot, $EvidenceFull, $ExpectedRelativ
         Fail-Contract "EVIDENCE_PATH" "Unable to verify post-archive validation evidence ignore status."
     }
 
-    [void](Invoke-GitChecked $SourceRoot @("ls-files", "--error-unmatch", "--", $relativeEvidencePath) "[EVIDENCE_PATH] Post-archive validation evidence must be tracked in Git")
-    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:$relativeEvidencePath") "[EVIDENCE_BYTES] Post-archive validation evidence must exist in SourceRoot HEAD")
+    $tracked = Invoke-GitQuiet $SourceRoot @("ls-files", "--error-unmatch", "--", $relativeEvidencePath)
+    if ($tracked.ExitCode -ne 0) {
+        Fail-Contract "EVIDENCE_PATH" "Post-archive validation evidence must be tracked in Git."
+    }
+    $headPath = Invoke-GitQuiet $SourceRoot @("cat-file", "-e", "HEAD:$relativeEvidencePath")
+    if ($headPath.ExitCode -ne 0) {
+        Fail-Contract "EVIDENCE_BYTES" "Post-archive validation evidence must exist in SourceRoot HEAD."
+    }
 
     $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:$relativeEvidencePath") "[EVIDENCE_BYTES] Unable to read HEAD blob for post-archive validation evidence"
     $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$relativeEvidencePath", "--", $EvidenceFull) "[EVIDENCE_BYTES] Unable to hash working-tree post-archive validation evidence"
@@ -312,6 +318,20 @@ function Assert-WorkingTreeBlobMatchesCommit($SourceRoot, $Commit, $Path, $Categ
     $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$Path", "--", $pathFull) "[$Category] Unable to hash working-tree bytes for $Subject"
     if ($commitBlob -ne $workingBlob) {
         Fail-Contract $Category "$Subject working-tree bytes must match the declared committed blob after repository filters."
+    }
+}
+
+function Assert-TrackedReportPath($SourceRoot, $ReportPath) {
+    & git -C $SourceRoot check-ignore --no-index --quiet -- $ReportPath
+    if ($LASTEXITCODE -eq 0) {
+        Fail-Contract "REPORT_PATH" "Verification report must not be ignored."
+    }
+    if ($LASTEXITCODE -ne 1) {
+        Fail-Contract "REPORT_PATH" "Unable to verify verification report ignore status."
+    }
+    $tracked = Invoke-GitQuiet $SourceRoot @("ls-files", "--error-unmatch", "--", $ReportPath)
+    if ($tracked.ExitCode -ne 0) {
+        Fail-Contract "REPORT_PATH" "Verification report must be tracked in Git."
     }
 }
 
@@ -447,6 +467,141 @@ function Get-CommittedText($SourceRoot, $Commit, $Path, $Category, $Subject) {
     return $text
 }
 
+function Get-ReportEvidenceLines($Lines, $BeginIndex, $EndIndex) {
+    $evidenceLines = @()
+    $inFence = $false
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($i -ge $BeginIndex -and $i -le $EndIndex) {
+            continue
+        }
+        $line = $Lines[$i]
+        if ($line -match '^```') {
+            $inFence = -not $inFence
+            continue
+        }
+        if ($inFence -or $line -match '^\s*>') {
+            continue
+        }
+        $evidenceLines += $line
+    }
+    return @($evidenceLines)
+}
+
+function Assert-SingleReportHeading($Lines, $Heading) {
+    $count = @($Lines | Where-Object { $_ -ceq $Heading }).Count
+    if ($count -ne 1) {
+        Fail-Contract "REPORT_COMPLETENESS" "Validation report must contain each required evidence heading exactly once."
+    }
+}
+
+function Get-SingleReportField($Lines, $Label) {
+    $escaped = [regex]::Escape($Label)
+    $matches = @($Lines | Where-Object { $_ -cmatch "^$escaped`: (?<value>.+)$" })
+    if ($matches.Count -ne 1) {
+        Fail-Contract "REPORT_COMPLETENESS" "Validation report must contain each required evidence field exactly once."
+    }
+    [void]($matches[0] -cmatch "^$escaped`: (?<value>.+)$")
+    $value = $Matches["value"].Trim()
+    if (-not $value) {
+        Fail-Contract "REPORT_COMPLETENESS" "Validation report evidence fields must not be empty."
+    }
+    return $value.Trim("`"")
+}
+
+function Assert-ReportFieldEquals($Actual, $Expected, $Subject) {
+    if ($Actual -cne $Expected) {
+        Fail-Contract "REPORT_CONSISTENCY" "Validation report $Subject does not match the approved authority."
+    }
+}
+
+function Convert-MetadataBooleanToReportValue($Value) {
+    if ($Value -cne "true" -and $Value -cne "false") {
+        Fail-Contract "REPORT_METADATA" "Validation metadata booleans must be lowercase literals."
+    }
+    if ($Value -cne "true") { return "no" }
+    return "yes"
+}
+
+function Assert-ValidationReportCompleteness($ReportLines, $BeginIndex, $EndIndex, $Metadata, $ValidatedSourceCommit, $ExpectedVerdict, $ChangeName) {
+    $evidenceLines = @(Get-ReportEvidenceLines $ReportLines $BeginIndex $EndIndex)
+
+    foreach ($heading in @(
+        "# Independent Validation Report",
+        "## Validation Identity",
+        "## Worktree Evidence",
+        "## Environment",
+        "## Commands",
+        "## Repository Protection",
+        "## Findings",
+        "## Verdict"
+    )) {
+        Assert-SingleReportHeading $evidenceLines $heading
+    }
+
+    $requiredLabels = @(
+        "Repository",
+        "Branch",
+        "PR",
+        "Change",
+        "Validated implementation/source SHA",
+        "Validated remote SHA",
+        "Commit subject",
+        "Local/remote SHA equality",
+        "Clean validation worktree before",
+        "Clean validation worktree after",
+        "Python version",
+        "Node version",
+        "npm version",
+        "Graphify version",
+        "Dependency restoration command",
+        "Dependency restoration result",
+        "Focused-test command",
+        "Focused-test exit code",
+        "Focused-test counts",
+        "Full-suite command",
+        "Full-suite exit code",
+        "Full-suite counts",
+        "Change strict-validation command",
+        "Change strict-validation result",
+        "All strict-validation command",
+        "All strict-validation counts",
+        "git diff --check result",
+        "Repository-protection checks",
+        "Findings",
+        "Final verdict",
+        "Archive permitted",
+        "Merge permitted",
+        "Production-code-changed-by-validator",
+        "Tests-changed-by-validator"
+    )
+
+    $facts = @{}
+    foreach ($label in $requiredLabels) {
+        $facts[$label] = Get-SingleReportField $evidenceLines $label
+    }
+
+    Assert-ReportFieldEquals $facts["Branch"] $Metadata["validated_remote_branch"] "branch"
+    Assert-ReportFieldEquals $facts["Change"] $ChangeName "change name"
+    Assert-ReportFieldEquals $facts["Validated implementation/source SHA"] $ValidatedSourceCommit "source SHA"
+    Assert-ReportFieldEquals $facts["Validated remote SHA"] $ValidatedSourceCommit "remote SHA"
+    Assert-ReportFieldEquals $facts["Final verdict"] $ExpectedVerdict "verdict"
+    Assert-ReportFieldEquals $facts["Archive permitted"] (Convert-MetadataBooleanToReportValue $Metadata["archive_permitted"]) "archive permission"
+    Assert-ReportFieldEquals $facts["Merge permitted"] (Convert-MetadataBooleanToReportValue $Metadata["merge_permitted"]) "merge permission"
+    Assert-ReportFieldEquals $facts["Production-code-changed-by-validator"] $Metadata["production_code_changed_by_validator"] "production-code validator flag"
+    Assert-ReportFieldEquals $facts["Tests-changed-by-validator"] $Metadata["tests_changed_by_validator"] "tests validator flag"
+
+    foreach ($yesNoLabel in @("Local/remote SHA equality", "Clean validation worktree before", "Clean validation worktree after")) {
+        if (@("yes", "no") -cnotcontains $facts[$yesNoLabel]) {
+            Fail-Contract "REPORT_COMPLETENESS" "Validation report yes/no evidence fields must use lowercase yes or no."
+        }
+    }
+    foreach ($exitLabel in @("Focused-test exit code", "Full-suite exit code")) {
+        if ($facts[$exitLabel] -cnotmatch "^[0-9]+$") {
+            Fail-Contract "REPORT_COMPLETENESS" "Validation report exit-code evidence fields must be numeric."
+        }
+    }
+}
+
 function Assert-ValidationReportMetadata($SourceRoot, $ReportText, $ValidatedSourceCommit, $ExpectedVerdict) {
     $normalized = $ReportText.Replace("`r`n", "`n").Replace("`r", "`n")
     $lines = @($normalized -split "`n")
@@ -557,6 +712,10 @@ function Assert-ValidationReportMetadata($SourceRoot, $ReportText, $ValidatedSou
     return [pscustomobject]@{
         Branch = $branch
         Verdict = $metadata["verdict"]
+        Values = $metadata
+        Lines = $lines
+        BeginIndex = $begin[0]
+        EndIndex = $end[0]
     }
 }
 
@@ -583,6 +742,7 @@ function Assert-OrdinaryFinalWorkflowGate($SourceRoot, $SourceCommit, $EvidenceP
     Assert-PathPresentAtCommit $SourceRoot $facts.ValidatedSourceCommit $facts.ArchivePath "ARCHIVE_STATE" "validated_source_commit must contain the declared archive path."
     Assert-PathAbsentAtCommit $SourceRoot $facts.ValidatedSourceCommit "openspec/changes/$($facts.ChangeName)" "ARCHIVE_STATE" "validated_source_commit must not contain the active OpenSpec change path."
     Assert-PathPresentAtCommit $SourceRoot $facts.VerificationReportCommit $facts.VerificationReportPath "REPORT_BYTES" "verification_report_commit must contain the declared verification report."
+    Assert-TrackedReportPath $SourceRoot $facts.VerificationReportPath
     Assert-WorkingTreeBlobMatchesCommit $SourceRoot $facts.VerificationReportCommit $facts.VerificationReportPath "REPORT_BYTES" "verification report"
     Assert-ExactCommitDelta $SourceRoot $facts.ValidatedSourceCommit $facts.VerificationReportCommit $facts.VerificationReportPath "LINEAGE" "V..R validation-report"
 
@@ -591,7 +751,8 @@ function Assert-OrdinaryFinalWorkflowGate($SourceRoot, $SourceCommit, $EvidenceP
     Assert-ExactCommitDelta $SourceRoot $facts.VerificationReportCommit $SourceCommit $relativeEvidencePath "LINEAGE" "R..E Graphify-evidence"
 
     $reportText = Get-CommittedText $SourceRoot $facts.VerificationReportCommit $facts.VerificationReportPath "REPORT_BYTES" "verification report"
-    [void](Assert-ValidationReportMetadata $SourceRoot $reportText $facts.ValidatedSourceCommit $facts.Verdict)
+    $metadata = Assert-ValidationReportMetadata $SourceRoot $reportText $facts.ValidatedSourceCommit $facts.Verdict
+    Assert-ValidationReportCompleteness $metadata.Lines $metadata.BeginIndex $metadata.EndIndex $metadata.Values $facts.ValidatedSourceCommit $facts.Verdict $facts.ChangeName
 }
 
 function Assert-HistoricalFinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath, $EvidenceFull, $Evidence) {
@@ -662,7 +823,7 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
     if (-not (Test-Path -LiteralPath $evidenceFull -PathType Leaf)) {
         Fail-Contract "EVIDENCE_PATH" "Post-archive validation evidence file is missing."
     }
-    $evidence = Assert-Json $evidenceFull
+    $evidence = Assert-Json $evidenceFull "EVIDENCE_SCHEMA" "post-archive Graphify evidence"
     $changeName = if ($null -ne $evidence -and $evidence.PSObject.Properties.Name -contains "change_name") { [string]$evidence.change_name } else { "" }
     if ($changeName -eq $HistoricalChangeName) {
         $ordinaryOnlyFields = @("schema_version", "verification_report_path", "verification_report_commit", "repository_protection", "verdict")
@@ -688,12 +849,12 @@ function Get-GraphVersion {
     return $Matches[1]
 }
 
-function Assert-Json($Path) {
+function Assert-Json($Path, $Category = "GRAPH_INTEGRITY", $Subject = "JSON artifact") {
     try {
         $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
         return $raw | ConvertFrom-Json
     } catch {
-        Fail "Invalid JSON."
+        Fail-Contract $Category "Invalid JSON for $Subject."
     }
 }
 
@@ -1489,7 +1650,7 @@ $baselineStageValue = Get-BaselineStageValue $BaselineStage
 $sourceCommit = Get-GitSha $sourceRootFull "HEAD"
 $sourceRefSha = Get-GitSha $sourceRootFull $SourceRef
 if ($sourceCommit -ne $sourceRefSha) {
-    Fail "Source HEAD must equal SourceRef. source=$sourceCommit SourceRef($SourceRef)=$sourceRefSha"
+    Fail-Contract "SOURCE_BINDING" "Source HEAD must equal SourceRef."
 }
 if ($baselineStageValue -eq "final") {
     Assert-FinalSourceContainsGraphifyTooling $sourceRootFull
