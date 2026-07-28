@@ -20,7 +20,8 @@ PR #16 exposed two additional constraints:
 2. Preserve the historical frozen-baseline gate as an explicit special case.
 3. Keep complete independent validation evidence and deterministic graph lineage.
 4. Avoid self-referential commit metadata.
-5. Keep generated artifact, encoding, hash, sensitive-data, ghost-node, topology,
+5. Bind the authoritative Markdown report through an exact machine-readable block.
+6. Keep generated artifact, encoding, hash, sensitive-data, ghost-node, topology,
    and graph-only commit protections unchanged.
 
 ## Non-goals
@@ -29,7 +30,7 @@ PR #16 exposed two additional constraints:
 - Do not weaken `RULES.md` validation evidence requirements.
 - Do not introduce a general process-only allowlist.
 - Do not allow arbitrary evidence or verification-report paths.
-- Do not infer validation from PR text or commit messages.
+- Do not infer validation from PR text, commit messages, or free-form Markdown.
 
 ## Normative ordinary-change workflow
 
@@ -66,8 +67,8 @@ openspec/validation/<change-name>.post-archive.json
 
 The JSON MUST declare the exact repository-relative archived verification-report
 path. The wrapper MUST reject absolute paths, traversal, alternate extensions,
-wrong change/path pairing, ignored or untracked files, missing HEAD blobs, and
-working-tree bytes that differ from committed HEAD blobs after repository filters.
+wrong change/path pairing, ignored or untracked files, missing committed blobs,
+and working-tree bytes that differ from committed bytes after repository filters.
 
 The historical frozen-baseline path remains valid only for its historical change.
 
@@ -106,7 +107,7 @@ The JSON MUST contain exactly these fields:
 
 Allowed verdicts are `APPROVE` and `APPROVE WITH NON-BLOCKING NOTES`.
 Unknown or missing top-level and nested fields MUST be rejected. Stored commit
-values MUST be full repository SHAs.
+values MUST be full 40-character lowercase repository SHAs.
 
 The JSON MUST NOT contain `evidence_commit`, `indexed_source_commit`, or any SHA
 whose value depends on the commit containing the JSON. The wrapper derives:
@@ -116,11 +117,59 @@ evidence_commit = SourceRoot HEAD
 indexed_source_commit = SourceRoot HEAD
 ```
 
-## Validation report contract
+## Exact validation-report metadata block
 
 `R` MUST contain only the renewed archived `verification-report.md` declared by
-`verification_report_path`. The report MUST satisfy every independent-validation
-fact required by `RULES.md`, including:
+`verification_report_path`. The human-readable report remains mandatory and MUST
+contain every independent-validation fact required by `RULES.md`.
+
+The report MUST also contain exactly one machine-readable block with these exact
+literal delimiters:
+
+```text
+BEGIN VALIDATION METADATA
+schema_version: 1
+validated_remote_branch: agent/example-change
+validated_source_commit: <40-char-lowercase-sha>
+verdict: APPROVE
+archive_permitted: true
+merge_permitted: false
+production_code_changed_by_validator: false
+tests_changed_by_validator: false
+END VALIDATION METADATA
+```
+
+The block grammar is normative:
+
+- the report MUST contain exactly one begin delimiter and exactly one end delimiter;
+- the begin delimiter MUST precede the end delimiter;
+- delimiters MUST occupy their own lines and match literally;
+- the block MUST contain exactly the eight key/value lines shown above, in that order;
+- each line MUST use exactly one ASCII colon followed by one ASCII space;
+- blank lines, comments, indentation, quoting, duplicate keys, unknown keys, and
+  missing keys inside the block are forbidden;
+- `schema_version` MUST be the literal decimal integer `1`;
+- `validated_remote_branch` MUST be a non-empty Git branch name accepted by
+  `git check-ref-format --branch`, without control characters;
+- `validated_source_commit` MUST be exactly 40 lowercase hexadecimal characters;
+- `verdict` MUST be exactly `APPROVE` or
+  `APPROVE WITH NON-BLOCKING NOTES`;
+- boolean values MUST be lowercase literals `true` or `false`;
+- final Graphify refresh requires `archive_permitted: true`;
+- `validated_source_commit` MUST equal `V`;
+- `validated_remote_branch` MUST equal the branch recorded by renewed validation;
+- the metadata verdict MUST equal the verdict stored in the Graphify JSON;
+- `production_code_changed_by_validator` and
+  `tests_changed_by_validator` MUST both be `false`;
+- the wrapper MUST read the committed bytes at
+  `R:<verification_report_path>`, not PR text or an uncommitted working-tree copy.
+
+The wrapper MUST reject a second block, duplicate or conflicting markers, malformed
+lines, quoted/example blocks, unknown or missing keys, invalid types, a SHA other
+than `V`, a disallowed verdict, or contradictory authoritative permission/change
+statements in the human-readable report. Free-form substring search is forbidden.
+
+The human-readable report MUST still record:
 
 - validated remote branch and full SHA `V`;
 - commit subject and clean worktree before/after;
@@ -129,12 +178,6 @@ fact required by `RULES.md`, including:
 - exact test and OpenSpec commands, counts, and outcomes;
 - repository-protection checks and severity-ordered findings;
 - verdict, archive/merge permissions, and whether code or tests changed.
-
-The wrapper MUST verify that the report is tracked, committed, unchanged in the
-working tree, located at the declared archived path, and records/approves exactly
-`validated_source_commit = V`. Structured parsing MAY use deterministic report
-markers defined by the implementation and runbook; it MUST NOT trust free-form PR
-body text.
 
 ## Exact lineage contract
 
@@ -148,8 +191,8 @@ For an ordinary archived change the wrapper MUST prove:
 5. `V` is an ancestor of `R`.
 6. The complete `V..R` path delta contains exactly
    `verification_report_path`.
-7. The verification report is absent or differs before `R`, is committed at `R`,
-   and explicitly records and approves `V`.
+7. The report is committed at `R`, contains the exact metadata block, and binds
+   branch, verdict, permissions, and validator-change flags to `V`.
 8. `verification_report_commit` equals `R`.
 9. `R` is the direct accepted validation-evidence boundary for `E`.
 10. The Graphify JSON is absent from `R` and present in `E`.
@@ -167,8 +210,8 @@ Any additional path in `V..R` or `R..E` MUST fail before Graphify generation.
    force-push.
 3. Review the merge and publish the resulting remote source commit `V`.
 4. Independently revalidate `V` in a clean detached worktree.
-5. Update the archived PR #16 `verification-report.md` and commit only that report
-   as `R`.
+5. Update the archived PR #16 `verification-report.md`, including the exact
+   metadata block, and commit only that report as `R`.
 6. Create the exact JSON containing `V`, the original feature archive commit/path,
    and `verification_report_commit = R`; commit only that JSON as `E`.
 7. Run final Graphify refresh with `SourceRoot HEAD = SourceRef = E`.
@@ -187,8 +230,8 @@ Refactor the final gate into separable checks for:
 - evidence and verification-report path resolution;
 - committed-byte verification;
 - exact JSON schema validation;
+- exact validation metadata block parsing and semantic binding;
 - archived/active change state;
-- verification-report completeness and validated-SHA binding;
 - Git ancestry and exact `V..R` and `R..E` deltas;
 - source-ref and clean-HEAD binding;
 - historical compatibility;
@@ -204,8 +247,11 @@ Add coverage for:
 - valid historical frozen-baseline evidence;
 - valid ordinary `V -> R -> E -> G` flow;
 - exact JSON field validation and rejection of self-referential fields;
+- exactly one valid metadata block;
+- missing, duplicate, reordered, quoted, malformed, or conflicting metadata blocks;
+- duplicate, unknown, missing, or invalid metadata keys and values;
+- branch, SHA, verdict, permission, or validator-change mismatch;
 - report path/commit mismatch;
-- report that does not record or approve `V`;
 - additional path in `V..R`;
 - additional path in `R..E`;
 - malformed, missing, ignored, untracked, modified, or wrong-path artifacts;
@@ -215,7 +261,7 @@ Add coverage for:
 
 ## Rollout
 
-1. Approve this architecture.
+1. Approve this architecture after repository-local strict validation passes.
 2. Implement wrapper, runbook, tests, and applicable root-spec delta.
 3. Independently validate this infrastructure implementation.
 4. Archive and merge it.
