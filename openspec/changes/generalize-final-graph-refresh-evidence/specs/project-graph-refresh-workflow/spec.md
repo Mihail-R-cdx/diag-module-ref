@@ -232,3 +232,10 @@ topology, deterministic publication, or graph-only commit scope.
 
 The wrapper SHALL identify the failed contract category without exposing secrets,
 concrete inventory data, or user-specific absolute paths.
+
+#### Scenario: Rejected input produces a non-sensitive structured error
+
+- **GIVEN** final Graphify input violates an evidence, metadata, lineage, archive-state, source-binding, or graph-integrity contract
+- **WHEN** the repository-local wrapper rejects the request
+- **THEN** it identifies the failed contract category
+- **AND** it does not expose secrets, concrete inventory data, repository contents, or user-specific absolute paths
