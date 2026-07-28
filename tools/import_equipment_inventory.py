@@ -5,13 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 import xml.etree.ElementTree as ET
 
 
@@ -47,6 +48,7 @@ SOURCE_COLUMNS = {
     "mac_address": "MAC",
     "serial_number": "Серийный номер",
     "device_kind": "Тип модели",
+    "room_vip": "VIP оборудование",
 }
 EVIDENCE_COLUMNS = {
     "manufacturer": "Производитель",
@@ -55,6 +57,10 @@ EVIDENCE_COLUMNS = {
 }
 REQUIRED_SOURCE_COLUMNS = tuple(SOURCE_COLUMNS.values())
 OPTIONAL_EVIDENCE_COLUMNS = tuple(EVIDENCE_COLUMNS.values())
+SOURCE_XLSX_ENV = "DIAG_INVENTORY_XLSX"
+OUTPUT_JSON_ENV = "DIAG_INVENTORY_JSON"
+SOURCE_XLSX_PATH: Path | None = None
+OUTPUT_JSON_PATH: Path | None = None
 
 DIAGNOSTIC_MODEL_BY_EVIDENCE = {
     ("huawei", "te20"): "Huawei TE20",
@@ -137,14 +143,24 @@ class ImportResult:
         }
 
 
+class ConverterConfigurationError(ValueError):
+    """Safe converter path configuration failure."""
+
+
+@dataclass(frozen=True)
+class ConverterPaths:
+    source_xlsx_path: Path
+    output_json_path: Path
+
+
 def import_equipment_inventory(
     source_path: str | Path,
     *,
     output_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> ImportResult:
-    source = Path(source_path)
-    output = Path(output_path) if output_path is not None else default_snapshot_path()
+    source = _resolve_path(source_path)
+    output = _resolve_path(output_path) if output_path is not None else _resolve_path(default_snapshot_path())
     generated = generated_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     issues: list[ImportIssue] = []
@@ -227,6 +243,19 @@ def _build_records(
         room_id = normalize_text(_value(row, header_index, SOURCE_COLUMNS["room_id"]))
         room_name = normalize_text(_value(row, header_index, SOURCE_COLUMNS["room_name"]))
         serial_number = normalize_text(_value(row, header_index, SOURCE_COLUMNS["serial_number"]))
+        room_vip, room_vip_issue = _map_room_vip(
+            _value(row, header_index, SOURCE_COLUMNS["room_vip"])
+        )
+        if room_vip_issue is not None:
+            issues.append(
+                ImportIssue(
+                    "data_quality",
+                    room_vip_issue,
+                    row=row_number,
+                    record_id=record_id,
+                    description="Room VIP value is unsupported and was represented as null.",
+                )
+            )
 
         ip_source = _value(row, header_index, SOURCE_COLUMNS["ip_address"])
         ip_address = normalize_ip_address(ip_source)
@@ -267,6 +296,7 @@ def _build_records(
                 room_id=room_id,
                 room_name=room_name,
                 device_kind=device_kind,
+                room_vip=room_vip,
             )
         )
 
@@ -285,6 +315,7 @@ def _detect_cross_row_issues(
     room_names_by_id: dict[str, set[str]] = {}
     room_ids_by_name: dict[str, set[str]] = {}
     records_by_room_kind: dict[tuple[str, str], list[EquipmentRecord]] = {}
+    room_vip_values_by_id: dict[str, list[bool | None]] = {}
     values_by_field: dict[str, dict[str, list[EquipmentRecord]]] = {
         "ip_address": {},
         "mac_address": {},
@@ -292,6 +323,7 @@ def _detect_cross_row_issues(
     }
     for record in records:
         if record.room_id is not None:
+            room_vip_values_by_id.setdefault(record.room_id, []).append(record.room_vip)
             if record.room_name is not None:
                 room_names_by_id.setdefault(record.room_id, set()).add(record.room_name)
                 room_ids_by_name.setdefault(record.room_name, set()).add(record.room_id)
@@ -319,6 +351,16 @@ def _detect_cross_row_issues(
         for matching in values.values():
             if len(matching) > 1:
                 issues.append(ImportIssue("data_quality", duplicate_codes[field], record_id=matching[0].record_id, description="A physical identifier is shared by multiple records."))
+    for room_id, values in room_vip_values_by_id.items():
+        if _aggregate_room_vip_values(values) == "CONFLICT":
+            issues.append(
+                ImportIssue(
+                    "consistency",
+                    "ROOM_VIP_CONFLICT",
+                    record_id=room_id,
+                    description="One room ID has conflicting VIP evidence.",
+                )
+            )
 
     if EVIDENCE_COLUMNS["controller_record_id"] in header_index:
         controller_refs_by_room: dict[str, set[str]] = {}
@@ -379,8 +421,10 @@ def _read_workbook(path: Path) -> dict[str, Any]:
             sheet_name = sheet.attrib["name"]
             relationship_id = sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]
             target = rel_targets[relationship_id]
-            if not target.startswith("xl/"):
-                target = "xl/" + target.lstrip("/")
+            if target.startswith("/"):
+                target = target.lstrip("/")
+            elif not target.startswith("xl/"):
+                target = posixpath.normpath(posixpath.join("xl", target))
             sheets.append((sheet_name, target))
 
         rows_by_sheet = {
@@ -438,6 +482,36 @@ def _cell_value(cell: ET.Element, shared_strings: list[str]) -> Any:
     return raw
 
 
+def _map_room_vip(value: Any) -> tuple[bool | None, str | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, bool):
+        return value, None
+    text = normalize_text(value)
+    if text is None:
+        return None, None
+    folded = text.casefold()
+    if folded == "истина":
+        return True, None
+    if folded == "ложь":
+        return False, None
+    return None, "INVALID_ROOM_VIP"
+
+
+def _aggregate_room_vip_values(values: list[bool | None] | tuple[bool | None, ...]) -> str:
+    if not values:
+        return "UNRESOLVED"
+    has_true = any(value is True for value in values)
+    has_false = any(value is False for value in values)
+    if has_true and has_false:
+        return "CONFLICT"
+    if has_true:
+        return "VIP_TRUE"
+    if has_false:
+        return "VIP_FALSE"
+    return "NO_DATA"
+
+
 def _column_index(cell_reference: str) -> int:
     letters = "".join(character for character in cell_reference if character.isalpha())
     index = 0
@@ -488,13 +562,47 @@ def _atomic_write_json(output: Path, document: dict[str, Any]) -> None:
         raise
 
 
+def _resolve_path(value: str | Path) -> Path:
+    return Path(value).expanduser().resolve(strict=False)
+
+
+def resolve_converter_paths(
+    *,
+    source_override: str | Path | None = None,
+    output_override: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> ConverterPaths:
+    values = os.environ if env is None else env
+    source_value = source_override or values.get(SOURCE_XLSX_ENV)
+    if source_value in (None, ""):
+        raise ConverterConfigurationError(
+            "Source workbook path is not configured. Use --source or DIAG_INVENTORY_XLSX."
+        )
+    output_value = output_override or values.get(OUTPUT_JSON_ENV) or default_snapshot_path()
+    return ConverterPaths(
+        source_xlsx_path=_resolve_path(source_value),
+        output_json_path=_resolve_path(output_value),
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Import an equipment inventory workbook into a canonical JSON snapshot.")
-    parser.add_argument("source", help="Path to the source .xlsx workbook.")
+    parser.add_argument("source", nargs="?", help="Path to the source .xlsx workbook.")
     parser.add_argument("--output", default=None, help="Snapshot output path. Defaults to equipment_inventory.local.json at the repository root.")
     args = parser.parse_args(argv)
 
-    result = import_equipment_inventory(args.source, output_path=args.output)
+    global SOURCE_XLSX_PATH, OUTPUT_JSON_PATH
+    try:
+        paths = resolve_converter_paths(
+            source_override=args.source,
+            output_override=args.output,
+        )
+    except ConverterConfigurationError as exc:
+        print(json.dumps({"published": False, "error": str(exc)}, ensure_ascii=False, indent=2, sort_keys=True))
+        return 1
+    SOURCE_XLSX_PATH = paths.source_xlsx_path
+    OUTPUT_JSON_PATH = paths.output_json_path
+    result = import_equipment_inventory(SOURCE_XLSX_PATH, output_path=OUTPUT_JSON_PATH)
     print(json.dumps(result.to_report(), ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if result.published else 1
 

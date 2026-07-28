@@ -209,6 +209,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         self.assertNotIn("room_id", screen.related_rows)
         self.assertEqual(
             {
+                "room_vip",
                 "codec_diagnostic_status",
                 "room_name",
                 "codec_diagnostic_model",
@@ -218,6 +219,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
             },
             set(screen.related_rows),
         )
+        self.assertEqual("—", screen.related_rows["room_vip"].value_display.text())
         self.assertEqual(
             "SUCCESS",
             screen.related_rows["codec_diagnostic_status"].value_display.text(),

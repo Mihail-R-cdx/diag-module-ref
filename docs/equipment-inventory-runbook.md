@@ -55,11 +55,13 @@ core/equipment_inventory.py
 tools/import_equipment_inventory.py
 core/room_context.py
 core/related_codec_status.py
+gui/equipment_pages.py
 gui/pdu_room_codec_enrichment.py
 gui/pdu_controller.py
 gui/screens/pdu_screen.py
 tests/test_equipment_inventory.py
 tests/test_pdu_room_codec_enrichment.py
+tests/test_equipment_room_context_gui.py
 ```
 
 ## Authoritative Excel mapping
@@ -76,6 +78,27 @@ MAC               -> mac_address
 Серийный номер    -> serial_number
 Тип модели        -> device_kind
 ```
+
+Schema v2 adds one confirmed source column:
+
+```text
+VIP оборудование -> room_vip
+```
+
+The VIP mapping is closed:
+
+```text
+Excel boolean true  -> true
+Excel boolean false -> false
+ИСТИНА/истина       -> true
+ЛОЖЬ/ложь           -> false
+blank               -> null
+anything else       -> null plus INVALID_ROOM_VIP
+```
+
+Text matching applies Unicode NFC normalization, trim, and casefold before the
+exact comparison. Do not support the old `VIP` header, numeric `1`/`0`,
+`да`/`нет`, `true`/`false`, `yes`/`no`, substrings, or fuzzy aliases.
 
 Importer-only evidence may include:
 
@@ -184,6 +207,20 @@ all other values -> other
 
 Recognized model evidence must not override the exact `Тип модели` mapping.
 
+## Canonical snapshot schema v2
+
+Newly generated snapshots use `schema_version = 2`. Schema-v2 records contain
+all schema-v1 record fields plus exactly:
+
+```text
+room_vip
+```
+
+`room_vip` is JSON `true`, JSON `false`, or JSON `null`. It participates in the
+deterministic snapshot identity. The runtime loader still accepts valid
+schema-v1 snapshots and adapts loaded records to `room_vip = null` without
+rewriting the source file or changing schema-v1 identity validation.
+
 ## Normalization
 
 Canonical text uses Unicode NFC normalization and trims leading and trailing
@@ -250,6 +287,21 @@ The inventory layer preserves multiplicity and does not classify it as
 
 Do not use implicit first-match selection such as `records[0]` or `codecs[0]`.
 Interpretation of zero/one/many belongs to application/composition code.
+
+Room VIP evidence is evaluated only across all records sharing one non-null
+authoritative `room_id`:
+
+```text
+no room records                         -> unresolved room
+all room_vip values null                -> NO_DATA
+one or more true, all others null/true  -> VIP_TRUE
+one or more false, all others null/false-> VIP_FALSE
+at least one true and at least one false-> CONFLICT
+```
+
+The importer reports `ROOM_VIP_CONFLICT` only for true-plus-false evidence in
+the same room. Null means missing evidence and does not contradict a known
+boolean value.
 
 ## Structured runtime load failures
 
@@ -416,6 +468,26 @@ Enrichment failure must not:
 - open an automatic modal connection error.
 
 Related-room failures are rendered safely and inline.
+
+## Non-PDU room context
+
+Every registered non-PDU equipment page is routed through the centralized
+equipment-page registry in `gui/equipment_pages.py` and receives the same
+shared room-information block at the bottom of the page. PDU pages are excluded
+only by explicit registry classification because they keep the dedicated PDU
+room/related-codec block.
+
+Non-PDU room context is application-owned and independent from device
+diagnostic success. A new room-context generation is created when model,
+normalized IP, page context, credential context, or accepted inventory snapshot
+context changes. The resolver uses only the loaded `EquipmentInventory` and the
+canonical equipment IP; it does not wait for device refresh, ping, worker
+callbacks, or handler construction.
+
+Device start/progress/result/error/finished callbacks must not rerun, clear, or
+restore the room block. Inventory failure is displayed as safe inline room
+context and must not open automatic modal connection errors or change device
+diagnostic authority.
 
 ## Data and secret protection
 

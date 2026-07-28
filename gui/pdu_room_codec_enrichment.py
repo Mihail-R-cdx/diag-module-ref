@@ -17,7 +17,13 @@ from core.interactive_session import (
     OperationSemantic,
 )
 from core.related_codec_status import RelatedCodecStatusAdapter
-from core.room_context import RoomContext, RoomContextResolver, RoomResolutionResult, RoomResolutionStatus
+from core.room_context import (
+    RoomContext,
+    RoomContextResolver,
+    RoomResolutionResult,
+    RoomResolutionStatus,
+    room_vip_label,
+)
 
 
 class CodecDiagnosticStatus(str, Enum):
@@ -57,6 +63,8 @@ class EnrichmentPresentation:
     codec_credential_context_revision: int | None = None
     room_id: str | None = None
     room_name: str | None = None
+    room_vip_status: str | None = None
+    room_vip_label: str | None = None
     codec_source_model: str | None = None
     codec_diagnostic_model: str | None = None
     codec_ip_address: str | None = None
@@ -79,6 +87,8 @@ class EnrichmentPresentation:
             "codec_diagnostic_status": self.codec_diagnostic_status,
             "room_id": self.room_id,
             "room_name": self.room_name,
+            "room_vip_status": self.room_vip_status,
+            "room_vip_label": self.room_vip_label,
             "codec_source_model": self.codec_source_model,
             "codec_diagnostic_model": self.codec_diagnostic_model,
             "codec_ip_address": self.codec_ip_address,
@@ -369,6 +379,8 @@ class PDURoomCodecEnrichmentController(QObject):
                 codec_diagnostic_status=codec_status.value,
                 room_id=resolution.room_id,
                 room_name=resolution.room_name,
+                room_vip_status=getattr(resolution.room_vip_status, "value", resolution.room_vip_status),
+                room_vip_label=room_vip_label(resolution.room_vip_status),
                 codec_source_model=resolution.codec_source_model,
                 codec_diagnostic_model=resolution.codec_diagnostic_model,
                 codec_ip_address=resolution.codec_ip_address,
@@ -398,6 +410,8 @@ class PDURoomCodecEnrichmentController(QObject):
                 codec_diagnostic_status=CodecDiagnosticStatus.PENDING.value,
                 room_id=room_context.room_id,
                 room_name=room_context.room_name,
+                room_vip_status=room_context.room_vip_status.value,
+                room_vip_label=room_vip_label(room_context.room_vip_status),
                 codec_source_model=room_context.codec_source_model,
                 codec_diagnostic_model=room_context.codec_diagnostic_model,
                 codec_ip_address=room_context.codec_ip_address,
@@ -437,6 +451,8 @@ class PDURoomCodecEnrichmentController(QObject):
             codec_diagnostic_status=status.value,
             room_id=current.room_id,
             room_name=current.room_name,
+            room_vip_status=current.room_vip_status,
+            room_vip_label=current.room_vip_label,
             codec_source_model=current.codec_source_model,
             codec_diagnostic_model=current.codec_diagnostic_model,
             codec_ip_address=current.codec_ip_address,

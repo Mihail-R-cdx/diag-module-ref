@@ -31,9 +31,13 @@ class BaseScreen(QWidget):
 
         if self.ui_state in {UIState.LOADING, UIState.COMMAND}:
             for value in self.findChildren(ValueDisplay):
+                if _inside_room_context_boundary(value):
+                    continue
                 value.set_state("loading", message or spec.default_text)
         elif self.ui_state == UIState.UNAVAILABLE:
             for value in self.findChildren(ValueDisplay):
+                if _inside_room_context_boundary(value):
+                    continue
                 value.set_value("—")
                 value.set_state("inactive")
 
@@ -44,3 +48,15 @@ class BaseScreen(QWidget):
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
+
+
+def _inside_room_context_boundary(widget):
+    parent = widget.parent()
+    while parent is not None:
+        if parent.property("roomContextBoundary") is True:
+            return True
+        next_parent = getattr(parent, "parent", None)
+        if not callable(next_parent):
+            return False
+        parent = next_parent()
+    return False
