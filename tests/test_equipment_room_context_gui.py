@@ -119,6 +119,7 @@ class EquipmentRoomContextGUITests(unittest.TestCase):
         QApplication.processEvents()
 
         block = window.screens["codec"].shared_room_information_block
+        self.assertEqual("Адрес", block.room_name_row.name_label.text())
         self.assertEqual("Room One", block.room_name_value.text())
         self.assertEqual("ДА", block.room_vip_value.text())
         self.assertEqual("success", block.room_vip_row.property("uiState"))

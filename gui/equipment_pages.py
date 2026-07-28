@@ -88,7 +88,7 @@ class RoomInformationBlock(SectionCard):
         self.setObjectName("sharedRoomInformationBlock")
         self.setProperty("roomContextBoundary", True)
         self.room_vip_row = ParameterRow("VIP", "—", self, compact=True)
-        self.room_name_row = ParameterRow("Название комнаты", "—", self, compact=True)
+        self.room_name_row = ParameterRow("Адрес", "—", self, compact=True)
         self.message_row = ParameterRow("Статус", "—", self, compact=True)
         self.room_vip_value = self.room_vip_row.value_display
         self.room_name_value = self.room_name_row.value_display
