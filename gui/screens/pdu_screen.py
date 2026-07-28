@@ -117,6 +117,7 @@ class PDUScreen(BaseScreen):
         self.related_group.setProperty("density", "compact")
         self.related_rows = {}
         fields = (
+            ("room_vip", "VIP"),
             ("codec_diagnostic_status", "Статус кодека"),
             ("room_name", "Название комнаты"),
             ("codec_diagnostic_model", "Модель кодека"),
@@ -318,6 +319,7 @@ class PDUScreen(BaseScreen):
             state = "warning"
 
         values = {
+            "room_vip": payload.get("room_vip_label"),
             "codec_diagnostic_status": payload.get("codec_diagnostic_status"),
             "room_name": payload.get("room_name"),
             "codec_diagnostic_model": payload.get("codec_diagnostic_model") or payload.get("codec_source_model"),
@@ -328,7 +330,12 @@ class PDUScreen(BaseScreen):
         for field, row in self.related_rows.items():
             value = values.get(field)
             row.set_value("—" if value in (None, "", (), []) else str(value))
-            row.set_state(state if value not in (None, "", (), []) else "inactive")
+            row_state = state
+            if field == "room_vip" and payload.get("room_vip_status") == "VIP_TRUE":
+                row_state = "success"
+            elif field == "room_vip" and payload.get("room_vip_status") == "CONFLICT":
+                row_state = "warning"
+            row.set_state(row_state if value not in (None, "", (), []) else "inactive")
         message_parts = self._related_message_parts(payload)
         self.related_message.setText(" · ".join(message_parts))
 

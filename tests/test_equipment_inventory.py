@@ -10,7 +10,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from core.equipment_inventory import (
     RECORD_FIELDS,
+    RECORD_FIELDS_V1,
     SCHEMA_VERSION,
+    SCHEMA_VERSION_V1,
+    SCHEMA_VERSION_V2,
     EquipmentInventoryLoadError,
     EquipmentRecord,
     InventoryLoadFailure,
@@ -22,9 +25,13 @@ from core.equipment_inventory import (
     record_to_dict,
 )
 from tools.import_equipment_inventory import (
+    ConverterConfigurationError,
     EVIDENCE_COLUMNS,
+    OUTPUT_JSON_ENV,
     SOURCE_COLUMNS,
+    SOURCE_XLSX_ENV,
     import_equipment_inventory,
+    resolve_converter_paths,
 )
 
 
@@ -34,6 +41,7 @@ HEADERS = [
     SOURCE_COLUMNS["record_id"],
     SOURCE_COLUMNS["device_kind"],
     SOURCE_COLUMNS["source_model"],
+    SOURCE_COLUMNS["room_vip"],
     EVIDENCE_COLUMNS["controller_record_id"],
     EVIDENCE_COLUMNS["model"],
     EVIDENCE_COLUMNS["manufacturer"],
@@ -43,7 +51,7 @@ HEADERS = [
 ]
 
 
-def record(record_id, *, ip_address=None, mac_address=None, serial_number=None, room_id=None, room_name=None, device_kind="other", source_model=None, diagnostic_model=None):
+def record(record_id, *, ip_address=None, mac_address=None, serial_number=None, room_id=None, room_name=None, device_kind="other", source_model=None, diagnostic_model=None, room_vip=None):
     return EquipmentRecord(
         record_id=record_id,
         source_model=source_model,
@@ -54,15 +62,21 @@ def record(record_id, *, ip_address=None, mac_address=None, serial_number=None, 
         room_id=room_id,
         room_name=room_name,
         device_kind=device_kind,
+        room_vip=room_vip,
     )
 
 
-def snapshot_document(records, **metadata):
+def snapshot_document(records, *, schema_version=SCHEMA_VERSION, **metadata):
     ordered = tuple(sorted(records, key=lambda item: item.record_id))
+    fields = RECORD_FIELDS_V1 if schema_version == SCHEMA_VERSION_V1 else RECORD_FIELDS
+    record_dicts = [
+        {field: getattr(item, field) for field in fields}
+        for item in ordered
+    ]
     document = {
-        "schema_version": SCHEMA_VERSION,
-        "snapshot_id": compute_snapshot_id(ordered),
-        "records": [record_to_dict(item) for item in ordered],
+        "schema_version": schema_version,
+        "snapshot_id": compute_snapshot_id(record_dicts, schema_version=schema_version),
+        "records": record_dicts,
     }
     document.update(metadata)
     return document
@@ -74,13 +88,14 @@ def write_snapshot(path, records, **metadata):
     return document
 
 
-def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", source_model="Huawei TE20", source_type="Video Conference", ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-1", manufacturer="Huawei", model="TE20", controller="CTRL-1"):
+def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", source_model="Huawei TE20", source_type="Video Conference", room_vip=None, ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-1", manufacturer="Huawei", model="TE20", controller="CTRL-1"):
     return {
         SOURCE_COLUMNS["room_id"]: room_id,
         SOURCE_COLUMNS["room_name"]: room_name,
         SOURCE_COLUMNS["record_id"]: record_id,
         SOURCE_COLUMNS["device_kind"]: source_type,
         SOURCE_COLUMNS["source_model"]: source_model,
+        SOURCE_COLUMNS["room_vip"]: room_vip,
         EVIDENCE_COLUMNS["controller_record_id"]: controller,
         EVIDENCE_COLUMNS["model"]: model,
         EVIDENCE_COLUMNS["manufacturer"]: manufacturer,
@@ -102,6 +117,8 @@ def _sheet_xml(rows, headers=HEADERS, header_row=1):
     def cell(reference, value):
         if value is None:
             return f'<c r="{reference}"/>'
+        if isinstance(value, bool):
+            return f'<c r="{reference}" t="b"><v>{1 if value else 0}</v></c>'
         text = str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         return f'<c r="{reference}" t="inlineStr"><is><t>{text}</t></is></c>'
 
@@ -111,9 +128,10 @@ def _sheet_xml(rows, headers=HEADERS, header_row=1):
     for row_index, row in enumerate(all_rows, start=header_row):
         cells = [cell(f"{_column_name(col_index)}{row_index}", row.get(header)) for col_index, header in enumerate(headers, start=1)]
         sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    end_column = _column_name(len(headers))
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<dimension ref="A{header_row}:K{header_row + len(all_rows) - 1}"/>
+<dimension ref="A{header_row}:{end_column}{header_row + len(all_rows) - 1}"/>
 <sheetData>{''.join(sheet_rows)}</sheetData>
 </worksheet>"""
 
@@ -224,6 +242,32 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             inventory_from_document(invalid_generated_at)
         self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
 
+    def test_schema_v1_loads_with_room_vip_none_and_schema_v2_validates_vip(self):
+        v1_document = snapshot_document(
+            [record("RID-1", room_vip=True)],
+            schema_version=SCHEMA_VERSION_V1,
+        )
+        inventory = inventory_from_document(v1_document)
+        self.assertEqual(SCHEMA_VERSION_V1, inventory.metadata.schema_version)
+        self.assertIsNone(inventory.records[0].room_vip)
+
+        v2_document = snapshot_document(
+            [record("RID-1", room_vip=True)],
+            schema_version=SCHEMA_VERSION_V2,
+        )
+        inventory = inventory_from_document(v2_document)
+        self.assertTrue(inventory.records[0].room_vip)
+
+        invalid = copy.deepcopy(v2_document)
+        invalid["records"][0]["room_vip"] = "true"
+        invalid["snapshot_id"] = compute_snapshot_id(
+            invalid["records"],
+            schema_version=SCHEMA_VERSION_V2,
+        )
+        with self.assertRaises(EquipmentInventoryLoadError) as error:
+            inventory_from_document(invalid)
+        self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
+
     def test_load_failure_categories_and_default_path_resolution(self):
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory) / "missing.json"
@@ -244,7 +288,7 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             self.assertEqual(InventoryLoadFailure.INVALID_FORMAT, error.exception.category)
 
             unsupported = Path(directory) / "unsupported.json"
-            unsupported.write_text(json.dumps({"schema_version": 2, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
+            unsupported.write_text(json.dumps({"schema_version": 3, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
             with self.assertRaises(EquipmentInventoryLoadError) as error:
                 load_equipment_inventory(unsupported)
             self.assertEqual(InventoryLoadFailure.UNSUPPORTED_SCHEMA, error.exception.category)
@@ -304,6 +348,103 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             self.assertIn("INVALID_MAC", codes)
             self.assertIn("ROOM_NAME_WITHOUT_ROOM_ID", codes)
             self.assertEqual(set(RECORD_FIELDS), set(json.loads(output.read_text(encoding="utf-8"))["records"][0]))
+
+    def test_importer_maps_room_vip_closed_source_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(source, [
+                source_row("RID-1", room_id="ROOM-1", room_vip=True, ip="192.0.2.1", mac="00:11:22:33:44:51", serial="SER-1"),
+                source_row("RID-2", room_id="ROOM-2", room_vip=False, ip="192.0.2.2", mac="00:11:22:33:44:52", serial="SER-2"),
+                source_row("RID-3", room_id="ROOM-3", room_vip=" ИСТИНА ", ip="192.0.2.3", mac="00:11:22:33:44:53", serial="SER-3"),
+                source_row("RID-4", room_id="ROOM-4", room_vip="ложь", ip="192.0.2.4", mac="00:11:22:33:44:54", serial="SER-4"),
+                source_row("RID-5", room_id="ROOM-5", room_vip=None, ip="192.0.2.5", mac="00:11:22:33:44:55", serial="SER-5"),
+                source_row("RID-6", room_id="ROOM-6", room_vip="true", ip="192.0.2.6", mac="00:11:22:33:44:56", serial="SER-6"),
+                source_row("RID-7", room_id="ROOM-7", room_vip=1, ip="192.0.2.7", mac="00:11:22:33:44:57", serial="SER-7"),
+            ])
+            result = import_equipment_inventory(source, output_path=output)
+            inventory = load_equipment_inventory(output)
+
+        self.assertTrue(result.published)
+        self.assertEqual(
+            (True, False, True, False, None, None, None),
+            tuple(record.room_vip for record in inventory.records),
+        )
+        self.assertEqual(
+            2,
+            sum(1 for issue in result.issues if issue.code == "INVALID_ROOM_VIP"),
+        )
+
+    def test_importer_reports_room_vip_conflict_only_for_true_plus_false(self):
+        cases = {
+            "all_null": ([None, None], False),
+            "true_plus_null": ([True, None], False),
+            "false_plus_null": ([False, None], False),
+            "repeated_true": ([True, True], False),
+            "repeated_false": ([False, False], False),
+            "true_plus_false": ([True, False], True),
+        }
+        for name, (values, expects_conflict) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "inventory.xlsx"
+                output = Path(directory) / "snapshot.json"
+                write_xlsx(source, [
+                    source_row("RID-1", room_id="ROOM-1", room_vip=values[0], ip="192.0.2.10", mac="00:11:22:33:44:55", serial="SER-1"),
+                    source_row("RID-2", room_id="ROOM-1", room_vip=values[1], ip="192.0.2.11", mac="00:11:22:33:44:56", serial="SER-2"),
+                ])
+                result = import_equipment_inventory(source, output_path=output)
+                self.assertTrue(result.published)
+                codes = {issue.code for issue in result.issues}
+                self.assertEqual(expects_conflict, "ROOM_VIP_CONFLICT" in codes)
+
+    def test_importer_requires_exact_room_vip_header_without_legacy_vip_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            headers = [
+                "VIP" if header == SOURCE_COLUMNS["room_vip"] else header
+                for header in HEADERS
+            ]
+            write_xlsx(source, [source_row("RID-1", room_vip=True)], headers=headers)
+            result = import_equipment_inventory(source, output_path=output)
+        self.assertFalse(result.published)
+        self.assertEqual(("SOURCE_STRUCTURE_MISSING",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_converter_path_resolution_uses_cli_env_and_default_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            env_output = Path(directory) / "env.json"
+            cli_source = Path(directory) / "cli.xlsx"
+            cli_output = Path(directory) / "cli.json"
+
+            paths = resolve_converter_paths(
+                env={
+                    SOURCE_XLSX_ENV: str(source),
+                    OUTPUT_JSON_ENV: str(env_output),
+                }
+            )
+            self.assertEqual(source.resolve(strict=False), paths.source_xlsx_path)
+            self.assertEqual(env_output.resolve(strict=False), paths.output_json_path)
+
+            paths = resolve_converter_paths(
+                source_override=cli_source,
+                output_override=cli_output,
+                env={
+                    SOURCE_XLSX_ENV: str(source),
+                    OUTPUT_JSON_ENV: str(env_output),
+                },
+            )
+            self.assertEqual(cli_source.resolve(strict=False), paths.source_xlsx_path)
+            self.assertEqual(cli_output.resolve(strict=False), paths.output_json_path)
+
+            paths = resolve_converter_paths(
+                source_override=cli_source,
+                env={},
+            )
+            self.assertEqual(default_snapshot_path().resolve(strict=False), paths.output_json_path)
+
+        with self.assertRaises(ConverterConfigurationError):
+            resolve_converter_paths(env={})
 
     def test_identity_failures_are_fatal_without_fallback_and_preserve_previous_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

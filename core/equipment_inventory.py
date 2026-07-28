@@ -15,7 +15,9 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION_V1 = 1
+SCHEMA_VERSION_V2 = 2
+SCHEMA_VERSION = SCHEMA_VERSION_V2
 SNAPSHOT_FILENAME = "equipment_inventory.local.json"
 DEVICE_KINDS = frozenset({"pdu", "video_codec", "other"})
 SUPPORTED_DIAGNOSTIC_MODELS = frozenset(
@@ -31,7 +33,7 @@ SUPPORTED_DIAGNOSTIC_MODELS = frozenset(
         "Extron DMP 64 Plus",
     }
 )
-RECORD_FIELDS = (
+RECORD_FIELDS_V1 = (
     "record_id",
     "source_model",
     "diagnostic_model",
@@ -42,6 +44,7 @@ RECORD_FIELDS = (
     "room_name",
     "device_kind",
 )
+RECORD_FIELDS = RECORD_FIELDS_V1 + ("room_vip",)
 ROOT_FIELDS = frozenset({"schema_version", "snapshot_id", "records", "generated_at", "source_row_count"})
 REQUIRED_ROOT_FIELDS = frozenset({"schema_version", "snapshot_id", "records"})
 SNAPSHOT_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -76,6 +79,7 @@ class EquipmentRecord:
     room_id: str | None
     room_name: str | None
     device_kind: str
+    room_vip: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -187,10 +191,11 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
     root_keys = set(document)
     if not REQUIRED_ROOT_FIELDS.issubset(root_keys) or not root_keys.issubset(ROOT_FIELDS):
         _invalid_snapshot("Snapshot root fields do not match schema v1.")
+    schema_version = document["schema_version"]
     if (
-        not isinstance(document["schema_version"], int)
-        or isinstance(document["schema_version"], bool)
-        or document["schema_version"] != SCHEMA_VERSION
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version not in {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2}
     ):
         raise EquipmentInventoryLoadError(
             InventoryLoadFailure.UNSUPPORTED_SCHEMA,
@@ -208,14 +213,17 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
         if not isinstance(source_row_count, int) or isinstance(source_row_count, bool) or source_row_count < 0:
             _invalid_snapshot("Snapshot source_row_count metadata is invalid.")
 
-    records = tuple(_parse_record(record) for record in document["records"])
+    records = tuple(_parse_record(record, schema_version=schema_version) for record in document["records"])
     normalized_ids: set[str] = set()
     for record in records:
         if record.record_id in normalized_ids:
             _invalid_snapshot("Snapshot contains duplicate record_id values.")
         normalized_ids.add(record.record_id)
 
-    expected_snapshot_id = compute_snapshot_id(records, schema_version=SCHEMA_VERSION)
+    expected_snapshot_id = compute_snapshot_id(
+        document["records"],
+        schema_version=schema_version,
+    )
     if document["snapshot_id"] != expected_snapshot_id:
         raise EquipmentInventoryLoadError(
             InventoryLoadFailure.INVALID_SNAPSHOT,
@@ -223,7 +231,7 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
         )
 
     metadata = EquipmentInventoryMetadata(
-        schema_version=SCHEMA_VERSION,
+        schema_version=schema_version,
         snapshot_id=document["snapshot_id"],
         generated_at=generated_at,
         source_row_count=source_row_count,
@@ -232,10 +240,13 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
 
 
 def compute_snapshot_id(records: tuple[EquipmentRecord, ...] | list[EquipmentRecord | Mapping[str, Any]], *, schema_version: int = SCHEMA_VERSION) -> str:
+    if schema_version not in {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2}:
+        raise ValueError(f"Unsupported inventory schema version: {schema_version}")
+    fields = _record_fields_for_schema(schema_version)
     payload = {
         "schema_version": schema_version,
         "records": [
-            _record_identity_dict(record)
+            _record_identity_dict(record, fields)
             for record in sorted(records, key=lambda item: _record_id_for_sort(item))
         ],
     }
@@ -290,9 +301,10 @@ def normalize_mac_address(value: Any) -> str | None:
     return ":".join(compact[index : index + 2] for index in range(0, 12, 2))
 
 
-def _parse_record(document: Any) -> EquipmentRecord:
-    if not isinstance(document, dict) or set(document) != set(RECORD_FIELDS):
-        _invalid_snapshot("Canonical record fields do not match schema v1.")
+def _parse_record(document: Any, *, schema_version: int) -> EquipmentRecord:
+    fields = _record_fields_for_schema(schema_version)
+    if not isinstance(document, dict) or set(document) != set(fields):
+        _invalid_snapshot(f"Canonical record fields do not match schema v{schema_version}.")
 
     record_id = _canonical_required_string(document["record_id"], "record_id")
     device_kind = document["device_kind"]
@@ -312,6 +324,12 @@ def _parse_record(document: Any) -> EquipmentRecord:
         if not isinstance(mac_address, str) or normalize_mac_address(mac_address) != mac_address:
             _invalid_snapshot("Canonical record has invalid mac_address.")
 
+    room_vip = None
+    if schema_version == SCHEMA_VERSION_V2:
+        room_vip = document["room_vip"]
+        if room_vip is not None and not isinstance(room_vip, bool):
+            _invalid_snapshot("Canonical record has invalid room_vip.")
+
     return EquipmentRecord(
         record_id=record_id,
         source_model=source_model,
@@ -322,6 +340,7 @@ def _parse_record(document: Any) -> EquipmentRecord:
         room_id=_canonical_nullable_string(document["room_id"], "room_id"),
         room_name=_canonical_nullable_string(document["room_name"], "room_name"),
         device_kind=device_kind,
+        room_vip=room_vip,
     )
 
 
@@ -339,16 +358,24 @@ def _canonical_nullable_string(value: Any, field: str) -> str | None:
     return value
 
 
-def _record_identity_dict(record: EquipmentRecord | Mapping[str, Any]) -> dict[str, Any]:
+def _record_identity_dict(record: EquipmentRecord | Mapping[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
     if isinstance(record, EquipmentRecord):
-        return record_to_dict(record)
-    return {field: record[field] for field in RECORD_FIELDS}
+        return {field: getattr(record, field) for field in fields}
+    return {field: record[field] for field in fields}
 
 
 def _record_id_for_sort(record: EquipmentRecord | Mapping[str, Any]) -> str:
     if isinstance(record, EquipmentRecord):
         return record.record_id
     return str(record["record_id"])
+
+
+def _record_fields_for_schema(schema_version: int) -> tuple[str, ...]:
+    if schema_version == SCHEMA_VERSION_V1:
+        return RECORD_FIELDS_V1
+    if schema_version == SCHEMA_VERSION_V2:
+        return RECORD_FIELDS
+    raise ValueError(f"Unsupported inventory schema version: {schema_version}")
 
 
 def _normalize_json_text(value: Any) -> Any:

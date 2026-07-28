@@ -23,8 +23,10 @@ from core.interactive_session import (
 from core.related_codec_status import RelatedCodecStatus, RelatedCodecStatusAdapter
 from core.room_context import (
     ROOM_NAME_CONFLICT,
+    ROOM_VIP_CONFLICT,
     RoomContextResolver,
     RoomResolutionStatus,
+    RoomVipStatus,
 )
 from gui.pdu_room_codec_enrichment import (
     PDUAcceptedRefreshContext,
@@ -42,6 +44,7 @@ def record(
     device_kind="other",
     source_model=None,
     diagnostic_model=None,
+    room_vip=None,
 ):
     return EquipmentRecord(
         record_id=record_id,
@@ -53,13 +56,14 @@ def record(
         room_id=room_id,
         room_name=room_name,
         device_kind=device_kind,
+        room_vip=room_vip,
     )
 
 
 def inventory(records, snapshot_id="sha256:" + "1" * 64):
     return EquipmentInventory.from_records(
         tuple(records),
-        EquipmentInventoryMetadata(schema_version=1, snapshot_id=snapshot_id),
+        EquipmentInventoryMetadata(schema_version=2, snapshot_id=snapshot_id),
     )
 
 
@@ -193,6 +197,77 @@ class RoomContextResolverTests(unittest.TestCase):
         self.assertEqual(RoomResolutionStatus.RESOLVED, result.status)
         self.assertIsNone(result.context.room_name)
         self.assertIn(ROOM_NAME_CONFLICT, result.warnings)
+
+    def test_equipment_room_context_exact_match_and_vip_aggregation(self):
+        cases = (
+            ((None, None), RoomVipStatus.NO_DATA, ()),
+            ((True, None), RoomVipStatus.VIP_TRUE, ()),
+            ((False, None), RoomVipStatus.VIP_FALSE, ()),
+            ((True, False), RoomVipStatus.CONFLICT, (ROOM_VIP_CONFLICT,)),
+        )
+        for values, expected_status, expected_warnings in cases:
+            with self.subTest(values=values):
+                result = self.resolver.resolve_equipment_room_context(
+                    inventory(
+                        [
+                            record("DEVICE-1", ip_address="192.0.2.10", room_vip=values[0]),
+                            record("DEVICE-2", ip_address="192.0.2.20", room_vip=values[1]),
+                        ]
+                    ),
+                    "192.0.2.10",
+                )
+                self.assertEqual(RoomResolutionStatus.RESOLVED, result.status)
+                self.assertEqual(expected_status, result.room_vip_status)
+                for warning in expected_warnings:
+                    self.assertIn(warning, result.warnings)
+
+    def test_equipment_room_context_missing_ambiguous_and_unavailable_states(self):
+        self.assertEqual(
+            RoomResolutionStatus.INVENTORY_UNAVAILABLE,
+            self.resolver.resolve_equipment_room_context(None, "192.0.2.10").status,
+        )
+        self.assertEqual(
+            RoomResolutionStatus.PDU_NOT_FOUND,
+            self.resolver.resolve_equipment_room_context(inventory([]), "192.0.2.10").status,
+        )
+        self.assertEqual(
+            RoomResolutionStatus.AMBIGUOUS_PDU_IP,
+            self.resolver.resolve_equipment_room_context(
+                inventory(
+                    [
+                        record("A", ip_address="192.0.2.10"),
+                        record("B", ip_address="192.0.2.10"),
+                    ]
+                ),
+                "192.0.2.10",
+            ).status,
+        )
+        result = self.resolver.resolve_equipment_room_context(
+            inventory([record("A", ip_address="192.0.2.10", room_id=None)]),
+            "192.0.2.10",
+        )
+        self.assertEqual(RoomResolutionStatus.ROOM_UNRESOLVED, result.status)
+
+        class MissingRoomInventory:
+            metadata = EquipmentInventoryMetadata(
+                schema_version=2,
+                snapshot_id="sha256:" + "3" * 64,
+            )
+
+            def find_by_ip(self, _ip_address):
+                return (
+                    record("A", ip_address="192.0.2.10", room_id="ROOM-MISSING"),
+                )
+
+            def find_room_equipment(self, _room_id):
+                return ()
+
+        result = self.resolver.resolve_equipment_room_context(
+            MissingRoomInventory(),
+            "192.0.2.10",
+        )
+        self.assertEqual(RoomResolutionStatus.ROOM_UNRESOLVED, result.status)
+        self.assertEqual(RoomVipStatus.UNRESOLVED, result.room_vip_status)
 
 
 class RelatedCodecStatusAdapterTests(unittest.TestCase):
@@ -585,12 +660,13 @@ class EnrichmentControllerTests(unittest.TestCase):
     def resolved_inventory(self):
         return inventory(
             [
-                record("PDU-1", ip_address="192.0.2.10", device_kind="pdu"),
+                record("PDU-1", ip_address="192.0.2.10", device_kind="pdu", room_vip=True),
                 record(
                     "C1",
                     ip_address="192.0.2.20",
                     device_kind="video_codec",
                     diagnostic_model="Huawei TE20",
+                    room_vip=True,
                 ),
             ]
         )
@@ -613,6 +689,8 @@ class EnrichmentControllerTests(unittest.TestCase):
         self.assertEqual(2, len(session.activate_calls))
         self.assertEqual(2, len(session.submits))
         self.assertNotEqual(self.presentations[1]["generation"], self.presentations[-2]["generation"])
+        self.assertEqual("VIP_TRUE", self.presentations[-1]["room_vip_status"])
+        self.assertEqual("ДА", self.presentations[-1]["room_vip_label"])
 
     def test_supersession_clears_presentation_before_replacement_success(self):
         session = DummySession()
@@ -878,6 +956,8 @@ class PDUIntegrationScreenTests(unittest.TestCase):
                     "codec_diagnostic_status": "TRANSPORT_FAILED",
                     "room_id": "ROOM-1",
                     "room_name": "Room One",
+                    "room_vip_status": "VIP_TRUE",
+                    "room_vip_label": "ДА",
                     "codec_diagnostic_model": "Huawei TE20",
                     "codec_ip_address": "192.0.2.20",
                     "safe_message": "Codec connection failed.",
@@ -890,6 +970,8 @@ class PDUIntegrationScreenTests(unittest.TestCase):
             screen.related_rows["codec_diagnostic_status"].value_display.text(),
         )
         self.assertEqual("Room One", screen.related_rows["room_name"].value_display.text())
+        self.assertEqual("ДА", screen.related_rows["room_vip"].value_display.text())
+        self.assertEqual("success", screen.related_rows["room_vip"].property("uiState"))
         self.assertEqual(
             "Codec connection failed.",
             screen.related_message.text(),

@@ -15,9 +15,21 @@ from .dmp_polling_controller import DMP_DEVICE_NAME, DMPPollingController
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
 from .pdu_room_codec_enrichment import PDURoomCodecEnrichmentController
+from .equipment_pages import (
+    EQUIPMENT_PAGE_REGISTRY,
+    PDU_DEVICE_NAMES,
+    attach_shared_room_block,
+    registrations_by_screen,
+    screen_key_for_model,
+)
 from .theme import SPACING, apply_theme, legacy_colors
 from .ui_states import UIState, coerce_ui_state, state_spec
-from core.equipment_inventory import EquipmentInventoryLoadError, load_equipment_inventory
+from core.equipment_inventory import (
+    EquipmentInventoryLoadError,
+    load_equipment_inventory,
+    normalize_ip_address,
+)
+from core.room_context import RoomContextResolver, RoomResolutionStatus
 from core.worker import (
     HuaweiTE40Worker,
     HuaweiBar310Worker,
@@ -193,6 +205,12 @@ class VCSDiagnosticApp(QMainWindow):
             self.equipment_inventory = load_equipment_inventory()
         except EquipmentInventoryLoadError as error:
             self.equipment_inventory_load_error = error
+        self.equipment_page_registry = EQUIPMENT_PAGE_REGISTRY
+        self.room_context_resolver = RoomContextResolver()
+        self.room_information_blocks = {}
+        self._equipment_room_context_generation = 0
+        self._equipment_room_context_binding = None
+        self._equipment_room_credential_context_revision = 0
         self.progress_dialog = None
         self.ui_state = UIState.IDLE
         self._request_serial = 0
@@ -444,6 +462,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.textChanged.connect(
             lambda _text: self._invalidate_dmp_context()
         )
+        self.ip_entry.textChanged.connect(
+            lambda _text: self._publish_current_equipment_room_context("ip_changed")
+        )
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
         
@@ -499,6 +520,7 @@ class VCSDiagnosticApp(QMainWindow):
             "pdu": PDUScreen(self),
             "audio_dsp": AudioDSPScreen(self)
         }
+        self._attach_registered_room_blocks()
         matrix_screen = self.screens["matrix"]
         matrix_screen.routeRequested.connect(self.matrix_controller.request_route)
         matrix_screen.refreshRequested.connect(
@@ -655,6 +677,150 @@ class VCSDiagnosticApp(QMainWindow):
         if screen is not None and hasattr(screen, "set_related_room_codec"):
             screen.set_related_room_codec(payload)
 
+    def _attach_registered_room_blocks(self):
+        self.room_information_blocks = {}
+        registrations = registrations_by_screen()
+        for screen_key, screen in self.screens.items():
+            registration = registrations.get(screen_key)
+            if registration is None or not registration.shared_room_block:
+                continue
+            block = attach_shared_room_block(screen, registration)
+            if block is not None:
+                self.room_information_blocks[screen_key] = block
+
+    def _ensure_shared_room_block(self, screen_key):
+        registration = registrations_by_screen().get(screen_key)
+        if registration is None or not registration.shared_room_block:
+            return None
+        screen = getattr(self, "screens", {}).get(screen_key)
+        if screen is None:
+            return None
+        block = getattr(screen, "shared_room_information_block", None)
+        try:
+            parent = block.parent() if block is not None else None
+        except RuntimeError:
+            parent = None
+        if block is None or parent is None:
+            block = attach_shared_room_block(screen, registration)
+            if block is not None:
+                self.room_information_blocks[screen_key] = block
+        return block
+
+    def _equipment_inventory_snapshot_context(self):
+        inventory = getattr(self, "equipment_inventory", None)
+        if inventory is not None:
+            return inventory.metadata.snapshot_id
+        error = getattr(self, "equipment_inventory_load_error", None)
+        category = getattr(getattr(error, "category", None), "value", "UNAVAILABLE")
+        return f"unavailable:{category}"
+
+    def _current_equipment_room_binding(self):
+        if not hasattr(self, "device_combo") or not hasattr(self, "ip_entry"):
+            return None
+        device_name = self.device_combo.currentText()
+        if device_name in PDU_DEVICE_NAMES:
+            return None
+        screen_key = screen_key_for_model(device_name) or self.device_to_screen.get(device_name)
+        if screen_key is None:
+            return None
+        if registrations_by_screen().get(screen_key) is None:
+            return None
+        normalized_ip = normalize_ip_address(self.ip_entry.text().strip())
+        return (
+            device_name,
+            normalized_ip,
+            self._equipment_inventory_snapshot_context(),
+            screen_key,
+            self.__dict__.get("_equipment_room_credential_context_revision", 0),
+        )
+
+    def _publish_current_equipment_room_context(self, reason="context_changed", force=False):
+        binding = self._current_equipment_room_binding()
+        if binding is None:
+            return
+        screen_key = binding[3]
+        block = self._ensure_shared_room_block(screen_key)
+        if block is None:
+            return
+        if (
+            not force
+            and binding == self.__dict__.get("_equipment_room_context_binding")
+            and block.property("roomContextBinding") == repr(binding)
+        ):
+            return
+
+        self._equipment_room_context_generation += 1
+        generation = self._equipment_room_context_generation
+        self._equipment_room_context_binding = binding
+        device_name, normalized_ip, _snapshot_id, _page_context, _credential_revision = binding
+        if normalized_ip is None:
+            result = self.room_context_resolver.resolve_equipment_room_context(None, "")
+            result = type(result)(
+                RoomResolutionStatus.ROOM_UNRESOLVED,
+                safe_message="Room context is unavailable until a valid IP address is entered.",
+                room_vip_status=result.room_vip_status,
+            )
+        else:
+            result = self.room_context_resolver.resolve_equipment_room_context(
+                self.equipment_inventory,
+                normalized_ip,
+            )
+            if self.equipment_inventory is None:
+                failure = self.equipment_inventory_load_error
+                category = getattr(getattr(failure, "category", None), "value", "UNAVAILABLE")
+                result = type(result)(
+                    RoomResolutionStatus.INVENTORY_UNAVAILABLE,
+                    safe_message=f"Equipment inventory unavailable: {category}.",
+                    room_vip_status=result.room_vip_status,
+                )
+        self._accept_equipment_room_context_publication(
+            generation,
+            binding,
+            result,
+            reason=reason,
+            device_name=device_name,
+        )
+
+    def _accept_equipment_room_context_publication(
+        self,
+        generation,
+        binding,
+        result,
+        *,
+        reason,
+        device_name,
+    ):
+        if generation != self.__dict__.get("_equipment_room_context_generation"):
+            return False
+        if binding != self.__dict__.get("_equipment_room_context_binding"):
+            return False
+        block = self._ensure_shared_room_block(binding[3])
+        if block is None:
+            return False
+        room_name = result.room_name
+        safe_message = None
+        if result.status != RoomResolutionStatus.RESOLVED:
+            safe_message = result.safe_message or self._safe_room_context_message(result.status)
+        block.set_room_presentation(
+            room_name=room_name,
+            room_vip_status=result.room_vip_status,
+            safe_message=safe_message,
+        )
+        block.setProperty("roomContextBinding", repr(binding))
+        block.setProperty("roomContextGeneration", generation)
+        block.setProperty("roomContextReason", reason)
+        block.setProperty("roomContextDevice", device_name)
+        return True
+
+    @staticmethod
+    def _safe_room_context_message(status):
+        return {
+            RoomResolutionStatus.INVENTORY_UNAVAILABLE: "База оборудования недоступна.",
+            RoomResolutionStatus.PDU_NOT_FOUND: "Оборудование не найдено в базе оборудования.",
+            RoomResolutionStatus.AMBIGUOUS_PDU_IP: "В базе найдено несколько устройств с этим IP-адресом.",
+            RoomResolutionStatus.ROOM_UNRESOLVED: "Для устройства не указано помещение.",
+        }.get(status, "Контекст комнаты недоступен.")
+
     def _dmp_controller(self):
         controller = self.__dict__.get("dmp_polling_controller")
         if controller is None:
@@ -714,6 +880,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.__dict__["_related_codec_credential_context_revision"] = (
             self.__dict__.get("_related_codec_credential_context_revision", 0) + 1
         )
+        self.__dict__["_equipment_room_credential_context_revision"] = (
+            self.__dict__.get("_equipment_room_credential_context_revision", 0) + 1
+        )
         controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
         if controller is not None:
             controller.invalidate_context("credential_context_changed")
@@ -726,6 +895,10 @@ class VCSDiagnosticApp(QMainWindow):
         if device_name in (None, DMP_DEVICE_NAME):
             self._dmp_controller().invalidate_credential_context()
         self._invalidate_pdu_context()
+        self._publish_current_equipment_room_context(
+            "credential_context_changed",
+            force=True,
+        )
         if not self._is_pdu_device(device_name):
             return
         self.__dict__.pop("_active_request_credentials", None)
@@ -921,6 +1094,7 @@ class VCSDiagnosticApp(QMainWindow):
         screen_type = self.device_to_screen.get(device_name, "codec")
         if screen_type == "codec" and codec_screen and hasattr(codec_screen, 'update_parameters_display'):
             codec_screen.update_parameters_display()
+        self._ensure_shared_room_block(screen_type)
         
         # Сохраняем тип экрана, который должен отображаться после обновления
         self.current_screen_type = screen_type
@@ -932,6 +1106,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.refresh_btn.setEnabled(True)
         self.refresh_btn.setText("Обновить данные")
         self.set_ui_state(UIState.IDLE, "Данные ещё не запрашивались")
+        self._publish_current_equipment_room_context("model_changed")
         
         # Обновляем IP адрес
         
@@ -1340,6 +1515,7 @@ class VCSDiagnosticApp(QMainWindow):
             target_screen.update_data({"status": "loading", "message": "Загрузка данных..."})
         if hasattr(target_screen, "set_ui_state"):
             target_screen.set_ui_state(UIState.LOADING, "Загрузка данных…")
+        self._publish_current_equipment_room_context("request_started")
         
         # Вызываем соответствующий метод обновления
         if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
@@ -3017,4 +3193,3 @@ class VCSDiagnosticApp(QMainWindow):
             app.removeEventFilter(self)
         super().closeEvent(event)
             
-
