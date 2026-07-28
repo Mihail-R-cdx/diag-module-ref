@@ -3,85 +3,77 @@
 ## Context
 
 The current final Graphify gate was designed for the one-time
-`frozen-project-graph-baseline` workflow. It accepts only:
+`frozen-project-graph-baseline` workflow. It accepts only the historical evidence
+path, historical change name, and an evidence-only delta. Those rules are valid
+for that published baseline but cannot support later archived changes.
 
-- `openspec/validation/frozen-project-graph-baseline.post-archive.json`;
-- `change_name = frozen-project-graph-baseline`;
-- a source HEAD whose delta from `validated_source_commit` contains only that
-  evidence file.
+PR #16 exposed two additional constraints:
 
-Those constraints are intentionally strict for the original baseline, but they
-are not a reusable contract for subsequent archived changes. PR #16 demonstrates
-the failure mode: its valid post-archive source includes implementation, tests,
-root-spec updates, archived change artifacts, and validation evidence, so the
-wrapper rejects the checkpoint before Graphify generation.
+- an older feature must incorporate the repaired Graphify workflow and then be
+  independently revalidated on its new published remote HEAD;
+- renewed validation must still publish the complete `verification-report.md`
+  required by `RULES.md` before the compact Graphify gate JSON is committed.
 
 ## Goals
 
-1. Support strict final Graphify refresh checkpoints for ordinary archived OpenSpec changes.
-2. Preserve the original frozen-baseline gate as a valid special case.
-3. Bind every refresh to an exact clean source commit and repository-owned evidence.
-4. Reject evidence that is untracked, modified, ignored, stale, unrelated, or inconsistent with Git ancestry.
-5. Avoid self-referential commit metadata in committed evidence.
-6. Define an implementable rollout that actually unblocks PR #16.
-7. Keep generated artifact scope, encoding, hash, sensitive-data, ghost-node, and topology protections unchanged.
+1. Support strict final Graphify refresh checkpoints for ordinary archived changes.
+2. Preserve the historical frozen-baseline gate as an explicit special case.
+3. Keep complete independent validation evidence and deterministic graph lineage.
+4. Avoid self-referential commit metadata.
+5. Keep generated artifact, encoding, hash, sensitive-data, ghost-node, topology,
+   and graph-only commit protections unchanged.
 
 ## Non-goals
 
 - Do not refresh `graphify-out/` as part of this change.
-- Do not merge or unblock PR #16 merely by changing documentation.
-- Do not weaken independent validation requirements.
-- Do not allow arbitrary evidence paths without repository policy.
-- Do not infer passing validation from commit messages or PR metadata.
-- Do not introduce a general post-evidence process allowlist in the first version.
-- Do not make Graphify mandatory for ordinary implementation or validation sessions.
+- Do not weaken `RULES.md` validation evidence requirements.
+- Do not introduce a general process-only allowlist.
+- Do not allow arbitrary evidence or verification-report paths.
+- Do not infer validation from PR text or commit messages.
 
 ## Normative ordinary-change workflow
 
-For an ordinary archived change, the approved order is:
+The approved ordering is:
 
 ```text
 A = archive commit for the ordinary change
-M = optional merge commit that incorporates the already approved and merged
-    Graphify-infrastructure repair from origin/master
-V = renewed independently validated source commit after A and, when needed, M
-E = dedicated evidence-only commit
+M = optional merge commit incorporating an approved Graphify workflow repair
+V = renewed independently validated source commit after A and any required M
+R = dedicated validation-report commit
+E = dedicated post-archive Graphify-evidence commit
 G = graph-only commit
 ```
 
-The infrastructure repair MUST be merged before an older blocked feature branch
-uses the generalized gate. If that feature branch incorporates the repair after
-its previous validation, it MUST undergo renewed independent validation on the
-new published remote HEAD. The renewed validated source commit `V` becomes the
-only accepted validation boundary for the subsequent final Graphify refresh.
+For an older blocked branch such as PR #16, the infrastructure repair MUST first
+be merged to `master`, incorporated into the feature branch, and followed by
+renewed independent validation. The resulting published remote commit is `V`.
+Older validation remains historical evidence but cannot authorize the new source.
 
-No cross-change post-validation allowlist is used in this version. Infrastructure
-code, production code, tests, root specs, archive evidence, and application
-configuration MUST NOT change between `V` and `E` except for the one deterministic
-ordinary-change evidence JSON created by `E`.
+No repository changes are allowed after `R` except the deterministic JSON created
+by `E`. There is no process-only allowlist in this version.
 
-## Evidence location
+## Deterministic paths
 
-Ordinary changes use the deterministic repository-owned path:
+For ordinary change `<change-name>`:
 
 ```text
+verification report:
+openspec/changes/archive/<archive-directory>/verification-report.md
+
+Graphify evidence:
 openspec/validation/<change-name>.post-archive.json
 ```
 
-The wrapper MUST derive this path from the semantic OpenSpec change name and MUST
-reject path traversal, absolute paths, alternate extensions, wrong path/change
-pairing, ignored files, untracked files, and working-tree bytes that differ from
-the committed `HEAD` blob after repository filters.
+The JSON MUST declare the exact repository-relative archived verification-report
+path. The wrapper MUST reject absolute paths, traversal, alternate extensions,
+wrong change/path pairing, ignored or untracked files, missing HEAD blobs, and
+working-tree bytes that differ from committed HEAD blobs after repository filters.
 
-The historical path remains accepted only for the historical change:
+The historical frozen-baseline path remains valid only for its historical change.
 
-```text
-openspec/validation/frozen-project-graph-baseline.post-archive.json
-```
+## Exact ordinary Graphify-evidence schema
 
-## Exact ordinary-change evidence schema
-
-The ordinary-change evidence JSON MUST contain exactly these top-level fields:
+The JSON MUST contain exactly these fields:
 
 ```json
 {
@@ -90,6 +82,8 @@ The ordinary-change evidence JSON MUST contain exactly these top-level fields:
   "archive_path": "openspec/changes/archive/YYYY-MM-DD-example-change",
   "archive_commit": "<full-sha>",
   "validated_source_commit": "<full-sha>",
+  "verification_report_path": "openspec/changes/archive/YYYY-MM-DD-example-change/verification-report.md",
+  "verification_report_commit": "<full-sha>",
   "openspec_all_validation": {
     "status": "pass"
   },
@@ -110,135 +104,120 @@ The ordinary-change evidence JSON MUST contain exactly these top-level fields:
 }
 ```
 
-Allowed verdict values are:
+Allowed verdicts are `APPROVE` and `APPROVE WITH NON-BLOCKING NOTES`.
+Unknown or missing top-level and nested fields MUST be rejected. Stored commit
+values MUST be full repository SHAs.
 
-```text
-APPROVE
-APPROVE WITH NON-BLOCKING NOTES
-```
-
-Unknown or missing top-level fields MUST be rejected. Nested check objects MUST
-contain the fields shown above and MUST reject unknown fields. Every commit field
-stored in evidence MUST be a full 40-character repository commit SHA.
-
-The evidence file MUST NOT contain:
-
-- `evidence_commit`;
-- `indexed_source_commit`;
-- any SHA whose value depends on the commit containing this evidence file.
-
-Those facts are wrapper-derived:
+The JSON MUST NOT contain `evidence_commit`, `indexed_source_commit`, or any SHA
+whose value depends on the commit containing the JSON. The wrapper derives:
 
 ```text
 evidence_commit = SourceRoot HEAD
 indexed_source_commit = SourceRoot HEAD
 ```
 
-This avoids a cryptographic self-reference.
+## Validation report contract
+
+`R` MUST contain only the renewed archived `verification-report.md` declared by
+`verification_report_path`. The report MUST satisfy every independent-validation
+fact required by `RULES.md`, including:
+
+- validated remote branch and full SHA `V`;
+- commit subject and clean worktree before/after;
+- Python, Node, npm, and relevant Graphify versions;
+- dependency restoration command and result;
+- exact test and OpenSpec commands, counts, and outcomes;
+- repository-protection checks and severity-ordered findings;
+- verdict, archive/merge permissions, and whether code or tests changed.
+
+The wrapper MUST verify that the report is tracked, committed, unchanged in the
+working tree, located at the declared archived path, and records/approves exactly
+`validated_source_commit = V`. Structured parsing MAY use deterministic report
+markers defined by the implementation and runbook; it MUST NOT trust free-form PR
+body text.
 
 ## Exact lineage contract
 
-For an ordinary archived change, the wrapper MUST prove all of the following:
+For an ordinary archived change the wrapper MUST prove:
 
-1. `archive_commit` resolves to a full commit.
-2. `validated_source_commit` resolves to a full commit.
-3. `archive_commit` is an ancestor of or equal to `validated_source_commit`.
-4. `validated_source_commit` contains the declared `archive_path`.
-5. The active path `openspec/changes/<change-name>/` is absent from
-   `validated_source_commit`.
-6. `validated_source_commit` is the exact source commit independently validated
-   after all required prerequisite merges, including the merged Graphify repair
-   when an older blocked branch needs it.
-7. `SourceRoot HEAD` equals the resolved explicit `SourceRef`.
-8. `SourceRoot HEAD` is the dedicated evidence commit `E`.
-9. The evidence file is absent from `validated_source_commit` and present in
-   `SourceRoot HEAD`.
-10. The complete path delta from `validated_source_commit` to `SourceRoot HEAD`
-    contains exactly:
+1. `archive_commit`, `validated_source_commit`, and
+   `verification_report_commit` resolve to full repository commits.
+2. `archive_commit` is an ancestor of or equal to `V`.
+3. `V` contains the declared archive path and no active change path.
+4. `V` is the exact independently validated published source commit.
+5. `V` is an ancestor of `R`.
+6. The complete `V..R` path delta contains exactly
+   `verification_report_path`.
+7. The verification report is absent or differs before `R`, is committed at `R`,
+   and explicitly records and approves `V`.
+8. `verification_report_commit` equals `R`.
+9. `R` is the direct accepted validation-evidence boundary for `E`.
+10. The Graphify JSON is absent from `R` and present in `E`.
+11. The complete `R..E` path delta contains exactly
+    `openspec/validation/<change-name>.post-archive.json`.
+12. `SourceRoot HEAD`, resolved `SourceRef`, `E`, `evidence_commit`, and
+    `indexed_source_commit` are identical.
 
-```text
-openspec/validation/<change-name>.post-archive.json
-```
+Any additional path in `V..R` or `R..E` MUST fail before Graphify generation.
 
-11. Therefore `evidence_commit`, `indexed_source_commit`, and `SourceRoot HEAD`
-    are the same wrapper-derived commit for graph generation.
-
-Any other change in `V..E` MUST fail before Graphify generation. There is no
-process-only allowlist in this version.
-
-## PR #16 prerequisite handling
-
-The architecture selects renewed independent validation rather than a cross-change
-allowlist:
+## PR #16 recovery
 
 1. Implement, independently validate, archive, and merge this infrastructure change.
-2. Update branch `agent/equipment-room-vip-context` with the repaired `master`
-   using the repository-approved non-force Git workflow.
-3. Review the incorporated commits and confirm no unapproved conflict resolution
-   or feature mutation.
-4. Run a new independent validation of the resulting published PR #16 remote HEAD.
-5. Create
-   `openspec/validation/equipment-room-vip-context.post-archive.json` containing
-   the new `validated_source_commit`, original feature archive path and archive
-   commit, required passing checks, and verdict.
-6. Commit only that JSON as evidence commit `E`.
-7. Run the final Graphify refresh with `SourceRoot HEAD = SourceRef = E`.
-8. Publish a Graphify-only commit `G`, then perform independent final graph review.
-
-The older PR #16 validation report remains historical evidence but is insufficient
-for the new source HEAD after the infrastructure merge.
+2. Incorporate repaired `master` into `agent/equipment-room-vip-context` without
+   force-push.
+3. Review the merge and publish the resulting remote source commit `V`.
+4. Independently revalidate `V` in a clean detached worktree.
+5. Update the archived PR #16 `verification-report.md` and commit only that report
+   as `R`.
+6. Create the exact JSON containing `V`, the original feature archive commit/path,
+   and `verification_report_commit = R`; commit only that JSON as `E`.
+7. Run final Graphify refresh with `SourceRoot HEAD = SourceRef = E`.
+8. Publish graph-only commit `G` and perform independent final graph review.
 
 ## Historical compatibility
 
-The original `frozen-project-graph-baseline` workflow remains governed by its
+The published `frozen-project-graph-baseline` workflow remains governed by its
 existing special-case invariants unless a separately approved migration replaces
-them. Generalization MUST NOT retroactively reinterpret its published evidence,
-commit ordering, or hashes.
+it. This change MUST NOT reinterpret its evidence, ordering, or hashes.
 
 ## Wrapper structure
 
-Refactor the current final gate into separable validation responsibilities:
+Refactor the final gate into separable checks for:
 
-- evidence path resolution;
-- tracked committed-byte verification;
-- exact schema validation;
-- archived/active change path verification;
-- Git ancestry and source binding;
-- required-check and verdict verification;
-- evidence-only `validated_source_commit..HEAD` delta verification;
-- historical frozen-baseline compatibility.
+- evidence and verification-report path resolution;
+- committed-byte verification;
+- exact JSON schema validation;
+- archived/active change state;
+- verification-report completeness and validated-SHA binding;
+- Git ancestry and exact `V..R` and `R..E` deltas;
+- source-ref and clean-HEAD binding;
+- historical compatibility;
+- existing graph integrity and publication protections.
 
-Typed/structured failures SHOULD identify which contract failed without exposing
-sensitive repository data.
+Failures SHOULD identify the failed contract without exposing sensitive data or
+user-specific absolute paths.
 
-## Tests
+## Required tests
 
-Add automated tests covering at least:
+Add coverage for:
 
 - valid historical frozen-baseline evidence;
-- valid ordinary archived-change evidence with wrapper-derived evidence/indexed commit;
-- rejection of `evidence_commit` or `indexed_source_commit` fields in ordinary evidence;
-- exact-field rejection for unknown or missing fields;
-- wrong evidence path/change-name pairing;
-- untracked, ignored, modified, or missing evidence;
-- malformed or partial JSON;
-- failed required check or disallowed verdict;
-- missing archive or still-active change;
-- invalid SHA, ancestry, source-ref, or source-HEAD binding;
-- evidence present in `validated_source_commit`;
-- any non-evidence path in `validated_source_commit..HEAD`;
-- path traversal and absolute-path rejection;
-- renewed-validation flow after incorporating an approved infrastructure merge;
-- no regression to artifact allowlist and final generation gate.
+- valid ordinary `V -> R -> E -> G` flow;
+- exact JSON field validation and rejection of self-referential fields;
+- report path/commit mismatch;
+- report that does not record or approve `V`;
+- additional path in `V..R`;
+- additional path in `R..E`;
+- malformed, missing, ignored, untracked, modified, or wrong-path artifacts;
+- invalid SHAs, ancestry, archive state, source ref, verdict, or checks;
+- renewed validation after incorporating repaired `master`;
+- no regression to existing Graphify integrity and publication protections.
 
 ## Rollout
 
 1. Approve this architecture.
 2. Implement wrapper, runbook, tests, and applicable root-spec delta.
-3. Independently validate the implementation on its published remote HEAD.
-4. Archive and merge this infrastructure change.
-5. Update PR #16 with the repaired `master`.
-6. Renew independent validation of PR #16 on its new published remote HEAD.
-7. Publish the deterministic evidence-only commit for PR #16.
-8. Rerun its final Graphify refresh through the repaired repository-local wrapper.
-9. Perform independent final graph review before merging PR #16.
+3. Independently validate this infrastructure implementation.
+4. Archive and merge it.
+5. Execute the PR #16 recovery sequence above.
+6. Perform independent final graph review before PR #16 merge.
