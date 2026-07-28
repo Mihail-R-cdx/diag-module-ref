@@ -19,6 +19,7 @@ Set-StrictMode -Version Latest
 $ExpectedGraphifyVersion = "0.9.26"
 $GraphDirName = "graphify-out"
 $TempDirName = ".graphify-tmp"
+$HistoricalChangeName = "frozen-project-graph-baseline"
 $ApprovedPostArchiveValidationEvidence = "openspec/validation/frozen-project-graph-baseline.post-archive.json"
 $AllowedGenerated = @(
     "graphify-out/graph.json",
@@ -36,8 +37,12 @@ $Utf8NoBomStrict = [System.Text.UTF8Encoding]::new($false, $true)
 $ForbiddenFreshnessAdvice = "graphify update . after code changes"
 
 function Fail($Message) {
-    Write-Error $Message
+    [Console]::Error.WriteLine($Message)
     exit 1
+}
+
+function Fail-Contract($Category, $Message) {
+    Fail "[$Category] $Message"
 }
 
 function RelPath($Path, $Root) {
@@ -58,6 +63,21 @@ function Get-RepoRootFrom($Path) {
 
 function Get-Sha256($Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Invoke-GitQuiet($Root, $Arguments) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = (& git -C $Root @Arguments 2>$null | Out-String).Trim()
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    return [pscustomobject]@{
+        ExitCode = $code
+        Output = $output
+    }
 }
 
 function ConvertTo-CanonicalGeneratedTextArtifact($GraphDir, $ArtifactName) {
@@ -94,9 +114,10 @@ function ConvertTo-CanonicalGeneratedTextArtifact($GraphDir, $ArtifactName) {
 }
 
 function Get-GitSha($Root, $Ref) {
-    $sha = (& git -C $Root rev-parse $Ref 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $sha -notmatch "^[0-9a-f]{40}$") {
-        Fail "Unable to resolve Git ref '$Ref' in $Root`: $sha"
+    $result = Invoke-GitQuiet $Root @("rev-parse", "--verify", "$Ref^{commit}")
+    $sha = $result.Output
+    if ($result.ExitCode -ne 0 -or $sha -notmatch "^[0-9a-f]{40}$") {
+        Fail "Unable to resolve Git ref '$Ref'."
     }
     return $sha
 }
@@ -150,8 +171,8 @@ function Get-PathUnderRoot($Root, $Path, $Purpose) {
 }
 
 function Test-GitAncestor($Root, $Ancestor, $Descendant) {
-    & git -C $Root merge-base --is-ancestor $Ancestor $Descendant 2>$null
-    return ($LASTEXITCODE -eq 0)
+    $result = Invoke-GitQuiet $Root @("merge-base", "--is-ancestor", $Ancestor, $Descendant)
+    return ($result.ExitCode -eq 0)
 }
 
 function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
@@ -162,30 +183,154 @@ function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
     return $output
 }
 
-function Assert-TrackedHeadEvidence($SourceRoot, $EvidenceFull) {
+function Assert-RelativeRepoPath($Path, $Purpose, $Category) {
+    if (-not $Path) {
+        Fail-Contract $Category "$Purpose path is required."
+    }
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        Fail-Contract $Category "$Purpose path must be repository-relative."
+    }
+    $normalized = $Path.Replace("\", "/")
+    if ($normalized -ne $Path -or $normalized -match "(^|/)\.\.(/|$)" -or $normalized -match "^/" -or $normalized -match "//") {
+        Fail-Contract $Category "$Purpose path must be a normalized repository-relative path."
+    }
+    return $normalized
+}
+
+function Assert-SemanticChangeName($ChangeName) {
+    if ([string]$ChangeName -cnotmatch "^[a-z0-9]+(?:-[a-z0-9]+)*$") {
+        Fail-Contract "EVIDENCE_SCHEMA" "Graphify evidence change_name must be a semantic OpenSpec change name."
+    }
+}
+
+function Get-DeterministicOrdinaryEvidencePath($ChangeName) {
+    Assert-SemanticChangeName $ChangeName
+    if ($ChangeName -eq $HistoricalChangeName) {
+        Fail-Contract "HISTORICAL_COMPATIBILITY" "Ordinary Graphify evidence cannot use the historical frozen-baseline identity."
+    }
+    return "openspec/validation/$ChangeName.post-archive.json"
+}
+
+function Assert-ExactPropertySet($Object, [string[]]$Expected, $Category, $Subject) {
+    if ($null -eq $Object -or -not ($Object -is [System.Management.Automation.PSCustomObject])) {
+        Fail-Contract $Category "$Subject must be a JSON object."
+    }
+    $actual = @($Object.PSObject.Properties.Name)
+    $expectedSorted = @($Expected | Sort-Object)
+    $actualSorted = @($actual | Sort-Object)
+    if (($actualSorted -join "`n") -ne ($expectedSorted -join "`n")) {
+        Fail-Contract $Category "$Subject must contain exactly the approved fields."
+    }
+}
+
+function Assert-JsonInteger($Value, $Expected, $Category, $Subject) {
+    if ($Value -isnot [int] -and $Value -isnot [long]) {
+        Fail-Contract $Category "$Subject must be an integer."
+    }
+    if ([int64]$Value -ne [int64]$Expected) {
+        Fail-Contract $Category "$Subject has an invalid value."
+    }
+}
+
+function Assert-NonNegativeJsonInteger($Value, $Category, $Subject) {
+    if ($Value -isnot [int] -and $Value -isnot [long]) {
+        Fail-Contract $Category "$Subject must be a non-negative integer."
+    }
+    if ([int64]$Value -lt 0) {
+        Fail-Contract $Category "$Subject must be a non-negative integer."
+    }
+}
+
+function Assert-StringValue($Value, $Category, $Subject) {
+    if ($Value -isnot [string] -or -not $Value) {
+        Fail-Contract $Category "$Subject must be a non-empty string."
+    }
+    return [string]$Value
+}
+
+function Assert-FullCommitSha($Root, $Value, $Category, $Subject) {
+    $sha = Assert-StringValue $Value $Category $Subject
+    if ($sha -cnotmatch "^[0-9a-f]{40}$") {
+        Fail-Contract $Category "$Subject must be a full lowercase commit SHA."
+    }
+    $result = Invoke-GitQuiet $Root @("rev-parse", "--verify", "$sha^{commit}")
+    if ($result.ExitCode -ne 0 -or $result.Output -cnotmatch "^[0-9a-f]{40}$") {
+        Fail-Contract $Category "$Subject must resolve to a repository commit."
+    }
+    return $result.Output
+}
+
+function Assert-TrackedHeadEvidence($SourceRoot, $EvidenceFull, $ExpectedRelativePath = $ApprovedPostArchiveValidationEvidence) {
     $relativeEvidencePath = RelPath $EvidenceFull $SourceRoot
-    if ($relativeEvidencePath -ne $ApprovedPostArchiveValidationEvidence) {
-        Fail "Post-archive validation evidence must be exactly $ApprovedPostArchiveValidationEvidence."
+    if ($relativeEvidencePath -ne $ExpectedRelativePath) {
+        Fail-Contract "EVIDENCE_PATH" "Post-archive validation evidence path does not match the deterministic change path."
     }
 
     & git -C $SourceRoot check-ignore --no-index --quiet -- $relativeEvidencePath
     if ($LASTEXITCODE -eq 0) {
-        Fail "Post-archive validation evidence must not be ignored: $relativeEvidencePath"
+        Fail-Contract "EVIDENCE_PATH" "Post-archive validation evidence must not be ignored."
     }
     if ($LASTEXITCODE -ne 1) {
-        Fail "Unable to verify ignore status for post-archive validation evidence: $relativeEvidencePath"
+        Fail-Contract "EVIDENCE_PATH" "Unable to verify post-archive validation evidence ignore status."
     }
 
-    [void](Invoke-GitChecked $SourceRoot @("ls-files", "--error-unmatch", "--", $relativeEvidencePath) "Post-archive validation evidence must be tracked in Git")
-    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:$relativeEvidencePath") "Post-archive validation evidence must exist in SourceRoot HEAD")
+    [void](Invoke-GitChecked $SourceRoot @("ls-files", "--error-unmatch", "--", $relativeEvidencePath) "[EVIDENCE_PATH] Post-archive validation evidence must be tracked in Git")
+    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:$relativeEvidencePath") "[EVIDENCE_BYTES] Post-archive validation evidence must exist in SourceRoot HEAD")
 
-    $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:$relativeEvidencePath") "Unable to read HEAD blob for post-archive validation evidence"
-    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$relativeEvidencePath", "--", $EvidenceFull) "Unable to hash working-tree post-archive validation evidence"
+    $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:$relativeEvidencePath") "[EVIDENCE_BYTES] Unable to read HEAD blob for post-archive validation evidence"
+    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$relativeEvidencePath", "--", $EvidenceFull) "[EVIDENCE_BYTES] Unable to hash working-tree post-archive validation evidence"
     if ($headBlob -ne $workingBlob) {
-        Fail "Post-archive validation evidence working-tree content must hash to the SourceRoot HEAD blob after repository filters."
+        Fail-Contract "EVIDENCE_BYTES" "Post-archive validation evidence working-tree bytes must match the committed HEAD blob after repository filters."
     }
 
     return $relativeEvidencePath
+}
+
+function Assert-PathAbsentAtCommit($SourceRoot, $Commit, $Path, $Category, $Message) {
+    $result = Invoke-GitQuiet $SourceRoot @("ls-tree", "-r", "--name-only", $Commit, "--", $Path)
+    if ($result.ExitCode -ne 0) {
+        Fail-Contract $Category "Unable to verify committed path absence."
+    }
+    if ($result.Output) {
+        Fail-Contract $Category $Message
+    }
+}
+
+function Assert-PathPresentAtCommit($SourceRoot, $Commit, $Path, $Category, $Message) {
+    $result = Invoke-GitQuiet $SourceRoot @("ls-tree", "-r", "--name-only", $Commit, "--", $Path)
+    if ($result.ExitCode -ne 0 -or -not $result.Output) {
+        Fail-Contract $Category $Message
+    }
+}
+
+function Assert-WorkingTreeBlobMatchesCommit($SourceRoot, $Commit, $Path, $Category, $Subject) {
+    $pathFull = Get-PathUnderRoot $SourceRoot $Path $Subject
+    if (-not (Test-Path -LiteralPath $pathFull -PathType Leaf)) {
+        Fail-Contract $Category "$Subject file is missing from the working tree."
+    }
+    $commitBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "$Commit`:$Path") "[$Category] Unable to read committed blob for $Subject"
+    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$Path", "--", $pathFull) "[$Category] Unable to hash working-tree bytes for $Subject"
+    if ($commitBlob -ne $workingBlob) {
+        Fail-Contract $Category "$Subject working-tree bytes must match the declared committed blob after repository filters."
+    }
+}
+
+function Get-ChangedPathSet($SourceRoot, $FromCommit, $ToCommit, $Category, $Purpose) {
+    $diffOutput = (& git -C $SourceRoot diff --name-only $FromCommit $ToCommit -- 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail-Contract $Category "Unable to verify $Purpose path delta."
+    }
+    return @($diffOutput -split "`r?`n" |
+        Where-Object { $_.Trim() } |
+        ForEach-Object { $_.Trim().Replace("\", "/") } |
+        Sort-Object -Unique)
+}
+
+function Assert-ExactCommitDelta($SourceRoot, $FromCommit, $ToCommit, $ExpectedPath, $Category, $Purpose) {
+    $changedPaths = @(Get-ChangedPathSet $SourceRoot $FromCommit $ToCommit $Category $Purpose)
+    if ($changedPaths.Count -ne 1 -or $changedPaths[0] -ne $ExpectedPath) {
+        Fail-Contract $Category "$Purpose path delta must contain exactly the declared repository path."
+    }
 }
 
 function Assert-EvidenceOnlyCommitDelta($SourceRoot, $ValidatedSourceCommit, $SourceCommit) {
@@ -197,18 +342,7 @@ function Assert-EvidenceOnlyCommitDelta($SourceRoot, $ValidatedSourceCommit, $So
         Fail "Post-archive validation evidence must be created by the evidence commit and absent from validated_source_commit."
     }
 
-    $diffOutput = (& git -C $SourceRoot diff --name-only $ValidatedSourceCommit $SourceCommit -- 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Fail "Unable to verify evidence-only delta from validated_source_commit to SourceRoot HEAD: $diffOutput"
-    }
-    $changedPaths = @($diffOutput -split "`r?`n" |
-        Where-Object { $_.Trim() } |
-        ForEach-Object { $_.Trim().Replace("\", "/") } |
-        Sort-Object -Unique)
-    if ($changedPaths.Count -ne 1 -or $changedPaths[0] -ne $ApprovedPostArchiveValidationEvidence) {
-        $actual = if ($changedPaths.Count -eq 0) { "<none>" } else { $changedPaths -join ", " }
-        Fail "Final evidence commit delta from validated_source_commit to SourceRoot HEAD must contain only $ApprovedPostArchiveValidationEvidence; actual: $actual"
-    }
+    Assert-ExactCommitDelta $SourceRoot $ValidatedSourceCommit $SourceCommit $ApprovedPostArchiveValidationEvidence "LINEAGE" "historical evidence-only"
 }
 
 function Assert-EvidenceCheckPassed($Evidence, $Name) {
@@ -228,29 +362,255 @@ function Assert-EvidenceCheckPassed($Evidence, $Name) {
     }
 }
 
-function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
-    if (-not $EvidencePath) {
-        Fail "Final baseline requires -PostArchiveValidationEvidence pointing to project-owned post-archive validation JSON."
+function Assert-StatusObjectPass($Object, [string[]]$ExpectedFields, $Category, $Subject) {
+    Assert-ExactPropertySet $Object $ExpectedFields $Category $Subject
+    if ([string]$Object.status -cne "pass") {
+        Fail-Contract $Category "$Subject status must be pass."
+    }
+}
+
+function Assert-OrdinaryEvidenceSchema($SourceRoot, $Evidence) {
+    $topFields = @(
+        "schema_version",
+        "change_name",
+        "archive_path",
+        "archive_commit",
+        "validated_source_commit",
+        "verification_report_path",
+        "verification_report_commit",
+        "openspec_all_validation",
+        "python_tests",
+        "git_diff_check",
+        "repository_protection",
+        "verdict"
+    )
+    Assert-ExactPropertySet $Evidence $topFields "EVIDENCE_SCHEMA" "Ordinary Graphify evidence"
+    Assert-JsonInteger $Evidence.schema_version 1 "EVIDENCE_SCHEMA" "schema_version"
+
+    $changeName = Assert-StringValue $Evidence.change_name "EVIDENCE_SCHEMA" "change_name"
+    Assert-SemanticChangeName $changeName
+    if ($changeName -eq $HistoricalChangeName) {
+        Fail-Contract "HISTORICAL_COMPATIBILITY" "Ordinary evidence cannot impersonate the historical frozen-baseline workflow."
     }
 
-    $evidenceFull = Get-PathUnderRoot $SourceRoot $EvidencePath "PostArchiveValidationEvidence"
-    if (-not (Test-Path -LiteralPath $evidenceFull -PathType Leaf)) {
-        Fail "Post-archive validation evidence file is missing: $EvidencePath"
+    $archivePath = Assert-RelativeRepoPath (Assert-StringValue $Evidence.archive_path "EVIDENCE_SCHEMA" "archive_path") "archive_path" "EVIDENCE_PATH"
+    if ($archivePath -cnotmatch "^openspec/changes/archive/[^/]+$") {
+        Fail-Contract "ARCHIVE_STATE" "archive_path must identify one archived OpenSpec change directory."
     }
-    [void](Assert-TrackedHeadEvidence $SourceRoot $evidenceFull)
-    $evidence = Assert-Json $evidenceFull
+    $archiveLeaf = ($archivePath -split "/")[-1]
+    if ($archiveLeaf -ne $changeName -and $archiveLeaf -notlike "*-$changeName") {
+        Fail-Contract "EVIDENCE_PATH" "archive_path must match change_name."
+    }
 
-    if ($evidence.change_name -ne "frozen-project-graph-baseline") {
+    $reportPath = Assert-RelativeRepoPath (Assert-StringValue $Evidence.verification_report_path "EVIDENCE_SCHEMA" "verification_report_path") "verification_report_path" "REPORT_PATH"
+    if ($reportPath -ne "$archivePath/verification-report.md") {
+        Fail-Contract "REPORT_PATH" "verification_report_path must be the declared archive verification-report.md."
+    }
+
+    $archiveCommit = Assert-FullCommitSha $SourceRoot $Evidence.archive_commit "COMMIT_IDENTITY" "archive_commit"
+    $validatedSourceCommit = Assert-FullCommitSha $SourceRoot $Evidence.validated_source_commit "COMMIT_IDENTITY" "validated_source_commit"
+    $verificationReportCommit = Assert-FullCommitSha $SourceRoot $Evidence.verification_report_commit "COMMIT_IDENTITY" "verification_report_commit"
+
+    Assert-StatusObjectPass $Evidence.openspec_all_validation @("status") "REQUIRED_CHECK" "openspec_all_validation"
+    Assert-StatusObjectPass $Evidence.git_diff_check @("status") "REQUIRED_CHECK" "git_diff_check"
+    Assert-StatusObjectPass $Evidence.repository_protection @("status") "REQUIRED_CHECK" "repository_protection"
+    Assert-ExactPropertySet $Evidence.python_tests @("status", "tests", "failures", "errors", "skips") "EVIDENCE_SCHEMA" "python_tests"
+    if ([string]$Evidence.python_tests.status -cne "pass") {
+        Fail-Contract "REQUIRED_CHECK" "python_tests status must be pass."
+    }
+    foreach ($field in @("tests", "failures", "errors", "skips")) {
+        Assert-NonNegativeJsonInteger $Evidence.python_tests.$field "EVIDENCE_SCHEMA" "python_tests.$field"
+    }
+
+    $verdict = Assert-StringValue $Evidence.verdict "EVIDENCE_SCHEMA" "verdict"
+    if (@("APPROVE", "APPROVE WITH NON-BLOCKING NOTES") -cnotcontains $verdict) {
+        Fail-Contract "VERDICT" "Graphify evidence verdict is not allowed."
+    }
+
+    return [pscustomobject]@{
+        ChangeName = $changeName
+        ExpectedEvidencePath = Get-DeterministicOrdinaryEvidencePath $changeName
+        ArchivePath = $archivePath
+        ArchiveCommit = $archiveCommit
+        ValidatedSourceCommit = $validatedSourceCommit
+        VerificationReportPath = $reportPath
+        VerificationReportCommit = $verificationReportCommit
+        Verdict = $verdict
+    }
+}
+
+function Get-CommittedText($SourceRoot, $Commit, $Path, $Category, $Subject) {
+    $text = (& git -C $SourceRoot show "$Commit`:$Path" 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) {
+        Fail-Contract $Category "$Subject committed bytes are unavailable."
+    }
+    return $text
+}
+
+function Assert-ValidationReportMetadata($SourceRoot, $ReportText, $ValidatedSourceCommit, $ExpectedVerdict) {
+    $normalized = $ReportText.Replace("`r`n", "`n").Replace("`r", "`n")
+    $lines = @($normalized -split "`n")
+    if ($lines.Count -gt 0 -and $lines[-1] -eq "") {
+        $lines = @($lines[0..($lines.Count - 2)])
+    }
+
+    $begin = @()
+    $end = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -eq "BEGIN VALIDATION METADATA") { $begin += $i }
+        if ($lines[$i] -eq "END VALIDATION METADATA") { $end += $i }
+    }
+    if ($begin.Count -ne 1 -or $end.Count -ne 1 -or $begin[0] -ge $end[0]) {
+        Fail-Contract "REPORT_METADATA" "Validation report must contain exactly one ordered metadata block."
+    }
+
+    $fenceCountBefore = @($lines[0..$begin[0]] | Where-Object { $_ -match '^```' }).Count
+    if (($fenceCountBefore % 2) -ne 0) {
+        Fail-Contract "REPORT_METADATA" "Validation metadata block must not be quoted or fenced."
+    }
+
+    $inside = @($lines[($begin[0] + 1)..($end[0] - 1)])
+    $expectedKeys = @(
+        "schema_version",
+        "validated_remote_branch",
+        "validated_source_commit",
+        "verdict",
+        "archive_permitted",
+        "merge_permitted",
+        "production_code_changed_by_validator",
+        "tests_changed_by_validator"
+    )
+    if ($inside.Count -ne $expectedKeys.Count) {
+        Fail-Contract "REPORT_METADATA" "Validation metadata block must contain exactly eight key/value lines."
+    }
+
+    $metadata = @{}
+    for ($i = 0; $i -lt $expectedKeys.Count; $i++) {
+        $line = $inside[$i]
+        $colonCount = @($line.ToCharArray() | Where-Object { $_ -eq ':' }).Count
+        if ($line -cnotmatch '^[a-z_]+: [^\r\n]+$' -or $colonCount -ne 1) {
+            Fail-Contract "REPORT_METADATA" "Validation metadata line grammar is invalid."
+        }
+        $parts = $line -split ": ", 2
+        if ($parts[0] -ne $expectedKeys[$i]) {
+            Fail-Contract "REPORT_METADATA" "Validation metadata keys must match the approved order."
+        }
+        if ($metadata.ContainsKey($parts[0])) {
+            Fail-Contract "REPORT_METADATA" "Validation metadata contains a duplicate key."
+        }
+        $metadata[$parts[0]] = $parts[1]
+    }
+
+    if ($metadata["schema_version"] -cne "1") {
+        Fail-Contract "REPORT_METADATA" "Validation metadata schema_version must be 1."
+    }
+    $branch = $metadata["validated_remote_branch"]
+    if (-not $branch -or $branch -match "[\x00-\x1f\x7f]") {
+        Fail-Contract "REPORT_METADATA" "Validation metadata branch is invalid."
+    }
+    $branchCheck = Invoke-GitQuiet $SourceRoot @("check-ref-format", "--branch", $branch)
+    if ($branchCheck.ExitCode -ne 0) {
+        Fail-Contract "REPORT_METADATA" "Validation metadata branch is not a valid Git branch name."
+    }
+    if ($metadata["validated_source_commit"] -cnotmatch "^[0-9a-f]{40}$" -or $metadata["validated_source_commit"] -cne $ValidatedSourceCommit) {
+        Fail-Contract "REPORT_METADATA" "Validation metadata source commit must exactly match the validated source commit."
+    }
+    if (@("APPROVE", "APPROVE WITH NON-BLOCKING NOTES") -cnotcontains $metadata["verdict"] -or $metadata["verdict"] -cne $ExpectedVerdict) {
+        Fail-Contract "VERDICT" "Validation metadata verdict must be allowed and match Graphify evidence."
+    }
+    foreach ($key in @("archive_permitted", "merge_permitted", "production_code_changed_by_validator", "tests_changed_by_validator")) {
+        if (@("true", "false") -cnotcontains $metadata[$key]) {
+            Fail-Contract "REPORT_METADATA" "Validation metadata booleans must be lowercase literals."
+        }
+    }
+    if ($metadata["archive_permitted"] -cne "true") {
+        Fail-Contract "REPORT_METADATA" "Final Graphify refresh requires archive_permitted true."
+    }
+    if ($metadata["production_code_changed_by_validator"] -cne "false" -or $metadata["tests_changed_by_validator"] -cne "false") {
+        Fail-Contract "REPORT_METADATA" "Validator code/test mutation flags must be false."
+    }
+
+    $outsideLines = @()
+    if ($begin[0] -gt 0) {
+        $outsideLines += $lines[0..($begin[0] - 1)]
+    }
+    if (($end[0] + 1) -lt $lines.Count) {
+        $outsideLines += $lines[($end[0] + 1)..($lines.Count - 1)]
+    }
+    $withoutBlock = $outsideLines -join "`n"
+    $contradictions = @(
+        "CHANGES REQUIRED",
+        "archive_permitted: false",
+        "archive permitted: false",
+        "archive permitted: no",
+        "production_code_changed_by_validator: true",
+        "production code changed by validator: true",
+        "tests_changed_by_validator: true",
+        "tests changed by validator: true"
+    )
+    foreach ($needle in $contradictions) {
+        if ($withoutBlock -match [regex]::Escape($needle)) {
+            Fail-Contract "REPORT_METADATA" "Validation report contains an authoritative statement contradicting metadata."
+        }
+    }
+
+    return [pscustomobject]@{
+        Branch = $branch
+        Verdict = $metadata["verdict"]
+    }
+}
+
+function Assert-OrdinaryFinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath, $Evidence, $EvidenceFull) {
+    $facts = Assert-OrdinaryEvidenceSchema $SourceRoot $Evidence
+    $relativeEvidencePath = Assert-TrackedHeadEvidence $SourceRoot $EvidenceFull $facts.ExpectedEvidencePath
+    if ($EvidencePath.Replace("\", "/") -ne $relativeEvidencePath) {
+        Fail-Contract "EVIDENCE_PATH" "PostArchiveValidationEvidence argument must use the deterministic ordinary evidence path."
+    }
+
+    if ($facts.VerificationReportCommit -eq $SourceCommit -or $facts.ValidatedSourceCommit -eq $facts.VerificationReportCommit) {
+        Fail-Contract "LINEAGE" "Ordinary final lineage must use distinct V, R, and E commits."
+    }
+    if (-not (Test-GitAncestor $SourceRoot $facts.ArchiveCommit $facts.ValidatedSourceCommit)) {
+        Fail-Contract "LINEAGE" "archive_commit must be an ancestor of or equal to validated_source_commit."
+    }
+    if (-not (Test-GitAncestor $SourceRoot $facts.ValidatedSourceCommit $facts.VerificationReportCommit)) {
+        Fail-Contract "LINEAGE" "validated_source_commit must be an ancestor of verification_report_commit."
+    }
+    if (-not (Test-GitAncestor $SourceRoot $facts.VerificationReportCommit $SourceCommit)) {
+        Fail-Contract "LINEAGE" "verification_report_commit must be an ancestor of evidence commit."
+    }
+
+    Assert-PathPresentAtCommit $SourceRoot $facts.ValidatedSourceCommit $facts.ArchivePath "ARCHIVE_STATE" "validated_source_commit must contain the declared archive path."
+    Assert-PathAbsentAtCommit $SourceRoot $facts.ValidatedSourceCommit "openspec/changes/$($facts.ChangeName)" "ARCHIVE_STATE" "validated_source_commit must not contain the active OpenSpec change path."
+    Assert-PathPresentAtCommit $SourceRoot $facts.VerificationReportCommit $facts.VerificationReportPath "REPORT_BYTES" "verification_report_commit must contain the declared verification report."
+    Assert-WorkingTreeBlobMatchesCommit $SourceRoot $facts.VerificationReportCommit $facts.VerificationReportPath "REPORT_BYTES" "verification report"
+    Assert-ExactCommitDelta $SourceRoot $facts.ValidatedSourceCommit $facts.VerificationReportCommit $facts.VerificationReportPath "LINEAGE" "V..R validation-report"
+
+    Assert-PathAbsentAtCommit $SourceRoot $facts.VerificationReportCommit $relativeEvidencePath "LINEAGE" "Graphify evidence JSON must be absent at verification_report_commit."
+    Assert-PathPresentAtCommit $SourceRoot $SourceCommit $relativeEvidencePath "EVIDENCE_BYTES" "Graphify evidence JSON must exist at evidence commit."
+    Assert-ExactCommitDelta $SourceRoot $facts.VerificationReportCommit $SourceCommit $relativeEvidencePath "LINEAGE" "R..E Graphify-evidence"
+
+    $reportText = Get-CommittedText $SourceRoot $facts.VerificationReportCommit $facts.VerificationReportPath "REPORT_BYTES" "verification report"
+    [void](Assert-ValidationReportMetadata $SourceRoot $reportText $facts.ValidatedSourceCommit $facts.Verdict)
+}
+
+function Assert-HistoricalFinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath, $EvidenceFull, $Evidence) {
+    if ($EvidencePath.Replace("\", "/") -ne $ApprovedPostArchiveValidationEvidence) {
+        Fail-Contract "HISTORICAL_COMPATIBILITY" "Historical frozen-baseline evidence must use its published path."
+    }
+    [void](Assert-TrackedHeadEvidence $SourceRoot $EvidenceFull $ApprovedPostArchiveValidationEvidence)
+
+    if ($Evidence.change_name -ne $HistoricalChangeName) {
         Fail "Post-archive validation evidence change_name must be frozen-project-graph-baseline."
     }
-    if ([string]$evidence.archive_commit -notmatch "^[0-9a-f]{40}$") {
+    if ([string]$Evidence.archive_commit -cnotmatch "^[0-9a-f]{40}$") {
         Fail "Post-archive validation evidence archive_commit must be a full commit SHA."
     }
-    $archiveCommit = Get-GitSha $SourceRoot ([string]$evidence.archive_commit)
-    if ([string]$evidence.validated_source_commit -notmatch "^[0-9a-f]{40}$") {
+    $archiveCommit = Get-GitSha $SourceRoot ([string]$Evidence.archive_commit)
+    if ([string]$Evidence.validated_source_commit -cnotmatch "^[0-9a-f]{40}$") {
         Fail "Post-archive validation evidence validated_source_commit must be a full commit SHA."
     }
-    $validatedSourceCommit = Get-GitSha $SourceRoot ([string]$evidence.validated_source_commit)
+    $validatedSourceCommit = Get-GitSha $SourceRoot ([string]$Evidence.validated_source_commit)
     if (-not (Test-GitAncestor $SourceRoot $archiveCommit $validatedSourceCommit)) {
         Fail "Post-archive validation evidence archive_commit must be an ancestor of validated_source_commit."
     }
@@ -264,7 +624,7 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
         Fail "Final baseline requires archived OpenSpec changes under openspec/changes/archive/."
     }
     $archivedChangeDirs = @(Get-ChildItem -LiteralPath $archiveRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq "frozen-project-graph-baseline" -or $_.Name -like "*-frozen-project-graph-baseline" })
+        Where-Object { $_.Name -eq $HistoricalChangeName -or $_.Name -like "*-$HistoricalChangeName" })
     if ($archivedChangeDirs.Count -eq 0) {
         Fail "Final baseline requires archived change artifact for frozen-project-graph-baseline under openspec/changes/archive/."
     }
@@ -285,7 +645,35 @@ function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
     }
 
     foreach ($check in @("openspec_change_validation", "openspec_all_validation", "python_tests", "git_diff_check")) {
-        Assert-EvidenceCheckPassed $evidence $check
+        Assert-EvidenceCheckPassed $Evidence $check
+    }
+}
+
+function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
+    if (-not $EvidencePath) {
+        Fail-Contract "EVIDENCE_PATH" "Final baseline requires -PostArchiveValidationEvidence pointing to project-owned post-archive validation JSON."
+    }
+
+    $normalizedEvidencePath = Assert-RelativeRepoPath $EvidencePath "PostArchiveValidationEvidence" "EVIDENCE_PATH"
+    if ($normalizedEvidencePath -cnotmatch "^openspec/validation/[a-z0-9]+(?:-[a-z0-9]+)*\.post-archive\.json$") {
+        Fail-Contract "EVIDENCE_PATH" "PostArchiveValidationEvidence must use the deterministic validation JSON path."
+    }
+    $evidenceFull = Get-PathUnderRoot $SourceRoot $normalizedEvidencePath "PostArchiveValidationEvidence"
+    if (-not (Test-Path -LiteralPath $evidenceFull -PathType Leaf)) {
+        Fail-Contract "EVIDENCE_PATH" "Post-archive validation evidence file is missing."
+    }
+    $evidence = Assert-Json $evidenceFull
+    $changeName = if ($null -ne $evidence -and $evidence.PSObject.Properties.Name -contains "change_name") { [string]$evidence.change_name } else { "" }
+    if ($changeName -eq $HistoricalChangeName) {
+        $ordinaryOnlyFields = @("schema_version", "verification_report_path", "verification_report_commit", "repository_protection", "verdict")
+        foreach ($field in $ordinaryOnlyFields) {
+            if ($evidence.PSObject.Properties.Name -contains $field) {
+                Fail-Contract "HISTORICAL_COMPATIBILITY" "Historical frozen-baseline identity cannot be used with ordinary Graphify evidence schema."
+            }
+        }
+        Assert-HistoricalFinalWorkflowGate $SourceRoot $SourceCommit $normalizedEvidencePath $evidenceFull $evidence
+    } else {
+        Assert-OrdinaryFinalWorkflowGate $SourceRoot $SourceCommit $normalizedEvidencePath $evidence $evidenceFull
     }
 }
 
@@ -305,7 +693,7 @@ function Assert-Json($Path) {
         $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
         return $raw | ConvertFrom-Json
     } catch {
-        Fail "Invalid JSON: $Path"
+        Fail "Invalid JSON."
     }
 }
 

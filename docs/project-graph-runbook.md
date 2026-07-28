@@ -238,6 +238,126 @@ the evidence commit. The following graph commit `G` must contain only the
 allowlisted generated artifacts. Keep the PR Draft until `G` receives
 lightweight graph integrity review.
 
+## Ordinary Final Refresh
+
+For an ordinary archived OpenSpec change, the final refresh gate uses this
+commit chain:
+
+```text
+A -> optional M -> V -> R -> E -> G
+```
+
+`A` is the archive commit for the change. `M` is an optional prerequisite
+infrastructure merge. `V` is the renewed independently validated source commit
+after every required prerequisite merge. `R` is a dedicated commit containing
+only the renewed archived `verification-report.md`. `E` is a dedicated commit
+containing only deterministic Graphify evidence JSON. `G` is the following
+graph-only commit.
+
+The ordinary evidence path is derived from the semantic OpenSpec change name:
+
+```text
+openspec/validation/<change-name>.post-archive.json
+```
+
+The wrapper rejects absolute paths, traversal, alternate extensions, wrong
+change/path pairing, ignored or untracked artifacts, missing committed blobs,
+and working-tree bytes that differ from committed bytes after repository
+filters. The historical path
+`openspec/validation/frozen-project-graph-baseline.post-archive.json` remains
+valid only for the published `frozen-project-graph-baseline` compatibility
+workflow.
+
+Ordinary Graphify evidence must contain exactly:
+
+```json
+{
+  "schema_version": 1,
+  "change_name": "example-change",
+  "archive_path": "openspec/changes/archive/YYYY-MM-DD-example-change",
+  "archive_commit": "<full-sha>",
+  "validated_source_commit": "<full-sha>",
+  "verification_report_path": "openspec/changes/archive/YYYY-MM-DD-example-change/verification-report.md",
+  "verification_report_commit": "<full-sha>",
+  "openspec_all_validation": {
+    "status": "pass"
+  },
+  "python_tests": {
+    "status": "pass",
+    "tests": 0,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
+  },
+  "git_diff_check": {
+    "status": "pass"
+  },
+  "repository_protection": {
+    "status": "pass"
+  },
+  "verdict": "APPROVE"
+}
+```
+
+Unknown or missing top-level and nested fields are rejected. Commit IDs must be
+40 lowercase hexadecimal repository commits. All statuses must be exactly
+`pass`, test counts must be non-negative integers, and verdict must be either
+`APPROVE` or `APPROVE WITH NON-BLOCKING NOTES`. The JSON must not contain
+`evidence_commit`, `indexed_source_commit`, or another self-referential SHA.
+The wrapper derives both `evidence_commit` and `indexed_source_commit` from the
+clean source `HEAD`, and the explicit `SourceRef` must resolve to that same
+commit.
+
+The committed report at `R:<verification_report_path>` remains the full
+human-readable independent validation report required by `RULES.md`. It must
+also contain exactly one machine-readable block:
+
+```text
+BEGIN VALIDATION METADATA
+schema_version: 1
+validated_remote_branch: agent/example-change
+validated_source_commit: <40-char-lowercase-sha>
+verdict: APPROVE
+archive_permitted: true
+merge_permitted: false
+production_code_changed_by_validator: false
+tests_changed_by_validator: false
+END VALIDATION METADATA
+```
+
+The metadata block has exactly eight key/value lines in that order. Every line
+uses one ASCII colon and one ASCII space. Blank lines, comments, indentation,
+quoting, fenced/example blocks, duplicate markers, duplicate keys, unknown
+keys, missing keys, reordered keys, invalid branches, partial or uppercase
+SHAs, disallowed verdicts, non-lowercase booleans, `archive_permitted: false`,
+and validator code/test mutation flags are rejected. The metadata SHA must
+equal `V`, and the metadata verdict must equal the JSON verdict.
+
+The ordinary gate verifies that `archive_commit` is an ancestor of or equal to
+`V`, that `V` contains the declared archive path and not
+`openspec/changes/<change-name>`, that `V..R` changes exactly the declared
+archived `verification-report.md`, that `verification_report_commit = R`, that
+the JSON is absent from `R`, that `R..E` changes exactly the deterministic
+JSON, and that clean source `HEAD = SourceRef = E`. There is no process-only
+allowlist.
+
+Invoke an ordinary final rebuild from a clean source worktree at `E`:
+
+```powershell
+.\tools\refresh_project_graph.ps1 -Mode FullRebuild -BaselineStage Final -SourceRoot <post-archive-source-worktree> -SourceRef agent/example-change -OutputRoot . -TargetBranch master -PostArchiveValidationEvidence openspec/validation/example-change.post-archive.json
+```
+
+For an older blocked feature such as PR #16, first merge this repaired workflow
+to `master`, incorporate that prerequisite into the feature branch without
+force-push, review the incorporated commits, publish a new source commit `V`,
+and perform renewed independent validation. Only after that renewed validation
+may the report-only `R`, JSON-only `E`, final refresh, graph-only `G`, and final
+graph review proceed.
+
+Do not bypass this wrapper with direct Graphify commands. Do not include graph
+artifacts, validation evidence JSON, archives, logs, caches, `node_modules`, or
+temporary files in an implementation commit.
+
 ## Incremental Refresh
 
 Use incremental refresh only after a completed approved workflow checkpoint,
