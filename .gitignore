@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 node_modules/
+/.graphify-local/
+/graphify-out/
 
 # Per-workstation device credentials. Never add this file to Git.
 credentials.local.json

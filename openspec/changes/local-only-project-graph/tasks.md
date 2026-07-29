@@ -15,63 +15,63 @@
 
 ## 2. Implementation
 
-- [ ] Update `RULES.md` to describe Graphify as optional local-only navigation
+- [x] Update `RULES.md` to describe Graphify as optional local-only navigation
   helper, not committed evidence or lifecycle authority.
-- [ ] Keep root `openspec/specs/agent-project-navigation/spec.md`
+- [x] Keep root `openspec/specs/agent-project-navigation/spec.md`
   byte-identical to `origin/master` on the implementation branch until archive.
-- [ ] Prove the absence of root-spec branch diff before archive with
+- [x] Prove the absence of root-spec branch diff before archive with
   `git diff --exit-code origin/master -- openspec/specs/agent-project-navigation/spec.md`.
-- [ ] Add `.graphify-local/` to `.gitignore`.
-- [ ] Update `.graphifyignore` for local-output, credential, inventory, Excel,
+- [x] Add `.graphify-local/` to `.gitignore`.
+- [x] Update `.graphifyignore` for local-output, credential, inventory, Excel,
   archive, worktree, and generated-output exclusions.
-- [ ] Remove or narrow `.gitattributes` rules that exist only for committed
+- [x] Remove or narrow `.gitattributes` rules that exist only for committed
   `graphify-out/*` byte-hash publication.
 
 ## 3. Removal Of Committed Artifacts
 
-- [ ] Remove tracked `graphify-out/graph.json`.
-- [ ] Remove tracked `graphify-out/manifest.json`.
-- [ ] Remove tracked `graphify-out/GRAPH_REPORT.md`.
-- [ ] Remove tracked `graphify-out/baseline.json`.
-- [ ] Verify no generated local graph artifact appears in the PR diff,
+- [x] Remove tracked `graphify-out/graph.json`.
+- [x] Remove tracked `graphify-out/manifest.json`.
+- [x] Remove tracked `graphify-out/GRAPH_REPORT.md`.
+- [x] Remove tracked `graphify-out/baseline.json`.
+- [x] Verify no generated local graph artifact appears in the PR diff,
   validation evidence, archive, or merge checks.
 
 ## 4. Retained Wrapper And Runbook Simplification
 
-- [ ] Keep `tools/refresh_project_graph.ps1` as the repository-local developer
+- [x] Keep `tools/refresh_project_graph.ps1` as the repository-local developer
   interface for local Graphify generation.
-- [ ] Make the wrapper run against the current checkout or an explicitly
+- [x] Make the wrapper run against the current checkout or an explicitly
   supplied local source.
-- [ ] Make the wrapper write only under ignored `.graphify-local/`.
-- [ ] Remove publication target, graph-only commit, branch/worktree creation,
+- [x] Make the wrapper write only under ignored `.graphify-local/`.
+- [x] Remove publication target, graph-only commit, branch/worktree creation,
   archive lineage, OpenSpec validation evidence, Graphify evidence JSON, final
   baseline, and merge authority logic from the wrapper.
-- [ ] Preserve pinned `graphifyy==0.9.26`, `.graphifyignore`, local corpus
+- [x] Preserve pinned `graphifyy==0.9.26`, `.graphifyignore`, local corpus
   boundaries, and secret-safe failure behavior.
-- [ ] Rewrite `docs/project-graph-runbook.md` as a local usage guide with one
+- [x] Rewrite `docs/project-graph-runbook.md` as a local usage guide with one
   standard command through `tools/refresh_project_graph.ps1`, disposable
   output, and delete/rebuild guidance.
 
 ## 5. Focused Tests
 
-- [ ] Remove or replace publication/worktree/archive/commit tests for the
+- [x] Remove or replace publication/worktree/archive/commit tests for the
   retired committed workflow.
-- [ ] Add focused local-helper tests for the retained wrapper.
-- [ ] Verify output stays under ignored `.graphify-local/`.
-- [ ] Verify tracked files are not mutated by successful or failing local
+- [x] Add focused local-helper tests for the retained wrapper.
+- [x] Verify output stays under ignored `.graphify-local/`.
+- [x] Verify tracked files are not mutated by successful or failing local
   helper runs.
-- [ ] Verify excluded and sensitive paths are not indexed.
-- [ ] Verify the pinned version contract is used.
+- [x] Verify excluded and sensitive paths are not indexed.
+- [x] Verify the pinned version contract is used.
 
 ## 6. Full Validation
 
-- [ ] Run `npm ci` if repository-local OpenSpec dependencies are absent.
-- [ ] Run `git diff --check`.
-- [ ] Run `.\openspec.cmd validate local-only-project-graph --strict`.
-- [ ] Run `.\openspec.cmd validate --all --strict`.
-- [ ] Run the full offline Python test suite and record exact counts.
-- [ ] Confirm production application behavior is unchanged.
-- [ ] Confirm graph artifacts, credentials, inventory, validation evidence, and
+- [x] Run `npm ci` if repository-local OpenSpec dependencies are absent.
+- [x] Run `git diff --check`.
+- [x] Run `.\openspec.cmd validate local-only-project-graph --strict`.
+- [x] Run `.\openspec.cmd validate --all --strict`.
+- [x] Run the full offline Python test suite and record exact counts.
+- [x] Confirm production application behavior is unchanged.
+- [x] Confirm graph artifacts, credentials, inventory, validation evidence, and
   archives are not modified except for the approved removal of tracked
   `graphify-out/*`.
 

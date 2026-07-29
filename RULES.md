@@ -22,29 +22,28 @@ MUST read `docs/equipment-inventory-runbook.md` after this file and before
 changing code, tests, specifications, or operational data. Current root OpenSpec
 specifications remain normative if the runbook and a specification conflict.
 
-### Graphify frozen project graph
+### Graphify local project graph
 
-Graphify is an optional navigation aid only. A committed `graphify-out/` map is
-a frozen baseline tied to `graphify-out/baseline.json`, not a model of every
-active branch and not a replacement for this file, OpenSpec, current source, or
-tests.
+Graphify is optional and is only a local navigation helper. It may help locate
+candidate files, symbols, and relationships, but it is not OpenSpec authority,
+validation evidence, archive evidence, merge authority, a CI requirement, or
+production correctness evidence.
 
-If `baseline.json.baseline_stage` is `bootstrap`, the graph is pre-archive and
-non-final. Use it only for implementation review of the Graphify workflow; the
-next ordinary change uses the `final` baseline produced after independent
-review, archive, post-archive validation, and a graph-only commit.
+Generated Graphify output is disposable local state. The canonical local output
+directory is `.graphify-local/`; generated output is ignored by Git, must not be
+committed, and may be deleted and rebuilt at any time. Missing, failed, stale,
+or absent local graph output blocks nothing in ordinary architecture,
+implementation, validation, archive, post-archive checks, or merge.
 
-Before using the graph, read this file, applicable OpenSpec artifacts,
-`docs/project-graph-runbook.md`, and `graphify-out/baseline.json`. Verify the
-full `indexed_source_commit` and analyze the current branch diff separately.
-Use graph output only to find candidate files, symbols, and relationships; all
-material conclusions and review findings must be verified in source. `INFERRED`
-and `AMBIGUOUS` relationships are not review evidence.
+Agents MUST verify all material conclusions in current source and tests.
+Graph confidence remains only a navigation hint: `EXTRACTED` is a static hint,
+`INFERRED` is a hypothesis, and `AMBIGUOUS` is not evidence.
 
-During implementation and validation, agents MUST NOT silently rebuild or
-incrementally refresh the graph. Refresh is allowed only at an approved workflow
-checkpoint. An absent or stale graph does not block ordinary development; report
-that condition explicitly. Validation sessions must not modify graph artifacts.
+Ordinary tasks MUST NOT silently run Graphify. Ordinary implementation,
+validation, archive, and merge require no Graphify command, no graph refresh
+checkpoint, no graph-only branch or commit, no Graphify evidence JSON, no
+validation-report-only or evidence-only commit, no final graph review, no
+stale-graph exception, and no `A -> S -> E -> G` publication workflow.
 
 ## Python Interpreter
 
