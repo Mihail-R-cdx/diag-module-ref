@@ -68,7 +68,8 @@ may delete this directory at any time and rebuild it from the current checkout.
 Keep `tools/refresh_project_graph.ps1` as a small local developer helper rather
 than deleting it. A wrapper still gives the project one safe command, a pinned
 Graphify version, and project-specific exclusion checks. The implementation
-must remove publication behavior from the wrapper.
+must retain the wrapper and remove publication behavior from it. Implementation
+does not choose between keeping and removing the wrapper.
 
 The simplified wrapper:
 
@@ -79,13 +80,11 @@ The simplified wrapper:
 - avoids credentials, real inventory, Excel files, archives, worktrees, and
   local data;
 - reports failures without leaking secrets;
-- never commits, pushes, branches, creates worktrees, archives, merges, reads
-  OpenSpec validation reports, parses Graphify evidence JSON, verifies archive
-  lineage, or publishes a frozen baseline.
-
-If implementation finds that retaining the wrapper adds little value, the
-implementation may instead remove it and document the direct local command, but
-that decision must keep the same local-only and ignored-output constraints.
+- never creates branches, worktrees, commits, or archives, and never merges or
+  pushes;
+- never reads OpenSpec validation reports, reads Graphify evidence JSON,
+  verifies archive lineage, publishes a frozen baseline, or participates in
+  validation, archive, merge, or review authority.
 
 ## Test Simplification
 
@@ -106,10 +105,11 @@ pretending to simplify a missing file.
 ## Runbook Decision
 
 `docs/project-graph-runbook.md` should become a local Graphify usage guide. It
-should contain one local command, state that output is ignored and disposable,
+should contain one standard local command through
+`tools/refresh_project_graph.ps1`, state that output is ignored and disposable,
 and explain how to delete and rebuild `.graphify-local/`. It should remove
-archive, validation evidence, branch, commit, final-baseline, and merge
-workflow instructions.
+archive, validation evidence, branch, commit, final-baseline, and merge workflow
+instructions.
 
 ## Git Ignore And Attributes
 
@@ -131,12 +131,22 @@ messages.
 ## OpenSpec Archive Applicability
 
 The active delta is authored against exact requirement headers in current
-`origin/master`. Root specs must not be manually edited to their post-archive
-state before archive, except where an explicit OpenSpec contract allows it.
+`origin/master`. It authorizes the future root-spec mutation that OpenSpec
+archive will produce; implementation must not apply the delta manually. The
+implementation branch must keep
+`openspec/specs/agent-project-navigation/spec.md` byte-identical to
+`origin/master` until archive, and implementation review must prove that with:
+
+```powershell
+git diff --exit-code origin/master -- openspec/specs/agent-project-navigation/spec.md
+```
+
 Before `READY FOR ARCHIVE`, implementation must run a disposable archive
-applicability check from the candidate commit. That check must prove the
-archive command applies the delta successfully in the disposable checkout and
-does not archive the main feature branch.
+applicability check from the candidate commit. That check may mutate the root
+spec only in the disposable checkout and must prove the archive command applies
+the delta successfully without archiving the main feature branch. The real root
+spec may change only during the actual OpenSpec archive after independent
+approval.
 
 This change avoids scenario renames inside MODIFIED requirements so the
 archiver can preserve existing scenarios safely.

@@ -59,10 +59,20 @@ Affected specification:
 
 - `agent-project-navigation`
 
-Expected implementation areas after approval:
+Root spec change is archive-produced, not implementation-produced. The active
+delta authorizes the future root-spec mutation, but
+`openspec/specs/agent-project-navigation/spec.md` must remain byte-identical to
+`origin/master` on the implementation branch until either a disposable
+archive-applicability checkout or the real archive command applies the delta.
+Implementation review must verify that contract with:
+
+```powershell
+git diff --exit-code origin/master -- openspec/specs/agent-project-navigation/spec.md
+```
+
+Expected implementation areas after approval, before archive:
 
 - `RULES.md`
-- `openspec/specs/agent-project-navigation/spec.md`
 - `docs/project-graph-runbook.md`
 - `tools/refresh_project_graph.ps1`
 - focused tests for the local helper

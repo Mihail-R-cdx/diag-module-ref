@@ -75,11 +75,23 @@ through the `graphify` executable, unless a separately approved architecture
 change updates the version. It SHALL NOT be added as an application runtime
 dependency. Floating installs are forbidden.
 
-The repository-local helper, if retained, SHALL run against the current
-checkout or an explicitly supplied local source and SHALL write only under
-ignored `.graphify-local/`. It SHALL NOT create commits, branches, worktrees,
-archives, validation evidence, publication metadata, frozen baselines, graph
-review artifacts, or merge gates.
+The repository-local helper `tools/refresh_project_graph.ps1` SHALL be retained
+as the standard local developer interface for Graphify generation. It SHALL run
+against the current checkout or an explicitly supplied local source and SHALL
+write only under ignored `.graphify-local/`. It SHALL use `.graphifyignore` and
+SHALL NOT create branches, worktrees, commits, archives, validation evidence,
+publication metadata, frozen baselines, graph review artifacts, or merge gates,
+and SHALL NOT push. It SHALL NOT read OpenSpec validation reports, read Graphify
+evidence JSON, verify archive lineage, publish a frozen baseline, or participate
+in validation, archive, merge, or review authority.
+
+#### Scenario: Repository-local wrapper is retained
+
+- **WHEN** the local-only implementation updates repository graph tooling
+- **THEN** `tools/refresh_project_graph.ps1` remains the repository-local
+  developer interface for local Graphify generation
+- **AND** implementation does not replace the wrapper with an unwrapped direct
+  command.
 
 #### Scenario: Wrapper starts a build or refresh
 
@@ -152,7 +164,8 @@ rewriting Git history. New local output SHALL be stored under ignored
 
 #### Scenario: Developer rebuilds local graph
 
-- **WHEN** a developer rebuilds the graph locally
+- **WHEN** a developer rebuilds the graph locally through
+  `tools/refresh_project_graph.ps1`
 - **THEN** output is written to `.graphify-local/`
 - **AND** `git status --short` shows no generated Graphify output staged or
   modified in tracked files.

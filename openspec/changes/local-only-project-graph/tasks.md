@@ -10,16 +10,17 @@
 - [x] Run `git diff --check`.
 - [x] Run `.\openspec.cmd validate local-only-project-graph --strict`.
 - [x] Run `.\openspec.cmd validate --all --strict`.
-- [ ] Commit and push only `openspec/changes/local-only-project-graph/**`.
-- [ ] Open a replacement Draft PR and record that PR #18 is superseded.
+- [x] Commit and push only `openspec/changes/local-only-project-graph/**`.
+- [x] Open a replacement Draft PR and record that PR #18 is superseded.
 
 ## 2. Implementation
 
 - [ ] Update `RULES.md` to describe Graphify as optional local-only navigation
   helper, not committed evidence or lifecycle authority.
-- [ ] Update root `openspec/specs/agent-project-navigation/spec.md` only as
-  implementation work needed to satisfy the approved delta; do not pre-apply
-  post-archive root state outside the OpenSpec contract.
+- [ ] Keep root `openspec/specs/agent-project-navigation/spec.md`
+  byte-identical to `origin/master` on the implementation branch until archive.
+- [ ] Prove the absence of root-spec branch diff before archive with
+  `git diff --exit-code origin/master -- openspec/specs/agent-project-navigation/spec.md`.
 - [ ] Add `.graphify-local/` to `.gitignore`.
 - [ ] Update `.graphifyignore` for local-output, credential, inventory, Excel,
   archive, worktree, and generated-output exclusions.
@@ -35,24 +36,27 @@
 - [ ] Verify no generated local graph artifact appears in the PR diff,
   validation evidence, archive, or merge checks.
 
-## 4. Wrapper And Runbook Simplification
+## 4. Retained Wrapper And Runbook Simplification
 
-- [ ] Keep `tools/refresh_project_graph.ps1` as a simple local helper, or
-  remove it and document the direct local command if that is simpler.
-- [ ] If kept, make the wrapper write only under ignored `.graphify-local/`.
+- [ ] Keep `tools/refresh_project_graph.ps1` as the repository-local developer
+  interface for local Graphify generation.
+- [ ] Make the wrapper run against the current checkout or an explicitly
+  supplied local source.
+- [ ] Make the wrapper write only under ignored `.graphify-local/`.
 - [ ] Remove publication target, graph-only commit, branch/worktree creation,
   archive lineage, OpenSpec validation evidence, Graphify evidence JSON, final
   baseline, and merge authority logic from the wrapper.
 - [ ] Preserve pinned `graphifyy==0.9.26`, `.graphifyignore`, local corpus
   boundaries, and secret-safe failure behavior.
 - [ ] Rewrite `docs/project-graph-runbook.md` as a local usage guide with one
-  command, disposable output, and delete/rebuild guidance.
+  standard command through `tools/refresh_project_graph.ps1`, disposable
+  output, and delete/rebuild guidance.
 
 ## 5. Focused Tests
 
 - [ ] Remove or replace publication/worktree/archive/commit tests for the
   retired committed workflow.
-- [ ] Add focused local-helper tests when the wrapper is retained.
+- [ ] Add focused local-helper tests for the retained wrapper.
 - [ ] Verify output stays under ignored `.graphify-local/`.
 - [ ] Verify tracked files are not mutated by successful or failing local
   helper runs.
