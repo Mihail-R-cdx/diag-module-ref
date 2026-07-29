@@ -6,7 +6,7 @@
 - [x] 1.2 State explicitly that an absent or stale graph does not block ordinary validation, archive, post-archive checks, or merge and does not require a change-specific stale-graph exception.
 - [x] 1.3 Remove ordinary-change requirements for renewed validation solely for Graphify, validation-report-only commits, Graphify evidence JSON, evidence-only commits, and graph-only commits.
 - [x] 1.4 Preserve the authority order and the requirement to verify Graphify-derived hypotheses in current source and tests.
-- [ ] 1.5 After architecture `APPROVE`, close PR #17 without merge and retain its branch for forensic/reference use.
+- [x] 1.5 After architecture `APPROVE`, close PR #17 without merge and retain its branch for forensic/reference use.
 
 ## 2. Repository-local wrapper
 

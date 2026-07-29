@@ -32,10 +32,14 @@ $CanonicalGeneratedArtifacts = @(
 )
 $Utf8NoBomStrict = [System.Text.UTF8Encoding]::new($false, $true)
 $ForbiddenFreshnessAdvice = "graphify update . after code changes"
+$GraphSchemaContract = "graphify-0.9.26-graph-json-structural-v1"
+$ManifestSchemaContract = "graphify-0.9.26-manifest-json-map-v1"
+$BaselineMetadataContract = "diag-project-graph-baseline-v3"
+$IndexedSourceRootPolicy = "repo-root-code-config-v1;extensions=py,json,toml,yaml,yml,js,ts,tsx,jsx,ps1,cmd,bat;exclude=graphify-out,openspec/changes/archive,node_modules,.worktrees,logs,transfer,inventory,excel,credentials,secrets"
+$PackageBoundaryPolicy = "graphify-default-repository-package-boundaries-v1;python-packages-by-__init__;repo-root-tools-docs-excluded-by-policy"
 
 function Fail($Message) {
-    Write-Error $Message
-    exit 1
+    throw $Message
 }
 
 function RelPath($Path, $Root) {
@@ -59,6 +63,48 @@ function Get-RepoRootFrom($Path) {
 
 function Get-Sha256($Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Get-Sha256ForText($Text) {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Text)
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $sha = $hasher.ComputeHash($bytes)
+        return ([System.BitConverter]::ToString($sha).Replace("-", "").ToLowerInvariant())
+    } finally {
+        $hasher.Dispose()
+    }
+}
+
+function Get-GraphPolicyIdentity($SourceRoot, $IgnorePolicySha256) {
+    $gitattributesPath = Join-Path $SourceRoot ".gitattributes"
+    if (-not (Test-Path -LiteralPath $gitattributesPath -PathType Leaf)) {
+        Fail ".gitattributes is required for graph policy identity."
+    }
+    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:.gitattributes") ".gitattributes must exist in source HEAD")
+    $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:.gitattributes") "Unable to read source HEAD .gitattributes blob"
+    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=.gitattributes", "--", $gitattributesPath) "Unable to hash source .gitattributes after repository filters"
+    if ($headBlob -ne $workingBlob) {
+        Fail "SourceRoot .gitattributes must match committed source bytes after repository filters."
+    }
+
+    $identity = [ordered]@{
+        graph_schema_contract = $GraphSchemaContract
+        manifest_schema_contract = $ManifestSchemaContract
+        baseline_metadata_contract = $BaselineMetadataContract
+        indexed_source_root_policy = $IndexedSourceRootPolicy
+        package_boundary_policy = $PackageBoundaryPolicy
+        ignore_file_sha256 = $IgnorePolicySha256
+        gitattributes_sha256 = Get-Sha256 $gitattributesPath
+        indexed_source_root_policy_sha256 = Get-Sha256ForText $IndexedSourceRootPolicy
+        package_boundary_policy_sha256 = Get-Sha256ForText $PackageBoundaryPolicy
+        graph_schema_contract_sha256 = Get-Sha256ForText $GraphSchemaContract
+        manifest_schema_contract_sha256 = Get-Sha256ForText $ManifestSchemaContract
+        baseline_metadata_contract_sha256 = Get-Sha256ForText $BaselineMetadataContract
+    }
+    $composite = ($identity.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "`n"
+    $identity.policy_fingerprint_sha256 = Get-Sha256ForText $composite
+    return [pscustomobject]$identity
 }
 
 function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
@@ -198,6 +244,25 @@ function Get-ManifestSourceSet($Manifest) {
     return @($paths | Sort-Object -Unique)
 }
 
+function Test-JsonObject($Value) {
+    return $Value -is [System.Management.Automation.PSCustomObject]
+}
+
+function Test-JsonArray($Value) {
+    return ($Value -is [System.Array]) -or ($Value -is [System.Collections.IList] -and -not ($Value -is [string]))
+}
+
+function Assert-StringField($Object, $Field, $Purpose) {
+    if (-not (Test-JsonObject $Object) -or -not ($Object.PSObject.Properties.Name -contains $Field)) {
+        Fail "$Purpose schema mismatch: missing $Field."
+    }
+    $value = $Object.$Field
+    if (-not ($value -is [string]) -or -not $value) {
+        Fail "$Purpose schema mismatch: $Field must be a non-empty string."
+    }
+    return [string]$value
+}
+
 function Assert-RepoRelativePath($Path, $Purpose) {
     if (-not $Path) {
         Fail "$Purpose path is empty."
@@ -240,21 +305,69 @@ function Assert-CurrentCorpusPaths($SourceRoot, $Manifest, $Graph) {
 }
 
 function Assert-GraphStructure($Graph, $Manifest) {
+    if (-not (Test-JsonObject $Graph)) {
+        Fail "graph.json schema mismatch: root must be an object."
+    }
+    if (-not ($Graph.PSObject.Properties.Name -contains "nodes") -or -not (Test-JsonArray $Graph.nodes)) {
+        Fail "graph.json schema mismatch: nodes must be an array."
+    }
+    $edgeProperty = ""
+    if ($Graph.PSObject.Properties.Name -contains "links") {
+        $edgeProperty = "links"
+    } elseif ($Graph.PSObject.Properties.Name -contains "edges") {
+        $edgeProperty = "edges"
+    } else {
+        Fail "graph.json schema mismatch: links or edges array is required."
+    }
+    if (-not (Test-JsonArray $Graph.$edgeProperty)) {
+        Fail "graph.json schema mismatch: edge collection must be an array."
+    }
+
+    if (-not (Test-JsonObject $Manifest)) {
+        Fail "manifest.json schema mismatch: root must be an object map."
+    }
+    if (@($Manifest.PSObject.Properties.Name).Count -le 0) {
+        Fail "manifest.json schema mismatch: source map must be non-empty."
+    }
+    foreach ($prop in $Manifest.PSObject.Properties) {
+        $path = [string]$prop.Name
+        Assert-RepoRelativePath $path "manifest source"
+        if (-not (Test-JsonObject $prop.Value)) {
+            Fail "manifest.json schema mismatch: each source entry must be an object."
+        }
+        if ($prop.Value.PSObject.Properties.Name -contains "symbols") {
+            if (-not (Test-JsonArray $prop.Value.symbols)) {
+                Fail "manifest.json schema mismatch: symbols must be an array."
+            }
+            foreach ($symbol in @($prop.Value.symbols)) {
+                if (-not ($symbol -is [string]) -or -not $symbol) {
+                    Fail "manifest.json schema mismatch: symbol entries must be non-empty strings."
+                }
+            }
+        }
+    }
+
     $nodes = @(Get-GraphNodes $Graph)
     $links = @(Get-GraphLinks $Graph)
     if ($nodes.Count -le 0 -or $links.Count -le 0) {
         Fail "Graph must contain nonzero nodes and edges. Found nodes=$($nodes.Count), edges=$($links.Count)."
     }
-    if (@($Manifest.PSObject.Properties.Name).Count -le 0) {
-        Fail "Manifest must contain a nonzero source corpus."
-    }
 
     $ids = @{}
     foreach ($node in $nodes) {
-        if (-not ($node.PSObject.Properties.Name -contains "id") -or -not [string]$node.id) {
-            Fail "Graph node is missing id."
+        if (-not (Test-JsonObject $node)) {
+            Fail "graph.json schema mismatch: each node must be an object."
         }
-        $id = [string]$node.id
+        $id = Assert-StringField $node "id" "graph node"
+        if ($node.PSObject.Properties.Name -contains "label" -and $null -ne $node.label -and -not ($node.label -is [string])) {
+            Fail "graph node schema mismatch: label must be a string when present."
+        }
+        if ($node.PSObject.Properties.Name -contains "source_file" -and $null -ne $node.source_file -and -not ($node.source_file -is [string])) {
+            Fail "graph node schema mismatch: source_file must be a string when present."
+        }
+        if ($node.PSObject.Properties.Name -contains "file_type" -and $null -ne $node.file_type -and -not ($node.file_type -is [string])) {
+            Fail "graph node schema mismatch: file_type must be a string when present."
+        }
         if ($ids.ContainsKey($id)) {
             Fail "Graph contains duplicate node id."
         }
@@ -262,10 +375,13 @@ function Assert-GraphStructure($Graph, $Manifest) {
     }
 
     foreach ($link in $links) {
-        $source = if ($link.PSObject.Properties.Name -contains "source") { [string]$link.source } else { "" }
-        $target = if ($link.PSObject.Properties.Name -contains "target") { [string]$link.target } else { "" }
-        if (-not $source -or -not $target) {
-            Fail "Graph edge is missing source or target."
+        if (-not (Test-JsonObject $link)) {
+            Fail "graph.json schema mismatch: each edge must be an object."
+        }
+        $source = Assert-StringField $link "source" "graph edge"
+        $target = Assert-StringField $link "target" "graph edge"
+        if ($link.PSObject.Properties.Name -contains "relation" -and $null -ne $link.relation -and -not ($link.relation -is [string])) {
+            Fail "graph edge schema mismatch: relation must be a string when present."
         }
         if (-not $ids.ContainsKey($source) -or -not $ids.ContainsKey($target)) {
             Fail "Graph edge contains broken internal node reference."
@@ -650,7 +766,7 @@ function Assert-NoGraphifyIntegrations($OutputRoot) {
     }
 }
 
-function Write-Baseline($GraphDir, $SourceCommit, $SourceRef, $TargetBranch, $GraphifyVersion, $Graph, $GraphPath, $IgnorePolicySha256) {
+function Write-Baseline($GraphDir, $SourceCommit, $SourceRef, $TargetBranch, $GraphifyVersion, $Graph, $GraphPath, $PolicyIdentity) {
     $counts = Count-Graph $Graph
     if ($counts.Nodes -le 0 -or $counts.Edges -le 0) {
         Fail "Graph must contain nonzero nodes and edges. Found nodes=$($counts.Nodes), edges=$($counts.Edges)."
@@ -667,7 +783,19 @@ function Write-Baseline($GraphDir, $SourceCommit, $SourceRef, $TargetBranch, $Gr
         target_branch = $TargetBranch
         generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         graph_sha256 = Get-Sha256 $GraphPath
-        ignore_file_sha256 = $IgnorePolicySha256
+        ignore_file_sha256 = $PolicyIdentity.ignore_file_sha256
+        gitattributes_sha256 = $PolicyIdentity.gitattributes_sha256
+        indexed_source_root_policy = $PolicyIdentity.indexed_source_root_policy
+        indexed_source_root_policy_sha256 = $PolicyIdentity.indexed_source_root_policy_sha256
+        package_boundary_policy = $PolicyIdentity.package_boundary_policy
+        package_boundary_policy_sha256 = $PolicyIdentity.package_boundary_policy_sha256
+        graph_schema_contract = $PolicyIdentity.graph_schema_contract
+        graph_schema_contract_sha256 = $PolicyIdentity.graph_schema_contract_sha256
+        manifest_schema_contract = $PolicyIdentity.manifest_schema_contract
+        manifest_schema_contract_sha256 = $PolicyIdentity.manifest_schema_contract_sha256
+        baseline_metadata_contract = $PolicyIdentity.baseline_metadata_contract
+        baseline_metadata_contract_sha256 = $PolicyIdentity.baseline_metadata_contract_sha256
+        policy_fingerprint_sha256 = $PolicyIdentity.policy_fingerprint_sha256
         node_count = $counts.Nodes
         edge_count = $counts.Edges
     }
@@ -679,7 +807,7 @@ function Write-Baseline($GraphDir, $SourceCommit, $SourceRef, $TargetBranch, $Gr
     return (Assert-Json $baselinePath)
 }
 
-function Assert-Metadata($SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $IgnorePolicySha256) {
+function Assert-Metadata($SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $PolicyIdentity) {
     $counts = Count-Graph $Graph
     $graphPath = Join-Path $GraphDir "graph.json"
     if ([int]$Baseline.schema_version -ne 2) { Fail "baseline.schema_version mismatch." }
@@ -693,7 +821,19 @@ function Assert-Metadata($SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommi
     if ($Baseline.graphify_version -ne $Version) { Fail "baseline.graphify_version mismatch." }
     if ($Baseline.mode -ne "code-only") { Fail "baseline.mode mismatch." }
     if ($Baseline.graph_sha256 -ne (Get-Sha256 $graphPath)) { Fail "baseline.graph_sha256 mismatch." }
-    if ($Baseline.ignore_file_sha256 -ne $IgnorePolicySha256) { Fail "baseline.ignore_file_sha256 mismatch." }
+    if ($Baseline.ignore_file_sha256 -ne $PolicyIdentity.ignore_file_sha256) { Fail "baseline.ignore_file_sha256 mismatch." }
+    if ($Baseline.gitattributes_sha256 -ne $PolicyIdentity.gitattributes_sha256) { Fail "baseline.gitattributes_sha256 mismatch." }
+    if ($Baseline.indexed_source_root_policy -ne $PolicyIdentity.indexed_source_root_policy) { Fail "baseline.indexed_source_root_policy mismatch." }
+    if ($Baseline.indexed_source_root_policy_sha256 -ne $PolicyIdentity.indexed_source_root_policy_sha256) { Fail "baseline.indexed_source_root_policy_sha256 mismatch." }
+    if ($Baseline.package_boundary_policy -ne $PolicyIdentity.package_boundary_policy) { Fail "baseline.package_boundary_policy mismatch." }
+    if ($Baseline.package_boundary_policy_sha256 -ne $PolicyIdentity.package_boundary_policy_sha256) { Fail "baseline.package_boundary_policy_sha256 mismatch." }
+    if ($Baseline.graph_schema_contract -ne $PolicyIdentity.graph_schema_contract) { Fail "baseline.graph_schema_contract mismatch." }
+    if ($Baseline.graph_schema_contract_sha256 -ne $PolicyIdentity.graph_schema_contract_sha256) { Fail "baseline.graph_schema_contract_sha256 mismatch." }
+    if ($Baseline.manifest_schema_contract -ne $PolicyIdentity.manifest_schema_contract) { Fail "baseline.manifest_schema_contract mismatch." }
+    if ($Baseline.manifest_schema_contract_sha256 -ne $PolicyIdentity.manifest_schema_contract_sha256) { Fail "baseline.manifest_schema_contract_sha256 mismatch." }
+    if ($Baseline.baseline_metadata_contract -ne $PolicyIdentity.baseline_metadata_contract) { Fail "baseline.baseline_metadata_contract mismatch." }
+    if ($Baseline.baseline_metadata_contract_sha256 -ne $PolicyIdentity.baseline_metadata_contract_sha256) { Fail "baseline.baseline_metadata_contract_sha256 mismatch." }
+    if ($Baseline.policy_fingerprint_sha256 -ne $PolicyIdentity.policy_fingerprint_sha256) { Fail "baseline.policy_fingerprint_sha256 mismatch." }
     if ([int]$Baseline.node_count -ne [int]$counts.Nodes) { Fail "baseline.node_count mismatch." }
     if ([int]$Baseline.edge_count -ne [int]$counts.Edges) { Fail "baseline.edge_count mismatch." }
 }
@@ -724,10 +864,31 @@ function Get-GitNameStatus($SourceRoot, $PreviousCommit, $CurrentCommit) {
     return $changes
 }
 
-function Assert-IncrementalPreconditions($PreviousBaseline, $IgnorePolicySha256, $Version) {
+function Assert-PolicyField($Baseline, $Field, $ExpectedValue) {
+    if (-not ($Baseline.PSObject.Properties.Name -contains $Field)) {
+        Fail "Incremental requires baseline.$Field; run FullRebuild."
+    }
+    if ([string]$Baseline.$Field -ne [string]$ExpectedValue) {
+        Fail "Incremental policy mismatch for $Field; run FullRebuild."
+    }
+}
+
+function Assert-IncrementalPreconditions($PreviousBaseline, $PolicyIdentity, $Version) {
     if ([int]$PreviousBaseline.schema_version -ne 2) { Fail "Incremental requires previous schema version 2." }
     if ($PreviousBaseline.graphify_version -ne $Version) { Fail "Incremental requires unchanged Graphify version; run FullRebuild." }
-    if ($PreviousBaseline.ignore_file_sha256 -ne $IgnorePolicySha256) { Fail "Incremental requires unchanged .graphifyignore policy; run FullRebuild." }
+    Assert-PolicyField $PreviousBaseline "ignore_file_sha256" $PolicyIdentity.ignore_file_sha256
+    Assert-PolicyField $PreviousBaseline "gitattributes_sha256" $PolicyIdentity.gitattributes_sha256
+    Assert-PolicyField $PreviousBaseline "indexed_source_root_policy" $PolicyIdentity.indexed_source_root_policy
+    Assert-PolicyField $PreviousBaseline "indexed_source_root_policy_sha256" $PolicyIdentity.indexed_source_root_policy_sha256
+    Assert-PolicyField $PreviousBaseline "package_boundary_policy" $PolicyIdentity.package_boundary_policy
+    Assert-PolicyField $PreviousBaseline "package_boundary_policy_sha256" $PolicyIdentity.package_boundary_policy_sha256
+    Assert-PolicyField $PreviousBaseline "graph_schema_contract" $PolicyIdentity.graph_schema_contract
+    Assert-PolicyField $PreviousBaseline "graph_schema_contract_sha256" $PolicyIdentity.graph_schema_contract_sha256
+    Assert-PolicyField $PreviousBaseline "manifest_schema_contract" $PolicyIdentity.manifest_schema_contract
+    Assert-PolicyField $PreviousBaseline "manifest_schema_contract_sha256" $PolicyIdentity.manifest_schema_contract_sha256
+    Assert-PolicyField $PreviousBaseline "baseline_metadata_contract" $PolicyIdentity.baseline_metadata_contract
+    Assert-PolicyField $PreviousBaseline "baseline_metadata_contract_sha256" $PolicyIdentity.baseline_metadata_contract_sha256
+    Assert-PolicyField $PreviousBaseline "policy_fingerprint_sha256" $PolicyIdentity.policy_fingerprint_sha256
     if ($PreviousBaseline.mode -ne "code-only") { Fail "Incremental requires unchanged code-only mode; run FullRebuild." }
 }
 
@@ -798,7 +959,7 @@ function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, 
     }
 }
 
-function Assert-Candidate($SourceRoot, $BuildRoot, $GraphDir, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $IgnorePolicySha256) {
+function Assert-Candidate($SourceRoot, $BuildRoot, $GraphDir, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $PolicyIdentity) {
     $graphPath = Join-Path $GraphDir "graph.json"
     $manifestPath = Join-Path $GraphDir "manifest.json"
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
@@ -820,12 +981,12 @@ function Assert-Candidate($SourceRoot, $BuildRoot, $GraphDir, $SourceCommit, $So
     $manifest = Assert-Json $manifestPath
     Assert-GraphStructure $graph $manifest
     Assert-CurrentCorpusPaths $SourceRoot $manifest $graph
-    $baseline = Write-Baseline $GraphDir $SourceCommit $SourceRef $TargetBranch $Version $graph $graphPath $IgnorePolicySha256
+    $baseline = Write-Baseline $GraphDir $SourceCommit $SourceRef $TargetBranch $Version $graph $graphPath $PolicyIdentity
     $baseline = Assert-Json (Join-Path $GraphDir "baseline.json")
 
     Assert-GeneratedAllowlist (Split-Path -Parent $GraphDir) $GraphDir
     Assert-SecretScan $GraphDir $graph $manifest $baseline
-    Assert-Metadata $SourceRoot $GraphDir $graph $baseline $SourceCommit $SourceRef $SourceRefSha $TargetBranch $Version $IgnorePolicySha256
+    Assert-Metadata $SourceRoot $GraphDir $graph $baseline $SourceCommit $SourceRef $SourceRefSha $TargetBranch $Version $PolicyIdentity
 
     return [pscustomobject]@{
         Graph = $graph
@@ -856,7 +1017,7 @@ function Test-CandidateMatchesAccepted($OutputRoot, $CandidateGraphDir) {
     if (-not (Test-Path -LiteralPath $acceptedGraphDir -PathType Container)) {
         return $false
     }
-    foreach ($file in @("graph.json", "manifest.json", "GRAPH_REPORT.md", "baseline.json")) {
+    foreach ($file in @("graph.json", "manifest.json", "GRAPH_REPORT.md")) {
         $candidate = Join-Path $CandidateGraphDir $file
         $accepted = Join-Path $acceptedGraphDir $file
         if (-not (Test-Path -LiteralPath $accepted -PathType Leaf)) {
@@ -868,16 +1029,27 @@ function Test-CandidateMatchesAccepted($OutputRoot, $CandidateGraphDir) {
             return $false
         }
     }
+    $candidateBaseline = Assert-Json (Join-Path $CandidateGraphDir "baseline.json")
+    $acceptedBaseline = Assert-Json (Join-Path $acceptedGraphDir "baseline.json")
+    $candidateComparable = $candidateBaseline | Select-Object -Property * -ExcludeProperty generated_at
+    $acceptedComparable = $acceptedBaseline | Select-Object -Property * -ExcludeProperty generated_at
+    $candidateJson = $candidateComparable | ConvertTo-Json -Depth 20 -Compress
+    $acceptedJson = $acceptedComparable | ConvertTo-Json -Depth 20 -Compress
+    if ($candidateJson -ne $acceptedJson) {
+        return $false
+    }
     return $true
 }
 
-function Publish-ValidatedGraph($OutputRoot, $CandidateGraphDir) {
+function Start-GraphPublicationTransaction($OutputRoot, $CandidateGraphDir) {
     $target = Join-Path $OutputRoot $GraphDirName
-    $tempParent = Join-Path $OutputRoot $TempDirName
-    $backup = Join-Path $tempParent "accepted-backup-$PID-$([Guid]::NewGuid().ToString('N'))"
+    $transactionRoot = Join-Path ([System.IO.Path]::GetTempPath()) "diag-project-graph-publication-$PID-$([Guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
+    $backup = Join-Path $transactionRoot "accepted-backup"
+    $hadPrevious = Test-Path -LiteralPath $target -PathType Container
 
     try {
-        if (Test-Path -LiteralPath $target) {
+        if ($hadPrevious) {
             Copy-Item -LiteralPath $target -Destination $backup -Recurse -Force
             Remove-Item -LiteralPath $target -Recurse -Force
         }
@@ -885,14 +1057,48 @@ function Publish-ValidatedGraph($OutputRoot, $CandidateGraphDir) {
         foreach ($file in @("graph.json", "manifest.json", "GRAPH_REPORT.md", "baseline.json")) {
             Copy-Item -LiteralPath (Join-Path $CandidateGraphDir $file) -Destination (Join-Path $target $file) -Force
         }
+        return [pscustomobject]@{
+            OutputRoot = $OutputRoot
+            Target = $target
+            TransactionRoot = $transactionRoot
+            Backup = $backup
+            HadPrevious = $hadPrevious
+            Started = $true
+        }
     } catch {
-        if (Test-Path -LiteralPath $target) {
-            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        if (Test-Path -LiteralPath $backup) {
-            Copy-Item -LiteralPath $backup -Destination $target -Recurse -Force
-        }
-        Fail "Validated graph publication failed; previous accepted output was restored from backup."
+        Restore-GraphPublicationTransaction ([pscustomobject]@{
+            OutputRoot = $OutputRoot
+            Target = $target
+            TransactionRoot = $transactionRoot
+            Backup = $backup
+            HadPrevious = $hadPrevious
+            Started = $true
+        })
+        Fail "Graph publication transaction failed during artifact replacement."
+    }
+}
+
+function Restore-GraphPublicationTransaction($Transaction) {
+    if ($null -eq $Transaction -or -not $Transaction.Started) {
+        return
+    }
+    if (Test-Path -LiteralPath $Transaction.Target) {
+        Remove-Item -LiteralPath $Transaction.Target -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($Transaction.HadPrevious -and (Test-Path -LiteralPath $Transaction.Backup -PathType Container)) {
+        Copy-Item -LiteralPath $Transaction.Backup -Destination $Transaction.Target -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $Transaction.TransactionRoot) {
+        Remove-Item -LiteralPath $Transaction.TransactionRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Complete-GraphPublicationTransaction($Transaction) {
+    if ($null -eq $Transaction) {
+        return
+    }
+    if (Test-Path -LiteralPath $Transaction.TransactionRoot) {
+        Remove-Item -LiteralPath $Transaction.TransactionRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -910,7 +1116,7 @@ function Assert-PublicationDiff($OutputRoot, $SourceCommit) {
     }
     $changedPaths = @($diffOutput -split "`r?`n" |
         Where-Object { $_.Trim() } |
-        ForEach-Object { $_.Substring(3).Trim().Replace("\", "/") } |
+        ForEach-Object { $_.Substring(2).Trim().Replace("\", "/") } |
         Sort-Object -Unique)
     if ($changedPaths.Count -eq 0) {
         return $false
@@ -922,6 +1128,30 @@ function Assert-PublicationDiff($OutputRoot, $SourceCommit) {
     return $true
 }
 
+function Invoke-ResultingTreeChecks($OutputRoot, $SourceRoot, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $PolicyIdentity) {
+    $acceptedGraphDir = Join-Path $OutputRoot $GraphDirName
+    $acceptedGraph = Assert-Json (Join-Path $acceptedGraphDir "graph.json")
+    $acceptedManifest = Assert-Json (Join-Path $acceptedGraphDir "manifest.json")
+    $acceptedBaseline = Assert-Json (Join-Path $acceptedGraphDir "baseline.json")
+    Assert-GeneratedAllowlist $OutputRoot $acceptedGraphDir
+    Assert-GraphStructure $acceptedGraph $acceptedManifest
+    Assert-CurrentCorpusPaths $SourceRoot $acceptedManifest $acceptedGraph
+    Assert-SecretScan $acceptedGraphDir $acceptedGraph $acceptedManifest $acceptedBaseline
+    Assert-Metadata $SourceRoot $acceptedGraphDir $acceptedGraph $acceptedBaseline $SourceCommit $SourceRef $SourceRefSha $TargetBranch $Version $PolicyIdentity
+    Assert-NoGraphifyIntegrations $OutputRoot
+    Assert-CleanGit $SourceRoot "Source"
+    $hasPublicationDiff = Assert-PublicationDiff $OutputRoot $SourceCommit
+    if (-not $hasPublicationDiff) {
+        Fail "Published graph artifacts produced no reviewable allowlisted diff."
+    }
+    return [pscustomobject]@{
+        Graph = $acceptedGraph
+        Manifest = $acceptedManifest
+        Baseline = $acceptedBaseline
+    }
+}
+
+try {
 $invocationRoot = Get-RepoRootFrom "."
 $outputRootFull = if ($OutputRoot) { Get-RepoRootFrom $OutputRoot } else { Fail "OutputRoot is required for graph publication." }
 $sourceRootFull = if ($SourceRoot) { Get-RepoRootFrom $SourceRoot } else { Fail "SourceRoot is required for graph publication." }
@@ -953,12 +1183,14 @@ $version = $Matches[1]
 if ($version -ne $ExpectedGraphifyVersion) {
     Fail "Graphify version mismatch."
 }
+$policyIdentity = Get-GraphPolicyIdentity $sourceRootFull $ignorePolicy.Sha256
 
 Remove-TempOutputs $outputRootFull
 $buildRoot = $null
 $candidateGraphDir = $null
 $result = $null
 $incrementalEvidence = $null
+$acceptedResult = $null
 
 try {
     $buildRoot = New-BuildCopy $sourceRootFull $outputRootFull
@@ -972,47 +1204,42 @@ try {
         if (-not (Test-Path -LiteralPath $acceptedBaselinePath)) {
             Fail "Accepted baseline is required for incremental mode."
         }
-        Copy-Item -LiteralPath $acceptedGraphDir -Destination $candidateGraphDir -Recurse -Force
+        New-Item -ItemType Directory -Path $candidateGraphDir -Force | Out-Null
+        Get-ChildItem -LiteralPath $acceptedGraphDir -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $candidateGraphDir -Recurse -Force
+        }
         $preGraph = Assert-Json (Join-Path $candidateGraphDir "graph.json")
         $preManifest = Assert-Json (Join-Path $candidateGraphDir "manifest.json")
         $previousBaseline = Assert-Json $acceptedBaselinePath
-        Assert-IncrementalPreconditions $previousBaseline $ignorePolicy.Sha256 $version
+        Assert-IncrementalPreconditions $previousBaseline $policyIdentity $version
         Invoke-GraphifyIncremental $buildRoot
         $postGraph = Assert-Json (Join-Path $candidateGraphDir "graph.json")
         $postManifest = Assert-Json (Join-Path $candidateGraphDir "manifest.json")
         $incrementalEvidence = Assert-IncrementalIntegrity $sourceRootFull $previousBaseline $preGraph $preManifest $postGraph $postManifest $sourceCommit
     }
 
-    $result = Assert-Candidate $sourceRootFull $buildRoot $candidateGraphDir $sourceCommit $SourceRef $sourceRefSha $TargetBranch $version $ignorePolicy.Sha256
+    $result = Assert-Candidate $sourceRootFull $buildRoot $candidateGraphDir $sourceCommit $SourceRef $sourceRefSha $TargetBranch $version $policyIdentity
     if (Test-CandidateMatchesAccepted $outputRootFull $candidateGraphDir) {
-        Write-Host "No graph publication changes: all four accepted artifacts are byte-identical."
+        Write-Host "No graph publication changes: accepted artifacts are semantically byte-current except volatile generated_at."
         exit 0
     }
     Assert-CleanGit $outputRootFull "Output"
-    Publish-ValidatedGraph $outputRootFull $candidateGraphDir
+    $transaction = Start-GraphPublicationTransaction $outputRootFull $candidateGraphDir
+    try {
+        $acceptedResult = Invoke-ResultingTreeChecks $outputRootFull $sourceRootFull $sourceCommit $SourceRef $sourceRefSha $TargetBranch $version $policyIdentity
+        Complete-GraphPublicationTransaction $transaction
+    } catch {
+        $failureCategory = [string]$_.Exception.Message
+        Restore-GraphPublicationTransaction $transaction
+        Fail "Graph publication transaction failed after artifact replacement: $failureCategory"
+    }
 } finally {
     if ($buildRoot -and (Test-Path -LiteralPath $buildRoot)) {
         Remove-Item -LiteralPath $buildRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
     Remove-TempOutputs $outputRootFull
 }
-
-$acceptedGraphDir = Join-Path $outputRootFull $GraphDirName
-$acceptedGraph = Assert-Json (Join-Path $acceptedGraphDir "graph.json")
-$acceptedManifest = Assert-Json (Join-Path $acceptedGraphDir "manifest.json")
-$acceptedBaseline = Assert-Json (Join-Path $acceptedGraphDir "baseline.json")
-Assert-GeneratedAllowlist $outputRootFull $acceptedGraphDir
-Assert-GraphStructure $acceptedGraph $acceptedManifest
-Assert-CurrentCorpusPaths $sourceRootFull $acceptedManifest $acceptedGraph
-Assert-SecretScan $acceptedGraphDir $acceptedGraph $acceptedManifest $acceptedBaseline
-Assert-Metadata $sourceRootFull $acceptedGraphDir $acceptedGraph $acceptedBaseline $sourceCommit $SourceRef $sourceRefSha $TargetBranch $version $ignorePolicy.Sha256
-Assert-NoGraphifyIntegrations $outputRootFull
-Assert-CleanGit $sourceRootFull "Source"
-$hasPublicationDiff = Assert-PublicationDiff $outputRootFull $sourceCommit
-if (-not $hasPublicationDiff) {
-    Write-Host "No graph publication changes: output tree remains byte-current."
-    exit 0
-}
+$acceptedBaseline = $acceptedResult.Baseline
 
 Write-Host "Graphify version: $version"
 Write-Host "Baseline stage: $BaselineStage"
@@ -1038,3 +1265,7 @@ foreach ($key in ($result.Confidence.Keys | Sort-Object)) {
 }
 
 exit 0
+} catch {
+    [Console]::Error.WriteLine([string]$_.Exception.Message)
+    exit 1
+}
