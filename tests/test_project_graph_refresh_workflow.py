@@ -107,12 +107,39 @@ elif case == "node_source_py_absent_from_manifest":
     source_file = "orphan.py"
 elif case == "node_source_excluded_existing":
     source_file = "openspec/changes/archive/old/tool.py"
+elif case == "manifest_wrong_case":
+    source_file = "App.py"
+edge_source_file = source_file
+if case == "edge_source_non_code":
+    edge_source_file = "notes.md"
+elif case == "edge_source_excluded":
+    edge_source_file = "openspec/changes/archive/old/tool.py"
+elif case == "edge_source_absent_from_manifest":
+    edge_source_file = "orphan.py"
+elif case == "edge_source_ignored_untracked":
+    edge_source_file = "local_only.py"
+elif case == "edge_source_wrong_case":
+    edge_source_file = "App.py"
+elif case == "edge_source_absolute":
+    edge_source_file = str(root / "app.py")
+elif case == "edge_source_traversal":
+    edge_source_file = "../app.py"
 
 nodes = [
     {"id": "module_app", "label": "app", "source_file": source_file, "file_type": "code"},
     {"id": "func_current", "label": "current", "source_file": source_file, "file_type": "code"},
 ]
-links = [{"source": "module_app", "target": "func_current", "relation": "contains", "confidence": "EXTRACTED"}]
+links = [{
+    "source": "module_app",
+    "target": "func_current",
+    "relation": "contains",
+    "confidence": "EXTRACTED",
+    "source_file": edge_source_file,
+    "source_location": "L1",
+    "weight": 1.0,
+    "_origin": "ast",
+    "confidence_score": 1.0,
+}]
 manifest_entry = {
     "mtime": 1785148858.0,
     "ast_hash": "b10a1b776ed5d52f87d47dc0aad00098",
@@ -520,6 +547,7 @@ kernel32.CloseHandle(handle)
             ("node_source_non_code_existing", "approved current code corpus"),
             ("node_source_py_absent_from_manifest", "validated manifest source set"),
             ("node_source_excluded_existing", "approved source corpus"),
+            ("manifest_wrong_case", "committed source tree"),
         ]
         for case, expected in cases:
             with self.subTest(case=case):
@@ -532,6 +560,36 @@ kernel32.CloseHandle(handle)
         self.git("reset", "--hard", self.source_sha, cwd=self.output)
         shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
         self.assert_wrapper_succeeds(env={"GRAPHIFY_FAKE_CASE": "valid"})
+
+    def test_graph_edge_sources_must_be_committed_manifest_corpus_members(self):
+        exclude_path = Path(self.git("rev-parse", "--git-path", "info/exclude", cwd=self.source).stdout.strip())
+        if not exclude_path.is_absolute():
+            exclude_path = self.source / exclude_path
+        self.write(exclude_path, "local_only.py\n")
+        self.write(self.source / "local_only.py", "def local_only():\n    return 'ignored'\n")
+        self.assertEqual("", self.git("status", "--short", cwd=self.source).stdout.strip())
+
+        cases = [
+            ("edge_source_non_code", "approved current code corpus"),
+            ("edge_source_excluded", "approved source corpus"),
+            ("edge_source_absent_from_manifest", "validated manifest source set"),
+            ("edge_source_ignored_untracked", "committed source tree"),
+            ("edge_source_wrong_case", "committed source tree"),
+            ("edge_source_absolute", "repository-relative"),
+            ("edge_source_traversal", "repository-relative"),
+        ]
+        for case, expected in cases:
+            with self.subTest(case=case):
+                self.git("reset", "--hard", self.source_sha, cwd=self.output)
+                shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+                result = self.run_wrapper(env={"GRAPHIFY_FAKE_CASE": case})
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(expected, result.stderr + result.stdout)
+
+        self.git("reset", "--hard", self.source_sha, cwd=self.output)
+        shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+        result = self.assert_wrapper_succeeds(env={"GRAPHIFY_FAKE_CASE": "valid"})
+        self.assertIn("Baseline stage: final", result.stdout)
 
     def test_edge_optional_metadata_schema_is_enforced(self):
         negative_cases = [

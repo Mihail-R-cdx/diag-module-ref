@@ -117,6 +117,16 @@ function Get-CommittedTrackedPaths($SourceRoot) {
     return $paths
 }
 
+function New-OrdinalStringSet($Values) {
+    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($value in @($Values)) {
+        if ($value) {
+            [void]$set.Add([string]$value)
+        }
+    }
+    return ,$set
+}
+
 function Test-PathExcludedFromCorpus($Path) {
     return $Path -match "^(graphify-out|openspec/changes/archive|node_modules|\.worktrees|logs|transfer|inventory|excel|credentials|secrets)(/|$)" -or
         $Path -match "(?i)(equipment_inventory\.local\.json|credentials\.local|\.xlsx$|\.xls$|\.env($|\.))"
@@ -391,32 +401,45 @@ function Test-PathIncludedInGraphCorpus($Path) {
     return (Test-SourcePathInCorpus $Path) -and -not (Test-PathExcludedFromCorpus $Path)
 }
 
+function Assert-GraphSourcePath($SourceRoot, $PathValue, $Purpose, $TrackedSourceSet, $ManifestSourceSet, $RequireManifestMembership) {
+    if (-not ($PathValue -is [string]) -or -not $PathValue) {
+        Fail "$Purpose source path must be a non-empty string."
+    }
+    $path = ([string]$PathValue).Replace("\", "/")
+    Assert-RepoRelativePath $path $Purpose
+    if (-not (Test-PathIncludedInGraphCorpus $path)) {
+        Fail "$Purpose source path is not in the approved current code corpus."
+    }
+    if (-not $TrackedSourceSet.Contains($path)) {
+        Fail "$Purpose source path is not present in committed source tree."
+    }
+    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:$path") "$Purpose source path is not present in committed source tree")
+    if ($RequireManifestMembership -and -not $ManifestSourceSet.Contains($path)) {
+        Fail "$Purpose source path is absent from validated manifest source set."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
+        Fail "$Purpose source path is not present in SourceRoot checkout."
+    }
+    return $path
+}
+
 function Assert-CurrentCorpusPaths($SourceRoot, $Manifest, $Graph) {
-    $manifestSourceSet = @{}
+    $trackedSourceSet = New-OrdinalStringSet (Get-CommittedTrackedPaths $SourceRoot)
+    $manifestSourceSet = New-OrdinalStringSet @()
     foreach ($path in (Get-ManifestSourceSet $Manifest)) {
-        Assert-RepoRelativePath $path "manifest source"
-        if (-not (Test-PathIncludedInGraphCorpus $path)) {
-            Fail "Manifest source path is not in the approved current code corpus."
-        }
-        if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
-            Fail "Manifest source path is not present in SourceRoot."
-        }
-        $manifestSourceSet[$path] = $true
+        $validatedPath = Assert-GraphSourcePath $SourceRoot $path "manifest" $trackedSourceSet $manifestSourceSet $false
+        [void]$manifestSourceSet.Add($validatedPath)
     }
 
     foreach ($node in (Get-GraphNodes $Graph)) {
         if ($node.PSObject.Properties.Name -contains "source_file" -and $node.source_file) {
-            $path = ([string]$node.source_file).Replace("\", "/")
-            Assert-RepoRelativePath $path "graph node source"
-            if (-not (Test-PathIncludedInGraphCorpus $path)) {
-                Fail "Graph node source path is not in the approved current code corpus."
-            }
-            if (-not $manifestSourceSet.ContainsKey($path)) {
-                Fail "Graph node source path is absent from validated manifest source set."
-            }
-            if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
-                Fail "Graph node source path is not present in SourceRoot."
-            }
+            [void](Assert-GraphSourcePath $SourceRoot $node.source_file "graph node" $trackedSourceSet $manifestSourceSet $true)
+        }
+    }
+
+    foreach ($edge in (Get-GraphLinks $Graph)) {
+        if ($edge.PSObject.Properties.Name -contains "source_file" -and $edge.source_file) {
+            [void](Assert-GraphSourcePath $SourceRoot $edge.source_file "graph edge" $trackedSourceSet $manifestSourceSet $true)
         }
     }
 }
