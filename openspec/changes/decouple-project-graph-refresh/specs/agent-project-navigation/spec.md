@@ -1,5 +1,10 @@
 # agent-project-navigation Delta
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: Refresh occurs at a controlled post-archive checkpoint`
+- TO: `### Requirement: Refresh occurs only as separate maintenance`
+
 ## MODIFIED Requirements
 
 ### Requirement: Published project graph is a frozen navigation baseline
@@ -99,7 +104,7 @@ The following graph-only commit `G` SHALL NOT replace `S` as `indexed_source_com
 - **THEN** baseline metadata continues to identify the exact older indexed source honestly
 - **AND** the map becomes stale navigation data without becoming invalid production or validation evidence.
 
-### Requirement: Refresh occurs at a controlled post-archive checkpoint
+### Requirement: Refresh occurs only as separate maintenance
 
 The historical `frozen-project-graph-baseline` publication used a controlled post-archive `A -> S -> E -> G` checkpoint. That ordering SHALL remain historical forensic evidence only and SHALL NOT define the lifecycle of future ordinary OpenSpec changes.
 
