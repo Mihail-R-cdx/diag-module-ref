@@ -2,8 +2,12 @@
 
 ## RENAMED Requirements
 
+- FROM: `### Requirement: Initial graph is local code-only and has no visualization`
+- TO: `### Requirement: Graph corpus is local code-only and has no visualization`
 - FROM: `### Requirement: Refresh occurs at a controlled post-archive checkpoint`
 - TO: `### Requirement: Refresh occurs only as separate maintenance`
+- FROM: `### Requirement: Documentation-only changes use a scoped refresh decision`
+- TO: `### Requirement: Ordinary changes do not trigger automatic refresh`
 
 ## MODIFIED Requirements
 
@@ -63,6 +67,25 @@ The wrapper SHALL NOT require an OpenSpec archive, `verification-report.md`, pos
 - **WHEN** an ordinary OpenSpec change reaches archive or post-archive checks
 - **THEN** the graph wrapper is not a mandatory lifecycle command
 - **AND** no Graphify input or evidence artifact is created for that change.
+
+### Requirement: Graph corpus is local code-only and has no visualization
+
+Every future maintenance refresh SHALL index only the actual supported code corpus using code-only behavior and SHALL disable or reject HTML visualization. It SHALL NOT require an external LLM API.
+
+Historical bootstrap terminology may remain in archived forensic artifacts and the existing committed baseline history, but the maintenance wrapper SHALL NOT expose a publishing mode named `Initial` or require a caller-selected bootstrap stage.
+
+#### Scenario: Maintenance baseline is generated
+
+- **WHEN** an authorized full rebuild runs on clean exact source commit `S`
+- **THEN** nonzero graph nodes and edges are produced from the approved code roots
+- **AND** OpenSpec Markdown, archived changes, real inventory, Excel, secrets, temporary worktrees, and graph output are absent from the indexed corpus
+- **AND** `graph.html` is neither required nor committed.
+
+#### Scenario: Publishing caller requests historical initial mode
+
+- **WHEN** a caller attempts to use the removed `Initial` publishing mode or caller-controlled bootstrap stage
+- **THEN** the repository-local wrapper rejects the unsupported interface
+- **AND** directs publication through the current maintenance `FullRebuild` or eligible `Incremental` mode.
 
 ### Requirement: Baseline metadata proves the indexed source
 
@@ -151,3 +174,21 @@ A generation or graph-review failure SHALL block only publication or merge of th
 - **GIVEN** an ordinary feature passes all required tests, strict validation, independent review, archive, and post-archive checks
 - **WHEN** the graph is stale or a separate maintenance attempt failed
 - **THEN** the feature may merge without a Graphify repair or stale-graph exception.
+
+### Requirement: Ordinary changes do not trigger automatic refresh
+
+No ordinary OpenSpec change SHALL automatically require graph refresh based on whether its diff contains code, tests, specifications, documentation, or other indexed or non-indexed repository paths. Refresh timing SHALL be a separate architectural maintenance decision based on accumulated staleness, structural navigation value, package-boundary changes, major movement or renames, integrity needs, or direct architect instruction.
+
+#### Scenario: Ordinary code change completes
+
+- **GIVEN** an ordinary change modifies indexed application code
+- **AND** it passes its approved lifecycle
+- **WHEN** it is ready to merge
+- **THEN** it may merge without graph refresh
+- **AND** the accumulated graph staleness may be considered later in a separate maintenance decision.
+
+#### Scenario: Documentation-only change completes
+
+- **WHEN** an ordinary change modifies only documentation and passes its approved lifecycle
+- **THEN** it does not require graph refresh
+- **AND** it does not need a special scoped refresh decision or Graphify evidence.
