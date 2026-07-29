@@ -1,21 +1,17 @@
-# agent-project-navigation Specification
+# agent-project-navigation Delta
 
-## Purpose
-TBD - created by archiving change frozen-project-graph-baseline. Update Purpose after archive.
-## Requirements
-### Requirement: Authority and confidence remain explicit
+## RENAMED Requirements
 
-Graph edges SHALL be consumed according to their confidence category.
-`EXTRACTED` is a static observation only; `INFERRED` is a navigation
-hypothesis; `AMBIGUOUS` SHALL NOT be used as evidence. Review findings SHALL
-cite current source evidence.
+- FROM: `### Requirement: Published project graph is a frozen navigation baseline`
+- TO: `### Requirement: Project graph is a local-only optional navigation helper`
+- FROM: `### Requirement: Graph generation is explicit and pinned`
+- TO: `### Requirement: Local graph helper is explicit and pinned`
+- FROM: `### Requirement: Initial graph is local code-only and has no visualization`
+- TO: `### Requirement: Local graph corpus is code-only and has no visualization`
+- FROM: `### Requirement: Security exclusions are layered and verified`
+- TO: `### Requirement: Local graph security exclusions are layered and verified`
 
-#### Scenario: Query returns an inferred relationship
-
-- **WHEN** a graph query returns an `INFERRED` or `AMBIGUOUS` relationship
-- **THEN** the agent labels the confidence honestly
-- **AND** opens the relevant source files
-- **AND** does not issue a material finding from graph output alone.
+## MODIFIED Requirements
 
 ### Requirement: Project graph is a local-only optional navigation helper
 
@@ -57,6 +53,20 @@ implementation, independent validation, archive, post-archive checks, or merge.
 - **WHEN** no local graph exists or the local graph is stale
 - **THEN** the change may continue and merge without generating or committing
   graph artifacts.
+
+### Requirement: Authority and confidence remain explicit
+
+Graph edges SHALL be consumed according to their confidence category.
+`EXTRACTED` is a static observation only; `INFERRED` is a navigation
+hypothesis; `AMBIGUOUS` SHALL NOT be used as evidence. Review findings SHALL
+cite current source evidence.
+
+#### Scenario: Query returns an inferred relationship
+
+- **WHEN** a graph query returns an `INFERRED` or `AMBIGUOUS` relationship
+- **THEN** the agent labels the confidence honestly
+- **AND** opens the relevant source files
+- **AND** does not issue a material finding from graph output alone.
 
 ### Requirement: Local graph helper is explicit and pinned
 
@@ -133,6 +143,8 @@ user-specific absolute paths.
 - **AND** no tracked repository file is modified
 - **AND** errors avoid printing secret values.
 
+## ADDED Requirements
+
 ### Requirement: Generated graph artifacts are not tracked
 
 The repository SHALL NOT track generated Graphify output. Implementation SHALL
@@ -180,3 +192,23 @@ exceptions, or any `A -> S -> E -> G` publication workflow.
 - **THEN** the failure affects only that local helper run
 - **AND** unrelated production validation, archive, post-archive checks, and
   merge decisions remain governed by authoritative project evidence.
+
+## REMOVED Requirements
+
+### Requirement: Baseline metadata proves the indexed source
+
+### Requirement: Generated committed files use an allowlist
+
+### Requirement: Frozen baseline remains unchanged during active work
+
+### Requirement: Refresh occurs at a controlled post-archive checkpoint
+
+### Requirement: Deletions and renames receive explicit integrity checks
+
+### Requirement: Graph consumption works through GitHub without local Graphify
+
+### Requirement: Reproducibility is topology-based where bytes are unstable
+
+### Requirement: Graph failure does not redefine production correctness
+
+### Requirement: Documentation-only changes use a scoped refresh decision
