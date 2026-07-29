@@ -5,12 +5,14 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = REPO_ROOT / "tools" / "refresh_project_graph.ps1"
+PYTHON = r"C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe"
 
 
 class LocalProjectGraphHelperTests(unittest.TestCase):
@@ -27,37 +29,79 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
                 import json
                 import os
                 import sys
+                import time
                 from pathlib import Path
 
                 args = sys.argv[1:]
                 if args == ["--version"]:
                     print(f"graphify {os.environ.get('GRAPHIFY_FAKE_VERSION', '0.9.26')}")
                     raise SystemExit(0)
+                if args == ["extract", "--help"]:
+                    print("Usage: graphify extract <path> [--out DIR|--output DIR] [--code-only] [--no-cluster]")
+                    raise SystemExit(0)
 
                 args_file = os.environ["GRAPHIFY_FAKE_ARGS_FILE"]
                 with open(args_file, "a", encoding="utf-8") as handle:
                     handle.write(json.dumps(args) + "\n")
 
-                source = Path(args[1]) if len(args) > 1 and args[0] == "extract" else Path.cwd()
-                output = Path(args[args.index("--output") + 1]) if "--output" in args else source / "graphify-out"
+                if len(args) != 6 or args[0] != "extract":
+                    print("unsupported graphify invocation", file=sys.stderr)
+                    raise SystemExit(64)
+                source = Path(args[1])
+                expected_tail = ["--code-only", "--no-cluster", "--out"]
+                if args[2:5] != expected_tail:
+                    print(f"unsupported graphify arguments: {args}", file=sys.stderr)
+                    raise SystemExit(64)
+                output_root = Path(args[5])
 
-                if os.environ.get("GRAPHIFY_FAKE_MUTATE_TRACKED"):
-                    (source / "tracked.py").write_text("mutated by fake graphify\n", encoding="utf-8")
+                started = os.environ.get("GRAPHIFY_FAKE_STARTED_FILE")
+                if started:
+                    Path(started).write_text("started\n", encoding="utf-8")
+                continue_file = os.environ.get("GRAPHIFY_FAKE_CONTINUE_FILE")
+                if continue_file:
+                    deadline = time.time() + 30
+                    while not Path(continue_file).exists():
+                        if time.time() > deadline:
+                            print("timed out waiting for continue marker", file=sys.stderr)
+                            raise SystemExit(65)
+                        time.sleep(0.05)
 
-                if os.environ.get("GRAPHIFY_FAKE_FAIL"):
-                    raise SystemExit(int(os.environ.get("GRAPHIFY_FAKE_FAIL", "7")))
+                if os.environ.get("GRAPHIFY_FAKE_MUTATE_SOURCE"):
+                    (source / "tracked.py").write_text("mutated disposable source\n", encoding="utf-8")
 
-                output.mkdir(parents=True, exist_ok=True)
+                if os.environ.get("GRAPHIFY_FAKE_FAIL_BEFORE_OUTPUT"):
+                    raise SystemExit(int(os.environ.get("GRAPHIFY_FAKE_FAIL_BEFORE_OUTPUT", "7")))
+
+                graph_dir = output_root / "graphify-out"
+                graph_dir.mkdir(parents=True, exist_ok=True)
+                (graph_dir / ".graphify_root").write_text(str(source), encoding="utf-8")
+                cache_dir = graph_dir / "cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                (cache_dir / "stat-index.json").write_text(json.dumps({"root": str(source)}), encoding="utf-8")
                 unsafe = os.environ.get("GRAPHIFY_FAKE_UNSAFE_TEXT", "")
+                marker = os.environ.get("GRAPHIFY_FAKE_MARKER", "current")
+                tracked_text = ""
+                tracked_path = source / "tracked.py"
+                if tracked_path.exists():
+                    tracked_text = tracked_path.read_text(encoding="utf-8")
                 graph = {
-                    "nodes": [{"id": "tracked", "source_file": "tracked.py", "note": unsafe}],
+                    "nodes": [
+                        {
+                            "id": "tracked",
+                            "source_file": "tracked.py",
+                            "marker": marker,
+                            "note": unsafe,
+                            "tracked_text": tracked_text,
+                        }
+                    ],
                     "edges": [],
                 }
-                (output / "graph.json").write_text(json.dumps(graph), encoding="utf-8")
-                (output / "manifest.json").write_text(json.dumps({"tracked.py": {"kind": "code"}}), encoding="utf-8")
-                (output / "GRAPH_REPORT.md").write_text("# Local graph\n", encoding="utf-8")
+                (graph_dir / "graph.json").write_text(json.dumps(graph), encoding="utf-8")
+                (graph_dir / "manifest.json").write_text(json.dumps({"tracked.py": {"kind": "code"}}), encoding="utf-8")
                 if os.environ.get("GRAPHIFY_FAKE_HTML"):
-                    (output / "graph.html").write_text("<html></html>\n", encoding="utf-8")
+                    (graph_dir / "graph.html").write_text("<html></html>\n", encoding="utf-8")
+                if os.environ.get("GRAPHIFY_FAKE_FAIL_AFTER_OUTPUT"):
+                    raise SystemExit(int(os.environ.get("GRAPHIFY_FAKE_FAIL_AFTER_OUTPUT", "8")))
                 raise SystemExit(0)
                 """
             ).strip()
@@ -136,7 +180,7 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
         env.update(
             {
                 "PATH": str(self.fake_bin) + os.pathsep + env.get("PATH", ""),
-                "PYTHON": sys.executable,
+                "PYTHON": PYTHON if Path(PYTHON).exists() else sys.executable,
                 "FAKE_GRAPHIFY_SCRIPT": str(self.fake_script),
                 "GRAPHIFY_FAKE_ARGS_FILE": str(self.fake_args),
             }
@@ -163,21 +207,79 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
             text=True,
         )
 
-    def git(self, repo, *args):
-        return subprocess.run(["git", *args], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    def start_wrapper(self, repo, *args, env=None):
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "tools" / "refresh_project_graph.ps1"),
+            *args,
+        ]
+        return subprocess.Popen(
+            command,
+            cwd=repo,
+            env=env or self.env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
 
-    def test_wrapper_uses_pinned_version_and_code_only_no_viz(self):
+    def git(self, repo, *args, check=True):
+        return subprocess.run(["git", *args], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=check)
+
+    def accepted_graph(self, repo):
+        return repo / ".graphify-local" / "accepted" / "graphify-out" / "graph.json"
+
+    def local_files(self, repo):
+        root = repo / ".graphify-local"
+        if not root.exists():
+            return []
+        return [path for path in root.rglob("*") if path.is_file()]
+
+    def staging_dirs(self, repo):
+        root = repo / ".graphify-local"
+        if not root.exists():
+            return []
+        return [path for path in root.iterdir() if path.is_dir() and path.name.startswith(".staging-")]
+
+    def wait_for_file(self, path):
+        deadline = time.time() + 30
+        while not path.exists():
+            if time.time() > deadline:
+                self.fail(f"timed out waiting for {path}")
+            time.sleep(0.05)
+
+    def test_actual_expected_cli_arguments_match_pinned_contract(self):
         repo = self.make_repo()
         result = self.run_wrapper(repo)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("graphifyy==0.9.26", result.stdout)
-        self.assertIn("Graphify version: 0.9.26", result.stdout)
         args = [json.loads(line) for line in self.fake_args.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(len(args), 1)
-        self.assertIn("--code-only", args[0])
-        self.assertIn("--no-viz", args[0])
-        self.assertIn("--ignore-file", args[0])
+        invocation = args[0]
+        self.assertEqual(invocation[0], "extract")
+        self.assertEqual(invocation[2:], ["--code-only", "--no-cluster", "--out", invocation[5]])
+        self.assertIn(".graphify-local", invocation[1])
+        self.assertIn(".staging-", invocation[1])
+        self.assertTrue(invocation[1].endswith("source"))
+        self.assertIn(".graphify-local", invocation[5])
+        self.assertTrue(invocation[5].endswith("output"))
+        self.assertNotIn("--ignore-file", invocation)
+        self.assertNotIn("--no-viz", invocation)
+
+    def test_fake_cli_rejects_unknown_arguments(self):
+        result = subprocess.run(
+            [str(self.fake_exe), "extract", "repo", "--code-only", "--bad", "--out", "out"],
+            env=self.env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported", result.stderr)
 
     def test_wrong_graphify_version_fails_nonzero(self):
         repo = self.make_repo()
@@ -186,12 +288,14 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected 0.9.26", result.stderr)
 
-    def test_default_generation_writes_only_to_graphify_local(self):
+    def test_real_output_nesting_is_promoted_to_accepted_output(self):
         repo = self.make_repo()
         result = self.run_wrapper(repo)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((repo / ".graphify-local" / "graph.json").is_file())
+        self.assertTrue(self.accepted_graph(repo).is_file())
+        self.assertFalse((repo / ".graphify-local" / "accepted" / "graphify-out" / ".graphify_root").exists())
+        self.assertFalse((repo / ".graphify-local" / "accepted" / "graphify-out" / "cache").exists())
         self.assertFalse((repo / "graphify-out").exists())
         self.assertEqual(self.git(repo, "status", "--short", "--untracked-files=all").stdout, "")
 
@@ -201,8 +305,8 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
         result = self.run_wrapper(invocation, "-SourceRoot", str(source))
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((source / ".graphify-local" / "graph.json").is_file())
-        self.assertFalse((invocation / ".graphify-local" / "graph.json").exists())
+        self.assertTrue(self.accepted_graph(source).is_file())
+        self.assertFalse(self.accepted_graph(invocation).exists())
         self.assertFalse((source / "graphify-out").exists())
 
     def test_no_output_root_or_publication_target_interface_remains(self):
@@ -227,40 +331,149 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("parameter", (result.stderr + result.stdout).lower())
 
-    def test_successful_generation_does_not_mutate_tracked_files(self):
+    def test_failed_generation_preserves_previous_accepted_output(self):
         repo = self.make_repo()
-        before = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        first = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_MARKER="accepted-v1"))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before = self.accepted_graph(repo).read_text(encoding="utf-8")
+
+        second = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_UNSAFE_TEXT="password=supersecretvalue12345"))
+
+        self.assertNotEqual(second.returncode, 0)
+        self.assertEqual(self.accepted_graph(repo).read_text(encoding="utf-8"), before)
+        self.assertIn("accepted-v1", self.accepted_graph(repo).read_text(encoding="utf-8"))
+
+    def test_unsafe_secret_candidate_is_removed_without_echoing_secret(self):
+        repo = self.make_repo()
+        secret = "password=supersecretvalue12345"
+        result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_UNSAFE_TEXT=secret))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unsafe Graphify output rejected", result.stderr)
+        self.assertNotIn("supersecretvalue12345", result.stderr + result.stdout)
+        self.assertFalse(any(secret in path.read_text(encoding="utf-8", errors="ignore") for path in self.local_files(repo)))
+
+    def test_html_candidate_is_removed(self):
+        repo = self.make_repo()
+        result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_HTML="1"))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("HTML visualization", result.stderr)
+        self.assertFalse(any(path.suffix.lower() in {".html", ".htm", ".xhtml"} for path in self.local_files(repo)))
+
+    def test_absolute_path_candidates_are_removed(self):
+        repo = self.make_repo()
+        unsafe_values = (
+            r"C:\Users\Mih\repo\tracked.py",
+            r"\\server\share\repo\tracked.py",
+            "/home/mih/repo/tracked.py",
+        )
+        for value in unsafe_values:
+            with self.subTest(value=value):
+                result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_UNSAFE_TEXT=value))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unsafe Graphify output rejected", result.stderr)
+                self.assertFalse(any(value in path.read_text(encoding="utf-8", errors="ignore") for path in self.local_files(repo)))
+
+    def test_staging_and_candidate_are_removed_after_success(self):
+        repo = self.make_repo()
         result = self.run_wrapper(repo)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((repo / "tracked.py").read_text(encoding="utf-8"), "print('stable')\n")
-        self.assertEqual(self.git(repo, "rev-parse", "HEAD").stdout.strip(), before)
-        self.assertEqual(self.git(repo, "status", "--short").stdout, "")
+        self.assertEqual(self.staging_dirs(repo), [])
+        self.assertTrue(self.accepted_graph(repo).is_file())
 
-    def test_failed_generation_does_not_mutate_tracked_files(self):
+    def test_staging_and_candidate_are_removed_after_failure(self):
         repo = self.make_repo()
-        result = self.run_wrapper(
-            repo,
-            env=self.env(GRAPHIFY_FAKE_MUTATE_TRACKED="1", GRAPHIFY_FAKE_FAIL="9"),
-        )
+        result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_FAIL_AFTER_OUTPUT="9"))
 
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.staging_dirs(repo), [])
+        self.assertFalse(self.accepted_graph(repo).exists())
+
+    def test_graphify_mutation_of_disposable_source_does_not_touch_real_checkout(self):
+        repo = self.make_repo()
+        result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_MUTATE_SOURCE="1"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((repo / "tracked.py").read_text(encoding="utf-8"), "print('stable')\n")
         self.assertEqual(self.git(repo, "status", "--short").stdout, "")
+
+    def test_concurrent_user_edit_real_tracked_file_is_not_lost(self):
+        repo = self.make_repo()
+        started = self.root / "started.txt"
+        keep_going = self.root / "continue.txt"
+        proc = self.start_wrapper(
+            repo,
+            env=self.env(GRAPHIFY_FAKE_STARTED_FILE=started, GRAPHIFY_FAKE_CONTINUE_FILE=keep_going),
+        )
+        self.wait_for_file(started)
+        (repo / "tracked.py").write_text("print('user edit while graphify runs')\n", encoding="utf-8")
+        keep_going.write_text("continue\n", encoding="utf-8")
+        stdout, stderr = proc.communicate(timeout=30)
+
+        self.assertEqual(proc.returncode, 0, stderr)
+        self.assertIn("Accepted local output", stdout)
+        self.assertEqual((repo / "tracked.py").read_text(encoding="utf-8"), "print('user edit while graphify runs')\n")
+        self.assertEqual(self.git(repo, "status", "--short").stdout, " M tracked.py\n")
+
+    def test_deleted_tracked_working_file_is_not_restored(self):
+        repo = self.make_repo()
+        (repo / "tracked.py").unlink()
+        result = self.run_wrapper(repo)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((repo / "tracked.py").exists())
+        self.assertEqual(self.git(repo, "status", "--short").stdout, " D tracked.py\n")
+
+    def test_existing_dirty_tracked_worktree_remains_byte_identical(self):
+        repo = self.make_repo()
+        dirty = "print('dirty working bytes')\n"
+        (repo / "tracked.py").write_text(dirty, encoding="utf-8")
+        before = (repo / "tracked.py").read_bytes()
+        result = self.run_wrapper(repo)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((repo / "tracked.py").read_bytes(), before)
+        self.assertEqual((repo / "tracked.py").read_text(encoding="utf-8"), dirty)
+        self.assertEqual(self.git(repo, "status", "--short").stdout, " M tracked.py\n")
+
+    def test_wrapper_never_creates_publication_state(self):
+        repo = self.make_repo()
+        before_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        before_branches = self.git(repo, "branch", "--format=%(refname:short)").stdout
+        result = self.run_wrapper(repo)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git(repo, "rev-parse", "HEAD").stdout.strip(), before_head)
+        self.assertEqual(self.git(repo, "branch", "--format=%(refname:short)").stdout, before_branches)
+        self.assertFalse((repo / ".git" / "worktrees").exists())
+        self.assertFalse((repo / "openspec" / "validation").exists())
+        self.assertNotIn("push", self.fake_args.read_text(encoding="utf-8"))
+        self.assertNotIn("archive", self.fake_args.read_text(encoding="utf-8"))
 
     def test_graphify_local_and_graphify_out_are_ignored_and_untracked(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("/.graphify-local/", gitignore)
         self.assertIn("/graphify-out/", gitignore)
-        remaining = subprocess.run(
-            ["git", "ls-files", "graphify-out"],
+        tracked_legacy = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "HEAD", "--", "graphify-out"],
             cwd=REPO_ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             check=True,
         ).stdout.strip()
-        self.assertEqual(remaining, "")
+        tracked_local = subprocess.run(
+            ["git", "ls-files", ".graphify-local"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        self.assertEqual(tracked_legacy, "")
+        self.assertEqual(tracked_local, "")
 
     def test_graphifyignore_excludes_local_output_and_sensitive_paths(self):
         ignore = (REPO_ROOT / ".graphifyignore").read_text(encoding="utf-8")
@@ -289,51 +502,6 @@ class LocalProjectGraphHelperTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, ignore)
-
-    def test_html_visualization_is_not_accepted_or_committed(self):
-        repo = self.make_repo()
-        result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_HTML="1"))
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("HTML visualization", result.stderr)
-        tracked_local = self.git(repo, "ls-files", ".graphify-local").stdout.strip()
-        self.assertEqual(tracked_local, "")
-
-    def test_secret_like_output_is_rejected_without_echoing_secret(self):
-        repo = self.make_repo()
-        secret = "password=supersecretvalue12345"
-        result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_UNSAFE_TEXT=secret))
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Unsafe Graphify output rejected", result.stderr)
-        self.assertNotIn("supersecretvalue12345", result.stderr + result.stdout)
-
-    def test_user_specific_absolute_paths_are_rejected(self):
-        repo = self.make_repo()
-        unsafe_values = (
-            r"C:\Users\Mih\repo\tracked.py",
-            r"\\server\share\repo\tracked.py",
-            "/home/mih/repo/tracked.py",
-        )
-        for value in unsafe_values:
-            with self.subTest(value=value):
-                result = self.run_wrapper(repo, env=self.env(GRAPHIFY_FAKE_UNSAFE_TEXT=value))
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("Unsafe Graphify output rejected", result.stderr)
-
-    def test_wrapper_never_creates_publication_state(self):
-        repo = self.make_repo()
-        before_head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
-        before_branches = self.git(repo, "branch", "--format=%(refname:short)").stdout
-        result = self.run_wrapper(repo)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.git(repo, "rev-parse", "HEAD").stdout.strip(), before_head)
-        self.assertEqual(self.git(repo, "branch", "--format=%(refname:short)").stdout, before_branches)
-        self.assertFalse((repo / ".git" / "worktrees").exists())
-        self.assertFalse((repo / "openspec" / "validation").exists())
-        self.assertNotIn("push", self.fake_args.read_text(encoding="utf-8"))
-        self.assertNotIn("archive", self.fake_args.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

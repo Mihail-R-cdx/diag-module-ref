@@ -8,6 +8,7 @@ Set-StrictMode -Version Latest
 $ExpectedGraphifyVersion = "0.9.26"
 $ExpectedGraphifyPackage = "graphifyy==$ExpectedGraphifyVersion"
 $LocalOutputDirName = ".graphify-local"
+$AcceptedDirName = "accepted"
 $LegacyOutputDirName = "graphify-out"
 $Utf8NoBomStrict = [System.Text.UTF8Encoding]::new($false, $true)
 
@@ -48,42 +49,75 @@ function Assert-PathUnderRoot($Root, $Path, $Purpose) {
 }
 
 function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
-    $output = (& git -C $Root @Arguments 2>&1 | Out-String).Trim()
+    $output = (& git -C $Root @Arguments 2>&1 | Out-String).TrimEnd()
     if ($LASTEXITCODE -ne 0) {
         Fail $FailureMessage
     }
     return $output
 }
 
-function Get-TrackedSnapshot($Root) {
+function Get-TrackedPaths($Root) {
     $pathsRaw = Invoke-GitChecked $Root @("ls-files", "-z") "Unable to list tracked source files."
-    $snapshot = @{}
-    foreach ($path in ($pathsRaw -split "`0")) {
-        if (-not $path) { continue }
-        $fullPath = Join-Path $Root $path
-        $snapshot[$path] = if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
-            [System.IO.File]::ReadAllBytes($fullPath)
-        } else {
-            $null
-        }
-    }
-    return $snapshot
+    return @($pathsRaw -split "`0" | Where-Object { $_ })
 }
 
-function Restore-TrackedSnapshot($Root, $Snapshot) {
-    foreach ($path in $Snapshot.Keys) {
-        $fullPath = Join-Path $Root $path
-        $parent = Split-Path -Parent $fullPath
-        if ($null -eq $Snapshot[$path]) {
-            if (Test-Path -LiteralPath $fullPath) {
-                Remove-Item -LiteralPath $fullPath -Force
-            }
+function Test-ExcludedSourcePath($RelativePath) {
+    $path = $RelativePath.Replace("\", "/")
+    $patterns = @(
+        "^\.git/",
+        "^\.agents/",
+        "^\.codex/",
+        "^\.worktrees/",
+        "^\.graphify-local/",
+        "^graphify-out/",
+        "^node_modules/",
+        "^(\.venv|venv)/",
+        "^__pycache__/",
+        "^openspec/changes/archive/",
+        "^logs/",
+        "^transfer/",
+        "^raw/",
+        "^diag-module-ref-pdu-archive/",
+        "^diag-module-ref-pdu-implementation/",
+        "(^|/)credentials\.local[^/]*\.json$",
+        "(^|/)equipment_inventory\.local\.json$",
+        "(^|/)\.env(\.|$)",
+        "\.(pem|key|pfx|p12|xlsx|xls|pyc|pyo|log|lnk)$",
+        "(^|/)(cookies|session)\.(txt|json)$",
+        "(^|/)call_records[^/]*\.json$",
+        "(^|/)(output|outputs|generated|artifacts)/"
+    )
+    foreach ($pattern in $patterns) {
+        if ($path -match $pattern) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Copy-TrackedSource($Root, $Destination) {
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    foreach ($relative in (Get-TrackedPaths $Root)) {
+        $relative = $relative.Replace("\", "/")
+        if (Test-ExcludedSourcePath $relative) {
             continue
         }
-        if (-not (Test-Path -LiteralPath $parent)) {
-            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        $sourcePath = Join-Path $Root $relative
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+            continue
         }
-        [System.IO.File]::WriteAllBytes($fullPath, [byte[]]$Snapshot[$path])
+        $sourceFull = Assert-PathUnderRoot $Root $sourcePath "Tracked source path"
+        $item = Get-Item -LiteralPath $sourceFull -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            continue
+        }
+        $destPath = Join-Path $Destination $relative
+        [void](Assert-PathUnderRoot $Destination $destPath "Disposable source path")
+        $destParent = Split-Path -Parent $destPath
+        if (-not (Test-Path -LiteralPath $destParent)) {
+            New-Item -ItemType Directory -Path $destParent -Force | Out-Null
+        }
+        [System.IO.File]::WriteAllBytes($destPath, [System.IO.File]::ReadAllBytes($sourceFull))
     }
 }
 
@@ -129,7 +163,6 @@ function Assert-GraphifyIgnore($Root) {
             Fail ".graphifyignore is missing required local corpus exclusion."
         }
     }
-    return $ignorePath
 }
 
 function Assert-OutputIgnored($Root) {
@@ -139,15 +172,6 @@ function Assert-OutputIgnored($Root) {
             Fail "Git ignore policy must ignore $path."
         }
     }
-}
-
-function Reset-LocalOutput($Root) {
-    $outputRoot = Assert-PathUnderRoot $Root (Join-Path $Root $LocalOutputDirName) "Local output path"
-    if (Test-Path -LiteralPath $outputRoot) {
-        Remove-Item -LiteralPath $outputRoot -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
-    return $outputRoot
 }
 
 function Test-UnsafeText($Text, $CheckoutRoot) {
@@ -207,6 +231,25 @@ function Assert-SafeOutput($Root, $OutputRoot) {
     }
 }
 
+function Remove-GraphifyByproducts($OutputRoot) {
+    $byproductNames = @(
+        ".graphify_root",
+        ".graphify_analysis.json",
+        ".graphify_labels.json"
+    )
+    foreach ($name in $byproductNames) {
+        Get-ChildItem -LiteralPath $OutputRoot -Recurse -Force -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $name } |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+    }
+    $byproductDirs = @("cache", "memory", "reflections")
+    foreach ($name in $byproductDirs) {
+        Get-ChildItem -LiteralPath $OutputRoot -Recurse -Force -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $name } |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+    }
+}
+
 function Assert-NoTrackedGraphOutput($Root) {
     $trackedLegacy = (& git -C $Root ls-files $LegacyOutputDirName 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
@@ -225,8 +268,19 @@ function Assert-NoTrackedGraphOutput($Root) {
     }
 }
 
+function Promote-AcceptedOutput($LocalRoot, $CandidateOutput) {
+    $accepted = Join-Path $LocalRoot $AcceptedDirName
+    $nextAccepted = Join-Path $LocalRoot (".accepted-next-" + [Guid]::NewGuid().ToString("N"))
+    Copy-Item -LiteralPath $CandidateOutput -Destination $nextAccepted -Recurse -Force
+    if (Test-Path -LiteralPath $accepted) {
+        Remove-Item -LiteralPath $accepted -Recurse -Force
+    }
+    Move-Item -LiteralPath $nextAccepted -Destination $accepted
+    return $accepted
+}
+
 $sourceRootFull = Get-RepoRootFrom $SourceRoot
-$ignoreFile = Assert-GraphifyIgnore $sourceRootFull
+Assert-GraphifyIgnore $sourceRootFull
 Assert-OutputIgnored $sourceRootFull
 Assert-NoTrackedGraphOutput $sourceRootFull
 
@@ -235,20 +289,30 @@ if ($version -ne $ExpectedGraphifyVersion) {
     Fail "Graphify version mismatch. Expected $ExpectedGraphifyVersion."
 }
 
-$trackedSnapshot = Get-TrackedSnapshot $sourceRootFull
-$outputRoot = Reset-LocalOutput $sourceRootFull
+$localRoot = Assert-PathUnderRoot $sourceRootFull (Join-Path $sourceRootFull $LocalOutputDirName) "Local output path"
+New-Item -ItemType Directory -Path $localRoot -Force | Out-Null
+
+$stagingRoot = Join-Path $localRoot (".staging-" + [Guid]::NewGuid().ToString("N"))
+$stagingSource = Join-Path $stagingRoot "source"
+$candidateOutput = Join-Path $stagingRoot "output"
+$acceptedOutput = $null
 $graphifySucceeded = $false
 
 try {
-    & graphify extract $sourceRootFull --code-only --no-viz --ignore-file $ignoreFile --output $outputRoot
+    Copy-TrackedSource $sourceRootFull $stagingSource
+    & graphify extract $stagingSource --code-only --no-cluster --out $candidateOutput
     if ($LASTEXITCODE -ne 0) {
         Fail "graphify extract failed."
     }
     $graphifySucceeded = $true
-    Assert-SafeOutput $sourceRootFull $outputRoot
+    Remove-GraphifyByproducts $candidateOutput
+    Assert-SafeOutput $sourceRootFull $candidateOutput
     Assert-NoTrackedGraphOutput $sourceRootFull
+    $acceptedOutput = Promote-AcceptedOutput $localRoot $candidateOutput
 } finally {
-    Restore-TrackedSnapshot $sourceRootFull $trackedSnapshot
+    if (Test-Path -LiteralPath $stagingRoot) {
+        Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if (-not $graphifySucceeded) {
@@ -258,9 +322,9 @@ if (-not $graphifySucceeded) {
 Write-Host "Graphify package: $ExpectedGraphifyPackage"
 Write-Host "Graphify version: $version"
 Write-Host "Mode: code-only"
-Write-Host "HTML visualization: disabled"
+Write-Host "Clustering/HTML visualization: disabled"
 Write-Host "Source repository: $sourceRootFull"
-Write-Host "Local output: $outputRoot"
+Write-Host "Accepted local output: $acceptedOutput"
 Write-Host "Output is ignored and disposable."
 
 exit 0

@@ -55,11 +55,16 @@ To build from an explicitly supplied local checkout:
 The wrapper writes accepted output only under:
 
 ```text
-.graphify-local/
+.graphify-local/accepted/
 ```
 
-The directory is ignored by Git and disposable. Delete and rebuild it whenever
-the local graph is stale or unwanted:
+The wrapper uses temporary staging directories named `.graphify-local/.staging-*`
+while it builds and validates a candidate graph. Staging directories are removed
+after success or failure. The previous accepted graph is kept if a new candidate
+fails validation.
+
+The entire `.graphify-local/` directory is ignored by Git and disposable. Delete
+and rebuild it whenever the local graph is stale or unwanted:
 
 ```powershell
 Remove-Item -Recurse -Force .\.graphify-local\
