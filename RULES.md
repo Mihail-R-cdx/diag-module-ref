@@ -29,10 +29,12 @@ a frozen baseline tied to `graphify-out/baseline.json`, not a model of every
 active branch and not a replacement for this file, OpenSpec, current source, or
 tests.
 
-If `baseline.json.baseline_stage` is `bootstrap`, the graph is pre-archive and
-non-final. Use it only for implementation review of the Graphify workflow; the
-next ordinary change uses the `final` baseline produced after independent
-review, archive, post-archive validation, and a graph-only commit.
+Graphify refresh is separate repository maintenance, not a stage of ordinary
+OpenSpec delivery. Ordinary architecture, implementation, independent
+validation, archive, post-archive checks, and merge do not require graph
+refresh, renewed validation solely for Graphify, validation-report-only
+commits, Graphify evidence JSON, evidence-only commits, graph-only commits, or
+stale-graph merge exceptions.
 
 Before using the graph, read this file, applicable OpenSpec artifacts,
 `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`. Verify the
@@ -42,9 +44,12 @@ material conclusions and review findings must be verified in source. `INFERRED`
 and `AMBIGUOUS` relationships are not review evidence.
 
 During implementation and validation, agents MUST NOT silently rebuild or
-incrementally refresh the graph. Refresh is allowed only at an approved workflow
-checkpoint. An absent or stale graph does not block ordinary development; report
-that condition explicitly. Validation sessions must not modify graph artifacts.
+incrementally refresh the graph. Refresh is allowed only as an explicitly
+authorized architect-triggered maintenance operation from one exact stable
+remote `master` commit `S` to a graph-only commit `G` after lightweight graph
+review. An absent, invalid, or stale graph does not block ordinary
+implementation, validation, archive, post-archive checks, or merge; report that
+condition explicitly. Validation sessions must not modify graph artifacts.
 
 ## Python Interpreter
 

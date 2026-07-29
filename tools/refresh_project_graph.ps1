@@ -1,10 +1,8 @@
 param(
-    [ValidateSet("Initial", "Incremental", "FullRebuild", "InstallExact")]
-    [string]$Mode = "Initial",
-    [string]$BaselineStage = "",
+    [ValidateSet("Incremental", "FullRebuild", "InstallExact")]
+    [string]$Mode = "FullRebuild",
     [string]$SourceRef = "origin/master",
     [string]$TargetBranch = "master",
-    [string]$PostArchiveValidationEvidence = "",
     [string]$SourceRoot = "",
     [string]$OutputRoot = "",
     [int]$MaxChangedFilesForIncremental = 25,
@@ -19,7 +17,7 @@ Set-StrictMode -Version Latest
 $ExpectedGraphifyVersion = "0.9.26"
 $GraphDirName = "graphify-out"
 $TempDirName = ".graphify-tmp"
-$ApprovedPostArchiveValidationEvidence = "openspec/validation/frozen-project-graph-baseline.post-archive.json"
+$BaselineStage = "final"
 $AllowedGenerated = @(
     "graphify-out/graph.json",
     "graphify-out/manifest.json",
@@ -49,6 +47,9 @@ function RelPath($Path, $Root) {
 }
 
 function Get-RepoRootFrom($Path) {
+    if (-not $Path) {
+        Fail "Repository path is required."
+    }
     $root = (& git -C $Path rev-parse --show-toplevel 2>$null)
     if ($LASTEXITCODE -ne 0 -or -not $root) {
         Fail "Not inside a Git repository: $Path"
@@ -58,6 +59,70 @@ function Get-RepoRootFrom($Path) {
 
 function Get-Sha256($Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
+    $output = (& git -C $Root @Arguments 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail "$FailureMessage`: $output"
+    }
+    return $output
+}
+
+function Get-GitSha($Root, $Ref) {
+    $sha = (& git -C $Root rev-parse $Ref 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $sha -notmatch "^[0-9a-f]{40}$") {
+        Fail "Unable to resolve Git ref '$Ref'."
+    }
+    return $sha
+}
+
+function Assert-CleanGit($Root, $Purpose) {
+    $status = (& git -C $Root status --short 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail "git status failed for $Purpose worktree."
+    }
+    if ($status) {
+        Fail "$Purpose worktree is not clean."
+    }
+}
+
+function Assert-SameExactBase($SourceRoot, $OutputRoot, $SourceRef) {
+    $sourceFull = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $outputFull = [System.IO.Path]::GetFullPath($OutputRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    if ([string]::Equals($sourceFull, $outputFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Fail "SourceRoot and OutputRoot must be distinct Git worktrees."
+    }
+
+    Assert-CleanGit $SourceRoot "Source"
+    Assert-CleanGit $OutputRoot "Output"
+
+    $sourceCommit = Get-GitSha $SourceRoot "HEAD"
+    $sourceRefSha = Get-GitSha $SourceRoot $SourceRef
+    $outputCommit = Get-GitSha $OutputRoot "HEAD"
+
+    if ($sourceCommit -ne $sourceRefSha) {
+        Fail "SourceRef must resolve to SourceRoot HEAD."
+    }
+    if ($outputCommit -ne $sourceCommit) {
+        Fail "OutputRoot HEAD must equal source commit S."
+    }
+
+    & git -C $OutputRoot diff --quiet $sourceCommit --
+    if ($LASTEXITCODE -ne 0) {
+        Fail "OutputRoot has a pre-existing diff from source commit S."
+    }
+
+    return [pscustomobject]@{
+        SourceCommit = $sourceCommit
+        SourceRefSha = $sourceRefSha
+    }
+}
+
+function Assert-TargetBranch($TargetBranch) {
+    if ($TargetBranch -ne "master") {
+        Fail "TargetBranch must be master for the approved graph maintenance workflow."
+    }
 }
 
 function ConvertTo-CanonicalGeneratedTextArtifact($GraphDir, $ArtifactName) {
@@ -93,233 +158,18 @@ function ConvertTo-CanonicalGeneratedTextArtifact($GraphDir, $ArtifactName) {
     [System.IO.File]::WriteAllText($pathFull, $text, $Utf8NoBomStrict)
 }
 
-function Get-GitSha($Root, $Ref) {
-    $sha = (& git -C $Root rev-parse $Ref 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $sha -notmatch "^[0-9a-f]{40}$") {
-        Fail "Unable to resolve Git ref '$Ref' in $Root`: $sha"
-    }
-    return $sha
-}
-
-function Assert-CleanGit($Root, $Purpose) {
-    $status = (& git -C $Root status --short 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Fail "git status failed for $Purpose`: $status"
-    }
-    if ($status) {
-        Fail "$Purpose worktree is not clean. Refusing to publish graph metadata for uncommitted bytes."
-    }
-}
-
-function Get-BaselineStageValue($BaselineStage) {
-    if ($BaselineStage -notin @("Bootstrap", "Final")) {
-        Fail "BaselineStage is required and must be either Bootstrap or Final."
-    }
-    return $BaselineStage.ToLowerInvariant()
-}
-
-function Assert-FinalSourceContainsGraphifyTooling($SourceRoot) {
-    $required = @(
-        "tools/refresh_project_graph.ps1",
-        ".graphifyignore",
-        "docs/project-graph-runbook.md",
-        "RULES.md"
-    )
-    foreach ($item in $required) {
-        if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $item))) {
-            Fail "Final baseline source is missing required graph workflow file: $item"
-        }
-    }
-}
-
-function Get-PathUnderRoot($Root, $Path, $Purpose) {
-    if (-not $Path) {
-        Fail "$Purpose path is required."
-    }
-    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
-    $candidate = if ([System.IO.Path]::IsPathRooted($Path)) {
-        [System.IO.Path]::GetFullPath($Path)
-    } else {
-        [System.IO.Path]::GetFullPath((Join-Path $Root $Path))
-    }
-    $rootPrefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
-    if ($candidate -ne $rootFull -and -not $candidate.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-        Fail "$Purpose must be inside the source tree: $Path"
-    }
-    return $candidate
-}
-
-function Test-GitAncestor($Root, $Ancestor, $Descendant) {
-    & git -C $Root merge-base --is-ancestor $Ancestor $Descendant 2>$null
-    return ($LASTEXITCODE -eq 0)
-}
-
-function Invoke-GitChecked($Root, $Arguments, $FailureMessage) {
-    $output = (& git -C $Root @Arguments 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Fail "$FailureMessage`: $output"
-    }
-    return $output
-}
-
-function Assert-TrackedHeadEvidence($SourceRoot, $EvidenceFull) {
-    $relativeEvidencePath = RelPath $EvidenceFull $SourceRoot
-    if ($relativeEvidencePath -ne $ApprovedPostArchiveValidationEvidence) {
-        Fail "Post-archive validation evidence must be exactly $ApprovedPostArchiveValidationEvidence."
-    }
-
-    & git -C $SourceRoot check-ignore --no-index --quiet -- $relativeEvidencePath
-    if ($LASTEXITCODE -eq 0) {
-        Fail "Post-archive validation evidence must not be ignored: $relativeEvidencePath"
-    }
-    if ($LASTEXITCODE -ne 1) {
-        Fail "Unable to verify ignore status for post-archive validation evidence: $relativeEvidencePath"
-    }
-
-    [void](Invoke-GitChecked $SourceRoot @("ls-files", "--error-unmatch", "--", $relativeEvidencePath) "Post-archive validation evidence must be tracked in Git")
-    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:$relativeEvidencePath") "Post-archive validation evidence must exist in SourceRoot HEAD")
-
-    $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:$relativeEvidencePath") "Unable to read HEAD blob for post-archive validation evidence"
-    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=$relativeEvidencePath", "--", $EvidenceFull) "Unable to hash working-tree post-archive validation evidence"
-    if ($headBlob -ne $workingBlob) {
-        Fail "Post-archive validation evidence working-tree content must hash to the SourceRoot HEAD blob after repository filters."
-    }
-
-    return $relativeEvidencePath
-}
-
-function Assert-EvidenceOnlyCommitDelta($SourceRoot, $ValidatedSourceCommit, $SourceCommit) {
-    $previousEvidencePath = (& git -C $SourceRoot ls-tree -r --name-only $ValidatedSourceCommit -- $ApprovedPostArchiveValidationEvidence 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Fail "Unable to verify post-archive validation evidence absence from validated_source_commit: $previousEvidencePath"
-    }
-    if ($previousEvidencePath) {
-        Fail "Post-archive validation evidence must be created by the evidence commit and absent from validated_source_commit."
-    }
-
-    $diffOutput = (& git -C $SourceRoot diff --name-only $ValidatedSourceCommit $SourceCommit -- 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Fail "Unable to verify evidence-only delta from validated_source_commit to SourceRoot HEAD: $diffOutput"
-    }
-    $changedPaths = @($diffOutput -split "`r?`n" |
-        Where-Object { $_.Trim() } |
-        ForEach-Object { $_.Trim().Replace("\", "/") } |
-        Sort-Object -Unique)
-    if ($changedPaths.Count -ne 1 -or $changedPaths[0] -ne $ApprovedPostArchiveValidationEvidence) {
-        $actual = if ($changedPaths.Count -eq 0) { "<none>" } else { $changedPaths -join ", " }
-        Fail "Final evidence commit delta from validated_source_commit to SourceRoot HEAD must contain only $ApprovedPostArchiveValidationEvidence; actual: $actual"
-    }
-}
-
-function Assert-EvidenceCheckPassed($Evidence, $Name) {
-    if ($Evidence.PSObject.Properties.Name -notcontains $Name) {
-        Fail "Post-archive validation evidence is missing required check: $Name"
-    }
-    $value = $Evidence.$Name
-    $status = if ($value -is [string]) {
-        $value
-    } elseif ($null -ne $value -and $value.PSObject.Properties.Name -contains "status") {
-        [string]$value.status
-    } else {
-        ""
-    }
-    if ($status.ToLowerInvariant() -ne "pass") {
-        Fail "Post-archive validation evidence check '$Name' must have status pass."
-    }
-}
-
-function Assert-FinalWorkflowGate($SourceRoot, $SourceCommit, $EvidencePath) {
-    if (-not $EvidencePath) {
-        Fail "Final baseline requires -PostArchiveValidationEvidence pointing to project-owned post-archive validation JSON."
-    }
-
-    $evidenceFull = Get-PathUnderRoot $SourceRoot $EvidencePath "PostArchiveValidationEvidence"
-    if (-not (Test-Path -LiteralPath $evidenceFull -PathType Leaf)) {
-        Fail "Post-archive validation evidence file is missing: $EvidencePath"
-    }
-    [void](Assert-TrackedHeadEvidence $SourceRoot $evidenceFull)
-    $evidence = Assert-Json $evidenceFull
-
-    if ($evidence.change_name -ne "frozen-project-graph-baseline") {
-        Fail "Post-archive validation evidence change_name must be frozen-project-graph-baseline."
-    }
-    if ([string]$evidence.archive_commit -notmatch "^[0-9a-f]{40}$") {
-        Fail "Post-archive validation evidence archive_commit must be a full commit SHA."
-    }
-    $archiveCommit = Get-GitSha $SourceRoot ([string]$evidence.archive_commit)
-    if ([string]$evidence.validated_source_commit -notmatch "^[0-9a-f]{40}$") {
-        Fail "Post-archive validation evidence validated_source_commit must be a full commit SHA."
-    }
-    $validatedSourceCommit = Get-GitSha $SourceRoot ([string]$evidence.validated_source_commit)
-    if (-not (Test-GitAncestor $SourceRoot $archiveCommit $validatedSourceCommit)) {
-        Fail "Post-archive validation evidence archive_commit must be an ancestor of validated_source_commit."
-    }
-    if (-not (Test-GitAncestor $SourceRoot $validatedSourceCommit $SourceCommit)) {
-        Fail "Post-archive validation evidence validated_source_commit must be an ancestor of SourceRoot HEAD."
-    }
-    Assert-EvidenceOnlyCommitDelta $SourceRoot $validatedSourceCommit $SourceCommit
-
-    $archiveRoot = Join-Path $SourceRoot "openspec/changes/archive"
-    if (-not (Test-Path -LiteralPath $archiveRoot -PathType Container)) {
-        Fail "Final baseline requires archived OpenSpec changes under openspec/changes/archive/."
-    }
-    $archivedChangeDirs = @(Get-ChildItem -LiteralPath $archiveRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq "frozen-project-graph-baseline" -or $_.Name -like "*-frozen-project-graph-baseline" })
-    if ($archivedChangeDirs.Count -eq 0) {
-        Fail "Final baseline requires archived change artifact for frozen-project-graph-baseline under openspec/changes/archive/."
-    }
-    $archiveSpecFound = $false
-    foreach ($dir in $archivedChangeDirs) {
-        if (Test-Path -LiteralPath (Join-Path $dir.FullName "specs/agent-project-navigation/spec.md") -PathType Leaf) {
-            $archiveSpecFound = $true
-            break
-        }
-    }
-    if (-not $archiveSpecFound) {
-        Fail "Archived frozen-project-graph-baseline artifact must include specs/agent-project-navigation/spec.md."
-    }
-
-    $activeChange = Join-Path $SourceRoot "openspec/changes/frozen-project-graph-baseline"
-    if (Test-Path -LiteralPath $activeChange) {
-        Fail "Final baseline requires active openspec/changes/frozen-project-graph-baseline/ to be archived first."
-    }
-
-    foreach ($check in @("openspec_change_validation", "openspec_all_validation", "python_tests", "git_diff_check")) {
-        Assert-EvidenceCheckPassed $evidence $check
-    }
-}
-
-function Get-GraphVersion {
-    $versionText = (& graphify --version 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Fail "graphify --version failed: $versionText"
-    }
-    if ($versionText -notmatch "graphify\s+([0-9]+\.[0-9]+\.[0-9]+)") {
-        Fail "Unable to parse Graphify version from: $versionText"
-    }
-    return $Matches[1]
-}
-
 function Assert-Json($Path) {
     try {
         $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
         return $raw | ConvertFrom-Json
     } catch {
-        Fail "Invalid JSON: $Path"
+        Fail "Invalid JSON: $(Split-Path -Leaf $Path)"
     }
 }
 
 function Count-Graph($Graph) {
-    $nodes = @()
-    $edges = @()
-    if ($Graph.PSObject.Properties.Name -contains "nodes" -and $null -ne $Graph.nodes) {
-        $nodes = @($Graph.nodes)
-    }
-    if ($Graph.PSObject.Properties.Name -contains "links" -and $null -ne $Graph.links) {
-        $edges = @($Graph.links)
-    } elseif ($Graph.PSObject.Properties.Name -contains "edges" -and $null -ne $Graph.edges) {
-        $edges = @($Graph.edges)
-    }
+    $nodes = @(Get-GraphNodes $Graph)
+    $edges = @(Get-GraphLinks $Graph)
     return @{ Nodes = $nodes.Count; Edges = $edges.Count }
 }
 
@@ -348,31 +198,79 @@ function Get-ManifestSourceSet($Manifest) {
     return @($paths | Sort-Object -Unique)
 }
 
-function Get-NodeIdentitySet($Graph) {
-    return @(Get-GraphNodes $Graph | ForEach-Object { [string]$_.id } | Sort-Object -Unique)
-}
-
-function Get-LinkIdentitySet($Graph) {
-    return @(Get-GraphLinks $Graph | ForEach-Object {
-        $confidence = if ($_.PSObject.Properties.Name -contains "confidence" -and $_.confidence) { $_.confidence } else { "NOT_AVAILABLE" }
-        "$($_.source)|$($_.target)|$($_.relation)|$confidence|$($_.source_file)|$($_.source_location)"
-    } | Sort-Object -Unique)
-}
-
-function Get-ConfidenceSummary($Graph) {
-    $summary = @{}
-    foreach ($link in (Get-GraphLinks $Graph)) {
-        $confidence = if ($link.PSObject.Properties.Name -contains "confidence" -and $link.confidence) {
-            [string]$link.confidence
-        } else {
-            "NOT_AVAILABLE"
-        }
-        if (-not $summary.ContainsKey($confidence)) {
-            $summary[$confidence] = 0
-        }
-        $summary[$confidence] += 1
+function Assert-RepoRelativePath($Path, $Purpose) {
+    if (-not $Path) {
+        Fail "$Purpose path is empty."
     }
-    return $summary
+    if ([System.IO.Path]::IsPathRooted($Path) -or $Path -match "^[A-Za-z]:[\\/]" -or $Path -match "^\\\\" -or $Path -match "(^|/)\.\.(/|$)") {
+        Fail "$Purpose path must be repository-relative."
+    }
+    if ($Path -match "^(graphify-out|openspec/changes/archive|node_modules|\.worktrees|logs|transfer|diag-module-ref-pdu-archive|diag-module-ref-pdu-implementation)(/|$)") {
+        Fail "$Purpose path is outside the approved source corpus."
+    }
+    if ($Path -match "(?i)(equipment_inventory\.local\.json|credentials\.local|\.xlsx$|\.xls$|\.env($|\.))") {
+        Fail "$Purpose path is excluded from the graph corpus."
+    }
+}
+
+function Test-SourcePathInCorpus($Path) {
+    return $Path -match "(?i)\.(py|json|toml|yaml|yml|js|ts|tsx|jsx|ps1|cmd|bat)$"
+}
+
+function Assert-CurrentCorpusPaths($SourceRoot, $Manifest, $Graph) {
+    foreach ($path in (Get-ManifestSourceSet $Manifest)) {
+        Assert-RepoRelativePath $path "manifest source"
+        if (-not (Test-SourcePathInCorpus $path)) {
+            Fail "Manifest source path is not an approved code/config file."
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
+            Fail "Manifest source path is not present in SourceRoot."
+        }
+    }
+
+    foreach ($node in (Get-GraphNodes $Graph)) {
+        if ($node.PSObject.Properties.Name -contains "source_file" -and $node.source_file) {
+            $path = ([string]$node.source_file).Replace("\", "/")
+            Assert-RepoRelativePath $path "graph node source"
+            if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
+                Fail "Graph node source path is not present in SourceRoot."
+            }
+        }
+    }
+}
+
+function Assert-GraphStructure($Graph, $Manifest) {
+    $nodes = @(Get-GraphNodes $Graph)
+    $links = @(Get-GraphLinks $Graph)
+    if ($nodes.Count -le 0 -or $links.Count -le 0) {
+        Fail "Graph must contain nonzero nodes and edges. Found nodes=$($nodes.Count), edges=$($links.Count)."
+    }
+    if (@($Manifest.PSObject.Properties.Name).Count -le 0) {
+        Fail "Manifest must contain a nonzero source corpus."
+    }
+
+    $ids = @{}
+    foreach ($node in $nodes) {
+        if (-not ($node.PSObject.Properties.Name -contains "id") -or -not [string]$node.id) {
+            Fail "Graph node is missing id."
+        }
+        $id = [string]$node.id
+        if ($ids.ContainsKey($id)) {
+            Fail "Graph contains duplicate node id."
+        }
+        $ids[$id] = $true
+    }
+
+    foreach ($link in $links) {
+        $source = if ($link.PSObject.Properties.Name -contains "source") { [string]$link.source } else { "" }
+        $target = if ($link.PSObject.Properties.Name -contains "target") { [string]$link.target } else { "" }
+        if (-not $source -or -not $target) {
+            Fail "Graph edge is missing source or target."
+        }
+        if (-not $ids.ContainsKey($source) -or -not $ids.ContainsKey($target)) {
+            Fail "Graph edge contains broken internal node reference."
+        }
+    }
 }
 
 function Get-JsonScalarsWithPath($Value, $Path) {
@@ -462,11 +360,11 @@ function Test-SecretScalars($Artifact, $Scalars) {
         if ($value -match "://[^/\s:@]+:[^/\s@]+@") { Add-SecretFinding $findings $Artifact $jsonPath "url-embedded-credential" $value }
         if ($value -match "(?i)\b(cookie|session|token|csrf)\b[^A-Za-z0-9]{0,8}[A-Za-z0-9._~+/=-]{24,}") { Add-SecretFinding $findings $Artifact $jsonPath "session-token-value" $value }
         if ($value -match "equipment_inventory\.local\.json") { Add-SecretFinding $findings $Artifact $jsonPath "equipment-inventory-local-file" $value }
-        if ($value -match "(?i)\.xls[xm]?\b") { Add-SecretFinding $findings $Artifact $jsonPath "excel-file-reference" $value }
-        if ($value -match "(^|/|\\)\.worktrees($|/|\\)") { Add-SecretFinding $findings $Artifact $jsonPath "temporary-worktree-path" $value }
+        if ($value -match "(?i)\.(xlsx|xls)\b") { Add-SecretFinding $findings $Artifact $jsonPath "excel-path" $value }
+        if ($value -match "(^|/|\\)\.worktrees($|/|\\)|(^|/|\\)$TempDirName($|/|\\)") { Add-SecretFinding $findings $Artifact $jsonPath "temporary-worktree-path" $value }
         if ($value -match "(^|/|\\)graphify-out($|/|\\)") { Add-SecretFinding $findings $Artifact $jsonPath "graph-output-self-indexing" $value }
-        if (-not $isKnownHashField -and $value.Length -ge 40 -and $value -match "^\S+$" -and $value -match "[a-z]" -and $value -match "[A-Z]" -and $value -match "\d" -and (Get-ShannonEntropy $value) -ge 4.5) {
-            Add-SecretFinding $findings $Artifact $jsonPath "high-entropy-string-literal" $value
+        if (-not $isKnownHashField -and $value.Length -ge 40 -and $value -match "^[A-Za-z0-9_./+=-]+$" -and (Get-ShannonEntropy $value) -ge 4.5) {
+            Add-SecretFinding $findings $Artifact $jsonPath "high-entropy-token-like-value" $value
         }
     }
     return @($findings)
@@ -486,15 +384,16 @@ function Assert-SecretScan($GraphDir, $Graph, $Manifest, $Baseline) {
         foreach ($finding in $allFindings) {
             Write-Error "Secret/path scan finding: artifact=$($finding.Artifact); path=$($finding.JsonPath); category=$($finding.Category); fingerprint=$($finding.Fingerprint)"
         }
-        Fail "Generated graph artifacts failed strengthened secret/path scan."
+        Fail "Generated graph artifacts failed secret/path scan."
     }
 }
 
-function Assert-GraphifyIgnore($OutputRoot) {
-    $ignorePath = Join-Path $OutputRoot ".graphifyignore"
-    if (-not (Test-Path -LiteralPath $ignorePath)) {
-        Fail ".graphifyignore is required in the output worktree."
+function Assert-SourceGraphifyIgnore($SourceRoot) {
+    $ignorePath = Join-Path $SourceRoot ".graphifyignore"
+    if (-not (Test-Path -LiteralPath $ignorePath -PathType Leaf)) {
+        Fail ".graphifyignore is required in SourceRoot."
     }
+
     $text = Get-Content -LiteralPath $ignorePath -Raw -Encoding UTF8
     $required = @(
         "graphify-out/",
@@ -508,16 +407,27 @@ function Assert-GraphifyIgnore($OutputRoot) {
     )
     foreach ($entry in $required) {
         if ($text -notmatch [regex]::Escape($entry)) {
-            Fail ".graphifyignore is missing required rule: $entry"
+            Fail ".graphifyignore is missing required source-policy rule."
         }
     }
     if ($text -match "[A-Za-z]:\\|/Users/|/home/|/tmp/") {
         Fail ".graphifyignore contains a user-specific absolute path."
     }
+
+    [void](Invoke-GitChecked $SourceRoot @("cat-file", "-e", "HEAD:.graphifyignore") ".graphifyignore must exist in source HEAD")
+    $headBlob = Invoke-GitChecked $SourceRoot @("rev-parse", "HEAD:.graphifyignore") "Unable to read source HEAD .graphifyignore blob"
+    $workingBlob = Invoke-GitChecked $SourceRoot @("hash-object", "--path=.graphifyignore", "--", $ignorePath) "Unable to hash source .graphifyignore after repository filters"
+    if ($headBlob -ne $workingBlob) {
+        Fail "SourceRoot .graphifyignore must match committed source bytes after repository filters."
+    }
+    return [pscustomobject]@{
+        Path = $ignorePath
+        Sha256 = Get-Sha256 $ignorePath
+    }
 }
 
 function New-TempRoot($OutputRoot) {
-    $tempParent = Join-Path $OutputRoot $TempDirName
+    $tempParent = Join-Path ([System.IO.Path]::GetTempPath()) "diag-project-graph-refresh"
     New-Item -ItemType Directory -Force -Path $tempParent | Out-Null
     $name = "graph-build-$PID-$([Guid]::NewGuid().ToString('N'))"
     $tempRoot = Join-Path $tempParent $name
@@ -537,9 +447,6 @@ function New-BuildCopy($SourceRoot, $OutputRoot) {
         Fail "tar extraction failed for temporary source copy."
     }
     Remove-Item -LiteralPath $tarPath -Force
-
-    $ignoreSource = Join-Path $OutputRoot ".graphifyignore"
-    Copy-Item -LiteralPath $ignoreSource -Destination (Join-Path $buildRoot ".graphifyignore") -Force
     return $buildRoot
 }
 
@@ -567,43 +474,27 @@ function Remove-UncommittedGraphifyByproducts($GraphDir) {
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 }
 
-function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch) {
+function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit, $SourceRef, $TargetBranch) {
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
     if (-not (Test-Path -LiteralPath $reportPath)) {
         return
     }
 
     $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8
-    if ($BaselineStage -eq "bootstrap") {
-        $policy = @(
-            "## Bootstrap Frozen Baseline Policy",
-            "- Built from source commit: ``$SourceCommit``",
-            "- Indexed source ref: ``$SourceRef``",
-            "- Target branch: ``$TargetBranch``",
-            "- Stage: bootstrap, pre-archive, non-final.",
-            "- This frozen project baseline verifies the initial Graphify integration, wrapper, corpus filters, security scans, smoke queries, and reproducibility.",
-            "- This graph is not the navigation baseline for the next change.",
-            "- Do not rebuild or incrementally update the graph during active implementation, review, testing, or validation.",
-            '- Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.',
-            '- Compare `indexed_source_commit` with the current branch and analyze the branch diff separately.',
-            "- Build the final baseline only after independent review, archive, and post-archive validation."
-        ) -join "`r`n"
-    } else {
-        $policy = @(
-            "## Final Frozen Baseline Policy",
-            "- Built from post-archive validated source commit: ``$SourceCommit``",
-            "- Indexed source ref: ``$SourceRef``",
-            "- Target branch: ``$TargetBranch``",
-            "- Stage: final.",
-            "- This is the frozen project baseline for subsequent project navigation.",
-            "- Do not rebuild or incrementally update the graph during active implementation, review, testing, or validation.",
-            '- Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.',
-            '- Compare `indexed_source_commit` with the current branch and analyze the branch diff separately.',
-            "- Refresh only at the approved post-archive graph checkpoint."
-        ) -join "`r`n"
-    }
+    $policy = @(
+        "## Final Frozen Baseline Policy",
+        "- Built from stable source commit: ``$SourceCommit``",
+        "- Indexed source ref: ``$SourceRef``",
+        "- Target branch: ``$TargetBranch``",
+        "- Stage: final.",
+        "- This graph is optional frozen navigation data, not validation evidence.",
+        "- Ordinary OpenSpec changes do not rebuild or repair it.",
+        "- Refresh only as separately authorized graph maintenance from exact source ``S`` to graph-only commit ``G``.",
+        '- Read `RULES.md`, `docs/project-graph-runbook.md`, and `graphify-out/baseline.json`.',
+        '- Compare `indexed_source_commit` with current branches and analyze diffs separately.'
+    ) -join "`r`n"
 
-    $pattern = "(?s)## Graph Freshness.*?(?=^## |\z)"
+    $pattern = "(?s)## (Bootstrap|Final) Frozen Baseline Policy.*?(?=^## |\z)"
     if ($report -match $pattern) {
         $report = [regex]::Replace($report, $pattern, ($policy.TrimEnd() + "`r`n`r`n"), "Multiline")
     } else {
@@ -614,7 +505,7 @@ function Set-FrozenGraphReportPolicy($GraphDir, $SourceCommit, $BaselineStage, $
     [System.IO.File]::WriteAllText($reportPath, $report, $Utf8NoBomStrict)
 }
 
-function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch) {
+function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit, $SourceRef, $TargetBranch) {
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
     if (-not (Test-Path -LiteralPath $reportPath)) {
         return
@@ -626,14 +517,14 @@ function Sanitize-GraphReport($GraphDir, $BuildRoot, $SourceCommit, $BaselineSta
     $report = $report.Replace($buildFull, $projectLabel).Replace($buildForward, $projectLabel)
     $report = $report.TrimEnd()
     [System.IO.File]::WriteAllText($reportPath, $report, $Utf8NoBomStrict)
-    Set-FrozenGraphReportPolicy $GraphDir $SourceCommit $BaselineStage $SourceRef $TargetBranch
+    Set-FrozenGraphReportPolicy $GraphDir $SourceCommit $SourceRef $TargetBranch
 
     $updated = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8
     if ($updated -match [regex]::Escape($ForbiddenFreshnessAdvice)) {
         Fail "GRAPH_REPORT.md still contains forbidden generated freshness advice."
     }
-    if ($updated -notmatch "(Bootstrap|Final) Frozen Baseline Policy" -or $updated -notmatch "frozen project baseline") {
-        Fail "GRAPH_REPORT.md does not contain the frozen baseline policy block."
+    if ($updated -notmatch "Final Frozen Baseline Policy") {
+        Fail "GRAPH_REPORT.md does not contain the final frozen baseline policy block."
     }
 }
 
@@ -672,96 +563,6 @@ function Invoke-GraphifyIncremental($BuildRoot) {
     } finally {
         Pop-Location
     }
-}
-
-function Get-NodeById($Graph, $Id) {
-    foreach ($node in (Get-GraphNodes $Graph)) {
-        if ([string]$node.id -eq $Id) {
-            return $node
-        }
-    }
-    return $null
-}
-
-function Get-LinkByIdentity($Graph, $Source, $Target, $Relation) {
-    foreach ($link in (Get-GraphLinks $Graph)) {
-        if ([string]$link.source -eq $Source -and [string]$link.target -eq $Target -and [string]$link.relation -eq $Relation) {
-            return $link
-        }
-    }
-    return $null
-}
-
-function Assert-SourceContains($SourceRoot, $Path, $Pattern, $Query) {
-    $sourcePath = Join-Path $SourceRoot $Path
-    if (-not (Test-Path -LiteralPath $sourcePath)) {
-        Fail "Smoke query '$Query' source missing: $Path"
-    }
-    $sourceText = Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8
-    if ($sourceText -notmatch $Pattern) {
-        Fail "Smoke query '$Query' was not confirmed in source path $Path."
-    }
-}
-
-function Assert-SmokeNode($Graph, $SourceRoot, $Query, $Id, $Label, $SourcePath, $SourcePattern) {
-    $node = Get-NodeById $Graph $Id
-    if ($null -eq $node) {
-        Fail "Smoke query '$Query' did not find node id $Id."
-    }
-    if ([string]$node.label -ne $Label) {
-        Fail "Smoke query '$Query' matched wrong label for $Id."
-    }
-    if ([string]$node.source_file -ne $SourcePath) {
-        Fail "Smoke query '$Query' matched wrong source path for $Id."
-    }
-    if ([string]$node.file_type -ne "code") {
-        Fail "Smoke query '$Query' matched non-code node $Id."
-    }
-    Assert-SourceContains $SourceRoot $SourcePath $SourcePattern $Query
-    return [pscustomobject]@{
-        query = $Query
-        matched_node_ids = @($Id)
-        source_paths = @($SourcePath)
-        edge_ids = @()
-        edge_types = @()
-        confidence = @("NODE")
-        source_confirmed = $true
-    }
-}
-
-function Assert-SmokeEdge($Graph, $SourceRoot, $Query, $SourceId, $TargetId, $Relation, $SourcePath, $SourcePattern) {
-    $sourceNode = Get-NodeById $Graph $SourceId
-    $targetNode = Get-NodeById $Graph $TargetId
-    $link = Get-LinkByIdentity $Graph $SourceId $TargetId $Relation
-    if ($null -eq $sourceNode -or $null -eq $targetNode -or $null -eq $link) {
-        Fail "Smoke query '$Query' missing edge $SourceId --$Relation--> $TargetId."
-    }
-    $confidence = if ($link.PSObject.Properties.Name -contains "confidence" -and $link.confidence) { [string]$link.confidence } else { "NOT_AVAILABLE" }
-    if ($confidence -eq "AMBIGUOUS") {
-        Fail "Smoke query '$Query' found AMBIGUOUS evidence, which is not acceptable."
-    }
-    Assert-SourceContains $SourceRoot $SourcePath $SourcePattern $Query
-    return [pscustomobject]@{
-        query = $Query
-        matched_node_ids = @($SourceId, $TargetId)
-        source_paths = @($SourcePath)
-        edge_ids = @("$SourceId|$Relation|$TargetId")
-        edge_types = @($Relation)
-        confidence = @($confidence)
-        source_confirmed = $true
-    }
-}
-
-function Invoke-SmokeQueries($SourceRoot, $Graph) {
-    $results = @()
-    $results += Assert-SmokeNode $Graph $SourceRoot "PDUController" "gui_pdu_controller_pducontroller" "PDUController" "gui/pdu_controller.py" "class\s+PDUController\b"
-    $results += Assert-SmokeNode $Graph $SourceRoot "InteractiveSessionController" "core_interactive_session_interactivesessioncontroller" "InteractiveSessionController" "core/interactive_session.py" "class\s+InteractiveSessionController\b"
-    $results += Assert-SmokeNode $Graph $SourceRoot "EquipmentInventory" "core_equipment_inventory_equipmentinventory" "EquipmentInventory" "core/equipment_inventory.py" "class\s+EquipmentInventory\b"
-    $results += Assert-SmokeEdge $Graph $SourceRoot "credential fallback ownership" "core_interactive_session_interactivesessioncontroller_acquire_handler" "core_credentials_credentialattemptplan" "calls" "core/interactive_session.py" "CredentialAttemptPlan\(context\.candidates,\s*start_index\)"
-    $results += Assert-SmokeEdge $Graph $SourceRoot "accepted PDU refresh to enrichment controller" "gui_main_window_vcsdiagnosticapp_on_pdu_refresh_accepted_for_enrichment" "gui_main_window_vcsdiagnosticapp_pdu_room_codec_controller" "calls" "gui/main_window.py" "_on_pdu_refresh_accepted_for_enrichment"
-    $results += Assert-SmokeEdge $Graph $SourceRoot "related codec resolver navigation hint" "core_room_context_roomcontextresolver_resolve_related_codec" "core_equipment_inventory_equipmentinventory" "references" "core/room_context.py" "inventory\.find_by_ip\(pdu_ip_address\)"
-    $results += Assert-SmokeEdge $Graph $SourceRoot "related codec status operation navigation hint" "gui_pdu_room_codec_enrichment_pduroomcodecenrichmentcontroller_handler_factory" "core_related_codec_status_relatedcodecstatusadapter_read_status" "indirect_call" "gui/pdu_room_codec_enrichment.py" "_status_adapter\.read_status\(related_handler,\s*expected_model\)"
-    return $results
 }
 
 function Assert-GeneratedAllowlist($OutputRoot, $GraphDir) {
@@ -837,7 +638,7 @@ function Assert-NoGraphifyIntegrations($OutputRoot) {
         Fail "Repository-local merge driver configuration present."
     }
     if ($LASTEXITCODE -notin @(0, 1)) {
-        Fail "Unable to inspect repository-local merge driver configuration: $mergeDriverConfig"
+        Fail "Unable to inspect repository-local merge driver configuration."
     }
 
     $gitattributes = Join-Path $OutputRoot ".gitattributes"
@@ -847,25 +648,9 @@ function Assert-NoGraphifyIntegrations($OutputRoot) {
             Fail "Graphify merge driver attribute present in .gitattributes."
         }
     }
-
-    $documentaryPathPattern = "^(openspec|docs)/|^RULES\.md$|^tools/refresh_project_graph\.ps1$"
-    $repoTextFiles = Get-ChildItem -LiteralPath $OutputRoot -File -Recurse -Force -ErrorAction SilentlyContinue |
-        Where-Object {
-            $rel = RelPath $_.FullName $OutputRoot
-            $rel -notmatch "^(\.git|graphify-out|node_modules|$TempDirName)/" -and
-                $rel -notmatch $documentaryPathPattern -and
-                $_.Length -lt 1048576
-        }
-    foreach ($file in $repoTextFiles) {
-        $rel = RelPath $file.FullName $OutputRoot
-        $text = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
-        if ($text -match "(?i)\bgraphify(\.exe)?\s+(watch|mcp)\b") {
-            Fail "Unexpected Graphify watch/MCP integration command in $rel."
-        }
-    }
 }
 
-function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $BaselineStage, $SourceRef, $TargetBranch, $GraphifyVersion, $Graph, $GraphPath) {
+function Write-Baseline($GraphDir, $SourceCommit, $SourceRef, $TargetBranch, $GraphifyVersion, $Graph, $GraphPath, $IgnorePolicySha256) {
     $counts = Count-Graph $Graph
     if ($counts.Nodes -le 0 -or $counts.Edges -le 0) {
         Fail "Graph must contain nonzero nodes and edges. Found nodes=$($counts.Nodes), edges=$($counts.Edges)."
@@ -882,7 +667,7 @@ function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $BaselineStage, $
         target_branch = $TargetBranch
         generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         graph_sha256 = Get-Sha256 $GraphPath
-        ignore_file_sha256 = Get-Sha256 (Join-Path $OutputRoot ".graphifyignore")
+        ignore_file_sha256 = $IgnorePolicySha256
         node_count = $counts.Nodes
         edge_count = $counts.Edges
     }
@@ -894,10 +679,9 @@ function Write-Baseline($OutputRoot, $GraphDir, $SourceCommit, $BaselineStage, $
     return (Assert-Json $baselinePath)
 }
 
-function Assert-Metadata($OutputRoot, $SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommit, $BaselineStage, $SourceRef, $SourceRefSha, $TargetBranch, $Version) {
+function Assert-Metadata($SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $IgnorePolicySha256) {
     $counts = Count-Graph $Graph
     $graphPath = Join-Path $GraphDir "graph.json"
-    $ignorePath = Join-Path $OutputRoot ".graphifyignore"
     if ([int]$Baseline.schema_version -ne 2) { Fail "baseline.schema_version mismatch." }
     if ($Baseline.PSObject.Properties.Name -contains "indexed_branch") { Fail "baseline.indexed_branch is obsolete and must not be present." }
     if ($Baseline.generator -ne "graphify") { Fail "baseline.generator mismatch." }
@@ -909,13 +693,9 @@ function Assert-Metadata($OutputRoot, $SourceRoot, $GraphDir, $Graph, $Baseline,
     if ($Baseline.graphify_version -ne $Version) { Fail "baseline.graphify_version mismatch." }
     if ($Baseline.mode -ne "code-only") { Fail "baseline.mode mismatch." }
     if ($Baseline.graph_sha256 -ne (Get-Sha256 $graphPath)) { Fail "baseline.graph_sha256 mismatch." }
-    if ($Baseline.ignore_file_sha256 -ne (Get-Sha256 $ignorePath)) { Fail "baseline.ignore_file_sha256 mismatch." }
+    if ($Baseline.ignore_file_sha256 -ne $IgnorePolicySha256) { Fail "baseline.ignore_file_sha256 mismatch." }
     if ([int]$Baseline.node_count -ne [int]$counts.Nodes) { Fail "baseline.node_count mismatch." }
     if ([int]$Baseline.edge_count -ne [int]$counts.Edges) { Fail "baseline.edge_count mismatch." }
-}
-
-function Test-SourcePathInCorpus($Path) {
-    return $Path -match "(?i)\.(py|json|toml|yaml|yml|js|ts|tsx|jsx|ps1|cmd|bat)$"
 }
 
 function Get-GitNameStatus($SourceRoot, $PreviousCommit, $CurrentCommit) {
@@ -924,7 +704,7 @@ function Get-GitNameStatus($SourceRoot, $PreviousCommit, $CurrentCommit) {
     }
     $lines = @(& git -C $SourceRoot diff --name-status --find-renames $PreviousCommit $CurrentCommit)
     if ($LASTEXITCODE -ne 0) {
-        Fail "Unable to compute source diff from $PreviousCommit to $CurrentCommit."
+        Fail "Unable to compute source diff for incremental mode."
     }
     $changes = @()
     foreach ($line in $lines) {
@@ -944,16 +724,23 @@ function Get-GitNameStatus($SourceRoot, $PreviousCommit, $CurrentCommit) {
     return $changes
 }
 
+function Assert-IncrementalPreconditions($PreviousBaseline, $IgnorePolicySha256, $Version) {
+    if ([int]$PreviousBaseline.schema_version -ne 2) { Fail "Incremental requires previous schema version 2." }
+    if ($PreviousBaseline.graphify_version -ne $Version) { Fail "Incremental requires unchanged Graphify version; run FullRebuild." }
+    if ($PreviousBaseline.ignore_file_sha256 -ne $IgnorePolicySha256) { Fail "Incremental requires unchanged .graphifyignore policy; run FullRebuild." }
+    if ($PreviousBaseline.mode -ne "code-only") { Fail "Incremental requires unchanged code-only mode; run FullRebuild." }
+}
+
 function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, $PreManifest, $PostGraph, $PostManifest, $CurrentCommit) {
     $previousCommit = [string]$PreviousBaseline.indexed_source_commit
     $changes = @(Get-GitNameStatus $SourceRoot $previousCommit $CurrentCommit)
     $changedCount = [Math]::Max(1, $changes.Count)
     $deleteRenameCount = @($changes | Where-Object { $_.Kind -in @("deleted", "renamed") }).Count
     if ($changes.Count -gt $MaxChangedFilesForIncremental) {
-        Fail "Incremental integrity rejected $($changes.Count) changed files; run FullRebuild."
+        Fail "Incremental integrity rejected changed-file count; run FullRebuild."
     }
     if ($deleteRenameCount -gt $MaxDeletedOrRenamedFilesForIncremental) {
-        Fail "Incremental integrity rejected $deleteRenameCount deleted/renamed files; run FullRebuild."
+        Fail "Incremental integrity rejected deleted/renamed-file count; run FullRebuild."
     }
 
     $postManifestPaths = @(Get-ManifestSourceSet $PostManifest)
@@ -961,15 +748,15 @@ function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, 
     foreach ($change in $changes) {
         if ($change.Kind -eq "deleted") {
             if ($postManifestPaths -contains $change.OldPath -or $postNodePaths -contains $change.OldPath) {
-                Fail "Ghost node/source path after deletion: $($change.OldPath); run FullRebuild."
+                Fail "Ghost node/source path after deletion; run FullRebuild."
             }
         }
         if ($change.Kind -eq "renamed") {
             if ($postManifestPaths -contains $change.OldPath -or $postNodePaths -contains $change.OldPath) {
-                Fail "Ghost node/source path after rename: $($change.OldPath); run FullRebuild."
+                Fail "Ghost node/source path after rename; run FullRebuild."
             }
             if ((Test-SourcePathInCorpus $change.NewPath) -and -not ($postManifestPaths -contains $change.NewPath)) {
-                Fail "Renamed source path missing from post-update manifest: $($change.NewPath); run FullRebuild."
+                Fail "Renamed source path missing from post-update manifest; run FullRebuild."
             }
         }
     }
@@ -981,13 +768,13 @@ function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, 
     }
     $preUnchangedNodeIds = @(Get-GraphNodes $PreGraph | Where-Object {
         $path = [string]$_.source_file
-            $path -and -not $changedPaths.ContainsKey($path)
+        $path -and -not $changedPaths.ContainsKey($path)
     } | ForEach-Object { [string]$_.id } | Sort-Object -Unique)
     $postIds = @{}
-    foreach ($id in (Get-NodeIdentitySet $PostGraph)) { $postIds[$id] = $true }
+    foreach ($id in (Get-GraphNodes $PostGraph | ForEach-Object { [string]$_.id } | Sort-Object -Unique)) { $postIds[$id] = $true }
     $lost = @($preUnchangedNodeIds | Where-Object { -not $postIds.ContainsKey($_) })
     if ($lost.Count -gt 0) {
-        Fail "Incremental update lost $($lost.Count) unchanged node identities; run FullRebuild."
+        Fail "Incremental update lost unchanged node identities; run FullRebuild."
     }
 
     $preCounts = Count-Graph $PreGraph
@@ -995,10 +782,10 @@ function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, 
     $nodeDelta = [int]$postCounts.Nodes - [int]$preCounts.Nodes
     $edgeDelta = [int]$postCounts.Edges - [int]$preCounts.Edges
     if ([Math]::Abs($nodeDelta) -gt ($MaxNodeDeltaPerChangedFile * $changedCount)) {
-        Fail "Unexpected topology node delta $nodeDelta for $($changes.Count) source changes; run FullRebuild."
+        Fail "Unexpected topology node delta; run FullRebuild."
     }
     if ([Math]::Abs($edgeDelta) -gt ($MaxEdgeDeltaPerChangedFile * $changedCount)) {
-        Fail "Unexpected topology edge delta $edgeDelta for $($changes.Count) source changes; run FullRebuild."
+        Fail "Unexpected topology edge delta; run FullRebuild."
     }
 
     return [pscustomobject]@{
@@ -1011,13 +798,13 @@ function Assert-IncrementalIntegrity($SourceRoot, $PreviousBaseline, $PreGraph, 
     }
 }
 
-function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $SourceCommit, $BaselineStage, $SourceRef, $SourceRefSha, $TargetBranch, $Version) {
+function Assert-Candidate($SourceRoot, $BuildRoot, $GraphDir, $SourceCommit, $SourceRef, $SourceRefSha, $TargetBranch, $Version, $IgnorePolicySha256) {
     $graphPath = Join-Path $GraphDir "graph.json"
     $manifestPath = Join-Path $GraphDir "manifest.json"
     $reportPath = Join-Path $GraphDir "GRAPH_REPORT.md"
     foreach ($required in @($graphPath, $manifestPath, $reportPath)) {
         if (-not (Test-Path -LiteralPath $required)) {
-            Fail "Required Graphify output missing: $required"
+            Fail "Required Graphify output missing."
         }
     }
 
@@ -1026,27 +813,62 @@ function Assert-Candidate($SourceRoot, $OutputRoot, $BuildRoot, $GraphDir, $Sour
     foreach ($artifact in @("graph.json", "manifest.json", "GRAPH_REPORT.md")) {
         ConvertTo-CanonicalGeneratedTextArtifact $GraphDir $artifact
     }
-    Sanitize-GraphReport $GraphDir $BuildRoot $SourceCommit $BaselineStage $SourceRef $TargetBranch
+    Sanitize-GraphReport $GraphDir $BuildRoot $SourceCommit $SourceRef $TargetBranch
     ConvertTo-CanonicalGeneratedTextArtifact $GraphDir "GRAPH_REPORT.md"
 
     $graph = Assert-Json $graphPath
     $manifest = Assert-Json $manifestPath
-    $baseline = Write-Baseline $OutputRoot $GraphDir $SourceCommit $BaselineStage $SourceRef $TargetBranch $Version $graph $graphPath
+    Assert-GraphStructure $graph $manifest
+    Assert-CurrentCorpusPaths $SourceRoot $manifest $graph
+    $baseline = Write-Baseline $GraphDir $SourceCommit $SourceRef $TargetBranch $Version $graph $graphPath $IgnorePolicySha256
     $baseline = Assert-Json (Join-Path $GraphDir "baseline.json")
 
     Assert-GeneratedAllowlist (Split-Path -Parent $GraphDir) $GraphDir
     Assert-SecretScan $GraphDir $graph $manifest $baseline
-    Assert-Metadata $OutputRoot $SourceRoot $GraphDir $graph $baseline $SourceCommit $BaselineStage $SourceRef $SourceRefSha $TargetBranch $Version
-    $smoke = Invoke-SmokeQueries $SourceRoot $graph
-    $confidence = Get-ConfidenceSummary $graph
+    Assert-Metadata $SourceRoot $GraphDir $graph $baseline $SourceCommit $SourceRef $SourceRefSha $TargetBranch $Version $IgnorePolicySha256
 
     return [pscustomobject]@{
         Graph = $graph
         Manifest = $manifest
         Baseline = $baseline
-        Smoke = $smoke
-        Confidence = $confidence
+        Confidence = Get-ConfidenceSummary $graph
     }
+}
+
+function Get-ConfidenceSummary($Graph) {
+    $summary = @{}
+    foreach ($link in (Get-GraphLinks $Graph)) {
+        $confidence = if ($link.PSObject.Properties.Name -contains "confidence" -and $link.confidence) {
+            [string]$link.confidence
+        } else {
+            "NOT_AVAILABLE"
+        }
+        if (-not $summary.ContainsKey($confidence)) {
+            $summary[$confidence] = 0
+        }
+        $summary[$confidence] += 1
+    }
+    return $summary
+}
+
+function Test-CandidateMatchesAccepted($OutputRoot, $CandidateGraphDir) {
+    $acceptedGraphDir = Join-Path $OutputRoot $GraphDirName
+    if (-not (Test-Path -LiteralPath $acceptedGraphDir -PathType Container)) {
+        return $false
+    }
+    foreach ($file in @("graph.json", "manifest.json", "GRAPH_REPORT.md", "baseline.json")) {
+        $candidate = Join-Path $CandidateGraphDir $file
+        $accepted = Join-Path $acceptedGraphDir $file
+        if (-not (Test-Path -LiteralPath $accepted -PathType Leaf)) {
+            return $false
+        }
+        $candidateHash = Get-Sha256 $candidate
+        $acceptedHash = Get-Sha256 $accepted
+        if ($candidateHash -ne $acceptedHash) {
+            return $false
+        }
+    }
+    return $true
 }
 
 function Publish-ValidatedGraph($OutputRoot, $CandidateGraphDir) {
@@ -1070,7 +892,7 @@ function Publish-ValidatedGraph($OutputRoot, $CandidateGraphDir) {
         if (Test-Path -LiteralPath $backup) {
             Copy-Item -LiteralPath $backup -Destination $target -Recurse -Force
         }
-        Fail "Validated graph publication failed; previous accepted output was restored from backup: $($_.Exception.Message)"
+        Fail "Validated graph publication failed; previous accepted output was restored from backup."
     }
 }
 
@@ -1081,9 +903,28 @@ function Remove-TempOutputs($OutputRoot) {
     }
 }
 
+function Assert-PublicationDiff($OutputRoot, $SourceCommit) {
+    $diffOutput = (& git -C $OutputRoot status --short --untracked-files=all 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Unable to inspect publication status."
+    }
+    $changedPaths = @($diffOutput -split "`r?`n" |
+        Where-Object { $_.Trim() } |
+        ForEach-Object { $_.Substring(3).Trim().Replace("\", "/") } |
+        Sort-Object -Unique)
+    if ($changedPaths.Count -eq 0) {
+        return $false
+    }
+    $unexpected = @($changedPaths | Where-Object { $AllowedGenerated -notcontains $_ })
+    if ($unexpected.Count -gt 0) {
+        Fail ("Publication diff includes non-allowlisted paths: " + ($unexpected -join ", "))
+    }
+    return $true
+}
+
 $invocationRoot = Get-RepoRootFrom "."
-$outputRootFull = if ($OutputRoot) { Get-RepoRootFrom $OutputRoot } else { $invocationRoot }
-$sourceRootFull = if ($SourceRoot) { Get-RepoRootFrom $SourceRoot } else { $outputRootFull }
+$outputRootFull = if ($OutputRoot) { Get-RepoRootFrom $OutputRoot } else { Fail "OutputRoot is required for graph publication." }
+$sourceRootFull = if ($SourceRoot) { Get-RepoRootFrom $SourceRoot } else { Fail "SourceRoot is required for graph publication." }
 
 if (-not (Test-Path -LiteralPath (Join-Path $outputRootFull "RULES.md")) -or
     -not (Test-Path -LiteralPath (Join-Path $outputRootFull "openspec.cmd"))) {
@@ -1095,23 +936,22 @@ if ($Mode -eq "InstallExact") {
     exit $LASTEXITCODE
 }
 
-Assert-GraphifyIgnore $outputRootFull
+Assert-TargetBranch $TargetBranch
+$boundary = Assert-SameExactBase $sourceRootFull $outputRootFull $SourceRef
+$sourceCommit = $boundary.SourceCommit
+$sourceRefSha = $boundary.SourceRefSha
+$ignorePolicy = Assert-SourceGraphifyIgnore $sourceRootFull
 
-$baselineStageValue = Get-BaselineStageValue $BaselineStage
-$sourceCommit = Get-GitSha $sourceRootFull "HEAD"
-$sourceRefSha = Get-GitSha $sourceRootFull $SourceRef
-if ($sourceCommit -ne $sourceRefSha) {
-    Fail "Source HEAD must equal SourceRef. source=$sourceCommit SourceRef($SourceRef)=$sourceRefSha"
+$version = (& graphify --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+    Fail "graphify --version failed."
 }
-if ($baselineStageValue -eq "final") {
-    Assert-FinalSourceContainsGraphifyTooling $sourceRootFull
-    Assert-FinalWorkflowGate $sourceRootFull $sourceCommit $PostArchiveValidationEvidence
+if ($version -notmatch "graphify\s+([0-9]+\.[0-9]+\.[0-9]+)") {
+    Fail "Unable to parse Graphify version."
 }
-Assert-CleanGit $sourceRootFull "Source"
-
-$version = Get-GraphVersion
+$version = $Matches[1]
 if ($version -ne $ExpectedGraphifyVersion) {
-    Fail "Graphify version mismatch. Expected $ExpectedGraphifyVersion, got $version."
+    Fail "Graphify version mismatch."
 }
 
 Remove-TempOutputs $outputRootFull
@@ -1124,9 +964,7 @@ try {
     $buildRoot = New-BuildCopy $sourceRootFull $outputRootFull
     $candidateGraphDir = Join-Path $buildRoot $GraphDirName
 
-    if ($Mode -eq "Initial") {
-        Invoke-GraphifyBuild $buildRoot
-    } elseif ($Mode -eq "FullRebuild") {
+    if ($Mode -eq "FullRebuild") {
         Invoke-GraphifyBuild $buildRoot
     } elseif ($Mode -eq "Incremental") {
         $acceptedGraphDir = Join-Path $outputRootFull $GraphDirName
@@ -1138,15 +976,24 @@ try {
         $preGraph = Assert-Json (Join-Path $candidateGraphDir "graph.json")
         $preManifest = Assert-Json (Join-Path $candidateGraphDir "manifest.json")
         $previousBaseline = Assert-Json $acceptedBaselinePath
+        Assert-IncrementalPreconditions $previousBaseline $ignorePolicy.Sha256 $version
         Invoke-GraphifyIncremental $buildRoot
         $postGraph = Assert-Json (Join-Path $candidateGraphDir "graph.json")
         $postManifest = Assert-Json (Join-Path $candidateGraphDir "manifest.json")
         $incrementalEvidence = Assert-IncrementalIntegrity $sourceRootFull $previousBaseline $preGraph $preManifest $postGraph $postManifest $sourceCommit
     }
 
-    $result = Assert-Candidate $sourceRootFull $outputRootFull $buildRoot $candidateGraphDir $sourceCommit $baselineStageValue $SourceRef $sourceRefSha $TargetBranch $version
+    $result = Assert-Candidate $sourceRootFull $buildRoot $candidateGraphDir $sourceCommit $SourceRef $sourceRefSha $TargetBranch $version $ignorePolicy.Sha256
+    if (Test-CandidateMatchesAccepted $outputRootFull $candidateGraphDir) {
+        Write-Host "No graph publication changes: all four accepted artifacts are byte-identical."
+        exit 0
+    }
+    Assert-CleanGit $outputRootFull "Output"
     Publish-ValidatedGraph $outputRootFull $candidateGraphDir
 } finally {
+    if ($buildRoot -and (Test-Path -LiteralPath $buildRoot)) {
+        Remove-Item -LiteralPath $buildRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
     Remove-TempOutputs $outputRootFull
 }
 
@@ -1155,13 +1002,20 @@ $acceptedGraph = Assert-Json (Join-Path $acceptedGraphDir "graph.json")
 $acceptedManifest = Assert-Json (Join-Path $acceptedGraphDir "manifest.json")
 $acceptedBaseline = Assert-Json (Join-Path $acceptedGraphDir "baseline.json")
 Assert-GeneratedAllowlist $outputRootFull $acceptedGraphDir
+Assert-GraphStructure $acceptedGraph $acceptedManifest
+Assert-CurrentCorpusPaths $sourceRootFull $acceptedManifest $acceptedGraph
 Assert-SecretScan $acceptedGraphDir $acceptedGraph $acceptedManifest $acceptedBaseline
-Assert-Metadata $outputRootFull $sourceRootFull $acceptedGraphDir $acceptedGraph $acceptedBaseline $sourceCommit $baselineStageValue $SourceRef $sourceRefSha $TargetBranch $version
+Assert-Metadata $sourceRootFull $acceptedGraphDir $acceptedGraph $acceptedBaseline $sourceCommit $SourceRef $sourceRefSha $TargetBranch $version $ignorePolicy.Sha256
 Assert-NoGraphifyIntegrations $outputRootFull
 Assert-CleanGit $sourceRootFull "Source"
+$hasPublicationDiff = Assert-PublicationDiff $outputRootFull $sourceCommit
+if (-not $hasPublicationDiff) {
+    Write-Host "No graph publication changes: output tree remains byte-current."
+    exit 0
+}
 
 Write-Host "Graphify version: $version"
-Write-Host "Baseline stage: $baselineStageValue"
+Write-Host "Baseline stage: $BaselineStage"
 Write-Host "Indexed source commit: $sourceCommit"
 Write-Host "Indexed source ref: $SourceRef"
 Write-Host "Target branch: $TargetBranch"
@@ -1181,16 +1035,6 @@ if ($null -ne $incrementalEvidence) {
 Write-Host "Confidence summary:"
 foreach ($key in ($result.Confidence.Keys | Sort-Object)) {
     Write-Host "  $key=$($result.Confidence[$key])"
-}
-Write-Host "Smoke queries:"
-foreach ($item in $result.Smoke) {
-    Write-Host "  query=$($item.query)"
-    Write-Host "    matched node ids=$(@($item.matched_node_ids) -join ', ')"
-    Write-Host "    source paths=$(@($item.source_paths) -join ', ')"
-    Write-Host "    edge ids=$(@($item.edge_ids) -join ', ')"
-    Write-Host "    edge types=$(@($item.edge_types) -join ', ')"
-    Write-Host "    confidence=$(@($item.confidence) -join ', ')"
-    Write-Host "    source-confirmed=$($item.source_confirmed)"
 }
 
 exit 0

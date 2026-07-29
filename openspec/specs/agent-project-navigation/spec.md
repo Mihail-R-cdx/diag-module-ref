@@ -1,11 +1,24 @@
 # agent-project-navigation Specification
 
 ## Purpose
-TBD - created by archiving change frozen-project-graph-baseline. Update Purpose after archive.
+
+Define how agents may use the committed Graphify project map as optional,
+frozen navigation data without making it an architecture, validation, archive,
+or merge authority.
+
 ## Requirements
+
 ### Requirement: Published project graph is a frozen navigation baseline
 
-The repository MAY publish a committed Graphify map of one exact stable source commit for read-only agent navigation. The map SHALL NOT be treated as architecture, workflow state, validation evidence, or a substitute for current source and tests.
+The repository MAY publish a committed Graphify map of one exact stable source
+commit for read-only agent navigation. The map SHALL NOT be treated as
+architecture, workflow state, validation evidence, production correctness
+evidence, or a substitute for current source and tests.
+
+An absent, invalid, or stale map SHALL NOT block ordinary architecture,
+implementation, independent validation, archive, post-archive checks, or merge.
+Ordinary changes SHALL NOT require a Graphify refresh, Graphify evidence JSON,
+renewed validation solely for Graphify, or a stale-graph merge exception.
 
 #### Scenario: Agent begins graph-assisted orientation
 
@@ -15,15 +28,26 @@ The repository MAY publish a committed Graphify map of one exact stable source c
 - **AND** treats the current branch diff separately
 - **AND** verifies every material conclusion in current source.
 
-#### Scenario: Graph is absent or stale
+#### Scenario: Graph is absent or stale during ordinary work
 
-- **WHEN** graph artifacts are absent, invalid, or explicitly stale
-- **THEN** ordinary development and validation remain possible through authoritative sources
-- **AND** the agent reports the graph condition rather than silently rebuilding it.
+- **WHEN** graph artifacts are absent, invalid, or older than the current branch or `master`
+- **THEN** ordinary architecture, implementation, validation, archive, post-archive checks, and merge remain possible through authoritative sources
+- **AND** the agent reports the graph condition rather than silently rebuilding it
+- **AND** no change-specific Graphify evidence or stale-graph exception is required.
+
+#### Scenario: Ordinary change merges after the indexed source
+
+- **GIVEN** an ordinary change satisfies its approved OpenSpec, tests, independent validation, archive, and post-archive requirements
+- **WHEN** the committed graph still indexes an older source commit
+- **THEN** the change may merge without modifying `graphify-out/`
+- **AND** the existing graph remains a frozen navigation baseline until a separately authorized maintenance refresh.
 
 ### Requirement: Authority and confidence remain explicit
 
-Graph edges SHALL be consumed according to their confidence category. `EXTRACTED` is a static observation only; `INFERRED` is a navigation hypothesis; `AMBIGUOUS` SHALL NOT be used as evidence. Review findings SHALL cite current source evidence.
+Graph edges SHALL be consumed according to their confidence category.
+`EXTRACTED` is a static observation only; `INFERRED` is a navigation
+hypothesis; `AMBIGUOUS` SHALL NOT be used as evidence. Review findings SHALL
+cite current source evidence.
 
 #### Scenario: Query returns an inferred relationship
 
@@ -34,240 +58,232 @@ Graph edges SHALL be consumed according to their confidence category. `EXTRACTED
 
 ### Requirement: Graph generation is explicit and pinned
 
-The pilot generator SHALL be the isolated package `graphifyy==0.9.26`, invoked through the `graphify` executable. It SHALL NOT be added as a runtime dependency. Floating installs are forbidden.
+The generator SHALL remain the isolated package `graphifyy==0.9.26`, invoked
+through the `graphify` executable, unless a separately approved change updates
+the version. It SHALL NOT be added as an application runtime dependency.
+Floating installs are forbidden.
 
-#### Scenario: Wrapper starts a build or refresh
+Graph publication SHALL occur only in an explicitly authorized graph-maintenance
+workflow. The repository-local wrapper SHALL verify repository root, exact
+Graphify version, clean source state, explicit source ref, target branch, full
+source SHA, source-ref equality to source `HEAD`, source/output separation, and
+`.graphifyignore` before generation. It SHALL fail nonzero when any prerequisite
+or Graphify command fails.
 
-- **WHEN** `tools/refresh_project_graph.ps1` starts graph generation
-- **THEN** it verifies the repository root, exact Graphify version, clean
-  required source state, explicit baseline stage, source ref, target branch,
-  full source SHA, and `.graphifyignore`
-- **AND** it verifies that the explicit source ref resolves to the source
-  worktree `HEAD`
-- **AND** fails nonzero when any prerequisite or Graphify command fails.
+The wrapper SHALL NOT require an OpenSpec archive, `verification-report.md`,
+post-archive Graphify evidence JSON, validation-report-only commit,
+evidence-only commit, or ordinary feature-change lineage as a graph generation
+prerequisite.
 
-#### Scenario: Final mode is attempted before archive validation
+#### Scenario: Maintenance wrapper starts a full rebuild
 
-- **WHEN** `tools/refresh_project_graph.ps1` is invoked with
-  `BaselineStage = Final` before the change is archived and post-archive
-  validation evidence exists
-- **THEN** it fails nonzero before Graphify generation
-- **AND** reports that final baseline generation requires project-owned
-  post-archive validation evidence.
+- **GIVEN** an architect authorized a graph maintenance refresh
+- **AND** `SourceRoot` is a clean detached worktree at exact current `origin/master` SHA `S`
+- **AND** explicit `SourceRef` resolves to the same `S`
+- **WHEN** `tools/refresh_project_graph.ps1` starts `FullRebuild`
+- **THEN** it verifies the pinned generator and all source, ref, target, ignore, output, and repository prerequisites
+- **AND** it does not inspect ordinary OpenSpec validation reports or Graphify evidence JSON.
 
-### Requirement: Initial graph is local code-only and has no visualization
+#### Scenario: Source ref does not equal source HEAD
 
-The first baseline SHALL index only the actual supported code corpus using code-only behavior and SHALL disable/reject HTML visualization. It SHALL NOT require an external LLM API.
+- **WHEN** explicit `SourceRef` does not resolve to clean `SourceRoot HEAD`
+- **THEN** the wrapper fails nonzero before Graphify generation
+- **AND** it does not publish replacement graph artifacts.
 
-#### Scenario: Initial baseline is generated
+#### Scenario: Ordinary change reaches archive
 
-- **WHEN** the approved initial-build mode runs on a clean source commit
-- **THEN** nonzero graph nodes and edges are produced from actual code roots
-- **AND** OpenSpec Markdown, real inventory, Excel, secrets, temporary worktrees, and graph output are absent
+- **WHEN** an ordinary OpenSpec change reaches archive or post-archive checks
+- **THEN** the graph wrapper is not a mandatory lifecycle command
+- **AND** no Graphify input or evidence artifact is created for that change.
+
+### Requirement: Graph corpus is local code-only and has no visualization
+
+Every future maintenance refresh SHALL index only the actual supported code
+corpus using code-only behavior and SHALL disable or reject HTML visualization.
+It SHALL NOT require an external LLM API.
+
+Historical bootstrap terminology may remain in archived forensic artifacts and
+the existing committed baseline history, but the maintenance wrapper SHALL NOT
+expose a publishing mode named `Initial` or require a caller-selected bootstrap
+stage.
+
+#### Scenario: Maintenance baseline is generated
+
+- **WHEN** an authorized full rebuild runs on clean exact source commit `S`
+- **THEN** nonzero graph nodes and edges are produced from the approved code roots
+- **AND** OpenSpec Markdown, archived changes, real inventory, Excel, secrets, temporary worktrees, and graph output are absent from the indexed corpus
 - **AND** `graph.html` is neither required nor committed.
+
+#### Scenario: Publishing caller requests historical initial mode
+
+- **WHEN** a caller attempts to use the removed `Initial` publishing mode or caller-controlled bootstrap stage
+- **THEN** the repository-local wrapper rejects the unsupported interface
+- **AND** directs publication through the current maintenance `FullRebuild` or eligible `Incremental` mode.
 
 ### Requirement: Baseline metadata proves the indexed source
 
 `graphify-out/baseline.json` SHALL use schema version 2 and record generator,
 exact Graphify version, mode, baseline stage, full indexed source SHA, indexed
 source ref, target branch, UTC generation time, graph and ignore-file SHA-256
-hashes, and node/edge counts. It SHALL NOT contain user-specific paths,
-secrets, ambiguous `indexed_branch`, or a `detached` placeholder.
+hashes, and node/edge counts. It SHALL NOT contain user-specific paths, secrets,
+ambiguous `indexed_branch`, validation-report authority, archive lineage, or a
+`detached` placeholder.
 
-The ignore-file SHA-256 SHALL be computed from the actual `.graphifyignore`
-bytes read by Graphify. The repository SHALL pin `/.graphifyignore text eol=lf`
-in `.gitattributes` so Windows `core.autocrlf=true` checkouts preserve the same
-hash as LF checkouts.
+The ignore-file SHA-256 SHALL be computed from the verified source
+`.graphifyignore` bytes read from `SourceRoot`. The graph SHA-256 SHALL be
+computed from the actual canonical `graphify-out/graph.json` bytes published by
+the wrapper. The four generated artifacts SHALL be deterministic UTF-8 without
+BOM and LF files, and the wrapper SHALL canonicalize them before JSON parsing,
+structural validation, security/path scans, hash calculation, and publication.
 
-The graph SHA-256 SHALL be computed from the actual canonical
-`graphify-out/graph.json` bytes published by the wrapper. The four generated
-artifacts SHALL be deterministic UTF-8 without BOM and LF files, and the wrapper
-SHALL canonicalize them before JSON parsing, structural validation,
-security/path scans, hash calculation, and publication. The repository SHALL pin
-exact LF rules for `graphify-out/graph.json`, `graphify-out/manifest.json`,
-`graphify-out/GRAPH_REPORT.md`, and `graphify-out/baseline.json` in
-`.gitattributes`.
+A newly published maintenance baseline SHALL record:
 
-#### Scenario: Bootstrap graph is generated
+```text
+baseline_stage = final
+indexed_source_commit = exact maintenance source SHA S
+indexed_source_ref = origin/master
+target_branch = master
+```
 
-- **WHEN** bootstrap generation runs
-- **THEN** metadata records `baseline_stage = bootstrap`
-- **AND** `indexed_source_ref` resolves to the exact indexed source commit
-- **AND** `target_branch` identifies the merge target
-- **AND** `ignore_file_sha256` matches the actual LF `.graphifyignore`
-  working-tree bytes
-- **AND** `graph_sha256` matches the actual canonical UTF-8/LF
-  `graphify-out/graph.json` working-tree bytes
-- **AND** the report states that the graph is pre-archive, non-final, and not
-  the navigation baseline for the next ordinary change.
+The following graph-only commit `G` SHALL NOT replace `S` as
+`indexed_source_commit` because `graphify-out/` is excluded from the indexed
+corpus.
 
-#### Scenario: Final graph is generated
+#### Scenario: Maintenance baseline is generated
 
-- **WHEN** final generation runs after independent review, archive, and
-  post-archive validation
+- **GIVEN** a clean exact current `origin/master` source commit `S`
+- **WHEN** the authorized maintenance rebuild passes all generation and publication checks
 - **THEN** metadata records `baseline_stage = final`
-- **AND** the source commit includes the reviewed production/test state,
-  archived OpenSpec state, Graphify wrapper, `.graphifyignore`, runbook, and
-  `RULES.md`
-- **AND** the wrapper verifies valid project-owned evidence JSON with
-  `change_name = frozen-project-graph-baseline`
-- **AND** the evidence path is exactly
-  `openspec/validation/frozen-project-graph-baseline.post-archive.json`
-- **AND** the evidence is tracked by Git, exists in the source `HEAD` tree, is
-  not ignored, and hashes to the same Git blob as the committed `HEAD` blob
-  after repository filters
-- **AND** `archive_commit` is a full SHA and an ancestor of
-  `validated_source_commit`
-- **AND** `validated_source_commit` is a full SHA and an ancestor of the source
-  worktree `HEAD`
-- **AND** the delta from `validated_source_commit` to source worktree `HEAD`
-  contains only
-  `openspec/validation/frozen-project-graph-baseline.post-archive.json`
-- **AND** that evidence path is absent from `validated_source_commit`
-- **AND** an archived `frozen-project-graph-baseline` artifact exists under
-  `openspec/changes/archive/`
-- **AND** active `openspec/changes/frozen-project-graph-baseline/` is absent
-- **AND** `openspec_change_validation`, `openspec_all_validation`,
-  `python_tests`, and `git_diff_check` have `status = pass`
-- **AND** the final graph-only commit contains only allowlisted generated graph
-  artifacts.
+- **AND** `indexed_source_commit` equals `S`
+- **AND** `indexed_source_ref` equals `origin/master`
+- **AND** `target_branch` equals `master`
+- **AND** hashes and counts describe the actual canonical published artifacts.
 
-#### Scenario: Final evidence is local-only or tampered
+#### Scenario: Graph artifacts are stored in following commit
 
-- **WHEN** final generation receives evidence from an ignored path, untracked
-  file, file absent from source `HEAD`, wrong repository path, or tracked file
-  modified after commit
-- **THEN** the wrapper fails nonzero before Graphify generation
-- **AND** does not publish graph artifacts.
-
-#### Scenario: Final evidence commit contains extra changes
-
-- **WHEN** final generation receives committed evidence but the delta from
-  `validated_source_commit` to source worktree `HEAD` contains production,
-  test, wrapper, ignore, documentation, graph, dependency, archived OpenSpec,
-  or any other non-evidence path
-- **THEN** the wrapper fails nonzero before Graphify generation
-- **AND** does not publish graph artifacts.
-
-#### Scenario: Graph artifacts are stored in a following commit
-
-- **GIVEN** archive commit `A` is an ancestor of validated source commit `S`
-- **AND** evidence-only commit `E` records validation of `S`
-- **WHEN** graph artifacts are committed in following graph-only commit `G`
-- **THEN** `indexed_source_commit` equals `E`
+- **GIVEN** maintenance source commit `S`
+- **WHEN** allowlisted graph artifacts are committed in following graph-only commit `G`
+- **THEN** `indexed_source_commit` remains `S`
 - **AND** `G` is not considered missing from the graph because graph artifacts are excluded from the corpus.
 
-### Requirement: Generated committed files use an allowlist
+#### Scenario: Master advances after publication
 
-The committed generated baseline SHALL be limited to `graphify-out/graph.json`, `graphify-out/manifest.json`, `graphify-out/GRAPH_REPORT.md`, and project-owned `graphify-out/baseline.json`, unless pinned-version evidence proves an additional machine file is essential and architecture is amended. These four files SHALL be published as canonical UTF-8 without BOM and LF artifacts.
+- **WHEN** `master` advances beyond the recorded `indexed_source_commit`
+- **THEN** baseline metadata continues to identify the exact older indexed source honestly
+- **AND** the map becomes stale navigation data without becoming invalid production or validation evidence.
 
-#### Scenario: Unexpected generated file appears
+### Requirement: Refresh occurs only as separate maintenance
 
-- **WHEN** Graphify emits HTML, cache, converted document, API/cost output, log, environment, package, or temporary data
-- **THEN** the wrapper or review rejects it from the commit.
+The historical `frozen-project-graph-baseline` publication used a controlled
+post-archive `A -> S -> E -> G` checkpoint. That ordering SHALL remain
+historical forensic evidence only and SHALL NOT define the lifecycle of future
+ordinary OpenSpec changes.
 
-### Requirement: Frozen baseline remains unchanged during active work
+Future graph refresh SHALL occur only as a separate architect-triggered
+maintenance operation from one exact stable current `master` source commit `S`,
+followed by graph-only commit `G` and lightweight graph integrity review. It
+SHALL NOT be automatically triggered by ordinary archive or merge.
 
-During architecture implementation, independent review, testing, and validation, agents SHALL NOT rebuild or incrementally update the graph. Hooks, watch mode, MCP, Graphify-installed skills, persistent Graphify agent instructions, and merge drivers SHALL be absent.
+#### Scenario: Ordinary change completes without refresh
 
-#### Scenario: Feature branch differs from indexed baseline
+- **GIVEN** an ordinary change has passed independent validation, archive, and post-archive checks
+- **WHEN** it is ready to merge
+- **THEN** it does not run Graphify refresh as part of its lifecycle
+- **AND** it does not create validation-report-only, Graphify-evidence, evidence-only, or graph-only commits.
 
-- **WHEN** a feature branch contains changes after the indexed source commit
-- **THEN** the agent reads every material changed file directly
-- **AND** uses the graph only for candidate relationships in the unchanged baseline
-- **AND** does not modify graph artifacts in that session.
+#### Scenario: Architect schedules maintenance refresh
 
-### Requirement: Refresh occurs at a controlled post-archive checkpoint
+- **GIVEN** the committed map has become materially stale or source topology changed significantly
+- **WHEN** an architect explicitly authorizes graph maintenance
+- **THEN** the refresh starts from exact stable current `master` source SHA `S`
+- **AND** publishes only graph-only commit `G`
+- **AND** receives lightweight graph integrity review before merge.
 
-The standard graph-enabled workflow SHALL refresh after archive and post-archive validation, using the final source state, followed by a separate graph-only commit and lightweight integrity review.
+#### Scenario: Master advances before maintenance merge
 
-#### Scenario: Implementation review uses bootstrap only
-
-- **WHEN** the architecture implementation is still under independent review
-- **THEN** agents may rebuild the bootstrap graph to validate the Graphify
-  workflow
-- **AND** they SHALL NOT build the final graph, archive, merge, or mark the PR
-  ready.
-
-#### Scenario: Small completed change qualifies for incremental refresh
-
-- **WHEN** version, ignore policy, source roots, and package boundaries are unchanged and deletion/rename checks pass
-- **THEN** the wrapper runs pinned-version update-check and incremental-update commands accepted by local CLI help
-- **AND** updates metadata to the exact final source commit.
-
-#### Scenario: Rebuild trigger is present
-
-- **WHEN** the version or ignore policy changed, source topology changed materially, mass rename/delete occurred, ghost nodes or integrity failure appear, topology shrinks unexpectedly, the rebuild threshold is reached, or an architect requests it
-- **THEN** a full rebuild is required instead of ordinary incremental refresh.
-
-#### Scenario: Generated artifact encoding policy changes
-
-- **WHEN** `.gitattributes`, `.graphifyignore`, or generated artifact encoding
-  and line-ending policy changes
-- **THEN** a full rebuild is required
-- **AND** metadata hashes are regenerated by the wrapper from actual canonical
-  published bytes.
-
-### Requirement: Deletions and renames receive explicit integrity checks
-
-Incremental acceptance SHALL verify that deleted or renamed source nodes and their edges are removed. A failure SHALL trigger the full-rebuild policy rather than preserving ghost topology.
-
-#### Scenario: Disposable incremental probe renames or deletes a file
-
-- **WHEN** a synthetic probe is incrementally updated and then renamed or removed
-- **THEN** stale nodes disappear
-- **OR** the wrapper fails and directs a full rebuild
-- **AND** no probe artifact is committed.
-
-### Requirement: Security exclusions are layered and verified
-
-`.graphifyignore`, code-only mode, wrapper allowlists, textual scans, and structured scans SHALL protect credentials, environment files, private keys, cookies, sessions, tokens, real Excel/inventory data, deployment-local files, Git credential storage, temporary worktrees, and user-specific absolute paths.
-
-#### Scenario: Sensitive or absolute-path evidence is detected
-
-- **WHEN** generated output contains excluded paths, secret-like values, real inventory, a Windows drive/UNC checkout path, or a POSIX absolute checkout path
-- **THEN** generation fails nonzero
-- **AND** artifacts are not approved for commit.
-
-### Requirement: Graph consumption works through GitHub without local Graphify
-
-A ChatGPT session with repository access SHALL be able to read baseline metadata, the compact report, and targeted portions of the JSON graph, identify candidate files/symbols, and verify them in GitHub source without installing Graphify.
-
-#### Scenario: ChatGPT investigates a project flow
-
-- **WHEN** ChatGPT has GitHub access but no local Graphify executable
-- **THEN** it verifies the baseline SHA and hashes from committed metadata
-- **AND** uses report/graph content only to narrow candidate source
-- **AND** checks the current GitHub branch and source before concluding.
-
-### Requirement: Reproducibility is topology-based where bytes are unstable
-
-Acceptance SHALL compare source-file sets, node identities, extracted relationships, counts, and absence of checkout paths across repeated runs/worktrees. Byte-for-byte equality SHALL NOT be required when the pinned official format contains timestamps or non-semantic ordering, but every material difference SHALL be explained.
-
-#### Scenario: Same source commit is built twice
-
-- **WHEN** the same exact source commit and ignore file are processed twice with Graphify 0.9.26
-- **THEN** source-file set and node identities match
-- **AND** extracted-edge differences are absent or documented and accepted
-- **AND** no checkout-specific absolute path appears.
+- **GIVEN** a maintenance graph was generated from `S`
+- **WHEN** remote `master` advances before the maintenance PR merges
+- **THEN** the maintenance branch is not merged as the current-master refresh
+- **AND** generation restarts from the new stable `master` SHA.
 
 ### Requirement: Graph failure does not redefine production correctness
 
-Graph refresh is a separate artifact step. Failure after successful production validation SHALL NOT invalidate that validation, but it SHALL block the normal graph-enabled merge checkpoint unless an architect records an explicit stale-graph exception and follow-up.
+Graph refresh is a separate artifact-maintenance operation. Failure before or
+after successful ordinary production validation SHALL NOT invalidate that
+validation and SHALL NOT block unrelated ordinary archive, post-archive checks,
+or merge.
 
-#### Scenario: Graph generation fails after archive validation
+A generation or graph-review failure SHALL block only publication or merge of
+the graph-maintenance branch. The existing accepted baseline SHALL remain
+intact and may remain stale until a later authorized maintenance attempt
+succeeds.
 
-- **WHEN** production implementation and post-archive checks passed but graph generation fails
-- **THEN** no fabricated baseline is committed
-- **AND** the existing graph is marked stale
-- **AND** an architect explicitly decides repair-before-merge or temporary merge with tracked follow-up.
+#### Scenario: Graph generation fails during maintenance
 
-### Requirement: Documentation-only changes use a scoped refresh decision
+- **WHEN** graph generation or publication integrity checks fail
+- **THEN** no fabricated or partial replacement baseline is committed
+- **AND** the previous accepted graph remains intact
+- **AND** the maintenance PR is not approved for merge
+- **AND** unrelated ordinary changes remain governed by their own OpenSpec, source, tests, and validation evidence.
 
-A documentation-only change that does not affect indexed code, graph policy, source roots, ignore rules, wrapper behavior, or metadata contract SHALL NOT require graph refresh.
+#### Scenario: Ordinary feature validation succeeds while graph is stale
 
-#### Scenario: Non-indexed documentation changes only
+- **GIVEN** an ordinary feature passes all required tests, strict validation, independent review, archive, and post-archive checks
+- **WHEN** the graph is stale or a separate maintenance attempt failed
+- **THEN** the feature may merge without a Graphify repair or stale-graph exception.
 
-- **WHEN** a completed change modifies only non-indexed documentation and no graph contract
-- **THEN** the architect may record that graph refresh is unnecessary
-- **AND** the existing indexed source relationship remains accurately described.
+### Requirement: Ordinary changes do not trigger automatic refresh
+
+No ordinary OpenSpec change SHALL automatically require graph refresh based on
+whether its diff contains code, tests, specifications, documentation, or other
+indexed or non-indexed repository paths. Refresh timing SHALL be a separate
+architectural maintenance decision based on accumulated staleness, structural
+navigation value, package-boundary changes, major movement or renames,
+integrity needs, or direct architect instruction.
+
+#### Scenario: Ordinary code change completes
+
+- **GIVEN** an ordinary change modifies indexed application code
+- **AND** it passes its approved lifecycle
+- **WHEN** it is ready to merge
+- **THEN** it may merge without graph refresh
+- **AND** the accumulated graph staleness may be considered later in a separate maintenance decision.
+
+#### Scenario: Documentation-only change completes
+
+- **WHEN** an ordinary change modifies only documentation and passes its approved lifecycle
+- **THEN** it does not require graph refresh
+- **AND** it does not need a special scoped refresh decision or Graphify evidence.
+
+### Requirement: Graph publication protections remain strict
+
+The maintenance wrapper and review SHALL preserve exact pinned Graphify version,
+distinct clean source and output worktrees initially at exact `S`, clean source
+and exact source-ref binding, verified committed-source `.graphifyignore`
+policy, code-only corpus, exclusion of graph output, archives, real inventory,
+Excel, credentials, local deployment data, temporary worktrees, and secrets,
+rejection of HTML and unexpected generated files, all four canonical artifacts,
+canonical UTF-8 without BOM and LF artifacts, valid JSON and nonzero counts,
+hashes calculated from actual source-policy and published bytes,
+repository-relative paths, secret and absolute-path scans, safe
+backup-and-restore publication, and absence of hooks, watch mode, MCP,
+Graphify skills, `AGENTS.md`, and merge drivers.
+
+Blocking publication acceptance SHALL be application-agnostic. It SHALL NOT
+require historical file paths, node IDs, class names, function names, or
+concrete application relationships.
+
+#### Scenario: Historical smoke symbol was moved or removed
+
+- **GIVEN** source commit `S` validly moved, renamed, or removed an application symbol used by an older smoke query
+- **AND** the rebuilt graph satisfies current schema, corpus, topology, integrity, security, and publication contracts
+- **WHEN** `FullRebuild` is evaluated
+- **THEN** publication succeeds without requiring the historical file path or node ID
+- **AND** no wrapper change is required merely to rename the old probe.
+
+#### Scenario: Generated artifact fails a protection check
+
+- **WHEN** an artifact is malformed, empty, unexpected, noncanonical, hash-inconsistent, path-unsafe, inventory-bearing, or secret-bearing
+- **THEN** publication fails nonzero
+- **AND** no partial replacement is accepted
+- **AND** the failure reports a non-sensitive contract category.
