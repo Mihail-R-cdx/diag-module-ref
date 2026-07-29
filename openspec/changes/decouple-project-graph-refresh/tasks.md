@@ -41,21 +41,29 @@
 - [ ] 4.7 Preserve incremental rename/delete, ghost-node, topology, and fallback-to-full-rebuild coverage.
 - [ ] 4.8 Verify a failed refresh leaves the previously accepted baseline unchanged.
 
-## 5. Implementation validation
+## 5. Architecture validation
 
-- [ ] 5.1 Run focused Graphify workflow tests.
-- [ ] 5.2 Run the full offline Python test suite.
-- [ ] 5.3 Run `git diff --check`.
-- [ ] 5.4 Run `.\openspec.cmd validate decouple-project-graph-refresh --strict`.
-- [ ] 5.5 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 5.6 Verify no application production code, unrelated tests, validation evidence, archived changes, or `graphify-out/` artifacts changed.
-- [ ] 5.7 Commit and push the implementation before requesting independent validation.
+- [ ] 5.1 From a clean checkout of the current published architecture HEAD, run `git diff --check`.
+- [ ] 5.2 Run `.\openspec.cmd validate decouple-project-graph-refresh --strict` using the repository-local wrapper.
+- [ ] 5.3 Run `.\openspec.cmd validate --all --strict` using the repository-local wrapper.
+- [ ] 5.4 Record the exact architecture HEAD, change base, commands, exit codes, and passed/failed counts before architecture approval.
+- [ ] 5.5 Verify the architecture diff contains only the declared active OpenSpec change artifacts and no production code, tests, validation evidence, archives, root specs, or `graphify-out/` mutations.
 
-## 6. Independent validation, archive, and merge
+## 6. Implementation validation
 
-- [ ] 6.1 Independently validate the current published remote implementation HEAD in a clean detached worktree.
-- [ ] 6.2 Require passing focused tests, full offline tests, strict change validation, strict all validation, repository-protection checks, and `git diff --check`.
-- [ ] 6.3 Archive only after `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES`.
-- [ ] 6.4 Run ordinary post-archive strict validation, full offline tests, archive/root-spec diff review, and repository-protection checks.
-- [ ] 6.5 Merge without any Graphify refresh, evidence JSON, report-only commit, evidence-only commit, graph-only commit, or stale-graph exception.
-- [ ] 6.6 Schedule a separate graph maintenance refresh later only by explicit architect decision.
+- [ ] 6.1 Run focused Graphify workflow tests.
+- [ ] 6.2 Run the full offline Python test suite.
+- [ ] 6.3 Run `git diff --check`.
+- [ ] 6.4 Run `.\openspec.cmd validate decouple-project-graph-refresh --strict`.
+- [ ] 6.5 Run `.\openspec.cmd validate --all --strict`.
+- [ ] 6.6 Verify no application production code, unrelated tests, validation evidence, archived changes, or `graphify-out/` artifacts changed.
+- [ ] 6.7 Commit and push the implementation before requesting independent validation.
+
+## 7. Independent validation, archive, and merge
+
+- [ ] 7.1 Independently validate the current published remote implementation HEAD in a clean detached worktree.
+- [ ] 7.2 Require passing focused tests, full offline tests, strict change validation, strict all validation, repository-protection checks, and `git diff --check`.
+- [ ] 7.3 Archive only after `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES`.
+- [ ] 7.4 Run ordinary post-archive strict validation, full offline tests, archive/root-spec diff review, and repository-protection checks.
+- [ ] 7.5 Merge without any Graphify refresh, evidence JSON, report-only commit, evidence-only commit, graph-only commit, or stale-graph exception.
+- [ ] 7.6 Schedule a separate graph maintenance refresh later only by explicit architect decision.
