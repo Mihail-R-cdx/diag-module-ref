@@ -101,6 +101,12 @@ elif case == "absolute_path":
     source_file = str(root / "app.py")
 elif case == "inventory_path":
     source_file = "equipment_inventory.local.json"
+elif case == "node_source_non_code_existing":
+    source_file = "notes.md"
+elif case == "node_source_py_absent_from_manifest":
+    source_file = "orphan.py"
+elif case == "node_source_excluded_existing":
+    source_file = "openspec/changes/archive/old/tool.py"
 
 nodes = [
     {"id": "module_app", "label": "app", "source_file": source_file, "file_type": "code"},
@@ -114,6 +120,8 @@ manifest_entry = {
     "symbols": ["module_app", "func_current"],
 }
 manifest = {source_file: manifest_entry}
+if case in ("node_source_non_code_existing", "node_source_py_absent_from_manifest", "node_source_excluded_existing"):
+    manifest = {"app.py": manifest_entry}
 
 if case == "invalid_schema":
     graph = {"schema": "wrong"}
@@ -129,6 +137,37 @@ elif case == "zero_counts":
     graph = {"nodes": [], "links": []}
 else:
     graph = {"nodes": nodes, "links": links}
+
+if case == "edge_confidence_object":
+    links[0]["confidence"] = {"value": "EXTRACTED"}
+elif case == "edge_confidence_array":
+    links[0]["confidence"] = ["EXTRACTED"]
+elif case == "edge_confidence_bool":
+    links[0]["confidence"] = True
+elif case == "edge_confidence_number":
+    links[0]["confidence"] = 123
+elif case == "edge_confidence_empty":
+    links[0]["confidence"] = ""
+elif case == "edge_confidence_unknown":
+    links[0]["confidence"] = "UNKNOWN"
+elif case == "edge_relation_object":
+    links[0]["relation"] = {"kind": "contains"}
+elif case == "edge_relation_array":
+    links[0]["relation"] = ["contains"]
+elif case == "edge_relation_bool":
+    links[0]["relation"] = True
+elif case == "edge_relation_number":
+    links[0]["relation"] = 123
+elif case == "edge_unknown_object":
+    links[0]["metadata"] = {"nested": "container"}
+elif case == "edge_unknown_array":
+    links[0]["metadata"] = ["nested", "container"]
+elif case == "edge_confidence_inferred":
+    links[0]["confidence"] = "INFERRED"
+elif case == "edge_confidence_ambiguous":
+    links[0]["confidence"] = "AMBIGUOUS"
+elif case == "edge_confidence_absent":
+    links[0].pop("confidence", None)
 
 if case == "manifest_root_wrong":
     manifest = [manifest, manifest]
@@ -202,12 +241,15 @@ raise SystemExit(0)
             ),
         )
         self.write(self.repo / "app.py", "def current():\n    return 'ok'\n")
+        self.write(self.repo / "notes.md", "human notes\n")
+        self.write(self.repo / "orphan.py", "def orphan():\n    return 'ok'\n")
         self.write(self.repo / "pkg" / "__init__.py", "")
         self.write(self.repo / "pkg" / "mod.py", "VALUE = 1\n")
         if include_historical_inputs:
             self.write(self.repo / "verification-report.md", "this is no longer graph authority\n")
             self.write(self.repo / "openspec" / "validation" / "bad.post-archive.json", "{not json\n")
             self.write(self.repo / "openspec" / "changes" / "archive" / "old" / "spec.md", "historical\n")
+            self.write(self.repo / "openspec" / "changes" / "archive" / "old" / "tool.py", "def archived():\n    return 'old'\n")
         self.git("add", ".")
         self.git("commit", "-m", "initial source")
         self.source_sha = self.git("rev-parse", "HEAD").stdout.strip()
@@ -472,6 +514,60 @@ kernel32.CloseHandle(handle)
                 result = self.run_wrapper(env={"GRAPHIFY_FAKE_CASE": case})
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("schema mismatch", result.stderr + result.stdout)
+
+    def test_graph_node_sources_must_be_current_manifest_corpus_members(self):
+        cases = [
+            ("node_source_non_code_existing", "approved current code corpus"),
+            ("node_source_py_absent_from_manifest", "validated manifest source set"),
+            ("node_source_excluded_existing", "approved source corpus"),
+        ]
+        for case, expected in cases:
+            with self.subTest(case=case):
+                self.git("reset", "--hard", self.source_sha, cwd=self.output)
+                shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+                result = self.run_wrapper(env={"GRAPHIFY_FAKE_CASE": case})
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(expected, result.stderr + result.stdout)
+
+        self.git("reset", "--hard", self.source_sha, cwd=self.output)
+        shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+        self.assert_wrapper_succeeds(env={"GRAPHIFY_FAKE_CASE": "valid"})
+
+    def test_edge_optional_metadata_schema_is_enforced(self):
+        negative_cases = [
+            "edge_confidence_object",
+            "edge_confidence_array",
+            "edge_confidence_bool",
+            "edge_confidence_number",
+            "edge_confidence_empty",
+            "edge_confidence_unknown",
+            "edge_relation_object",
+            "edge_relation_array",
+            "edge_relation_bool",
+            "edge_relation_number",
+            "edge_unknown_object",
+            "edge_unknown_array",
+        ]
+        for case in negative_cases:
+            with self.subTest(case=case):
+                self.git("reset", "--hard", self.source_sha, cwd=self.output)
+                shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+                result = self.run_wrapper(env={"GRAPHIFY_FAKE_CASE": case})
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("graph.json schema mismatch", result.stderr + result.stdout)
+
+        positive_cases = [
+            "valid",
+            "edge_confidence_inferred",
+            "edge_confidence_ambiguous",
+            "edge_confidence_absent",
+        ]
+        for case in positive_cases:
+            with self.subTest(case=case):
+                self.git("reset", "--hard", self.source_sha, cwd=self.output)
+                shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+                result = self.assert_wrapper_succeeds(env={"GRAPHIFY_FAKE_CASE": case})
+                self.assertIn("Baseline stage: final", result.stdout)
 
     def test_realistic_graphify_manifest_contract_is_enforced(self):
         negative_cases = [

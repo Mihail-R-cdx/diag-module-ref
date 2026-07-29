@@ -124,7 +124,7 @@ function Test-PathExcludedFromCorpus($Path) {
 
 function Get-IndexedSourceRootsIdentity($TrackedPaths) {
     $roots = @($TrackedPaths |
-        Where-Object { (Test-SourcePathInCorpus $_) -and -not (Test-PathExcludedFromCorpus $_) } |
+        Where-Object { Test-PathIncludedInGraphCorpus $_ } |
         ForEach-Object {
             if ($_ -match "/") {
                 ($_ -split "/")[0]
@@ -387,24 +387,76 @@ function Test-SourcePathInCorpus($Path) {
     return $Path -match "(?i)\.(py|json|toml|yaml|yml|js|ts|tsx|jsx|ps1|cmd|bat)$"
 }
 
+function Test-PathIncludedInGraphCorpus($Path) {
+    return (Test-SourcePathInCorpus $Path) -and -not (Test-PathExcludedFromCorpus $Path)
+}
+
 function Assert-CurrentCorpusPaths($SourceRoot, $Manifest, $Graph) {
+    $manifestSourceSet = @{}
     foreach ($path in (Get-ManifestSourceSet $Manifest)) {
         Assert-RepoRelativePath $path "manifest source"
-        if (-not (Test-SourcePathInCorpus $path)) {
-            Fail "Manifest source path is not an approved code/config file."
+        if (-not (Test-PathIncludedInGraphCorpus $path)) {
+            Fail "Manifest source path is not in the approved current code corpus."
         }
         if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
             Fail "Manifest source path is not present in SourceRoot."
         }
+        $manifestSourceSet[$path] = $true
     }
 
     foreach ($node in (Get-GraphNodes $Graph)) {
         if ($node.PSObject.Properties.Name -contains "source_file" -and $node.source_file) {
             $path = ([string]$node.source_file).Replace("\", "/")
             Assert-RepoRelativePath $path "graph node source"
+            if (-not (Test-PathIncludedInGraphCorpus $path)) {
+                Fail "Graph node source path is not in the approved current code corpus."
+            }
+            if (-not $manifestSourceSet.ContainsKey($path)) {
+                Fail "Graph node source path is absent from validated manifest source set."
+            }
             if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot $path) -PathType Leaf)) {
                 Fail "Graph node source path is not present in SourceRoot."
             }
+        }
+    }
+}
+
+function Assert-OptionalStringField($Object, $Field, $Purpose) {
+    if ($Object.PSObject.Properties.Name -contains $Field) {
+        $value = $Object.$Field
+        if (-not ($value -is [string]) -or -not $value) {
+            Fail "$Purpose schema mismatch: $Field must be a non-empty string when present."
+        }
+    }
+}
+
+function Assert-OptionalFiniteNumberField($Object, $Field, $Purpose) {
+    if ($Object.PSObject.Properties.Name -contains $Field) {
+        Assert-FiniteNumberField $Object $Field $Purpose | Out-Null
+    }
+}
+
+function Assert-GraphEdgeMetadata($Edge) {
+    Assert-OptionalStringField $Edge "relation" "graph.json"
+    if ($Edge.PSObject.Properties.Name -contains "confidence") {
+        Assert-OptionalStringField $Edge "confidence" "graph.json"
+        if (@("EXTRACTED", "INFERRED", "AMBIGUOUS") -notcontains $Edge.confidence) {
+            Fail "graph.json schema mismatch: confidence has an unsupported value."
+        }
+    }
+    foreach ($field in @("source_file", "source_location", "_origin", "context")) {
+        Assert-OptionalStringField $Edge $field "graph.json"
+    }
+    foreach ($field in @("weight", "confidence_score")) {
+        Assert-OptionalFiniteNumberField $Edge $field "graph.json"
+    }
+    foreach ($prop in $Edge.PSObject.Properties) {
+        if (@("source", "target", "relation", "confidence", "source_file", "source_location", "_origin", "context", "weight", "confidence_score") -contains $prop.Name) {
+            continue
+        }
+        $edgeValue = $prop.Value
+        if ((Test-JsonObject $edgeValue) -or ($edgeValue -is [System.Array]) -or ($edgeValue -is [System.Collections.IList] -and -not ($edgeValue -is [string]))) {
+            Fail "graph.json schema mismatch: unknown edge metadata must not be a container."
         }
     }
 }
@@ -457,7 +509,8 @@ function Assert-GraphStructure($Graph, $Manifest) {
             if (@("mtime", "ast_hash", "semantic_hash", "symbols") -contains $entryProp.Name) {
                 continue
             }
-            if (Test-JsonObject $entryProp.Value -or Test-JsonArray $entryProp.Value) {
+            $entryValue = $entryProp.Value
+            if ((Test-JsonObject $entryValue) -or ($entryValue -is [System.Array]) -or ($entryValue -is [System.Collections.IList] -and -not ($entryValue -is [string]))) {
                 Fail "manifest.json schema mismatch: unknown nested metadata must not be a container."
             }
         }
@@ -496,9 +549,7 @@ function Assert-GraphStructure($Graph, $Manifest) {
         }
         $source = Assert-StringField $link "source" "graph edge"
         $target = Assert-StringField $link "target" "graph edge"
-        if ($link.PSObject.Properties.Name -contains "relation" -and $null -ne $link.relation -and -not ($link.relation -is [string])) {
-            Fail "graph edge schema mismatch: relation must be a string when present."
-        }
+        Assert-GraphEdgeMetadata $link
         if (-not $ids.ContainsKey($source) -or -not $ids.ContainsKey($target)) {
             Fail "Graph edge contains broken internal node reference."
         }
