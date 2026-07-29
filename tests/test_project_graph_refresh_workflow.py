@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -18,9 +19,8 @@ class ProjectGraphRefreshWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        for leftover in Path(tempfile.gettempdir()).glob("diag-project-graph-publication-*"):
-            if leftover.is_dir():
-                shutil.rmtree(leftover, ignore_errors=True)
+        self.publication_temp = self.root / "publication-temp"
+        self.publication_temp.mkdir()
         self.repo = self.root / "repo"
         self.fake_bin = self.root / "bin"
         self.fake_bin.mkdir()
@@ -107,7 +107,13 @@ nodes = [
     {"id": "func_current", "label": "current", "source_file": source_file, "file_type": "code"},
 ]
 links = [{"source": "module_app", "target": "func_current", "relation": "contains", "confidence": "EXTRACTED"}]
-manifest = {source_file: {"symbols": ["module_app", "func_current"]}}
+manifest_entry = {
+    "mtime": 1785148858.0,
+    "ast_hash": "b10a1b776ed5d52f87d47dc0aad00098",
+    "semantic_hash": "b10a1b776ed5d52f87d47dc0aad00098",
+    "symbols": ["module_app", "func_current"],
+}
+manifest = {source_file: manifest_entry}
 
 if case == "invalid_schema":
     graph = {"schema": "wrong"}
@@ -129,7 +135,23 @@ if case == "manifest_root_wrong":
 elif case == "manifest_entry_wrong_type":
     manifest = {source_file: ["module_app", "func_current"]}
 elif case == "manifest_symbols_wrong_type":
-    manifest = {source_file: {"symbols": "module_app"}}
+    manifest_entry["symbols"] = "module_app"
+elif case == "manifest_missing_mtime":
+    manifest_entry.pop("mtime", None)
+elif case == "manifest_mtime_string":
+    manifest_entry["mtime"] = "1785148858.0"
+elif case == "manifest_mtime_bool":
+    manifest_entry["mtime"] = True
+elif case == "manifest_missing_ast_hash":
+    manifest_entry.pop("ast_hash", None)
+elif case == "manifest_ast_hash_wrong_type":
+    manifest_entry["ast_hash"] = 123
+elif case == "manifest_missing_semantic_hash":
+    manifest_entry.pop("semantic_hash", None)
+elif case == "manifest_semantic_hash_wrong_type":
+    manifest_entry["semantic_hash"] = ["b10a1b776ed5d52f87d47dc0aad00098"]
+elif case == "manifest_nested_wrong":
+    manifest_entry["metadata"] = {"nested": "container"}
 
 (graph_dir / "graph.json").write_text(json.dumps(graph, sort_keys=True), encoding="utf-8", newline="\n")
 (graph_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8", newline="\n")
@@ -180,6 +202,8 @@ raise SystemExit(0)
             ),
         )
         self.write(self.repo / "app.py", "def current():\n    return 'ok'\n")
+        self.write(self.repo / "pkg" / "__init__.py", "")
+        self.write(self.repo / "pkg" / "mod.py", "VALUE = 1\n")
         if include_historical_inputs:
             self.write(self.repo / "verification-report.md", "this is no longer graph authority\n")
             self.write(self.repo / "openspec" / "validation" / "bad.post-archive.json", "{not json\n")
@@ -204,6 +228,12 @@ raise SystemExit(0)
         self._init_repo(include_historical_inputs=include_historical_inputs)
 
     def run_wrapper(self, source=None, output=None, source_ref="origin/master", target="master", mode="FullRebuild", env=None):
+        wrapper_env = {
+            "TEMP": str(self.publication_temp),
+            "TMP": str(self.publication_temp),
+        }
+        if env:
+            wrapper_env.update(env)
         return self.run_cmd(
             [
                 "powershell",
@@ -224,7 +254,7 @@ raise SystemExit(0)
                 target,
             ],
             cwd=self.output,
-            env=env,
+            env=wrapper_env,
             check=False,
         )
 
@@ -256,9 +286,63 @@ raise SystemExit(0)
         }
 
     def assert_no_publication_temp_dirs(self):
-        temp_root = Path(tempfile.gettempdir())
-        leftovers = [p for p in temp_root.glob("diag-project-graph-publication-*") if p.is_dir()]
+        leftovers = [p for p in self.publication_temp.glob("diag-project-graph-publication-*") if p.is_dir()]
         self.assertEqual([], leftovers)
+
+    def publication_temp_dirs(self):
+        return [p for p in self.publication_temp.glob("diag-project-graph-publication-*") if p.is_dir()]
+
+    def start_windows_lock_when_file_contains(self, target, needle):
+        lock_script = self.root / "lock_when_contains.py"
+        ready = self.root / "lock.ready"
+        stop = self.root / "lock.stop"
+        self.write(
+            lock_script,
+            r'''
+import ctypes
+import sys
+import time
+from pathlib import Path
+
+target = Path(sys.argv[1])
+needle = sys.argv[2]
+ready = Path(sys.argv[3])
+stop = Path(sys.argv[4])
+
+GENERIC_READ = 0x80000000
+OPEN_EXISTING = 3
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+handle = INVALID_HANDLE_VALUE
+deadline = time.time() + 20
+while time.time() < deadline:
+    if target.exists():
+        try:
+            if needle in target.read_text(encoding="utf-8"):
+                handle = kernel32.CreateFileW(str(target), GENERIC_READ, 0, None, OPEN_EXISTING, 0, None)
+                if handle != INVALID_HANDLE_VALUE:
+                    ready.write_text("ready", encoding="utf-8")
+                    break
+        except OSError:
+            pass
+    time.sleep(0.001)
+
+if handle == INVALID_HANDLE_VALUE:
+    raise SystemExit(2)
+
+while not stop.exists():
+    time.sleep(0.05)
+
+kernel32.CloseHandle(handle)
+'''.lstrip(),
+        )
+        proc = subprocess.Popen(
+            [sys.executable, str(lock_script), str(target), needle, str(ready), str(stop)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return proc, ready, stop
 
     def commit_output_as_new_s(self, message="accepted graph"):
         self.git("add", "graphify-out", cwd=self.output)
@@ -274,8 +358,13 @@ raise SystemExit(0)
 
     def make_source_commit(self, edits, message="source change"):
         for rel, text in edits.items():
-            self.write(self.source / rel, text)
-        self.git("add", ".", cwd=self.source)
+            path = self.source / rel
+            if text is None:
+                if path.exists():
+                    path.unlink()
+            else:
+                self.write(path, text)
+        self.git("add", "-A", cwd=self.source)
         self.git("commit", "-m", message, cwd=self.source)
         new_sha = self.git("rev-parse", "HEAD", cwd=self.source).stdout.strip()
         self.git("update-ref", "refs/remotes/origin/master", new_sha, cwd=self.source)
@@ -384,6 +473,29 @@ raise SystemExit(0)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("schema mismatch", result.stderr + result.stdout)
 
+    def test_realistic_graphify_manifest_contract_is_enforced(self):
+        negative_cases = [
+            "manifest_missing_mtime",
+            "manifest_mtime_string",
+            "manifest_mtime_bool",
+            "manifest_missing_ast_hash",
+            "manifest_ast_hash_wrong_type",
+            "manifest_missing_semantic_hash",
+            "manifest_semantic_hash_wrong_type",
+            "manifest_nested_wrong",
+        ]
+        for case in negative_cases:
+            with self.subTest(case=case):
+                self.git("reset", "--hard", self.source_sha, cwd=self.output)
+                shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+                result = self.run_wrapper(env={"GRAPHIFY_FAKE_CASE": case})
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("manifest.json schema mismatch", result.stderr + result.stdout)
+
+        self.git("reset", "--hard", self.source_sha, cwd=self.output)
+        shutil.rmtree(self.output / "graphify-out", ignore_errors=True)
+        self.assert_wrapper_succeeds(env={"GRAPHIFY_FAKE_CASE": "valid"})
+
     def test_publication_tree_contains_four_artifacts_and_diff_is_allowlisted_subset(self):
         self.assert_wrapper_succeeds()
         for rel in [
@@ -436,6 +548,56 @@ raise SystemExit(0)
         self.assertFalse((self.output / "graphify-out").exists())
         self.assert_no_publication_temp_dirs()
 
+    def test_transaction_restore_failure_keeps_backup_and_reports_safe_category(self):
+        if os.name != "nt":
+            self.skipTest("Windows file locking semantics are required for this rollback-failure fixture")
+        self.assert_wrapper_succeeds()
+        self.commit_output_as_new_s()
+        self.make_source_commit(
+            {
+                "app.py": None,
+                "renamed.py": "def current():\n    return 'locked publication'\n",
+                "AGENTS.md": "forbidden graph integration\n",
+            },
+            "post-publication failure source",
+        )
+        before = self.graph_snapshot()
+        locker, ready, stop = self.start_windows_lock_when_file_contains(
+            self.output / "graphify-out" / "graph.json",
+            "renamed.py",
+        )
+        try:
+            result = self.run_wrapper()
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            combined = result.stdout + result.stderr
+            self.assertIn("publication rollback failed", combined)
+            self.assertNotIn(str(self.publication_temp), combined)
+            self.assertTrue(ready.exists(), "lock fixture never acquired the published baseline")
+            leftovers = self.publication_temp_dirs()
+            self.assertEqual(1, len(leftovers), leftovers)
+            backup = leftovers[0] / "accepted-backup"
+            self.assertTrue((backup / "baseline.json").is_file())
+            self.assertEqual(before["baseline.json"], (backup / "baseline.json").read_bytes())
+        finally:
+            stop.write_text("stop", encoding="utf-8")
+            try:
+                locker.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                locker.kill()
+                locker.wait(timeout=10)
+            for leftover in self.publication_temp_dirs():
+                shutil.rmtree(leftover, ignore_errors=True)
+
+    def test_foreign_publication_temp_dir_is_not_removed(self):
+        foreign = Path(tempfile.gettempdir()) / f"diag-project-graph-publication-foreign-{os.getpid()}"
+        foreign.mkdir(exist_ok=False)
+        try:
+            self.assert_wrapper_succeeds()
+            self.assertTrue(foreign.exists())
+            self.assert_no_publication_temp_dirs()
+        finally:
+            shutil.rmtree(foreign, ignore_errors=True)
+
     def test_noop_ignores_only_volatile_generated_at_and_leaves_output_unchanged(self):
         self.assert_wrapper_succeeds()
         info_exclude = self.output / ".git" / "info" / "exclude"
@@ -477,6 +639,10 @@ raise SystemExit(0)
             baseline[field] = value
         baseline_path.write_text(json.dumps(baseline, sort_keys=True), encoding="utf-8", newline="\n")
 
+    def committed_blob_sha256(self, worktree, spec):
+        blob = self.git("cat-file", "blob", spec, cwd=worktree).stdout.encode("utf-8")
+        return hashlib.sha256(blob).hexdigest()
+
     def assert_failed_incremental_preserves_baseline(self, field, value):
         self.assert_wrapper_succeeds()
         self.commit_output_as_new_s()
@@ -498,6 +664,10 @@ raise SystemExit(0)
     def test_incremental_rejects_policy_identity_mismatches_and_old_baselines(self):
         cases = [
             ("gitattributes_sha256", "bad"),
+            ("indexed_source_roots", "changed-roots"),
+            ("indexed_source_roots_sha256", "bad"),
+            ("package_boundary_markers", "changed-markers"),
+            ("package_boundary_markers_sha256", "bad"),
             ("indexed_source_root_policy", "changed-source-root-policy"),
             ("indexed_source_root_policy_sha256", "bad"),
             ("package_boundary_policy", "changed-package-boundary-policy"),
@@ -522,6 +692,46 @@ raise SystemExit(0)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("run FullRebuild", result.stderr + result.stdout)
         self.assertEqual(before, self.graph_snapshot())
+
+    def test_incremental_rejects_package_marker_add_delete_and_move(self):
+        cases = [
+            ({"newpkg/__init__.py": ""}, "add package marker"),
+            ({"pkg/__init__.py": None}, "delete package marker"),
+            ({"pkg/__init__.py": None, "pkg2/__init__.py": ""}, "move package marker"),
+        ]
+        for edits, message in cases:
+            with self.subTest(message=message):
+                self.recreate_repo(include_historical_inputs=True)
+                self.assert_wrapper_succeeds()
+                self.commit_output_as_new_s()
+                self.make_source_commit(edits, message)
+                before = self.graph_snapshot()
+                result = self.run_wrapper(mode="Incremental")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("run FullRebuild", result.stderr + result.stdout)
+                self.assertEqual(before, self.graph_snapshot())
+
+    def test_incremental_rejects_changed_source_root_identity(self):
+        self.assert_wrapper_succeeds()
+        self.commit_output_as_new_s()
+        self.make_source_commit({"scripts/tool.ps1": "Write-Host 'new root'\n"}, "add source root")
+        before = self.graph_snapshot()
+        result = self.run_wrapper(mode="Incremental")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("run FullRebuild", result.stderr + result.stdout)
+        self.assertEqual(before, self.graph_snapshot())
+
+    def test_gitattributes_identity_uses_committed_blob_sha256(self):
+        self.assert_wrapper_succeeds()
+        baseline = self.read_baseline()
+        self.assertEqual(
+            self.committed_blob_sha256(self.source, "HEAD:.gitattributes"),
+            baseline["gitattributes_sha256"],
+        )
+        self.commit_output_as_new_s()
+        self.make_source_commit({"app.py": "def current():\n    return 'changed'\n"}, "small compatible source delta")
+        result = self.assert_wrapper_succeeds(mode="Incremental")
+        self.assertIn("Incremental source range", result.stdout)
 
     def test_wrapper_does_not_read_verification_report_or_post_archive_evidence(self):
         self.assert_wrapper_succeeds()

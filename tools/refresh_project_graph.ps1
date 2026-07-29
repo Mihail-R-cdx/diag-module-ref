@@ -67,12 +67,87 @@ function Get-Sha256($Path) {
 
 function Get-Sha256ForText($Text) {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Text)
+    return Get-Sha256ForBytes $bytes
+}
+
+function Get-Sha256ForBytes($Bytes) {
     $hasher = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $sha = $hasher.ComputeHash($bytes)
+        $sha = $hasher.ComputeHash($Bytes)
         return ([System.BitConverter]::ToString($sha).Replace("-", "").ToLowerInvariant())
     } finally {
         $hasher.Dispose()
+    }
+}
+
+function Invoke-GitBlobBytes($Root, $Spec, $FailureMessage) {
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = "git"
+    $psi.WorkingDirectory = $Root
+    $psi.Arguments = "cat-file blob `"$Spec`""
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $memory = [System.IO.MemoryStream]::new()
+    try {
+        $process.StandardOutput.BaseStream.CopyTo($memory)
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            Fail $FailureMessage
+        }
+        return $memory.ToArray()
+    } finally {
+        $memory.Dispose()
+        $process.Dispose()
+    }
+}
+
+function Get-GitBlobSha256($Root, $Spec, $FailureMessage) {
+    return Get-Sha256ForBytes (Invoke-GitBlobBytes $Root $Spec $FailureMessage)
+}
+
+function Get-CommittedTrackedPaths($SourceRoot) {
+    $output = Invoke-GitChecked $SourceRoot @("ls-tree", "-r", "--name-only", "HEAD") "Unable to list source HEAD files"
+    $paths = @($output -split "`r?`n" |
+        ForEach-Object { $_.Trim().Replace("\", "/") } |
+        Where-Object { $_ } |
+        Sort-Object -Unique)
+    return $paths
+}
+
+function Test-PathExcludedFromCorpus($Path) {
+    return $Path -match "^(graphify-out|openspec/changes/archive|node_modules|\.worktrees|logs|transfer|inventory|excel|credentials|secrets)(/|$)" -or
+        $Path -match "(?i)(equipment_inventory\.local\.json|credentials\.local|\.xlsx$|\.xls$|\.env($|\.))"
+}
+
+function Get-IndexedSourceRootsIdentity($TrackedPaths) {
+    $roots = @($TrackedPaths |
+        Where-Object { (Test-SourcePathInCorpus $_) -and -not (Test-PathExcludedFromCorpus $_) } |
+        ForEach-Object {
+            if ($_ -match "/") {
+                ($_ -split "/")[0]
+            } else {
+                "."
+            }
+        } |
+        Sort-Object -Unique)
+    $identity = ($roots -join "`n")
+    return [pscustomobject]@{
+        Value = $identity
+        Sha256 = Get-Sha256ForText $identity
+    }
+}
+
+function Get-PackageBoundaryMarkersIdentity($TrackedPaths) {
+    $markers = @($TrackedPaths |
+        Where-Object { $_ -eq "__init__.py" -or $_ -match "/__init__\.py$" } |
+        Sort-Object -Unique)
+    $identity = ($markers -join "`n")
+    return [pscustomobject]@{
+        Value = $identity
+        Sha256 = Get-Sha256ForText $identity
     }
 }
 
@@ -87,6 +162,9 @@ function Get-GraphPolicyIdentity($SourceRoot, $IgnorePolicySha256) {
     if ($headBlob -ne $workingBlob) {
         Fail "SourceRoot .gitattributes must match committed source bytes after repository filters."
     }
+    $trackedPaths = @(Get-CommittedTrackedPaths $SourceRoot)
+    $sourceRoots = Get-IndexedSourceRootsIdentity $trackedPaths
+    $packageMarkers = Get-PackageBoundaryMarkersIdentity $trackedPaths
 
     $identity = [ordered]@{
         graph_schema_contract = $GraphSchemaContract
@@ -95,7 +173,11 @@ function Get-GraphPolicyIdentity($SourceRoot, $IgnorePolicySha256) {
         indexed_source_root_policy = $IndexedSourceRootPolicy
         package_boundary_policy = $PackageBoundaryPolicy
         ignore_file_sha256 = $IgnorePolicySha256
-        gitattributes_sha256 = Get-Sha256 $gitattributesPath
+        gitattributes_sha256 = Get-GitBlobSha256 $SourceRoot "HEAD:.gitattributes" "Unable to read committed .gitattributes policy bytes."
+        indexed_source_roots = $sourceRoots.Value
+        indexed_source_roots_sha256 = $sourceRoots.Sha256
+        package_boundary_markers = $packageMarkers.Value
+        package_boundary_markers_sha256 = $packageMarkers.Sha256
         indexed_source_root_policy_sha256 = Get-Sha256ForText $IndexedSourceRootPolicy
         package_boundary_policy_sha256 = Get-Sha256ForText $PackageBoundaryPolicy
         graph_schema_contract_sha256 = Get-Sha256ForText $GraphSchemaContract
@@ -263,6 +345,29 @@ function Assert-StringField($Object, $Field, $Purpose) {
     return [string]$value
 }
 
+function Assert-HashStringField($Object, $Field, $Purpose) {
+    $value = Assert-StringField $Object $Field $Purpose
+    if ($value -notmatch "^[0-9a-fA-F]{16,128}$") {
+        Fail "$Purpose schema mismatch: $Field must be a safe hash string."
+    }
+    return $value
+}
+
+function Assert-FiniteNumberField($Object, $Field, $Purpose) {
+    if (-not (Test-JsonObject $Object) -or -not ($Object.PSObject.Properties.Name -contains $Field)) {
+        Fail "$Purpose schema mismatch: missing $Field."
+    }
+    $value = $Object.$Field
+    if ($value -is [bool] -or -not ($value -is [byte] -or $value -is [sbyte] -or $value -is [int16] -or $value -is [uint16] -or $value -is [int] -or $value -is [uint32] -or $value -is [long] -or $value -is [uint64] -or $value -is [float] -or $value -is [double] -or $value -is [decimal])) {
+        Fail "$Purpose schema mismatch: $Field must be a finite number."
+    }
+    $doubleValue = [double]$value
+    if ([double]::IsNaN($doubleValue) -or [double]::IsInfinity($doubleValue)) {
+        Fail "$Purpose schema mismatch: $Field must be a finite number."
+    }
+    return $value
+}
+
 function Assert-RepoRelativePath($Path, $Purpose) {
     if (-not $Path) {
         Fail "$Purpose path is empty."
@@ -335,6 +440,9 @@ function Assert-GraphStructure($Graph, $Manifest) {
         if (-not (Test-JsonObject $prop.Value)) {
             Fail "manifest.json schema mismatch: each source entry must be an object."
         }
+        Assert-FiniteNumberField $prop.Value "mtime" "manifest.json" | Out-Null
+        Assert-HashStringField $prop.Value "ast_hash" "manifest.json" | Out-Null
+        Assert-HashStringField $prop.Value "semantic_hash" "manifest.json" | Out-Null
         if ($prop.Value.PSObject.Properties.Name -contains "symbols") {
             if (-not (Test-JsonArray $prop.Value.symbols)) {
                 Fail "manifest.json schema mismatch: symbols must be an array."
@@ -343,6 +451,14 @@ function Assert-GraphStructure($Graph, $Manifest) {
                 if (-not ($symbol -is [string]) -or -not $symbol) {
                     Fail "manifest.json schema mismatch: symbol entries must be non-empty strings."
                 }
+            }
+        }
+        foreach ($entryProp in $prop.Value.PSObject.Properties) {
+            if (@("mtime", "ast_hash", "semantic_hash", "symbols") -contains $entryProp.Name) {
+                continue
+            }
+            if (Test-JsonObject $entryProp.Value -or Test-JsonArray $entryProp.Value) {
+                Fail "manifest.json schema mismatch: unknown nested metadata must not be a container."
             }
         }
     }
@@ -538,7 +654,7 @@ function Assert-SourceGraphifyIgnore($SourceRoot) {
     }
     return [pscustomobject]@{
         Path = $ignorePath
-        Sha256 = Get-Sha256 $ignorePath
+        Sha256 = Get-GitBlobSha256 $SourceRoot "HEAD:.graphifyignore" "Unable to read committed .graphifyignore policy bytes."
     }
 }
 
@@ -785,6 +901,10 @@ function Write-Baseline($GraphDir, $SourceCommit, $SourceRef, $TargetBranch, $Gr
         graph_sha256 = Get-Sha256 $GraphPath
         ignore_file_sha256 = $PolicyIdentity.ignore_file_sha256
         gitattributes_sha256 = $PolicyIdentity.gitattributes_sha256
+        indexed_source_roots = $PolicyIdentity.indexed_source_roots
+        indexed_source_roots_sha256 = $PolicyIdentity.indexed_source_roots_sha256
+        package_boundary_markers = $PolicyIdentity.package_boundary_markers
+        package_boundary_markers_sha256 = $PolicyIdentity.package_boundary_markers_sha256
         indexed_source_root_policy = $PolicyIdentity.indexed_source_root_policy
         indexed_source_root_policy_sha256 = $PolicyIdentity.indexed_source_root_policy_sha256
         package_boundary_policy = $PolicyIdentity.package_boundary_policy
@@ -823,6 +943,10 @@ function Assert-Metadata($SourceRoot, $GraphDir, $Graph, $Baseline, $SourceCommi
     if ($Baseline.graph_sha256 -ne (Get-Sha256 $graphPath)) { Fail "baseline.graph_sha256 mismatch." }
     if ($Baseline.ignore_file_sha256 -ne $PolicyIdentity.ignore_file_sha256) { Fail "baseline.ignore_file_sha256 mismatch." }
     if ($Baseline.gitattributes_sha256 -ne $PolicyIdentity.gitattributes_sha256) { Fail "baseline.gitattributes_sha256 mismatch." }
+    if ($Baseline.indexed_source_roots -ne $PolicyIdentity.indexed_source_roots) { Fail "baseline.indexed_source_roots mismatch." }
+    if ($Baseline.indexed_source_roots_sha256 -ne $PolicyIdentity.indexed_source_roots_sha256) { Fail "baseline.indexed_source_roots_sha256 mismatch." }
+    if ($Baseline.package_boundary_markers -ne $PolicyIdentity.package_boundary_markers) { Fail "baseline.package_boundary_markers mismatch." }
+    if ($Baseline.package_boundary_markers_sha256 -ne $PolicyIdentity.package_boundary_markers_sha256) { Fail "baseline.package_boundary_markers_sha256 mismatch." }
     if ($Baseline.indexed_source_root_policy -ne $PolicyIdentity.indexed_source_root_policy) { Fail "baseline.indexed_source_root_policy mismatch." }
     if ($Baseline.indexed_source_root_policy_sha256 -ne $PolicyIdentity.indexed_source_root_policy_sha256) { Fail "baseline.indexed_source_root_policy_sha256 mismatch." }
     if ($Baseline.package_boundary_policy -ne $PolicyIdentity.package_boundary_policy) { Fail "baseline.package_boundary_policy mismatch." }
@@ -878,6 +1002,10 @@ function Assert-IncrementalPreconditions($PreviousBaseline, $PolicyIdentity, $Ve
     if ($PreviousBaseline.graphify_version -ne $Version) { Fail "Incremental requires unchanged Graphify version; run FullRebuild." }
     Assert-PolicyField $PreviousBaseline "ignore_file_sha256" $PolicyIdentity.ignore_file_sha256
     Assert-PolicyField $PreviousBaseline "gitattributes_sha256" $PolicyIdentity.gitattributes_sha256
+    Assert-PolicyField $PreviousBaseline "indexed_source_roots" $PolicyIdentity.indexed_source_roots
+    Assert-PolicyField $PreviousBaseline "indexed_source_roots_sha256" $PolicyIdentity.indexed_source_roots_sha256
+    Assert-PolicyField $PreviousBaseline "package_boundary_markers" $PolicyIdentity.package_boundary_markers
+    Assert-PolicyField $PreviousBaseline "package_boundary_markers_sha256" $PolicyIdentity.package_boundary_markers_sha256
     Assert-PolicyField $PreviousBaseline "indexed_source_root_policy" $PolicyIdentity.indexed_source_root_policy
     Assert-PolicyField $PreviousBaseline "indexed_source_root_policy_sha256" $PolicyIdentity.indexed_source_root_policy_sha256
     Assert-PolicyField $PreviousBaseline "package_boundary_policy" $PolicyIdentity.package_boundary_policy
@@ -1041,16 +1169,46 @@ function Test-CandidateMatchesAccepted($OutputRoot, $CandidateGraphDir) {
     return $true
 }
 
+function Get-DirectoryFileSnapshot($Root) {
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        return @()
+    }
+    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    return @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force | ForEach-Object {
+        [pscustomobject]@{
+            Path = RelPath $_.FullName $rootFull
+            Length = $_.Length
+            Sha256 = Get-Sha256 $_.FullName
+        }
+    } | Sort-Object Path)
+}
+
+function Assert-DirectorySnapshotMatches($Root, $ExpectedSnapshot, $Purpose) {
+    $actual = @(Get-DirectoryFileSnapshot $Root)
+    if ($actual.Count -ne $ExpectedSnapshot.Count) {
+        Fail "$Purpose byte verification failed."
+    }
+    for ($i = 0; $i -lt $ExpectedSnapshot.Count; $i += 1) {
+        if ($actual[$i].Path -ne $ExpectedSnapshot[$i].Path -or
+            [int64]$actual[$i].Length -ne [int64]$ExpectedSnapshot[$i].Length -or
+            $actual[$i].Sha256 -ne $ExpectedSnapshot[$i].Sha256) {
+            Fail "$Purpose byte verification failed."
+        }
+    }
+}
+
 function Start-GraphPublicationTransaction($OutputRoot, $CandidateGraphDir) {
     $target = Join-Path $OutputRoot $GraphDirName
     $transactionRoot = Join-Path ([System.IO.Path]::GetTempPath()) "diag-project-graph-publication-$PID-$([Guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
     $backup = Join-Path $transactionRoot "accepted-backup"
     $hadPrevious = Test-Path -LiteralPath $target -PathType Container
+    $backupSnapshot = @()
 
     try {
         if ($hadPrevious) {
             Copy-Item -LiteralPath $target -Destination $backup -Recurse -Force
+            $backupSnapshot = @(Get-DirectoryFileSnapshot $backup)
             Remove-Item -LiteralPath $target -Recurse -Force
         }
         New-Item -ItemType Directory -Path $target -Force | Out-Null
@@ -1063,17 +1221,23 @@ function Start-GraphPublicationTransaction($OutputRoot, $CandidateGraphDir) {
             TransactionRoot = $transactionRoot
             Backup = $backup
             HadPrevious = $hadPrevious
+            BackupSnapshot = $backupSnapshot
             Started = $true
         }
     } catch {
-        Restore-GraphPublicationTransaction ([pscustomobject]@{
-            OutputRoot = $OutputRoot
-            Target = $target
-            TransactionRoot = $transactionRoot
-            Backup = $backup
-            HadPrevious = $hadPrevious
-            Started = $true
-        })
+        try {
+            Restore-GraphPublicationTransaction ([pscustomobject]@{
+                OutputRoot = $OutputRoot
+                Target = $target
+                TransactionRoot = $transactionRoot
+                Backup = $backup
+                HadPrevious = $hadPrevious
+                BackupSnapshot = $backupSnapshot
+                Started = $true
+            })
+        } catch {
+            Fail "publication rollback failed during artifact replacement."
+        }
         Fail "Graph publication transaction failed during artifact replacement."
     }
 }
@@ -1082,14 +1246,24 @@ function Restore-GraphPublicationTransaction($Transaction) {
     if ($null -eq $Transaction -or -not $Transaction.Started) {
         return
     }
-    if (Test-Path -LiteralPath $Transaction.Target) {
-        Remove-Item -LiteralPath $Transaction.Target -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if ($Transaction.HadPrevious -and (Test-Path -LiteralPath $Transaction.Backup -PathType Container)) {
-        Copy-Item -LiteralPath $Transaction.Backup -Destination $Transaction.Target -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if (Test-Path -LiteralPath $Transaction.TransactionRoot) {
-        Remove-Item -LiteralPath $Transaction.TransactionRoot -Recurse -Force -ErrorAction SilentlyContinue
+    try {
+        if (Test-Path -LiteralPath $Transaction.Target) {
+            Remove-Item -LiteralPath $Transaction.Target -Recurse -Force -ErrorAction Stop
+        }
+        if ($Transaction.HadPrevious) {
+            if (-not (Test-Path -LiteralPath $Transaction.Backup -PathType Container)) {
+                Fail "publication rollback failed."
+            }
+            Copy-Item -LiteralPath $Transaction.Backup -Destination $Transaction.Target -Recurse -Force -ErrorAction Stop
+            Assert-DirectorySnapshotMatches $Transaction.Target @($Transaction.BackupSnapshot) "publication rollback"
+        } elseif (Test-Path -LiteralPath $Transaction.Target) {
+            Fail "publication rollback failed."
+        }
+        if (Test-Path -LiteralPath $Transaction.TransactionRoot) {
+            Remove-Item -LiteralPath $Transaction.TransactionRoot -Recurse -Force -ErrorAction Stop
+        }
+    } catch {
+        Fail "publication rollback failed."
     }
 }
 

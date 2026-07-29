@@ -67,6 +67,22 @@ New maintenance refreshes publish schema version 2 metadata:
   "generated_at": "<UTC ISO-8601>",
   "graph_sha256": "<sha256>",
   "ignore_file_sha256": "<sha256>",
+  "gitattributes_sha256": "<sha256>",
+  "indexed_source_roots": "<newline-separated repository-relative root identity>",
+  "indexed_source_roots_sha256": "<sha256>",
+  "package_boundary_markers": "<newline-separated repository-relative marker identity>",
+  "package_boundary_markers_sha256": "<sha256>",
+  "indexed_source_root_policy": "<repository-owned policy id>",
+  "indexed_source_root_policy_sha256": "<sha256>",
+  "package_boundary_policy": "<repository-owned policy id>",
+  "package_boundary_policy_sha256": "<sha256>",
+  "graph_schema_contract": "<repository-owned contract id>",
+  "graph_schema_contract_sha256": "<sha256>",
+  "manifest_schema_contract": "<repository-owned contract id>",
+  "manifest_schema_contract_sha256": "<sha256>",
+  "baseline_metadata_contract": "<repository-owned contract id>",
+  "baseline_metadata_contract_sha256": "<sha256>",
+  "policy_fingerprint_sha256": "<sha256>",
   "node_count": 0,
   "edge_count": 0
 }
@@ -76,11 +92,21 @@ New maintenance refreshes publish schema version 2 metadata:
 The following graph artifact commit `G` is not substituted for `S` because
 `graphify-out/` is excluded from the indexed corpus.
 
-`ignore_file_sha256` is the SHA-256 of the verified `.graphifyignore` bytes
-from `SourceRoot` at `S`, not bytes from `OutputRoot` or a caller-provided
-path. `graph_sha256` is the SHA-256 of the canonical published
+`ignore_file_sha256` and `gitattributes_sha256` are SHA-256 values of the
+committed blobs at `S`, after the wrapper has verified the corresponding
+working-tree files match the committed content through Git filters. They are
+not raw checkout-byte hashes and do not depend on platform line-ending
+configuration. `graph_sha256` is the SHA-256 of the canonical published
 `graphify-out/graph.json` bytes. The four generated artifacts are canonical
 UTF-8 without BOM and LF.
+
+`indexed_source_roots` and `package_boundary_markers` are deterministic
+representations of the committed tree at `S`. The source-root identity records
+the sorted top-level roots for tracked files in the approved code/config
+corpus. The package-boundary marker identity records the sorted
+repository-relative tracked `__init__.py` marker set. Their SHA-256 values and
+the composite `policy_fingerprint_sha256` must match the previous accepted
+baseline for `Incremental`; otherwise use `FullRebuild`.
 
 The repository pins exact LF checkout rules in `.gitattributes`:
 
