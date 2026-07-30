@@ -8,6 +8,7 @@ import os
 import posixpath
 import sys
 import tempfile
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -62,23 +63,37 @@ OUTPUT_JSON_ENV = "DIAG_INVENTORY_JSON"
 SOURCE_XLSX_PATH: Path | None = None
 OUTPUT_JSON_PATH: Path | None = None
 
-DIAGNOSTIC_MODEL_BY_EVIDENCE = {
-    ("huawei", "te20"): "Huawei TE20",
-    ("huawei", "te40"): "Huawei TE40",
-    ("huawei", "bar 310"): "CloudLink Bar 310",
-    ("cloudlink", "bar 310"): "CloudLink Bar 310",
-    ("polycom", "rpg 310"): "Polycom RPG 310",
-    ("polycom", "realpresence group 310"): "Polycom RPG 310",
-    ("extron", "in1804"): "Extron IN1804",
-    ("biamp", "tesira forte ci"): "Biamp Tesira Forte CI",
-    ("aten", "pe8208av"): "Aten PE8208AV",
-}
+DIAGNOSTIC_MODEL_RULES = (
+    ("Huawei TE20", (frozenset({"te", "20"}),)),
+    ("Huawei TE40", (frozenset({"te", "40"}),)),
+    ("CloudLink Bar 310", (frozenset({"cloudlink", "bar", "310"}),)),
+    (
+        "Polycom RPG 310",
+        (
+            frozenset({"rpg", "310"}),
+            frozenset({"realpresence", "group", "310"}),
+        ),
+    ),
+    ("Extron IN1804", (frozenset({"in", "1804"}),)),
+    ("Aten PE8208AV", (frozenset({"pe", "8208"}),)),
+    ("Extron IPL T PCS4i", (frozenset({"ipl", "pcs", "4i"}),)),
+    (
+        "Biamp Tesira Forte CI",
+        (
+            frozenset({"tesira", "forte"}),
+            frozenset({"tesira", "forté"}),
+        ),
+    ),
+    ("Extron DMP 64 Plus", (frozenset({"dmp", "64"}),)),
+)
 EXPECTED_KIND_BY_DIAGNOSTIC_MODEL = {
     "Huawei TE20": "video_codec",
     "Huawei TE40": "video_codec",
     "CloudLink Bar 310": "video_codec",
     "Polycom RPG 310": "video_codec",
     "Extron IN1804": "other",
+    "Extron IPL T PCS4i": "other",
+    "Extron DMP 64 Plus": "other",
     "Biamp Tesira Forte CI": "other",
     "Aten PE8208AV": "pdu",
 }
@@ -274,9 +289,9 @@ def _build_records(
 
         manufacturer = normalize_text(_value(row, header_index, EVIDENCE_COLUMNS["manufacturer"]))
         model = normalize_text(_value(row, header_index, EVIDENCE_COLUMNS["model"]))
-        diagnostic_model = _map_diagnostic_model(manufacturer, model)
-        if diagnostic_model is None:
-            issues.append(ImportIssue("data_quality", "UNMAPPED_DIAGNOSTIC_MODEL", row=row_number, record_id=record_id, description="Diagnostic model is not mapped by reviewed evidence."))
+        diagnostic_model, diagnostic_issue = _recognize_diagnostic_model(model)
+        if diagnostic_issue is not None:
+            issues.append(ImportIssue("data_quality", diagnostic_issue, row=row_number, record_id=record_id, description="Diagnostic model is not mapped by reviewed model evidence."))
         expected_kind = EXPECTED_KIND_BY_DIAGNOSTIC_MODEL.get(diagnostic_model)
         if expected_kind is not None and expected_kind != device_kind:
             issues.append(ImportIssue("consistency", "KNOWN_MODEL_TYPE_MISMATCH", row=row_number, record_id=record_id, description="Known diagnostic model evidence conflicts with authoritative source type."))
@@ -539,10 +554,89 @@ def _map_device_kind(source_type: str | None) -> str:
     return "other"
 
 
-def _map_diagnostic_model(manufacturer: str | None, model: str | None) -> str | None:
-    if manufacturer is None or model is None:
+def _recognize_diagnostic_model(model: Any) -> tuple[str | None, str | None]:
+    components = _extract_model_components(_normalize_model_evidence(model))
+    matches = _evaluate_diagnostic_model_rules(components)
+    if not matches:
+        return None, "UNMAPPED_DIAGNOSTIC_MODEL"
+    if len(matches) > 1:
+        return None, "AMBIGUOUS_DIAGNOSTIC_MODEL"
+    return matches[0], None
+
+
+def _normalize_model_evidence(value: Any) -> str | None:
+    text = normalize_text(value)
+    if text is None:
         return None
-    return DIAGNOSTIC_MODEL_BY_EVIDENCE.get((manufacturer.casefold(), model.casefold()))
+    folded = unicodedata.normalize("NFC", text).strip().casefold()
+    return folded or None
+
+
+def _extract_model_components(value: str | None) -> frozenset[str]:
+    if value is None:
+        return frozenset()
+
+    components: set[str] = set()
+    for chunk in _alphanumeric_chunks(value):
+        runs = _split_alphanumeric_runs(chunk)
+        components.update(run for _kind, run in runs)
+        for first, second in zip(runs, runs[1:]):
+            if first[0] == "decimal" and second[0] == "alpha":
+                components.add(first[1] + second[1])
+    return frozenset(components)
+
+
+def _alphanumeric_chunks(value: str) -> tuple[str, ...]:
+    chunks: list[str] = []
+    current: list[str] = []
+    for character in value:
+        if character.isalnum():
+            current.append(character)
+            continue
+        if current:
+            chunks.append("".join(current))
+            current = []
+    if current:
+        chunks.append("".join(current))
+    return tuple(chunks)
+
+
+def _split_alphanumeric_runs(chunk: str) -> tuple[tuple[str, str], ...]:
+    runs: list[tuple[str, str]] = []
+    current_kind: str | None = None
+    current: list[str] = []
+    for character in chunk:
+        if character.isalpha():
+            kind = "alpha"
+        elif character.isdecimal():
+            kind = "decimal"
+        else:
+            kind = "separator"
+
+        if kind == "separator":
+            if current_kind is not None:
+                runs.append((current_kind, "".join(current)))
+                current_kind = None
+                current = []
+            continue
+        if current_kind is None or current_kind == kind:
+            current.append(character)
+            current_kind = kind
+            continue
+        runs.append((current_kind, "".join(current)))
+        current = [character]
+        current_kind = kind
+    if current_kind is not None:
+        runs.append((current_kind, "".join(current)))
+    return tuple(runs)
+
+
+def _evaluate_diagnostic_model_rules(components: frozenset[str]) -> tuple[str, ...]:
+    matches: list[str] = []
+    for diagnostic_model, alternatives in DIAGNOSTIC_MODEL_RULES:
+        if any(alternative.issubset(components) for alternative in alternatives):
+            matches.append(diagnostic_model)
+    return tuple(matches)
 
 
 def _atomic_write_json(output: Path, document: dict[str, Any]) -> None:

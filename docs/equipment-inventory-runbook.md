@@ -113,6 +113,104 @@ These evidence columns do not become separate canonical schema-v1 fields.
 application-supported model name. Approximate matching, fuzzy matching, and
 model guessing are forbidden.
 
+## Diagnostic model recognition
+
+The offline importer recognizes `diagnostic_model` only from the source
+`Модель` evidence. The source `Производитель` column is optional consistency
+evidence only: it is not required for recognition, cannot veto a unique model
+match, and cannot choose between multiple matching model rules.
+
+Recognition evidence is built by applying the canonical text conversion,
+Unicode NFC normalization, trim, and Unicode-aware `casefold()`. The importer
+then splits evidence at non-alphanumeric separators and exposes exact
+alphabetic and decimal runs at letter-to-digit and digit-to-letter transitions.
+Space, hyphen, underscore, dot, slash, and other non-alphanumeric separators
+are equivalent boundaries. Component evidence is set-like: order and repetition
+do not affect rule satisfaction.
+
+Compact forms are supported only through exact component boundaries:
+
+```text
+TE40, TE 40, TE-40, Huawei_TE.40 -> te + 40
+DMP64, DMP 64, Extron/DMP-64-Plus -> dmp + 64
+IPL T PCS4i, IPL-T-PCS-4i -> ipl + pcs + 4i
+```
+
+The mixed component `4i` is specifically supported for the reviewed
+`PCS4i` evidence. Do not extend this into fuzzy matching, arbitrary substring
+matching, typo correction, transliteration, edit distance, token similarity,
+manufacturer guessing, or machine-learning classification.
+
+The closed diagnostic model registry is exactly:
+
+```text
+Huawei TE20
+  required: te + 20
+
+Huawei TE40
+  required: te + 40
+
+CloudLink Bar 310
+  required: cloudlink + bar + 310
+
+Polycom RPG 310
+  alternative 1: rpg + 310
+  alternative 2: realpresence + group + 310
+
+Extron IN1804
+  required: in + 1804
+
+Aten PE8208AV
+  required: pe + 8208
+
+Extron IPL T PCS4i
+  required: ipl + pcs + 4i
+
+Biamp Tesira Forte CI
+  alternative 1: tesira + forte
+  alternative 2: tesira + forté
+
+Extron DMP 64 Plus
+  required: dmp + 64
+```
+
+`AV`, `CI`, and `Plus` are intentionally optional source components. Do not
+add new aliases, manufacturer requirements, or registry-order tie breakers
+without a new approved OpenSpec change.
+
+All rules are evaluated before the importer selects an outcome:
+
+```text
+zero matching canonical rules
+    -> diagnostic_model = null
+    -> UNMAPPED_DIAGNOSTIC_MODEL
+
+one matching canonical rule
+    -> diagnostic_model = exact canonical model
+    -> no model-recognition issue
+
+many matching canonical rules
+    -> diagnostic_model = null
+    -> AMBIGUOUS_DIAGNOSTIC_MODEL
+```
+
+`UNMAPPED_DIAGNOSTIC_MODEL` and `AMBIGUOUS_DIAGNOSTIC_MODEL` are non-fatal
+data-quality issues when the row is otherwise representable. They are mutually
+exclusive for one row. Missing or blank `Модель` is an unmapped outcome rather
+than a fatal source-structure error.
+
+Normal diagnostics may include a safe row number and canonical `record_id`, but
+must not dump complete source rows, workbook content, production inventory, or
+unnecessary free-form evidence. Runtime code remains exact-only: application
+dispatch may use canonical `diagnostic_model`, but must not reproduce the
+component recognizer or infer support from `source_model`, `Производитель`,
+`Модель`, or other evidence fields.
+
+After importer recognition changes are deployed, regenerate the
+deployment-local `equipment_inventory.local.json` offline from the configured
+workbook path. The workbook and generated deployment snapshot remain outside
+Git.
+
 ## Identity rules
 
 ### Equipment identity

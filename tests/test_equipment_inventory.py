@@ -184,6 +184,14 @@ def write_xlsx_sheets(path, sheets, active_index=0):
             archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet_rows, sheet_headers, header_row))
 
 
+def issue_codes_by_record(issues):
+    codes = {}
+    for issue in issues:
+        if issue.record_id is not None:
+            codes.setdefault(issue.record_id, set()).add(issue.code)
+    return codes
+
+
 class EquipmentInventoryRuntimeTests(unittest.TestCase):
     def test_loads_snapshot_and_preserves_zero_one_many_queries(self):
         records = [
@@ -501,6 +509,165 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             self.assertIn("CONTROLLER_REFERENCE_CONFLICT", codes)
             self.assertIn("CONTROLLER_REFERENCE_MISSING_TARGET", codes)
             self.assertNotIn("controller_record_id", json.dumps(json.loads(output.read_text(encoding="utf-8")), ensure_ascii=False))
+
+    def test_importer_recognizes_closed_diagnostic_model_registry_components(self):
+        cases = [
+            ("RID-01", "Huawei TE20", "TE20", None, "Video Conference"),
+            ("RID-02", "Huawei TE40", "Huawei_TE.40", "Conflicting Maker", "Video Conference"),
+            ("RID-03", "CloudLink Bar 310", "cloudlink/bar-310", "Huawei", "Video Conference"),
+            ("RID-04", "Polycom RPG 310", "polycom_rpg_310", "Polycom", "Video Conference"),
+            ("RID-05", "Polycom RPG 310", "RealPresence Group 310", "Polycom", "Video Conference"),
+            ("RID-06", "Extron IN1804", "in1804", "Extron", "Other"),
+            ("RID-07", "Aten PE8208AV", "pe8208", None, "БРП"),
+            ("RID-08", "Aten PE8208AV", "PE8208AV", "Other Maker", "БРП"),
+            ("RID-09", "Extron IPL T PCS4i", "IPL-T-PCS-4i", "Extron", "Other"),
+            ("RID-10", "Biamp Tesira Forte CI", "tesira forte", "Biamp", "Other"),
+            ("RID-11", "Biamp Tesira Forte CI", "TESIRA FORTÉ CI", "Biamp", "Other"),
+            ("RID-12", "Extron DMP 64 Plus", "DMP64", "Extron", "Other"),
+            ("RID-13", "Extron DMP 64 Plus", "DMP 64 Plus", "Extron", "Other"),
+        ]
+        expected_kind = {
+            "Video Conference": "video_codec",
+            "БРП": "pdu",
+            "Other": "other",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = []
+            for index, (record_id, expected_model, model, manufacturer, source_type) in enumerate(cases, start=1):
+                rows.append(
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-{index:02d}",
+                        room_name=f"Synthetic Room {index:02d}",
+                        source_model=f"Authority Source {record_id}",
+                        source_type=source_type,
+                        manufacturer=manufacturer,
+                        model=model,
+                        ip=f"192.0.2.{index}",
+                        mac=f"00:11:22:33:44:{index:02x}",
+                        serial=f"SER-{index:02d}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output, generated_at="2026-07-30T00:00:00Z")
+            self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+            inventory = load_equipment_inventory(output)
+
+        codes_by_record = issue_codes_by_record(result.issues)
+        by_id = {record.record_id: record for record in inventory.records}
+        self.assertEqual({case[1] for case in cases}, {record.diagnostic_model for record in inventory.records})
+        for record_id, expected_model, _model, _manufacturer, source_type in cases:
+            with self.subTest(record_id=record_id):
+                self.assertEqual(expected_model, by_id[record_id].diagnostic_model)
+                self.assertEqual(f"Authority Source {record_id}", by_id[record_id].source_model)
+                self.assertEqual(expected_kind[source_type], by_id[record_id].device_kind)
+                self.assertNotIn("UNMAPPED_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
+                self.assertNotIn("AMBIGUOUS_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
+
+    def test_importer_preserves_mixed_component_separator_boundaries(self):
+        positive_cases = [
+            ("RID-MIX-P1", "IPL_PCS_4i"),
+            ("RID-MIX-P2", "IPL-PCS-4i"),
+            ("RID-MIX-P3", "IPL PCS PCS4i"),
+        ]
+        negative_cases = [
+            ("RID-MIX-N1", "IPL_PCS_4_i"),
+            ("RID-MIX-N2", "IPL-PCS-4-i"),
+            ("RID-MIX-N3", "IPL PCS 4 i"),
+            ("RID-MIX-N4", "IPL.PCS.4.i"),
+            ("RID-MIX-N5", "IPL/PCS/4/i"),
+        ]
+        model_issue_codes = {"UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = []
+            for index, (record_id, model) in enumerate(positive_cases + negative_cases, start=1):
+                rows.append(
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-MIX-{index}",
+                        room_name=f"Mixed Component Room {index}",
+                        source_model=f"Source Authority {record_id}",
+                        source_type="Other",
+                        manufacturer="Extron",
+                        model=model,
+                        ip=f"192.0.2.{120 + index}",
+                        mac=f"00:11:22:33:66:{index:02x}",
+                        serial=f"MIXED-{index}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output)
+            self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+            inventory = load_equipment_inventory(output)
+
+        by_id = {record.record_id: record for record in inventory.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        for record_id, _model in positive_cases:
+            with self.subTest(record_id=record_id):
+                self.assertEqual("Extron IPL T PCS4i", by_id[record_id].diagnostic_model)
+                self.assertEqual(set(), codes_by_record.get(record_id, set()) & model_issue_codes)
+        for record_id, _model in negative_cases:
+            with self.subTest(record_id=record_id):
+                self.assertIsNone(by_id[record_id].diagnostic_model)
+                self.assertEqual({"UNMAPPED_DIAGNOSTIC_MODEL"}, codes_by_record.get(record_id, set()) & model_issue_codes)
+
+    def test_importer_classifies_unmapped_and_ambiguous_model_evidence(self):
+        cases = [
+            ("RID-BLANK", None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-LTE", "LTE 40", "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-TE200", "TE200", "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-TE401", "TE401", "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-IN18040", "IN18040", "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-PE82080", "PE82080", "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-DMP640", "DMP640", "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-AMB", "TE20 / TE40", "AMBIGUOUS_DIAGNOSTIC_MODEL"),
+        ]
+        model_issue_codes = {"UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = []
+            for index, (record_id, model, _expected_issue) in enumerate(cases, start=1):
+                rows.append(
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-X{index}",
+                        room_name=f"Boundary Room {index}",
+                        source_model=f"Preserved Source {record_id}",
+                        source_type="Video Conference",
+                        manufacturer="Huawei",
+                        model=model,
+                        ip=f"192.0.2.{100 + index}",
+                        mac=f"00:11:22:33:55:{index:02x}",
+                        serial=f"BOUNDARY-{index}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output)
+            self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+            inventory = load_equipment_inventory(output)
+
+        by_id = {record.record_id: record for record in inventory.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        for record_id, _model, expected_issue in cases:
+            with self.subTest(record_id=record_id):
+                self.assertIsNone(by_id[record_id].diagnostic_model)
+                self.assertEqual(f"Preserved Source {record_id}", by_id[record_id].source_model)
+                self.assertEqual("video_codec", by_id[record_id].device_kind)
+                record_model_issues = codes_by_record.get(record_id, set()) & model_issue_codes
+                self.assertEqual({expected_issue}, record_model_issues)
+        self.assertNotIn("Huawei TE20", {record.diagnostic_model for record in inventory.records})
+        self.assertNotIn("Huawei TE40", {record.diagnostic_model for record in inventory.records})
 
     def test_snapshot_identity_is_deterministic_and_metadata_independent(self):
         with tempfile.TemporaryDirectory() as directory:
