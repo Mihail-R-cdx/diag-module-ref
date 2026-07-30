@@ -40,16 +40,16 @@
 
 ## 6. Validate implementation
 
-- [ ] Run focused inventory tests with the repository-supported Python interpreter:
+- [ ] Run focused inventory tests with the repository-supported Python interpreter and record the exact result count:
 
 ```powershell
-python -m pytest tests/test_equipment_inventory.py -q
+<python> -m unittest tests.test_equipment_inventory -v
 ```
 
-- [ ] Run the full offline test suite and record the exact passed/failed counts:
+- [ ] Run the canonical full offline test suite and record the exact passed/failed counts:
 
 ```powershell
-python -m pytest -q
+<python> -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 - [ ] Run repository-local OpenSpec validation only:
@@ -79,6 +79,6 @@ git diff --name-only origin/master...HEAD
 
 ## 8. Independent validation and archive applicability
 
-- [ ] Independently repeat focused tests, full tests, both strict OpenSpec validations, `git diff --check`, scope review, secret/inventory checks, and local/remote SHA equality in a clean detached worktree from `origin/agent/inventory-diagnostic-model-recognition`.
+- [ ] Independently repeat the focused `unittest` command, the full `unittest discover` command, both strict OpenSpec validations, `git diff --check`, scope review, secret/inventory checks, and local/remote SHA equality in a clean detached worktree from `origin/agent/inventory-diagnostic-model-recognition`.
 - [ ] Because this change uses a `MODIFIED` root requirement, perform a disposable archive-applicability check outside the feature branch: archive the change with the repository-local wrapper in a throwaway worktree, inspect the resulting archive/root-spec diff against the then-current root specification, run `validate --all --strict`, and discard the worktree without publishing archive output.
 - [ ] Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, any required check fails, the validated remote HEAD changed, or archive applicability is unproven.
