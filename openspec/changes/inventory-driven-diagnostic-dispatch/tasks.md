@@ -115,12 +115,12 @@ git diff --name-only origin/master...HEAD
 - [ ] In a clean detached worktree from `origin/agent/inventory-driven-diagnostic-dispatch`, verify local/remote SHA equality, clean status, commit subject, changed-file scope, and current PR state/base/head/Draft/mergeability.
 - [ ] Independently rerun focused tests, touched GUI/controller regressions, full offline tests, both strict OpenSpec validations, `git diff --check`, registry/ownership review, and secret/inventory protection checks without copying earlier counts.
 - [ ] The validator must not fix its own findings or change production code, tests, proposal, design, tasks, or specifications.
-- [ ] Because this change uses `MODIFIED` root requirements, perform a disposable archive-applicability check outside the feature branch: archive with `\.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes` in a throwaway worktree, inspect archive/root-spec diff against then-current root specs, run `\.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
+- [ ] Because this change uses `MODIFIED` root requirements, perform a disposable archive-applicability check outside the feature branch: archive with `.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes` in a throwaway worktree, inspect archive/root-spec diff against then-current root specs, run `.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
 - [ ] Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a required check fails, the validated remote HEAD changed, the worktree was dirty, or archive applicability is unproven.
 
 ## 12. Archive and merge after explicit permission
 
-- [ ] Archive only after independent approval using repository-local `\.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes`.
-- [ ] Review archive/root-spec diff, run `\.\openspec.cmd validate --all --strict`, full offline tests, and `git diff --check`.
+- [ ] Archive only after independent approval using repository-local `.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes`.
+- [ ] Review archive/root-spec diff, run `.\openspec.cmd validate --all --strict`, full offline tests, and `git diff --check`.
 - [ ] Create and push a dedicated archive commit, then recheck exact remote archive HEAD and current `master`.
 - [ ] Do not merge, close the PR, remove Draft, or delete branches without the user's direct permission.
