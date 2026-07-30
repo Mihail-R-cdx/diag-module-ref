@@ -93,12 +93,11 @@ class FakeDataApp(VCSDiagnosticApp):
         self.fake_codec_handler = FakeCodecHandler()
         self.fake_matrix_handler = FakeMatrixHandler()
         super().__init__()
-        self.device_combo.currentTextChanged.connect(self.load_fake_data)
         self.refresh_btn.clicked.disconnect()
         self.refresh_btn.clicked.connect(self.load_fake_data)
         self.ip_entry.returnPressed.disconnect()
         self.ip_entry.returnPressed.connect(self.load_fake_data)
-        self.device_combo.setCurrentText("Huawei TE40")
+        self._accept_test_diagnostic_model("Huawei TE40")
         self.load_fake_data()
 
     def refresh_data(self):
@@ -126,7 +125,7 @@ class FakeDataApp(VCSDiagnosticApp):
         )
 
     def load_fake_data(self, *_args):
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         screen_type = self.device_to_screen.get(device_name)
         if screen_type is None:
             return

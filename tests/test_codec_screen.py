@@ -43,6 +43,9 @@ class CodecScreenOffscreenTest(unittest.TestCase):
                 self.current_screen_type = None
                 self.device_credentials = {}
 
+            def current_device_name(self):
+                return self.device_combo.currentText()
+
         from gui.screens.codec_screen import CodecScreen
 
         self.parent_widget = Parent()

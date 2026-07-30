@@ -56,10 +56,15 @@ tools/import_equipment_inventory.py
 core/room_context.py
 core/related_codec_status.py
 gui/equipment_pages.py
+gui/diagnostic_dispatch.py
+gui/device_model_fallback_dialog.py
+gui/main_window.py
 gui/pdu_room_codec_enrichment.py
 gui/pdu_controller.py
 gui/screens/pdu_screen.py
 tests/test_equipment_inventory.py
+tests/test_inventory_diagnostic_dispatch.py
+tests/test_inventory_credential_configuration.py
 tests/test_pdu_room_codec_enrichment.py
 tests/test_equipment_room_context_gui.py
 ```
@@ -304,6 +309,10 @@ all other values -> other
 ```
 
 Recognized model evidence must not override the exact `Тип модели` mapping.
+For the reviewed organization rows, correct Aten PE8208AV and Extron IPL T
+PCS4i source type maps to `device_kind = other`. The importer consistency
+expectation follows that contract; runtime PDU dispatch is authorized by exact
+canonical `diagnostic_model`, not by `device_kind`.
 
 ## Canonical snapshot schema v2
 
@@ -386,6 +395,86 @@ The inventory layer preserves multiplicity and does not classify it as
 Do not use implicit first-match selection such as `records[0]` or `codecs[0]`.
 Interpretation of zero/one/many belongs to application/composition code.
 
+## Inventory-driven diagnostic dispatch
+
+The permanent top-panel model selector is not part of runtime authority.
+Operators enter only the target IP, then use Refresh/Enter to start diagnostics
+or `Пароль` to configure credentials. The application owns exact model
+resolution, accepted contexts, page routing, and lifecycle selection.
+
+The closed runtime dispatch registry is exactly the same nine canonical model
+names recognized by the importer:
+
+```text
+Huawei TE20
+Huawei TE40
+CloudLink Bar 310
+Polycom RPG 310
+Extron IN1804
+Aten PE8208AV
+Extron IPL T PCS4i
+Biamp Tesira Forte CI
+Extron DMP 64 Plus
+```
+
+Each registry entry declares the target screen and existing lifecycle route.
+The registry must not contain credentials, indexes, handlers, workers,
+sessions, cookies, tokens, or mutable operation state.
+
+For every diagnostic start and every `Пароль` activation, application
+composition:
+
+```text
+1. validates and normalizes the current IP;
+2. creates a fresh action generation for the specific purpose;
+3. captures the immutable inventory context;
+4. calls inventory.find_by_ip(normalized_ip);
+5. classifies unavailable, zero, one, or many total IP matches before model inspection;
+6. for exactly one record, resolves only exact non-null diagnostic_model through the closed registry.
+```
+
+Resolution outcomes are:
+
+```text
+INVENTORY_UNAVAILABLE
+IP_NOT_FOUND
+AMBIGUOUS_IP
+MODEL_UNMAPPED
+MODEL_UNSUPPORTED
+RESOLVED
+```
+
+Runtime dispatch must not inspect or normalize `source_model`, manufacturer
+evidence, free-form model text, `device_kind`, current page, previous fallback,
+previous diagnostic request, hidden widget state, handler availability, or
+registry order as model authority.
+
+For Refresh/Enter, a resolved inventory model becomes one current
+`AUTO_INVENTORY` diagnostic context. Unresolved outcomes open the
+purpose-bound fallback dialog; only explicit selection plus diagnostic
+confirmation may create a `MANUAL_FALLBACK` context. Cancel or close performs
+no page switch, credential access, ping, handler/controller/worker creation,
+automatic diagnostic start, or device I/O. A supported automatic resolution
+does not expose an ordinary manual override.
+
+For `Пароль`, model resolution is a separate `CREDENTIAL_CONFIGURATION` action.
+It never reuses an accepted diagnostic model as credential authority. Resolved
+inventory or explicit credential-purpose fallback may open only the exact
+accepted model/IP credential dialog. Credential configuration does not ping,
+transition pages, create diagnostic requests, acquire handlers/sessions, submit
+controllers or workers, start PDU enrichment, or perform device I/O.
+Credential-dialog cancel mutates nothing; confirmation may only add or promote
+the exact bound model/IP candidate under existing credential-store semantics
+and must not mark it as a confirmed successful credential or persist a
+connection profile.
+
+All model actions are bound to purpose, generation, normalized IP, immutable
+inventory context, selection source, exact accepted model, and dialog identity
+where applicable. IP changes, inventory replacement/failure changes, shutdown,
+or newer same-purpose actions supersede old work before credential mutation,
+page/controller activation, handler acquisition, worker submission, or network
+I/O.
+
 Room VIP evidence is evaluated only across all records sharing one non-null
 authoritative `room_id`:
 
@@ -427,23 +516,25 @@ or completion without accepted success must not start enrichment.
 The exact resolution sequence is:
 
 ```text
-1. Receive the accepted current PDU IP.
+1. Receive the accepted current PDU IP and exact accepted PDU model.
 2. Call inventory.find_by_ip(pdu_ip).
 3. Require exactly one total IP match.
-4. Require that record.device_kind == "pdu".
-5. Require non-null authoritative room_id.
-6. Call inventory.find_room_equipment(room_id) for display consistency evidence.
-7. Call inventory.find_by_room_and_kind(room_id, "video_codec").
-8. Require exactly one codec record.
-9. Require non-null canonical codec ip_address.
-10. Require an exact supported codec diagnostic_model.
-11. Bind the result to the inventory snapshot and accepted PDU context.
-12. Run an independent read-only codec-status operation.
-13. Render only accepted current non-secret presentation on PDUScreen.
+4. Require the accepted PDU model to be Aten PE8208AV or Extron IPL T PCS4i.
+5. Require the one inventory record diagnostic_model to be in that closed PDU set.
+6. Require the inventory diagnostic_model to exactly equal the accepted PDU model.
+7. Require non-null authoritative room_id.
+8. Call inventory.find_room_equipment(room_id) for display consistency evidence.
+9. Call inventory.find_by_room_and_kind(room_id, "video_codec").
+10. Require exactly one codec record.
+11. Require non-null canonical codec ip_address.
+12. Require an exact supported codec diagnostic_model.
+13. Bind the result to the inventory snapshot and accepted PDU context.
+14. Run an independent read-only codec-status operation.
+15. Render only accepted current non-secret presentation on PDUScreen.
 ```
 
-Duplicate IP ambiguity is evaluated before filtering by device kind. If one PDU
-and one non-PDU share the IP, the result remains `AMBIGUOUS_PDU_IP`.
+Duplicate IP ambiguity is evaluated before model inspection. If two records
+share the accepted PDU IP, the result remains `AMBIGUOUS_PDU_IP`.
 
 Room name never replaces room ID. When one `room_id` has multiple distinct room
 names, no name is selected; a safe `ROOM_NAME_CONFLICT` warning is exposed and
@@ -455,7 +546,8 @@ resolution continues by `room_id`.
 INVENTORY_UNAVAILABLE
 PDU_NOT_FOUND
 AMBIGUOUS_PDU_IP
-PDU_KIND_MISMATCH
+PDU_MODEL_UNSUPPORTED
+PDU_MODEL_MISMATCH
 ROOM_UNRESOLVED
 CODEC_NOT_FOUND
 AMBIGUOUS_CODEC

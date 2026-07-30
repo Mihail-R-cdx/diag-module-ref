@@ -861,7 +861,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             {"username": "matrix-user-1", "password": "matrix-pass-1"},
             {"username": "matrix-user-2", "password": "matrix-pass-2"},
         ]
-        window.device_combo = SimpleNamespace(currentText=lambda: device_name)
+        window.current_device_name = lambda: device_name
         window.device_credentials = {device_name: creds}
         window._active_request_credentials = creds
         window.validate_ip_address = Mock(return_value=True)
@@ -895,7 +895,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             {"username": "matrix-user-0", "password": "matrix-pass-0"},
             {"username": "matrix-user-1", "password": "matrix-pass-1"},
         ]
-        window.device_combo = SimpleNamespace(currentText=lambda: device_name)
+        window.current_device_name = lambda: device_name
         window._active_request_credentials = creds
         window.current_worker = SimpleNamespace(
             device_name=device_name,

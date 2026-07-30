@@ -26,8 +26,8 @@ class PDUControllerLifecycleTests(unittest.TestCase):
 
         self.window = VCSDiagnosticApp()
         self.window.show()
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = Mock()
         self.window.hide_progress_dialog = Mock()
         self.window._active_request_credentials = [{}]
@@ -263,8 +263,8 @@ class PDUControllerLifecycleTests(unittest.TestCase):
 
     def test_aten_refresh_structured_auth_retries_and_persists_only_after_success(self):
         started = []
-        self.window.device_combo.setCurrentText("Aten PE8208AV")
         self.window.ip_entry.setText("192.0.2.45")
+        self.window._accept_test_diagnostic_model("Aten PE8208AV")
         self.window._active_request_credentials = [
             {"username": "u", "password": "a"},
             {"username": "u", "password": "b"},
@@ -412,8 +412,8 @@ class PDUControllerLifecycleTests(unittest.TestCase):
 
     def test_aten_refresh_auth_looking_text_does_not_retry_or_persist(self):
         started = []
-        self.window.device_combo.setCurrentText("Aten PE8208AV")
         self.window.ip_entry.setText("192.0.2.45")
+        self.window._accept_test_diagnostic_model("Aten PE8208AV")
         self.window._active_request_credentials = [
             {"username": "u", "password": "a"},
             {"username": "u", "password": "b"},

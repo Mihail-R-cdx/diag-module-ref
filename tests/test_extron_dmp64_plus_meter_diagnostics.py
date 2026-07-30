@@ -969,14 +969,6 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         QApplication.processEvents()
 
     def test_selector_registration_and_audio_dsp_routing(self):
-        items = [
-            self.window.device_combo.itemText(index)
-            for index in range(self.window.device_combo.count())
-        ]
-
-        self.assertIn("Extron DMP 64 Plus", items)
-        self.assertGreater(items.index("Extron DMP 64 Plus"), items.index("Audio DSP"))
-        self.assertLess(items.index("Extron DMP 64 Plus"), items.index("Управление питанием"))
         self.assertEqual("audio_dsp", self.window.device_to_screen["Extron DMP 64 Plus"])
         self.assertEqual("audio_dsp", self.window.device_to_screen["Biamp Tesira Forte CI"])
 
@@ -1026,8 +1018,8 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.window.device_credentials["Extron DMP 64 Plus"] = [
             {"username": "synthetic-user", "password": "synthetic-password"}
         ]
-        self.window.device_combo.setCurrentText("Extron DMP 64 Plus")
         self.window.ip_entry.setText("192.0.2.64")
+        self.window._accept_test_diagnostic_model("Extron DMP 64 Plus")
         self.window.ensure_ping_success = lambda _ip: True
         self.window.show_progress_dialog = lambda _message: None
 
@@ -1052,8 +1044,8 @@ class DMPGuiIntegrationTests(unittest.TestCase):
             {"username": "synthetic-user-b", "password": "synthetic-password-b"},
         ]
         self.window.device_credentials["Extron DMP 64 Plus"] = credentials
-        self.window.device_combo.setCurrentText("Extron DMP 64 Plus")
         self.window.ip_entry.setText(ip_address)
+        self.window._accept_test_diagnostic_model("Extron DMP 64 Plus")
         self.window.ensure_ping_success = lambda _ip: True
         self.window.show_progress_dialog = Mock()
         self.window.show_codec_poll_terminal = Mock()
@@ -1197,7 +1189,7 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.window.set_current_credential_index = Mock()
         model_generation = controller._generation
 
-        self.window.device_combo.setCurrentText("Biamp Tesira Forte CI")
+        self.window._accept_test_diagnostic_model("Biamp Tesira Forte CI")
         controller.on_result(
             {"_credential_used": True, "complete": True, "meter_sections": []},
             worker,

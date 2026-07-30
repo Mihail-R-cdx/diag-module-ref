@@ -71,29 +71,38 @@ class RoomContextResolverTests(unittest.TestCase):
     def setUp(self):
         self.resolver = RoomContextResolver()
 
-    def resolve(self, records, ip="192.0.2.10"):
-        return self.resolver.resolve_related_codec(inventory(records), ip)
+    def resolve(self, records, ip="192.0.2.10", model="Aten PE8208AV"):
+        return self.resolver.resolve_related_codec(inventory(records), ip, model)
 
     def test_inventory_unavailable_and_pdu_ip_zero_one_many(self):
         self.assertEqual(
             RoomResolutionStatus.INVENTORY_UNAVAILABLE,
-            self.resolver.resolve_related_codec(None, "192.0.2.10").status,
+            self.resolver.resolve_related_codec(None, "192.0.2.10", "Aten PE8208AV").status,
         )
         self.assertEqual(RoomResolutionStatus.PDU_NOT_FOUND, self.resolve([]).status)
 
         result = self.resolve(
             [
-                record("PDU-1", ip_address="192.0.2.10", device_kind="pdu"),
+                record(
+                    "PDU-1",
+                    ip_address="192.0.2.10",
+                    device_kind="other",
+                    diagnostic_model="Aten PE8208AV",
+                ),
                 record("OTHER-1", ip_address="192.0.2.10", device_kind="other"),
             ]
         )
         self.assertEqual(RoomResolutionStatus.AMBIGUOUS_PDU_IP, result.status)
 
-    def test_kind_mismatch_and_missing_room_id_do_not_fallback_to_room_name(self):
+    def test_model_mismatch_and_missing_room_id_do_not_fallback_to_room_name(self):
+        self.assertEqual(
+            RoomResolutionStatus.PDU_MODEL_UNSUPPORTED,
+            self.resolve([], model="Unsupported PDU").status,
+        )
         result = self.resolve(
             [record("CODEC-IP", ip_address="192.0.2.10", device_kind="video_codec")]
         )
-        self.assertEqual(RoomResolutionStatus.PDU_KIND_MISMATCH, result.status)
+        self.assertEqual(RoomResolutionStatus.PDU_MODEL_MISMATCH, result.status)
 
         result = self.resolve(
             [
@@ -102,7 +111,8 @@ class RoomContextResolverTests(unittest.TestCase):
                     ip_address="192.0.2.10",
                     room_id=None,
                     room_name="Display Only",
-                    device_kind="pdu",
+                    device_kind="other",
+                    diagnostic_model="Aten PE8208AV",
                 )
             ]
         )
@@ -111,7 +121,12 @@ class RoomContextResolverTests(unittest.TestCase):
         self.assertEqual("Display Only", result.room_name)
 
     def test_codec_zero_one_many_missing_ip_and_unsupported(self):
-        pdu = record("PDU-1", ip_address="192.0.2.10", device_kind="pdu")
+        pdu = record(
+            "PDU-1",
+            ip_address="192.0.2.10",
+            device_kind="other",
+            diagnostic_model="Aten PE8208AV",
+        )
         self.assertEqual(RoomResolutionStatus.CODEC_NOT_FOUND, self.resolve([pdu]).status)
         self.assertEqual(
             RoomResolutionStatus.AMBIGUOUS_CODEC,
@@ -183,7 +198,8 @@ class RoomContextResolverTests(unittest.TestCase):
                     "PDU-1",
                     ip_address="192.0.2.10",
                     room_name="Room A",
-                    device_kind="pdu",
+                    device_kind="other",
+                    diagnostic_model="Aten PE8208AV",
                 ),
                 record(
                     "C1",
@@ -660,7 +676,13 @@ class EnrichmentControllerTests(unittest.TestCase):
     def resolved_inventory(self):
         return inventory(
             [
-                record("PDU-1", ip_address="192.0.2.10", device_kind="pdu", room_vip=True),
+                record(
+                    "PDU-1",
+                    ip_address="192.0.2.10",
+                    device_kind="other",
+                    diagnostic_model="Aten PE8208AV",
+                    room_vip=True,
+                ),
                 record(
                     "C1",
                     ip_address="192.0.2.20",
@@ -923,7 +945,8 @@ class PDUIntegrationScreenTests(unittest.TestCase):
         "INVENTORY_UNAVAILABLE": "База оборудования недоступна.",
         "PDU_NOT_FOUND": "PDU не найден в базе оборудования.",
         "AMBIGUOUS_PDU_IP": "В базе найдено несколько устройств с этим IP-адресом.",
-        "PDU_KIND_MISMATCH": "Устройство с этим IP-адресом не классифицировано как PDU.",
+        "PDU_MODEL_UNSUPPORTED": "Модель PDU не поддерживает автоматический контекст комнаты.",
+        "PDU_MODEL_MISMATCH": "Модель PDU в базе не совпадает с текущим диагностическим контекстом.",
         "ROOM_UNRESOLVED": "Для PDU не указано помещение.",
         "CODEC_NOT_FOUND": "В помещении не найден кодек ВКС.",
         "AMBIGUOUS_CODEC": "В помещении найдено несколько кодеков ВКС.",

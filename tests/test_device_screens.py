@@ -65,6 +65,9 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
                 self.pdu_commands = []
                 self.refresh_calls = 0
 
+            def current_device_name(self):
+                return self.device_combo.currentText()
+
             def get_current_credential_index(self, device_name, ip_address):
                 return 0
 

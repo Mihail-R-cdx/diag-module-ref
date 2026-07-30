@@ -12,6 +12,15 @@ import traceback
 from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
 from .dmp_polling_controller import DMP_DEVICE_NAME, DMPPollingController
+from .diagnostic_dispatch import (
+    DiagnosticActionPurpose,
+    dispatch_entries,
+    dispatch_entry_for_model,
+    dispatch_model_names,
+    resolve_exact_model_for_ip,
+    validate_dispatch_registry,
+)
+from .device_model_fallback_dialog import DeviceModelFallbackDialog
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
 from .pdu_room_codec_enrichment import PDURoomCodecEnrichmentController
@@ -160,18 +169,10 @@ class VCSDiagnosticApp(QMainWindow):
             "Codec4": self.generate_fake_data("Codec4")
         }
         
-        # Маппинг устройств к экранам
+        # Application-owned exact diagnostic dispatch registry.
+        self.dispatch_registry = dispatch_entries()
         self.device_to_screen = {
-            "Huawei TE20": "codec",
-            "Huawei TE40": "codec",
-            "CloudLink Bar 310": "codec",  # Добавлено новое устройство
-            #"CloudLink Box 300": "codec",
-            "Polycom RPG 310": "codec",
-            "Extron IN1804": "matrix",
-            "Aten PE8208AV": "pdu",
-            "Extron IPL T PCS4i": "pdu",
-            "Biamp Tesira Forte CI": "audio_dsp",
-            "Extron DMP 64 Plus": "audio_dsp",
+            entry.diagnostic_model: entry.screen_key for entry in self.dispatch_registry
         }
         
         self.matrix_params = {
@@ -215,6 +216,10 @@ class VCSDiagnosticApp(QMainWindow):
         self.ui_state = UIState.IDLE
         self._request_serial = 0
         self._active_request = None
+        self._diagnostic_action_generation = 0
+        self._credential_action_generation = 0
+        self._active_diagnostic_model_context = None
+        self._active_credential_configuration_context = None
         self._credential_attempt_plans = {}
         self._matrix_credential_context_revision = 0
         self._pdu_room_codec_enrichment_enabled = True
@@ -336,6 +341,13 @@ class VCSDiagnosticApp(QMainWindow):
         
         # Создаем экраны
         self.init_screens()
+        validate_dispatch_registry(
+            registered_screens=set(self.screens),
+            page_models_by_screen={
+                registration.screen_key: registration.device_models
+                for registration in self.equipment_page_registry
+            },
+        )
         
         # Добавляем экраны в контейнер
         for screen_name, screen in self.screens.items():
@@ -357,9 +369,6 @@ class VCSDiagnosticApp(QMainWindow):
         # Сохраняем текущий выбранный тип экрана
         self.current_screen_type = None
 
-        # По умолчанию выбираем первую конкретную модель, а не заголовок группы.
-        self.device_combo.setCurrentIndex(1)
-
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
@@ -372,7 +381,7 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
     def create_top_panel(self):
-        """Создание верхней панели с выпадающим списком и IP-адресом"""
+        """Создание верхней панели с IP-адресом и действиями."""
         group_box = QGroupBox()
         group_box.setObjectName("connectionPanel")
         group_box.setProperty("uiRole", "toolbar")
@@ -384,69 +393,6 @@ class VCSDiagnosticApp(QMainWindow):
             SPACING["md"], SPACING["md"], SPACING["md"], SPACING["lg"]
         )
         
-        # Выпадающий список устройств
-        self.device_combo = QComboBox()
-        self.device_combo.setObjectName("deviceCombo")
-        self.device_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # The longest device name must not dictate the minimum width of the
-        # entire window.  The combo remains expandable, while its compact
-        # size hint keeps the 950 px baseline usable at scaled DPI.
-        self.device_combo.setMinimumContentsLength(8)
-        self.device_combo.setSizeAdjustPolicy(
-            QComboBox.AdjustToMinimumContentsLengthWithIcon
-        )
-        
-        # Список заголовков
-        headers = ["Кодеки ВКС", "Коммутационное оборудование", "Audio DSP", "Управление питанием"]
-        
-        # Список устройств с категориями
-        devices = [
-            "Кодеки ВКС",
-            "Huawei TE20",
-            "Huawei TE40",
-            "CloudLink Bar 310",
-            #"CloudLink Box 300", 
-            "Polycom RPG 310",
-            "Коммутационное оборудование",
-            "Extron IN1804",
-            "Audio DSP",
-            "Biamp Tesira Forte CI",
-            "Extron DMP 64 Plus",
-            "Управление питанием",
-            "Aten PE8208AV",
-            "Extron IPL T PCS4i"
-        ]
-        
-        # Добавляем элементы в combo box
-        for device in devices:
-            self.device_combo.addItem(device)
-            index = self.device_combo.count() - 1
-            
-            # Если это заголовок
-            if device in headers:
-                # Делаем заголовок невыбираемым
-                self.device_combo.model().item(index).setEnabled(False)
-                # Устанавливаем шрифт для заголовка
-                font = self.device_combo.font()
-                font.setPointSize(10)
-                font.setBold(True)
-                self.device_combo.model().item(index).setFont(font)
-                # Устанавливаем цвет для заголовка
-                self.device_combo.model().item(index).setForeground(QColor(self.colors["secondary"]))
-        
-        # Устанавливаем делегат для выравнивания заголовков по правому краю
-        delegate = RightAlignHeaderDelegate(self.device_combo, headers)
-        self.device_combo.setItemDelegate(delegate)
-        
-        self.device_combo.currentTextChanged.connect(self.on_device_change)
-        self.device_combo.currentTextChanged.connect(
-            lambda _text: self._invalidate_pdu_context()
-        )
-        self.device_combo.installEventFilter(self)
-        
-        device_label = QLabel("Устройство")
-        device_label.setProperty("uiRole", "fieldLabel")
-
         # Метка и поле для IP-адреса
         ip_label = QLabel("IP-адрес")
         ip_label.setProperty("uiRole", "fieldLabel")
@@ -464,6 +410,9 @@ class VCSDiagnosticApp(QMainWindow):
         )
         self.ip_entry.textChanged.connect(
             lambda _text: self._publish_current_equipment_room_context("ip_changed")
+        )
+        self.ip_entry.textChanged.connect(
+            lambda _text: self._supersede_model_actions("ip_changed")
         )
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
@@ -485,27 +434,29 @@ class VCSDiagnosticApp(QMainWindow):
         self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
 
-        self.setTabOrder(self.device_combo, self.ip_entry)
         self.setTabOrder(self.ip_entry, self.password_btn)
         self.setTabOrder(self.password_btn, self.refresh_btn)
         self.setTabOrder(self.refresh_btn, self.debug_btn)
         
-        layout.addWidget(device_label, 0, 0)
-        layout.addWidget(ip_label, 0, 1)
-        layout.addWidget(self.device_combo, 1, 0)
-        layout.addWidget(self.ip_entry, 1, 1)
-        layout.addWidget(self.password_btn, 1, 2)
-        layout.addWidget(self.refresh_btn, 1, 3)
-        layout.addWidget(self.debug_btn, 1, 4)
-        layout.setColumnStretch(0, 5)
-        layout.setColumnStretch(1, 4)
+        layout.addWidget(ip_label, 0, 0)
+        layout.addWidget(self.ip_entry, 1, 0)
+        layout.addWidget(self.password_btn, 1, 1)
+        layout.addWidget(self.refresh_btn, 1, 2)
+        layout.addWidget(self.debug_btn, 1, 3)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 0)
         layout.setColumnStretch(2, 0)
         layout.setColumnStretch(3, 0)
-        layout.setColumnStretch(4, 0)
         
         group_box.setLayout(layout)
         self.connection_panel = group_box
         return group_box
+
+    def _supersede_model_actions(self, reason="context_changed"):
+        self._diagnostic_action_generation += 1
+        self._credential_action_generation += 1
+        self._active_credential_configuration_context = None
+        self._active_diagnostic_model_context = None
     def set_dark_theme(self):
         """Apply the centralized theme for direct window construction."""
         apply_theme(self)
@@ -654,6 +605,132 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self._pdu_room_codec_controller().supersede_pdu_context(event)
 
+    def current_device_name(self):
+        request = self.__dict__.get("_active_request") or {}
+        if request.get("device"):
+            return request["device"]
+        context = self.__dict__.get("_active_diagnostic_model_context") or {}
+        return context.get("model")
+
+    def _normalized_current_ip_or_warn(self):
+        raw_ip = self.ip_entry.text().strip() if hasattr(self, "ip_entry") else ""
+        normalized_ip = normalize_ip_address(raw_ip)
+        if normalized_ip is None:
+            self.set_ui_state(UIState.REQUEST_ERROR, "Неверный формат IP-адреса")
+            QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
+            return None
+        return normalized_ip
+
+    def _next_action_generation(self, purpose):
+        if purpose is DiagnosticActionPurpose.DIAGNOSTIC_START:
+            self._diagnostic_action_generation += 1
+            return self._diagnostic_action_generation
+        self._credential_action_generation += 1
+        return self._credential_action_generation
+
+    def _action_generation(self, purpose):
+        if purpose is DiagnosticActionPurpose.DIAGNOSTIC_START:
+            return self.__dict__.get("_diagnostic_action_generation", 0)
+        return self.__dict__.get("_credential_action_generation", 0)
+
+    def _inventory_context_id(self):
+        return self._equipment_inventory_snapshot_context()
+
+    def _binding_id(self, *, purpose, generation, normalized_ip):
+        return f"{purpose.value}:{generation}:{normalized_ip}:{self._inventory_context_id()}"
+
+    def _resolve_model_for_action(self, purpose, normalized_ip):
+        return resolve_exact_model_for_ip(
+            purpose=purpose,
+            normalized_ip=normalized_ip,
+            inventory=self.equipment_inventory,
+        )
+
+    def _open_model_fallback(self, *, purpose, generation, normalized_ip, resolution):
+        binding_id = self._binding_id(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=normalized_ip,
+        )
+        dialog = DeviceModelFallbackDialog(
+            purpose=purpose,
+            generation=generation,
+            binding_id=binding_id,
+            safe_reason=resolution.safe_reason or "Модель устройства не определена.",
+            model_choices=dispatch_model_names(),
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        selection = dialog.selection()
+        if selection is None:
+            return None
+        if not self._is_action_binding_current(
+            purpose=purpose,
+            generation=selection.generation,
+            normalized_ip=normalized_ip,
+            binding_id=selection.binding_id,
+        ):
+            return None
+        return dispatch_entry_for_model(selection.diagnostic_model)
+
+    def _is_action_binding_current(self, *, purpose, generation, normalized_ip, binding_id):
+        if generation != self._action_generation(purpose):
+            return False
+        if normalize_ip_address(self.ip_entry.text().strip()) != normalized_ip:
+            return False
+        return binding_id == self._binding_id(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=normalized_ip,
+        )
+
+    def _accept_diagnostic_model_context(self, *, normalized_ip, entry, source, generation):
+        context = {
+            "purpose": DiagnosticActionPurpose.DIAGNOSTIC_START.value,
+            "generation": generation,
+            "ip": normalized_ip,
+            "model": entry.diagnostic_model,
+            "screen_key": entry.screen_key,
+            "lifecycle_route": entry.lifecycle_route,
+            "source": source,
+            "inventory_context": self._inventory_context_id(),
+        }
+        self._active_diagnostic_model_context = context
+        self.current_screen_type = entry.screen_key
+        self.setWindowTitle(f"Диагностический модуль ММК - {entry.diagnostic_model}")
+        if entry.diagnostic_model != MATRIX_DEVICE_NAME:
+            self.matrix_controller.invalidate_context()
+        if not self._is_pdu_device(entry.diagnostic_model):
+            self._invalidate_pdu_context()
+        if not self._is_dmp_device(entry.diagnostic_model):
+            self._invalidate_dmp_context()
+        self._publish_current_equipment_room_context("model_context_accepted", force=True)
+        return context
+
+    def _accept_test_diagnostic_model(self, diagnostic_model):
+        """Test helper for legacy lifecycle tests after removing the UI selector."""
+        entry = dispatch_entry_for_model(diagnostic_model)
+        if entry is None:
+            raise ValueError(f"Unsupported diagnostic model: {diagnostic_model}")
+        normalized_ip = normalize_ip_address(self.ip_entry.text().strip()) or ""
+        generation = self._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        context = self._accept_diagnostic_model_context(
+            normalized_ip=normalized_ip,
+            entry=entry,
+            source="TEST_CONTEXT",
+            generation=generation,
+        )
+        request = self.__dict__.get("_active_request")
+        if request is not None:
+            request["device"] = entry.diagnostic_model
+            request["ip"] = normalized_ip
+            request["screen"] = self.screens.get(entry.screen_key)
+            request["credential_context"] = (
+                self._pdu_context_token() if self._is_pdu_device(entry.diagnostic_model) else None
+            )
+        return context
+
     def _related_codec_credential_candidates(self, device_name, ip_address):
         return tuple(self.device_credentials.get(device_name) or ())
 
@@ -715,9 +792,11 @@ class VCSDiagnosticApp(QMainWindow):
         return f"unavailable:{category}"
 
     def _current_equipment_room_binding(self):
-        if not hasattr(self, "device_combo") or not hasattr(self, "ip_entry"):
+        if not hasattr(self, "ip_entry"):
             return None
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
+        if not device_name:
+            return None
         if device_name in PDU_DEVICE_NAMES:
             return None
         screen_key = screen_key_for_model(device_name) or self.device_to_screen.get(device_name)
@@ -975,12 +1054,13 @@ class VCSDiagnosticApp(QMainWindow):
     def _bind_worker(self, worker):
         """Bind worker signals to the request that created it."""
         if self._active_request is None:
+            device_name = getattr(worker, "device_name", None) or self.current_device_name()
             screen_type = self.device_to_screen.get(
-                getattr(worker, "device_name", self.device_combo.currentText()),
+                device_name,
                 "codec",
             )
             self._begin_request(
-                getattr(worker, "device_name", self.device_combo.currentText()),
+                device_name,
                 getattr(worker, "ip_address", self.ip_entry.text().strip()),
                 self.screens.get(screen_type),
             )
@@ -1123,10 +1203,6 @@ class VCSDiagnosticApp(QMainWindow):
             if event.button() == Qt.LeftButton:
                 QTimer.singleShot(0, self.ip_entry.selectAll)
 
-        if obj is getattr(self, 'device_combo', None) and event.type() == QEvent.KeyPress:
-            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-                self.trigger_refresh_from_input()
-                return True
         return super().eventFilter(obj, event)
 
     def showEvent(self, event):
@@ -1186,7 +1262,7 @@ class VCSDiagnosticApp(QMainWindow):
         try:
             os.makedirs(self.button_log_dir, exist_ok=True)
 
-            device_model = self.device_combo.currentText() if hasattr(self, 'device_combo') else ""
+            device_model = self.current_device_name() or ""
             device_ip = self.ip_entry.text().strip() if hasattr(self, 'ip_entry') else ""
             clean_value = lambda value: str(value).replace("\r", " ").replace("\n", " ")
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1449,22 +1525,58 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
     def refresh_data(self):
-        """Обновление данных в зависимости от устройства"""
-        ip_address = self.ip_entry.text().strip()
-        device_name = self.device_combo.currentText()
-        
-        if not ip_address:
-            self.set_ui_state(UIState.REQUEST_ERROR, "Не указан IP-адрес устройства")
-            QMessageBox.warning(self, "Внимание", "Введите IP-адрес устройства")
-            return
-        
-        if not self.validate_ip_address(ip_address):
-            self.set_ui_state(UIState.REQUEST_ERROR, "Неверный формат IP-адреса")
-            QMessageBox.warning(self, "Внимание", "Неверный формат IP-адреса")
+        """Resolve current IP to one exact model and start the assigned lifecycle."""
+        ip_address = self._normalized_current_ip_or_warn()
+        if ip_address is None:
             return
 
+        generation = self._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        test_context = self.__dict__.get("_active_diagnostic_model_context") or {}
+        if test_context.get("source") == "TEST_CONTEXT":
+            entry = dispatch_entry_for_model(test_context.get("model"))
+            source = "TEST_CONTEXT"
+        else:
+            resolution = self._resolve_model_for_action(
+                DiagnosticActionPurpose.DIAGNOSTIC_START,
+                ip_address,
+            )
+            if resolution.resolved:
+                entry = resolution.entry
+                source = "AUTO_INVENTORY"
+            else:
+                entry = self._open_model_fallback(
+                    purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                    generation=generation,
+                    normalized_ip=ip_address,
+                    resolution=resolution,
+                )
+                source = "MANUAL_FALLBACK"
+        if entry is None:
+            self.set_ui_state(UIState.IDLE, "Модель устройства не выбрана")
+            return
+
+        context = self._accept_diagnostic_model_context(
+            normalized_ip=ip_address,
+            entry=entry,
+            source=source,
+            generation=generation,
+        )
+        binding_id = self._binding_id(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=ip_address,
+        )
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=ip_address,
+            binding_id=binding_id,
+        ):
+            return
+        device_name = context["model"]
+
         if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
-            self._pdu_controller().request_refresh()
+            self._pdu_controller().refresh_pdu(ip_address, device_name)
             return
 
         try:
@@ -1486,15 +1598,13 @@ class VCSDiagnosticApp(QMainWindow):
         if not self.ensure_ping_success(ip_address):
             return
 
-        device_type = self.device_to_screen.get(device_name, "codec")
+        device_type = context["screen_key"]
         
         # Определяем, какой экран нужно показывать после успешного обновления
         if device_type == "codec":
             target_screen = self.screens["codec"]
         elif device_type == "matrix":
             target_screen = self.screens["matrix"]
-        elif device_type == "pdu":
-            target_screen = self.screens["pdu"]
         elif device_type == "audio_dsp":
             target_screen = self.screens["audio_dsp"]
         else:
@@ -1518,9 +1628,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._publish_current_equipment_room_context("request_started")
         
         # Вызываем соответствующий метод обновления
-        if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
-            self.refresh_pdu(ip_address, device_name)
-        elif device_name == "Huawei TE40":
+        if device_name == "Huawei TE40":
             self.refresh_huawei_te40(ip_address)
         elif device_name == "CloudLink Bar 310":  
             self.refresh_huawei_bar310(ip_address)
@@ -1550,7 +1658,7 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Invalid IP", "Enter a valid IP address.")
             return
 
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         creds_list = self.device_credentials.get(device_name)
         current_idx = self.get_valid_current_credential_index(
             device_name, creds_list, ip_address
@@ -1597,7 +1705,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Получаем список credentials для Bar 310
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
@@ -1655,7 +1763,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Получаем список credentials для TE-20
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         creds_list = self.device_credentials.get(device_name)
 
         # Создаем worker с текущими credentials
@@ -1717,7 +1825,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Получаем список credentials для TE-40
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
@@ -1779,7 +1887,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         
         # Получаем список credentials для Polycom
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         creds_list = self.device_credentials.get(device_name)
         
         # Создаем worker с текущими credentials
@@ -1837,7 +1945,7 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Неверный IP адрес", "Введите корректный IP адрес.")
             return
         
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         creds_list = getattr(self, "_active_request_credentials", None)
         if creds_list is None:
             creds_list = self.device_credentials.get(device_name)
@@ -2041,9 +2149,9 @@ class VCSDiagnosticApp(QMainWindow):
         partial_update = bool(data.pop('_partial_update', False))
         if not partial_update:
             self.hide_progress_dialog()
-        if not partial_update and self.device_combo.currentText() == "Extron IN1804":
+        if not partial_update and self.current_device_name() == "Extron IN1804":
             self.finish_matrix_terminal("Опрос завершён успешно")
-        elif not partial_update and self.device_combo.currentText() == "Huawei TE20":
+        elif not partial_update and self.current_device_name() == "Huawei TE20":
             self.finish_te20_terminal("Опрос завершён успешно")
 
         meaningful_keys = [
@@ -2137,7 +2245,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.suppress_success_message_once = False
             return
 
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         message_text = (
             f"Данные для {device_name} успешно получены\n"
             f"IP: {data.get('ip_address', self.ip_entry.text())}"
@@ -2275,7 +2383,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.hide_progress_dialog()
         
         error_message = str(error)
-        device_name = getattr(worker, 'device_name', self.device_combo.currentText())
+        device_name = getattr(worker, 'device_name', None) or self.current_device_name()
         if VCSDiagnosticApp._is_dmp_device(device_name):
             is_auth_error = error_type == CodecFailureCategory.AUTHENTICATION.value
         else:
@@ -2403,149 +2511,53 @@ class VCSDiagnosticApp(QMainWindow):
         }
 
     def show_password_dialog(self):
-        """Показать диалог ввода пароля с кастомными стилями"""
-        dialog = QInputDialog(self)
-        dialog.setWindowTitle("Ввод нестандартного пароля")
-        dialog.setLabelText(f"Введите нестандартный пароль для {self.device_combo.currentText()}:\nIP: {self.ip_entry.text()}")
-        dialog.setTextEchoMode(QLineEdit.Password)
-        
-        dialog.setStyleSheet(f"""
-            QDialog {{
-                background-color: {self.colors['surface']};
-                color: {self.colors['text_primary']};
-            }}
-            QLabel {{
-                color: {self.colors['text_primary']};
-                font-size: 11pt;
-            }}
-            QLineEdit {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 10px;
-                font-size: 11pt;
-                selection-background-color: {self.colors['primary']};
-                selection-color: black;
-            }}
-            QLineEdit:focus {{
-                border: 2px solid {self.colors['primary']};
-            }}
-            QPushButton {{
-                background-color: {self.colors['background']};
-                color: {self.colors['text_primary']};
-                border: 1px solid {self.colors['divider']};
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-size: 11pt;
-                font-weight: bold;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.colors['divider']};
-                border: 1px solid {self.colors['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.colors['primary']};
-                color: black;
-            }}
-        """)
-        
-        dialog.resize(400, 200)
-        result = dialog.exec_()
-        
-        if result and dialog.textValue():
-            password = dialog.textValue()
-            device_name = self.device_combo.currentText()
-            
-            # Добавляем новый пароль в начало списка credentials для текущего устройства
-            if device_name in self.device_credentials:
-                # Создаем новый credentials с пустым username (или можно спросить username)
-                # По умолчанию используем username 'api' для большинства устройств
-                default_username = 'admin'
-                
-                # Для некоторых устройств нужно использовать другие username
-                if device_name == "Aten PE8208AV":
-                    default_username = 'admin'
-                elif device_name == "Polycom RPG 310":
-                    default_username = 'admin'
-                elif device_name == "Extron IN1804":
-                    default_username = 'admin'
-                
-                # Создаем новый credentials
-                new_credential = (
-                    {'password': password}
-                    if self._is_pcs4i_device(device_name)
-                    else {'username': default_username, 'password': password}
-                )
-                
-                # Проверяем, нет ли уже такого пароля в списке
-                exists = False
-                for cred in self.device_credentials[device_name]:
-                    if cred['password'] == password:
-                        exists = True
-                        break
-                
-                if not exists:
-                    # Добавляем новый пароль в начало списка
-                    self.device_credentials[device_name].insert(0, new_credential)
-                    self._on_credential_configuration_changed(device_name)
-                    
-                    # Сбрасываем индекс на новый credentials
-                    self.current_credential_index[device_name] = 0
-                    
-                    QMessageBox.information(
-                        self, 
-                        "Успех", 
-                        f"Пароль для {device_name} успешно сохранен\n"
-                        f"Username: {default_username}\n"
-                        f"Пароль будет использован при следующем подключении"
-                    )
-                    print(f"Добавлены новые credentials для {device_name}")
-                else:
-                    QMessageBox.information(
-                        self, 
-                        "Информация", 
-                        f"Пароль для {device_name} уже существует в списке\n"
-                        f"Пароль будет использован при следующем подключении"
-                    )
-                    # Находим индекс существующего пароля и делаем его первым
-                    for i, cred in enumerate(self.device_credentials[device_name]):
-                        if cred['password'] == password:
-                            # Перемещаем в начало
-                            self.device_credentials[device_name].insert(0, self.device_credentials[device_name].pop(i))
-                            self._on_credential_configuration_changed(device_name)
-                            self.current_credential_index[device_name] = 0
-                            break
-            else:
-                # Если устройство еще не в словаре, создаем новую запись
-                default_username = 'admin'
-                if device_name == "Aten PE8208AV":
-                    default_username = 'admin'
-                elif device_name == "Polycom RPG 310":
-                    default_username = 'admin'
-                elif device_name == "Extron IN1804":
-                    default_username = 'admin'
-                
-                self.device_credentials[device_name] = [
-                    {'password': password}
-                    if self._is_pcs4i_device(device_name)
-                    else {'username': default_username, 'password': password}
-                ]
-                self.current_credential_index[device_name] = 0
-                
-                QMessageBox.information(
-                    self, 
-                    "Успех", 
-                    f"Пароль для {device_name} успешно сохранен\n"
-                    f"Username: {default_username}\n"
-                    f"Пароль будет использован при следующем подключении"
-                )
-                print(f"Создана новая запись credentials для {device_name}")
-    
-    def show_password_dialog(self):
         """Показать диалог ввода логина и пароля."""
-        device_name = self.device_combo.currentText()
+        normalized_ip = self._normalized_current_ip_or_warn()
+        if normalized_ip is None:
+            return
+        generation = self._next_action_generation(
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION
+        )
+        resolution = self._resolve_model_for_action(
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            normalized_ip,
+        )
+        if resolution.resolved:
+            entry = resolution.entry
+            source = "AUTO_INVENTORY"
+        else:
+            entry = self._open_model_fallback(
+                purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+                generation=generation,
+                normalized_ip=normalized_ip,
+                resolution=resolution,
+            )
+            source = "MANUAL_FALLBACK"
+        if entry is None:
+            return
+        binding_id = self._binding_id(
+            purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation=generation,
+            normalized_ip=normalized_ip,
+        )
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            binding_id=binding_id,
+        ):
+            return
+
+        device_name = entry.diagnostic_model
+        self._active_credential_configuration_context = {
+            "purpose": DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION.value,
+            "generation": generation,
+            "binding_id": binding_id,
+            "ip": normalized_ip,
+            "model": device_name,
+            "source": source,
+            "inventory_context": self._inventory_context_id(),
+        }
         password_only = self._is_pcs4i_device(device_name)
         default_username = self.get_default_username_for_device(device_name)
 
@@ -2582,6 +2594,13 @@ class VCSDiagnosticApp(QMainWindow):
 
         dialog.resize(420, 220)
         if dialog.exec_() != QDialog.Accepted:
+            return
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            binding_id=binding_id,
+        ):
             return
 
         username = username_entry.text().strip()
@@ -2635,7 +2654,7 @@ class VCSDiagnosticApp(QMainWindow):
                 f"Credentials для {device_name} успешно сохранены\n"
                 "Пароль будет использован при следующем подключении"
             )
-        self.set_current_credential_index(device_name, 0, self.ip_entry.text().strip())
+        self.set_current_credential_index(device_name, 0, normalized_ip)
         QMessageBox.information(self, message_title, message_text)
         if password_only:
             print(f"Сохранены password-only credentials для {device_name}: ***")
@@ -3151,7 +3170,7 @@ class VCSDiagnosticApp(QMainWindow):
             self.codec_terminal_dialog.append_line(f"[session] {message}")
 
     def show_debug_window(self):
-        device_name = self.device_combo.currentText()
+        device_name = self.current_device_name()
         ip_address = self.ip_entry.text().strip()
 
         if device_name == "Huawei TE20":

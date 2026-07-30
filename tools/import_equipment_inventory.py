@@ -95,7 +95,7 @@ EXPECTED_KIND_BY_DIAGNOSTIC_MODEL = {
     "Extron IPL T PCS4i": "other",
     "Extron DMP 64 Plus": "other",
     "Biamp Tesira Forte CI": "other",
-    "Aten PE8208AV": "pdu",
+    "Aten PE8208AV": "other",
 }
 
 

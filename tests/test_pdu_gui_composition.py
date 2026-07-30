@@ -44,8 +44,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_pcs4i_without_mapping_starts_one_credentialless_attempt(self):
         started = []
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.credential_provider.resolve_candidates = self._missing_mapping
         self.window.ensure_ping_success = lambda _ip: True
         self.window.show_progress_dialog = lambda _message: None
@@ -63,8 +63,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_non_pcs4i_missing_mapping_is_blocked_before_worker_creation(self):
         started = []
-        self.window.device_combo.setCurrentText("Aten PE8208AV")
         self.window.ip_entry.setText("192.0.2.45")
+        self.window._accept_test_diagnostic_model("Aten PE8208AV")
         self.window.credential_provider.resolve_candidates = self._missing_mapping
 
         with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
@@ -329,7 +329,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_refresh_pdu_production_binding_ignores_stale_result_and_error(self):
         started = []
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window._begin_request(
             "Extron IPL T PCS4i",
             "192.0.2.44",
@@ -358,7 +358,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_biamp_refresh_uses_generic_worker_binding(self):
         started = []
-        self.window.device_combo.setCurrentText("Biamp Tesira Forte CI")
+        self.window._accept_test_diagnostic_model("Biamp Tesira Forte CI")
         self.window.device_credentials["Biamp Tesira Forte CI"] = [
             {"username": "synthetic-user", "password": "synthetic-password"}
         ]
@@ -378,7 +378,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_huawei_bar310_refresh_uses_generic_worker_binding(self):
         started = []
-        self.window.device_combo.setCurrentText("CloudLink Bar 310")
+        self.window._accept_test_diagnostic_model("CloudLink Bar 310")
         self.window.device_credentials["CloudLink Bar 310"] = [
             {"username": "synthetic-user", "password": "synthetic-password"}
         ]
@@ -569,8 +569,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
     def test_pdu_credential_replacement_discards_cached_credentials_for_new_command(self):
         old_credential = {"password": "credential-a"}
         new_credential = {"password": "credential-b"}
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = lambda _message: None
         self.window._request_serial = 8
         self.window._pdu_context_revision = 20
@@ -629,8 +629,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
     def test_pdu_credential_chain_replacement_discards_obsolete_attempt_plan(self):
         old_chain = [{"password": "credential-a"}, {"password": "credential-b"}]
         new_chain = [{"password": "credential-c"}, {"password": "credential-d"}]
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = lambda _message: None
         self.window.validate_ip_address = lambda _ip: True
         self.window._active_request_credentials = old_chain
@@ -672,8 +672,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_bulk_dispatch_starts_one_worker_with_immutable_ordered_sequence_and_lock(self):
         started = []
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = Mock()
         self.window._active_request_credentials = [{}]
         self.window._active_request = {
@@ -710,8 +710,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_bulk_lock_blocks_parallel_bulk_and_individual_command(self):
         started = []
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = Mock()
         self.window._active_request_credentials = [{}]
         self.window._active_request = {
@@ -742,8 +742,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_individual_command_lock_blocks_bulk_command(self):
         started = []
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = Mock()
         self.window._active_request_credentials = [{}]
         self.window._active_request = {
@@ -776,8 +776,8 @@ class PDUGuiCompositionTests(unittest.TestCase):
 
     def test_stale_outlet_context_after_ip_change_blocks_bulk_dispatch(self):
         started = []
-        self.window.device_combo.setCurrentText("Extron IPL T PCS4i")
         self.window.ip_entry.setText("192.0.2.44")
+        self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.show_progress_dialog = Mock()
         self.window._active_request_credentials = [{}]
         self.window._active_request = {

@@ -22,7 +22,8 @@ class RoomResolutionStatus(str, Enum):
     INVENTORY_UNAVAILABLE = "INVENTORY_UNAVAILABLE"
     PDU_NOT_FOUND = "PDU_NOT_FOUND"
     AMBIGUOUS_PDU_IP = "AMBIGUOUS_PDU_IP"
-    PDU_KIND_MISMATCH = "PDU_KIND_MISMATCH"
+    PDU_MODEL_UNSUPPORTED = "PDU_MODEL_UNSUPPORTED"
+    PDU_MODEL_MISMATCH = "PDU_MODEL_MISMATCH"
     ROOM_UNRESOLVED = "ROOM_UNRESOLVED"
     CODEC_NOT_FOUND = "CODEC_NOT_FOUND"
     AMBIGUOUS_CODEC = "AMBIGUOUS_CODEC"
@@ -33,6 +34,7 @@ class RoomResolutionStatus(str, Enum):
 
 ROOM_NAME_CONFLICT = "ROOM_NAME_CONFLICT"
 ROOM_VIP_CONFLICT = "ROOM_VIP_CONFLICT"
+SUPPORTED_PDU_CONTEXT_MODELS = frozenset({"Aten PE8208AV", "Extron IPL T PCS4i"})
 
 
 class RoomVipStatus(str, Enum):
@@ -136,12 +138,15 @@ class RoomContextResolver:
         self,
         inventory: EquipmentInventory | None,
         pdu_ip_address: str,
+        pdu_model: str | None = None,
     ) -> RoomResolutionResult:
         if inventory is None:
             return RoomResolutionResult(
                 RoomResolutionStatus.INVENTORY_UNAVAILABLE,
                 safe_message="Equipment inventory is unavailable.",
             )
+        if pdu_model not in SUPPORTED_PDU_CONTEXT_MODELS:
+            return RoomResolutionResult(RoomResolutionStatus.PDU_MODEL_UNSUPPORTED)
 
         pdu_resolution = _resolve_record_by_ip(
             inventory,
@@ -153,8 +158,11 @@ class RoomContextResolver:
             return _as_pdu_resolution(pdu_resolution)
 
         pdu_record = pdu_resolution
-        if pdu_record.device_kind != "pdu":
-            return RoomResolutionResult(RoomResolutionStatus.PDU_KIND_MISMATCH)
+        if (
+            pdu_record.diagnostic_model not in SUPPORTED_PDU_CONTEXT_MODELS
+            or pdu_record.diagnostic_model != pdu_model
+        ):
+            return RoomResolutionResult(RoomResolutionStatus.PDU_MODEL_MISMATCH)
 
         room_resolution = _resolve_room_context_for_record(
             inventory,

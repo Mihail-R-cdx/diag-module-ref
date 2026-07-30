@@ -510,6 +510,58 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             self.assertIn("CONTROLLER_REFERENCE_MISSING_TARGET", codes)
             self.assertNotIn("controller_record_id", json.dumps(json.loads(output.read_text(encoding="utf-8")), ensure_ascii=False))
 
+    def test_pdu_diagnostic_models_with_other_kind_do_not_emit_false_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(
+                source,
+                [
+                    source_row(
+                        "RID-ATEN-OTHER",
+                        source_type="Other",
+                        manufacturer="Aten",
+                        model="PE8208AV",
+                        ip="192.0.2.50",
+                    ),
+                    source_row(
+                        "RID-PCS-OTHER",
+                        source_type="Other",
+                        manufacturer="Extron",
+                        model="IPL-T-PCS-4i",
+                        ip="192.0.2.51",
+                    ),
+                    source_row(
+                        "RID-ATEN-CONFLICT",
+                        source_type="БРП",
+                        manufacturer="Aten",
+                        model="PE8208AV",
+                        ip="192.0.2.52",
+                    ),
+                ],
+            )
+            result = import_equipment_inventory(source, output_path=output)
+            self.assertTrue(result.published)
+            inventory = load_equipment_inventory(output)
+            by_id = {item.record_id: item for item in inventory.records}
+            self.assertEqual("other", by_id["RID-ATEN-OTHER"].device_kind)
+            self.assertEqual("Aten PE8208AV", by_id["RID-ATEN-OTHER"].diagnostic_model)
+            self.assertEqual("other", by_id["RID-PCS-OTHER"].device_kind)
+            self.assertEqual("Extron IPL T PCS4i", by_id["RID-PCS-OTHER"].diagnostic_model)
+            codes_by_record = issue_codes_by_record(result.issues)
+            self.assertNotIn(
+                "KNOWN_MODEL_TYPE_MISMATCH",
+                codes_by_record.get("RID-ATEN-OTHER", set()),
+            )
+            self.assertNotIn(
+                "KNOWN_MODEL_TYPE_MISMATCH",
+                codes_by_record.get("RID-PCS-OTHER", set()),
+            )
+            self.assertIn(
+                "KNOWN_MODEL_TYPE_MISMATCH",
+                codes_by_record.get("RID-ATEN-CONFLICT", set()),
+            )
+
     def test_importer_recognizes_closed_diagnostic_model_registry_components(self):
         cases = [
             ("RID-01", "Huawei TE20", "TE20", None, "Video Conference"),

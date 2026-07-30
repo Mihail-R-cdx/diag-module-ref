@@ -118,6 +118,7 @@ class UIStatesOffscreenTest(unittest.TestCase):
         window.refresh_btn = Control("Обновить данные")
         window.device_combo = Control("Huawei TE40")
         window.device_combo.currentText = window.device_combo.text
+        window.current_device_name = lambda: window.device_combo.currentText()
         window.ip_entry = Control("link.ru")
         window.time_display = Control("Никогда")
         return window

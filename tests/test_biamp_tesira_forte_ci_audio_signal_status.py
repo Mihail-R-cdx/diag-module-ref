@@ -134,9 +134,15 @@ class BiampHandlerParserTest(unittest.TestCase):
 
 class BiampMainWindowRoutingTest(unittest.TestCase):
     def test_main_window_declares_biamp_device_and_audio_dsp_screen(self):
+        from gui.diagnostic_dispatch import dispatch_entry_for_model
+
+        entry = dispatch_entry_for_model("Biamp Tesira Forte CI")
+        self.assertIsNotNone(entry)
+        self.assertEqual("audio_dsp", entry.screen_key)
+
         source = Path("gui/main_window.py").read_text(encoding="utf-8")
-        self.assertIn('"Biamp Tesira Forte CI": "audio_dsp"', source)
-        self.assertIn('"Biamp Tesira Forte CI"', source)
+        self.assertIn("self.device_to_screen = {", source)
+        self.assertIn("entry.diagnostic_model: entry.screen_key", source)
         self.assertIn('"audio_dsp": AudioDSPScreen(self)', source)
         self.assertIn("refresh_biamp_tesira_forte_ci", source)
 

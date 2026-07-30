@@ -127,7 +127,7 @@ class PDUController:
         return self.refresh_pdu(ip_address, device_name)
 
     def refresh_pdu(self, ip_address: str, device_name: Optional[str] = None) -> bool:
-        device_name = device_name or self.shell.device_combo.currentText()
+        device_name = device_name or self.shell.current_device_name()
         print(f"=== Начинаю обновление {device_name} для {ip_address} ===")
 
         if not self.shell.validate_ip_address(ip_address):
@@ -1125,7 +1125,7 @@ class PDUController:
 
     def _selected_context(self) -> tuple[str, str]:
         return (
-            self.shell.device_combo.currentText(),
+            self.shell.current_device_name(),
             self.shell.ip_entry.text().strip(),
         )
 

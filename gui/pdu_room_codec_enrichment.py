@@ -177,7 +177,11 @@ class PDURoomCodecEnrichmentController(QObject):
         )
 
         inventory = self._inventory_provider()
-        resolution = self._resolver.resolve_related_codec(inventory, context.ip_address)
+        resolution = self._resolver.resolve_related_codec(
+            inventory,
+            context.ip_address,
+            context.model,
+        )
         if inventory is None:
             failure = self._inventory_failure_provider() if self._inventory_failure_provider else None
             resolution = RoomResolutionResult(

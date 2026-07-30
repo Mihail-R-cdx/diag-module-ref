@@ -267,8 +267,8 @@ def main() -> int:
                     app.processEvents()
                     time.sleep(0.01)
 
-            window.device_combo.setCurrentText(args.device)
             window.ip_entry.setText(APPROVED_TARGETS[args.device])
+            window._accept_test_diagnostic_model(args.device)
             if args.credential_index is not None:
                 credentials = window.device_credentials[args.device]
                 if not 0 <= args.credential_index < len(credentials):
@@ -285,10 +285,10 @@ def main() -> int:
             update_time_before = window.last_update_time
             if args.switch_during_request:
                 def switch_device():
-                    window.device_combo.setCurrentText("Huawei TE40")
                     window.ip_entry.setText(
                         APPROVED_TARGETS["Huawei TE40"]
                     )
+                    window._accept_test_diagnostic_model("Huawei TE40")
                     result["switched_during_request"] = True
 
                 QTimer.singleShot(50, switch_device)
