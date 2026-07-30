@@ -1,86 +1,143 @@
 # Tasks: inventory-driven-diagnostic-dispatch
 
-## 1. Review and approve architecture
+## 1. Review the corrected architecture baseline
 
-- [ ] Read current `RULES.md`, `docs/equipment-inventory-runbook.md`, this change, the current root `diagnostic-application-shell` and `equipment-inventory-snapshot` specifications, current inventory/runtime source, GUI dispatch source, and focused tests.
-- [ ] Fetch GitHub and record exact `origin/master`, remote feature-branch HEAD, PR state, Draft state, base/head, mergeability, and any commits newer than the architecture base before review.
-- [ ] Confirm dispatch authority is exact canonical `diagnostic_model`, not `device_kind`, `source_model`, manufacturer evidence, handler availability, or registry order.
-- [ ] Confirm complete IP multiplicity is classified before filtering and no duplicate-IP path can select `records[0]` or a preferred kind/model.
-- [ ] Confirm manual fallback/override, stale generation, ownership, credentials, PDU enrichment, room/VIP compatibility, and Aten consistency correction are explicit and testable.
-- [ ] Resolve every Critical, High, and Medium architecture finding before issuing `APPROVE` and starting implementation.
+- [ ] Before beginning work, read `RULES.md`.
+- [ ] Read `docs/equipment-inventory-runbook.md`, this change, and current root specifications for `diagnostic-application-shell`, `equipment-inventory-snapshot`, and `pdu-room-codec-enrichment`.
+- [ ] Fetch GitHub and record exact `origin/master`, remote feature-branch HEAD, PR state, Draft state, base/head, mergeability, and any commits newer than the architecture base.
+- [ ] Review current `gui/main_window.py`, `gui/equipment_pages.py`, `core/room_context.py`, importer consistency mapping, and focused synthetic tests.
+- [ ] Confirm the permanent model selector and `Устройство` label are removed by the approved design rather than retained or hidden.
+- [ ] Confirm a supported inventory model is authoritative for its request and no ordinary manual override remains.
+- [ ] Confirm every unresolved outcome opens an explicit fail-closed fallback dialog and Cancel/close performs no device-specific work or I/O.
+- [ ] Confirm complete IP multiplicity is classified before filtering and no duplicate-IP path selects `records[0]` or a preferred model/kind.
+- [ ] Confirm PDU enrichment uses exact accepted-PDU-model/inventory-model agreement and no longer requires `device_kind = pdu`.
+- [ ] Resolve every Critical, High, and Medium architecture finding before issuing `APPROVE` or starting implementation.
 
-## 2. Establish one closed application dispatch registry
+## 2. Validate the published architecture HEAD before approval
 
-- [ ] Implement one reviewable application/composition registry for all nine exact supported canonical models, their screen keys, and their existing lifecycle routes.
-- [ ] Consolidate or derive current `device_to_screen`, selectable manual models, `EQUIPMENT_PAGE_REGISTRY`, and model-specific refresh selection sufficiently to prevent silent registry drift.
-- [ ] Reject or test duplicate model entries, missing screen registration, selectable models without dispatch, dispatch entries without screens, and unknown-model default-to-codec behavior.
-- [ ] Keep credentials, credential lists, successful indexes, handlers, sessions, transports, cookies/tokens, and mutable workers outside registry data.
-- [ ] Preserve the existing Matrix, PDU, DMP, codec, and Biamp lifecycle boundaries rather than introducing an unapproved generic device controller.
+- [ ] Use a clean checkout/worktree from exact `origin/agent/inventory-driven-diagnostic-dispatch`, not an older local branch.
+- [ ] Record exact remote SHA, local HEAD, local/remote equality, commit subject, clean `git status --short`, and current PR state/base/head/Draft/mergeability.
+- [ ] Record supported Node and npm versions and dependency restoration result when required by `RULES.md`.
+- [ ] Run only repository-local OpenSpec commands:
 
-## 3. Implement inventory-assisted resolution and dispatch
+```powershell
+.\openspec.cmd validate inventory-driven-diagnostic-dispatch --strict
+.\openspec.cmd validate --all --strict
+```
 
-- [ ] On user Refresh/Enter, validate and normalize the IP, create a new dispatch generation, capture the immutable inventory context, and resolve before model-specific credentials, ping, handler acquisition, worker/controller submission, or network I/O.
-- [ ] Call `EquipmentInventory.find_by_ip(...)` and classify the complete tuple as inventory unavailable, zero, one, or many before inspecting model/kind.
+- [ ] Run repository protection checks:
+
+```powershell
+git diff --check
+git status --short
+git diff --stat origin/master...HEAD
+git diff --name-only origin/master...HEAD
+```
+
+- [ ] Record exact commands, exit codes, validation results, and changed-file scope in the architecture review report.
+- [ ] Do not issue architecture `APPROVE` while strict validation or a mandatory repository check is unexecuted or failing.
+
+## 3. Establish one closed application dispatch registry
+
+- [ ] Implement one reviewable application/composition registry for all nine exact supported models, their screen keys, and their existing lifecycle routes.
+- [ ] Derive or integrity-check fallback choices, `EQUIPMENT_PAGE_REGISTRY`, current `device_to_screen` replacement, and model-specific lifecycle selection against the same registry.
+- [ ] Remove permanent combo-box model population and do not introduce a hidden selector as request authority.
+- [ ] Reject or test duplicate model entries, missing screen registration, fallback models without lifecycle routes, dispatch entries without screens, and unknown-model default-to-codec behavior.
+- [ ] Keep credentials, successful indexes, handlers, sessions, transports, cookies/tokens, and mutable workers outside registry data.
+- [ ] Preserve existing Matrix, PDU, DMP, codec, and Biamp lifecycle boundaries rather than introducing an unapproved generic controller.
+
+## 4. Remove permanent model selection from the top panel
+
+- [ ] Remove `deviceCombo`/equivalent permanent model selector and the `Устройство` label from the connection panel.
+- [ ] Remove default-first-model initialization and all use of Qt selector text as model, page, credential, retry, or freshness authority.
+- [ ] Store accepted exact model and registry entry only in application-owned request context.
+- [ ] Adapt existing screen/title/debug presentation to read accepted request context without reintroducing model-selection authority into widgets.
+- [ ] Ensure model-independent IP editing, Refresh/Enter, password/configuration, and debug actions remain coherent.
+
+## 5. Implement automatic inventory resolution and authoritative dispatch
+
+- [ ] On Refresh/Enter, validate and normalize IP, create a new dispatch generation, capture immutable inventory context, and resolve before model-specific credentials, ping, handler acquisition, worker/controller submission, or network I/O.
+- [ ] Call `EquipmentInventory.find_by_ip(...)` and classify inventory unavailable, zero, one, or many before inspecting record model/kind.
 - [ ] For exactly one record, dispatch only when exact `diagnostic_model` exists in the closed registry.
-- [ ] Route unique Aten and PCS4i records to the PDU page/controller even when `device_kind = other`.
-- [ ] Route TE20, TE40, Bar 310, RPG 310, IN1804, Tesira Forte CI, and DMP 64 Plus through their exact existing page/lifecycle entries.
-- [ ] Do not inspect or normalize `source_model`, manufacturer/model evidence, free-form text, or handler availability at runtime.
-- [ ] Do not pass inventory matches or candidate-model lists to screens, controllers, handlers, sessions, or workers.
+- [ ] Route unique Aten and PCS4i records to PDU even when `device_kind = other`.
+- [ ] Route TE20, TE40, Bar 310, RPG 310, IN1804, Tesira Forte CI, and DMP 64 Plus through their exact existing lifecycle entries.
+- [ ] Treat a supported inventory model as authoritative for the request and expose no ordinary override path.
+- [ ] Do not inspect or normalize `source_model`, manufacturer/model evidence, free-form text, kind, or handler availability at runtime.
+- [ ] Do not pass inventory matches or candidate-model lists to dialogs, screens, controllers, handlers, sessions, or workers.
 
-## 4. Preserve manual fallback and override
+## 6. Implement fail-closed DeviceModelFallbackDialog
 
-- [ ] Keep existing manual model diagnostics available when inventory is unavailable, IP is not found, IP is ambiguous, `diagnostic_model` is null, or exact model is unsupported.
-- [ ] Make an explicit operator selection after accepted automatic resolution a request-context override bound to the current normalized IP and immutable inventory context.
-- [ ] Make the inventory/manual discrepancy observable without exposing source rows, production inventory, or secrets.
-- [ ] Ensure override chooses only an existing closed dispatch entry and does not mutate `EquipmentRecord`, `EquipmentInventory`, workbook data, or `equipment_inventory.local.json`.
-- [ ] Invalidate override on IP change, inventory context change/reload, reset, or shutdown and prevent stale automatic results from overwriting it.
-- [ ] Resolve credentials only after the final accepted automatic or manual model is known.
+- [ ] For inventory unavailable, IP not found, duplicate IP, null model, or unsupported exact model, automatically open a focused `DeviceModelFallbackDialog` with a safe distinct reason.
+- [ ] Populate choices only from the closed dispatch registry.
+- [ ] Do not preaccept the first item and do not reuse a previous selection; require an explicit selection in the current dialog interaction.
+- [ ] Disable or reject `Подключиться` until an explicit current selection exists.
+- [ ] On explicit selection plus confirmation, publish one generation/IP/inventory-bound `MANUAL_FALLBACK` request context and only then resolve credentials and perform reachability validation.
+- [ ] On Cancel or window close, return/retain `IDLE` and perform zero model-specific credential resolution, ping, handler acquisition, worker/controller creation/submission, page lifecycle start, or device I/O.
+- [ ] Ensure fallback does not mutate `EquipmentRecord`, `EquipmentInventory`, workbook, JSON, aliases, or persistent canonical model state.
+- [ ] Do not open fallback or permit model replacement after a supported automatic resolution.
 
-## 5. Enforce dispatch freshness and lifecycle compatibility
+## 7. Enforce dispatch and dialog freshness
 
-- [ ] Bind lookup/publication to dispatch generation, normalized IP, immutable inventory context, and selection source/override binding.
-- [ ] Supersede older pending dispatch on IP change, model change, new/repeated Refresh/Enter, inventory replacement/availability change, reset, or shutdown.
-- [ ] Reject stale results before credential resolution, page/controller activation, handler/worker creation, and I/O.
-- [ ] Ensure stale results cannot alter combo/page, room/VIP state, credentials, successful index/profile memory, controller operations, or PDU enrichment.
-- [ ] Do not create a second Matrix, PDU, DMP, codec, or audio-DSP operation-generation authority after accepted dispatch enters the existing lifecycle.
+- [ ] Bind lookup/publication and fallback dialog to dispatch generation, normalized IP, immutable inventory context, outcome, selection source, and exact assigned model when accepted.
+- [ ] Supersede older pending lookup/dialog work on IP change, new/repeated Refresh/Enter, inventory replacement/availability change, reset, or shutdown.
+- [ ] Reject stale lookup results, dialog selections, and confirmations before credentials, page/controller activation, handler/worker creation, and I/O.
+- [ ] Ensure stale work cannot alter request model, page, room/VIP state, credentials, successful index/profile memory, controller operations, or PDU enrichment.
+- [ ] Do not create a second Matrix, PDU, DMP, codec, or audio-DSP operation-generation authority after accepted dispatch enters its existing lifecycle.
 - [ ] Keep normal lookup in memory; do not reread JSON, parse Excel, or perform network I/O on the Qt GUI thread.
 
-## 6. Correct Aten consistency expectation
+## 8. Make PDU room-codec enrichment use exact accepted model identity
+
+- [ ] Change the pure related-codec resolver boundary to receive the exact model and IP from the accepted current `PDUController` context.
+- [ ] Preserve complete zero/one/many IP cardinality before any model inspection.
+- [ ] Accept only the closed PDU set: `Aten PE8208AV` and `Extron IPL T PCS4i`.
+- [ ] Require the one inventory record's exact canonical `diagnostic_model` to equal the accepted PDU context model.
+- [ ] Remove the `device_kind == "pdu"` gate and do not identify PDU records by kind, page key, source text, or position.
+- [ ] Add controlled `PDU_MODEL_UNSUPPORTED` and `PDU_MODEL_MISMATCH` outcomes or exact equivalents required by the specification.
+- [ ] Ensure mismatch stops before related-codec credentials, handler/session construction, work submission, and network I/O.
+- [ ] Preserve accepted-PDU-success gating, room-ID authority, one-codec multiplicity, dedicated read-only codec lane, stale rejection, and enrichment independence from PDU success.
+
+## 9. Correct Aten consistency expectation
 
 - [ ] Change `EXPECTED_KIND_BY_DIAGNOSTIC_MODEL["Aten PE8208AV"]` from `pdu` to `other`.
-- [ ] Preserve exact `Тип модели -> device_kind` mapping, canonical fields, schema version, snapshot identity algorithm, and model-recognition rules.
+- [ ] Preserve exact `Тип модели -> device_kind` mapping, canonical fields, schema version, snapshot identity algorithm, and recognition rules.
 - [ ] Ensure correct Aten and PCS4i rows with `device_kind = other` do not emit `KNOWN_MODEL_TYPE_MISMATCH`.
-- [ ] Ensure a genuinely conflicting Aten source type still emits the consistency issue and never rewrites `device_kind` or `diagnostic_model`.
+- [ ] Ensure a genuinely conflicting Aten source type still emits the consistency issue and never rewrites canonical fields.
 
-## 7. Add synthetic regression coverage
+## 10. Add synthetic regression coverage
 
+- [ ] Add top-panel tests proving no permanent model selector, no `Устройство` label, and no default/previous widget model authority.
+- [ ] Add registry integrity tests for all nine exact models, unique entries, registered screens, fallback choices, and no unknown default route.
+- [ ] Add unique-IP routing tests for Aten, PCS4i, TE40, IN1804, and representative Biamp/DMP routes.
+- [ ] Prove `device_kind` alone selects nothing and does not block exact Aten/PCS4i dispatch.
+- [ ] Add inventory unavailable, not found, duplicate IP, null model, and unsupported-model fallback-dialog tests.
+- [ ] For every fallback reason, prove safe reason presentation, explicit current selection, confirmation, Cancel, and window-close behavior.
+- [ ] Prove no first/previous model is implicitly accepted.
+- [ ] Prove zero model-specific credential access, ping, handler acquisition, worker/controller submission, page lifecycle start, and device I/O before confirmation and after Cancel/close.
+- [ ] Prove supported automatic resolution offers no fallback/override and uses only inventory model credentials/lifecycle.
+- [ ] Add stale lookup and stale dialog-confirmation-before-I/O tests.
+- [ ] Add PDU enrichment tests for exact Aten/PCS4i context with kind `other`, duplicate IP, unsupported accepted model, null/unsupported/different inventory model, and zero codec I/O after mismatch.
 - [ ] Add importer tests for correct Aten/PCS4i `other` consistency and conflicting Aten source type.
-- [ ] Add dispatch-registry integrity tests for all nine exact models, unique entries, registered screens, and no unknown default route.
-- [ ] Add unique-IP tests for Aten, PCS4i, Huawei TE40, IN1804, and representative Biamp/DMP audio-DSP routes.
-- [ ] Prove `device_kind = other` alone selects nothing and does not block exact Aten/PCS4i dispatch.
-- [ ] Add inventory unavailable, not found, duplicate IP, null model, and unsupported exact-model fallback tests.
-- [ ] Prove duplicate IP never selects the first record or filters by supported model/kind.
-- [ ] Add manual override, no-persistence, override invalidation, repeat-refresh generation, and stale-result-before-I/O tests.
 - [ ] Prove runtime dispatch never analyzes `source_model` and handlers/workers receive no candidate-model list.
-- [ ] Preserve direct manual diagnostics, PDU room/codec enrichment gating, shared room/VIP presentation, credential/fallback policy, and GUI responsiveness.
-- [ ] Use only synthetic inventory and credentials; do not add real organization data, production snapshots, or Graphify output.
+- [ ] Preserve shared room/VIP presentation, credential/fallback policy after model assignment, and GUI responsiveness.
+- [ ] Use only synthetic inventory and credentials; add no real organization data, snapshots, or Graphify output.
 
-## 8. Update operational documentation and evidence
+## 11. Update operational documentation and evidence
 
-- [ ] Update `docs/equipment-inventory-runbook.md` with exact `diagnostic_model` dispatch authority, closed registry, zero/one/many outcomes, manual fallback/override, stale binding, and the Aten/PCS4i `device_kind = other` distinction.
-- [ ] Record implementation evidence in a change-specific verification report with exact branch SHA, change base, changed files, commands, exit codes, test counts, and known limitations.
-- [ ] Keep implementation scope limited to approved application composition/registry wiring, importer correction, synthetic tests, runbook, and evidence.
+- [ ] Update `docs/equipment-inventory-runbook.md` with IP-only top-panel flow, exact model authority, closed registry, fail-closed fallback dialog, no override after resolution, stale binding, PDU accepted-model matching, and Aten/PCS4i kind distinction.
+- [ ] Update any safe status text that references obsolete `PDU_KIND_MISMATCH` to the approved model outcomes.
+- [ ] Record implementation evidence with exact branch SHA, base, changed files, commands, exit codes, test counts, and limitations.
+- [ ] Keep scope limited to approved composition/registry/UI wiring, resolver correction, importer correction, synthetic tests, runbook, and evidence.
 
-## 9. Validate implementation
+## 12. Validate implementation
 
 - [ ] Run focused tests with the repository-supported Python interpreter and record exact results:
 
 ```powershell
-<python> -m unittest tests.test_equipment_inventory tests.test_inventory_diagnostic_dispatch -v
+<python> -m unittest tests.test_equipment_inventory tests.test_inventory_diagnostic_dispatch tests.test_pdu_room_codec_enrichment -v
 ```
 
-- [ ] Run any existing focused GUI/controller regression modules touched by implementation and record exact commands and counts.
-- [ ] Run the canonical full offline test suite and record exact passed/failed counts:
+- [ ] Run all existing focused GUI/controller regression modules touched by implementation and record exact commands and counts.
+- [ ] Run the canonical full offline test suite:
 
 ```powershell
 <python> -m unittest discover -s tests -p "test_*.py" -v
@@ -104,21 +161,21 @@ git diff --name-only origin/master...HEAD
 
 - [ ] Review that no production workbook/snapshot, credentials, Graphify output, runtime source-text recognizer, device-kind routing, handler-owned lookup, or unrelated files changed.
 
-## 10. Publish for independent validation
+## 13. Publish for independent validation
 
 - [ ] Create focused implementation commit(s) and push to `agent/inventory-driven-diagnostic-dispatch` without force-push.
 - [ ] Verify local HEAD equals `origin/agent/inventory-driven-diagnostic-dispatch` after push.
-- [ ] Do not self-issue final `APPROVE`; request independent validation from a separate clean detached worktree created from the exact published remote branch HEAD.
+- [ ] Do not self-issue final `APPROVE`; request independent validation from a separate clean detached worktree created from exact remote HEAD.
 
-## 11. Independent validation and archive applicability
+## 14. Independent validation and archive applicability
 
-- [ ] In a clean detached worktree from `origin/agent/inventory-driven-diagnostic-dispatch`, verify local/remote SHA equality, clean status, commit subject, changed-file scope, and current PR state/base/head/Draft/mergeability.
-- [ ] Independently rerun focused tests, touched GUI/controller regressions, full offline tests, both strict OpenSpec validations, `git diff --check`, registry/ownership review, and secret/inventory protection checks without copying earlier counts.
+- [ ] In a clean detached worktree from exact `origin/agent/inventory-driven-diagnostic-dispatch`, verify local/remote SHA equality, clean status, commit subject, scope, and current PR state/base/head/Draft/mergeability.
+- [ ] Independently rerun focused tests, GUI/controller regressions, full offline tests, both strict OpenSpec validations, `git diff --check`, architecture correspondence, and protection checks without copying earlier counts.
 - [ ] The validator must not fix its own findings or change production code, tests, proposal, design, tasks, or specifications.
-- [ ] Because this change uses `MODIFIED` root requirements, perform a disposable archive-applicability check outside the feature branch: archive with `.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes` in a throwaway worktree, inspect archive/root-spec diff against then-current root specs, run `.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
-- [ ] Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a required check fails, the validated remote HEAD changed, the worktree was dirty, or archive applicability is unproven.
+- [ ] Because this change uses `MODIFIED` root requirements, perform a disposable archive-applicability check outside the feature branch: archive with `.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes` in a throwaway worktree, inspect archive/root-spec diff against current root specs, run `.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
+- [ ] Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a check fails, validated HEAD changes, the worktree was dirty, or archive applicability is unproven.
 
-## 12. Archive and merge after explicit permission
+## 15. Archive and merge after explicit permission
 
 - [ ] Archive only after independent approval using repository-local `.\openspec.cmd archive inventory-driven-diagnostic-dispatch --yes`.
 - [ ] Review archive/root-spec diff, run `.\openspec.cmd validate --all --strict`, full offline tests, and `git diff --check`.
