@@ -6,14 +6,14 @@ from dataclasses import dataclass
 
 from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidget, QVBoxLayout
 
-from .diagnostic_dispatch import DiagnosticActionPurpose
+from .diagnostic_dispatch import ActionBinding, DiagnosticActionPurpose
 
 
 @dataclass(frozen=True)
 class DeviceModelFallbackSelection:
     purpose: DiagnosticActionPurpose
     generation: int
-    binding_id: str
+    binding_id: ActionBinding
     diagnostic_model: str
 
 
@@ -25,7 +25,7 @@ class DeviceModelFallbackDialog(QDialog):
         *,
         purpose: DiagnosticActionPurpose,
         generation: int,
-        binding_id: str,
+        binding_id: ActionBinding,
         safe_reason: str,
         model_choices: tuple[str, ...],
         parent=None,

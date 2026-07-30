@@ -30,6 +30,21 @@ class DiagnosticDispatchEntry:
 
 
 @dataclass(frozen=True)
+class ActionBinding:
+    purpose: DiagnosticActionPurpose
+    generation: int
+    normalized_ip: str
+    inventory_context_identity: str
+    resolution_status: str | None
+    selection_source: str | None
+    accepted_model: str | None
+    screen_key: str | None
+    lifecycle_route: str | None
+    fallback_dialog_id: int | None = None
+    credential_dialog_id: int | None = None
+
+
+@dataclass(frozen=True)
 class ModelResolutionResult:
     purpose: DiagnosticActionPurpose
     status: ModelResolutionStatus

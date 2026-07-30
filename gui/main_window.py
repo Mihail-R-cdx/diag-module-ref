@@ -13,6 +13,7 @@ from .screens import CodecScreen, MatrixScreen, PDUScreen, AudioDSPScreen
 from .components import EmptyState, StatusIndicator
 from .dmp_polling_controller import DMP_DEVICE_NAME, DMPPollingController
 from .diagnostic_dispatch import (
+    ActionBinding,
     DiagnosticActionPurpose,
     dispatch_entries,
     dispatch_entry_for_model,
@@ -218,6 +219,8 @@ class VCSDiagnosticApp(QMainWindow):
         self._active_request = None
         self._diagnostic_action_generation = 0
         self._credential_action_generation = 0
+        self._fallback_dialog_generation = 0
+        self._credential_dialog_generation = 0
         self._active_diagnostic_model_context = None
         self._active_credential_configuration_context = None
         self._credential_attempt_plans = {}
@@ -636,8 +639,66 @@ class VCSDiagnosticApp(QMainWindow):
     def _inventory_context_id(self):
         return self._equipment_inventory_snapshot_context()
 
-    def _binding_id(self, *, purpose, generation, normalized_ip):
-        return f"{purpose.value}:{generation}:{normalized_ip}:{self._inventory_context_id()}"
+    def _binding_id(
+        self,
+        *,
+        purpose,
+        generation,
+        normalized_ip,
+        resolution_status=None,
+        selection_source=None,
+        accepted_model=None,
+        screen_key=None,
+        lifecycle_route=None,
+        fallback_dialog_id=None,
+        credential_dialog_id=None,
+    ):
+        return ActionBinding(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            inventory_context_identity=self._inventory_context_id(),
+            resolution_status=resolution_status,
+            selection_source=selection_source,
+            accepted_model=accepted_model,
+            screen_key=screen_key,
+            lifecycle_route=lifecycle_route,
+            fallback_dialog_id=fallback_dialog_id,
+            credential_dialog_id=credential_dialog_id,
+        )
+
+    def _accepted_action_binding(
+        self,
+        *,
+        purpose,
+        generation,
+        normalized_ip,
+        resolution_status,
+        source,
+        entry,
+        fallback_dialog_id=None,
+        credential_dialog_id=None,
+    ):
+        return self._binding_id(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            resolution_status=getattr(resolution_status, "value", resolution_status),
+            selection_source=source,
+            accepted_model=entry.diagnostic_model,
+            screen_key=entry.screen_key,
+            lifecycle_route=entry.lifecycle_route,
+            fallback_dialog_id=fallback_dialog_id,
+            credential_dialog_id=credential_dialog_id,
+        )
+
+    def _next_fallback_dialog_id(self):
+        self._fallback_dialog_generation += 1
+        return self._fallback_dialog_generation
+
+    def _next_credential_dialog_id(self):
+        self._credential_dialog_generation += 1
+        return self._credential_dialog_generation
 
     def _resolve_model_for_action(self, purpose, normalized_ip):
         return resolve_exact_model_for_ip(
@@ -647,10 +708,13 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
     def _open_model_fallback(self, *, purpose, generation, normalized_ip, resolution):
+        fallback_dialog_id = self._next_fallback_dialog_id()
         binding_id = self._binding_id(
             purpose=purpose,
             generation=generation,
             normalized_ip=normalized_ip,
+            resolution_status=resolution.status.value,
+            fallback_dialog_id=fallback_dialog_id,
         )
         dialog = DeviceModelFallbackDialog(
             purpose=purpose,
@@ -672,10 +736,37 @@ class VCSDiagnosticApp(QMainWindow):
             binding_id=selection.binding_id,
         ):
             return None
-        return dispatch_entry_for_model(selection.diagnostic_model)
+        entry = dispatch_entry_for_model(selection.diagnostic_model)
+        if entry is None:
+            return None
+        accepted_binding = self._accepted_action_binding(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            resolution_status=resolution.status.value,
+            source="MANUAL_FALLBACK",
+            entry=entry,
+            fallback_dialog_id=fallback_dialog_id,
+        )
+        if not self._is_action_binding_current(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            binding_id=accepted_binding,
+        ):
+            return None
+        return entry, accepted_binding
 
     def _is_action_binding_current(self, *, purpose, generation, normalized_ip, binding_id):
+        if not isinstance(binding_id, ActionBinding):
+            return False
+        if binding_id.purpose is not purpose:
+            return False
         if generation != self._action_generation(purpose):
+            return False
+        if binding_id.generation != generation:
+            return False
+        if binding_id.normalized_ip != normalized_ip:
             return False
         if normalize_ip_address(self.ip_entry.text().strip()) != normalized_ip:
             return False
@@ -683,18 +774,27 @@ class VCSDiagnosticApp(QMainWindow):
             purpose=purpose,
             generation=generation,
             normalized_ip=normalized_ip,
+            resolution_status=binding_id.resolution_status,
+            selection_source=binding_id.selection_source,
+            accepted_model=binding_id.accepted_model,
+            screen_key=binding_id.screen_key,
+            lifecycle_route=binding_id.lifecycle_route,
+            fallback_dialog_id=binding_id.fallback_dialog_id,
+            credential_dialog_id=binding_id.credential_dialog_id,
         )
 
-    def _accept_diagnostic_model_context(self, *, normalized_ip, entry, source, generation):
+    def _accept_diagnostic_model_context(self, *, normalized_ip, entry, source, generation, binding):
         context = {
             "purpose": DiagnosticActionPurpose.DIAGNOSTIC_START.value,
             "generation": generation,
+            "binding": binding,
             "ip": normalized_ip,
             "model": entry.diagnostic_model,
             "screen_key": entry.screen_key,
             "lifecycle_route": entry.lifecycle_route,
             "source": source,
-            "inventory_context": self._inventory_context_id(),
+            "resolution_status": binding.resolution_status,
+            "inventory_context": binding.inventory_context_identity,
         }
         self._active_diagnostic_model_context = context
         self.current_screen_type = entry.screen_key
@@ -715,11 +815,20 @@ class VCSDiagnosticApp(QMainWindow):
             raise ValueError(f"Unsupported diagnostic model: {diagnostic_model}")
         normalized_ip = normalize_ip_address(self.ip_entry.text().strip()) or ""
         generation = self._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        binding = self._accepted_action_binding(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            resolution_status="TEST_CONTEXT",
+            source="TEST_CONTEXT",
+            entry=entry,
+        )
         context = self._accept_diagnostic_model_context(
             normalized_ip=normalized_ip,
             entry=entry,
             source="TEST_CONTEXT",
             generation=generation,
+            binding=binding,
         )
         request = self.__dict__.get("_active_request")
         if request is not None:
@@ -955,33 +1064,102 @@ class VCSDiagnosticApp(QMainWindow):
             operation_id=operation_id,
         )
 
-    def _on_credential_configuration_changed(self, device_name=None):
-        self.__dict__["_related_codec_credential_context_revision"] = (
-            self.__dict__.get("_related_codec_credential_context_revision", 0) + 1
-        )
-        self.__dict__["_equipment_room_credential_context_revision"] = (
-            self.__dict__.get("_equipment_room_credential_context_revision", 0) + 1
-        )
+    def _active_request_matches_model_ip(self, device_name, normalized_ip):
+        request = self.__dict__.get("_active_request") or {}
+        return request.get("device") == device_name and request.get("ip") == normalized_ip
+
+    def _related_codec_context_matches_model_ip(self, device_name, normalized_ip):
         controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
-        if controller is not None:
-            controller.invalidate_context("credential_context_changed")
-        if device_name in (None, MATRIX_DEVICE_NAME):
+        presentation = getattr(controller, "_last_presentation", None)
+        if presentation is None or normalized_ip is None:
+            return False
+        return (
+            presentation.codec_diagnostic_model == device_name
+            and presentation.codec_ip_address == normalized_ip
+        )
+
+    def _current_room_context_matches_model_ip(self, device_name, normalized_ip):
+        binding = self.__dict__.get("_equipment_room_context_binding")
+        if binding is None or normalized_ip is None:
+            return False
+        return binding[0] == device_name and binding[1] == normalized_ip
+
+    def _on_credential_configuration_changed(self, device_name=None, normalized_ip=None):
+        exact_context = device_name is not None and normalized_ip is not None
+        if not exact_context:
+            self.__dict__["_related_codec_credential_context_revision"] = (
+                self.__dict__.get("_related_codec_credential_context_revision", 0) + 1
+            )
+            self.__dict__["_equipment_room_credential_context_revision"] = (
+                self.__dict__.get("_equipment_room_credential_context_revision", 0) + 1
+            )
+            controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
+            if controller is not None:
+                controller.invalidate_context("credential_context_changed")
+            if device_name in (None, MATRIX_DEVICE_NAME):
+                self._matrix_credential_context_revision = (
+                    self.__dict__.get("_matrix_credential_context_revision", 0) + 1
+                )
+                if hasattr(self, "matrix_controller"):
+                    self.matrix_controller.invalidate_context()
+            if device_name in (None, DMP_DEVICE_NAME):
+                self._dmp_controller().invalidate_credential_context()
+            self._invalidate_pdu_context()
+            self._publish_current_equipment_room_context(
+                "credential_context_changed",
+                force=True,
+            )
+            if self._is_pdu_device(device_name):
+                self.__dict__.pop("_active_request_credentials", None)
+                self._discard_obsolete_pdu_credential_attempt_plans(device_name)
+            return
+
+        related_changed = self._related_codec_context_matches_model_ip(
+            device_name, normalized_ip
+        )
+        if related_changed:
+            self.__dict__["_related_codec_credential_context_revision"] = (
+                self.__dict__.get("_related_codec_credential_context_revision", 0) + 1
+            )
+            controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
+            if controller is not None:
+                controller.invalidate_context("credential_context_changed")
+
+        room_changed = self._current_room_context_matches_model_ip(
+            device_name, normalized_ip
+        )
+        if room_changed:
+            self.__dict__["_equipment_room_credential_context_revision"] = (
+                self.__dict__.get("_equipment_room_credential_context_revision", 0) + 1
+            )
+            self._publish_current_equipment_room_context(
+                "credential_context_changed",
+                force=True,
+            )
+
+        if (
+            device_name == MATRIX_DEVICE_NAME
+            and self._active_request_matches_model_ip(device_name, normalized_ip)
+        ):
             self._matrix_credential_context_revision = (
                 self.__dict__.get("_matrix_credential_context_revision", 0) + 1
             )
             if hasattr(self, "matrix_controller"):
                 self.matrix_controller.invalidate_context()
-        if device_name in (None, DMP_DEVICE_NAME):
+
+        if (
+            device_name == DMP_DEVICE_NAME
+            and self._active_request_matches_model_ip(device_name, normalized_ip)
+        ):
             self._dmp_controller().invalidate_credential_context()
-        self._invalidate_pdu_context()
-        self._publish_current_equipment_room_context(
-            "credential_context_changed",
-            force=True,
-        )
-        if not self._is_pdu_device(device_name):
-            return
-        self.__dict__.pop("_active_request_credentials", None)
-        self._discard_obsolete_pdu_credential_attempt_plans(device_name)
+
+        if (
+            self._is_pdu_device(device_name)
+            and self._active_request_matches_model_ip(device_name, normalized_ip)
+        ):
+            self._invalidate_pdu_context()
+            self.__dict__.pop("_active_request_credentials", None)
+            self._discard_obsolete_pdu_credential_attempt_plans(device_name)
 
     @staticmethod
     def _is_pdu_device(device_name):
@@ -1055,14 +1233,14 @@ class VCSDiagnosticApp(QMainWindow):
         """Bind worker signals to the request that created it."""
         if self._active_request is None:
             device_name = getattr(worker, "device_name", None) or self.current_device_name()
-            screen_type = self.device_to_screen.get(
-                device_name,
-                "codec",
-            )
+            entry = dispatch_entry_for_model(device_name)
+            if entry is None or entry.screen_key not in self.screens:
+                self._fail_request_start(f"Неподдерживаемая модель: {device_name}")
+                return
             self._begin_request(
                 device_name,
                 getattr(worker, "ip_address", self.ip_entry.text().strip()),
-                self.screens.get(screen_type),
+                self.screens.get(entry.screen_key),
             )
         request_id = self._active_request["id"]
         worker.signals.result.connect(
@@ -1162,6 +1340,10 @@ class VCSDiagnosticApp(QMainWindow):
     
     def on_device_change(self, device_name):
         """Обработка изменения выбранного устройства"""
+        entry = dispatch_entry_for_model(device_name)
+        if entry is None:
+            self.set_ui_state(UIState.IDLE, "Модель устройства не поддерживается")
+            return False
         self._invalidate_dmp_context()
         codec_screen = self.screens.get("codec") if hasattr(self, 'screens') else None
         if codec_screen and hasattr(codec_screen, 'reset_volume_session'):
@@ -1171,7 +1353,7 @@ class VCSDiagnosticApp(QMainWindow):
         if device_name != MATRIX_DEVICE_NAME:
             self.matrix_controller.invalidate_context()
 
-        screen_type = self.device_to_screen.get(device_name, "codec")
+        screen_type = entry.screen_key
         if screen_type == "codec" and codec_screen and hasattr(codec_screen, 'update_parameters_display'):
             codec_screen.update_parameters_display()
         self._ensure_shared_room_block(screen_type)
@@ -1187,6 +1369,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.refresh_btn.setText("Обновить данные")
         self.set_ui_state(UIState.IDLE, "Данные ещё не запрашивались")
         self._publish_current_equipment_room_context("model_changed")
+        return True
         
         # Обновляем IP адрес
         
@@ -1535,6 +1718,14 @@ class VCSDiagnosticApp(QMainWindow):
         if test_context.get("source") == "TEST_CONTEXT":
             entry = dispatch_entry_for_model(test_context.get("model"))
             source = "TEST_CONTEXT"
+            binding = self._accepted_action_binding(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip=ip_address,
+                resolution_status="TEST_CONTEXT",
+                source=source,
+                entry=entry,
+            ) if entry is not None else None
         else:
             resolution = self._resolve_model_for_action(
                 DiagnosticActionPurpose.DIAGNOSTIC_START,
@@ -1543,42 +1734,78 @@ class VCSDiagnosticApp(QMainWindow):
             if resolution.resolved:
                 entry = resolution.entry
                 source = "AUTO_INVENTORY"
+                binding = self._accepted_action_binding(
+                    purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                    generation=generation,
+                    normalized_ip=ip_address,
+                    resolution_status=resolution.status.value,
+                    source=source,
+                    entry=entry,
+                )
             else:
-                entry = self._open_model_fallback(
+                fallback_result = self._open_model_fallback(
                     purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
                     generation=generation,
                     normalized_ip=ip_address,
                     resolution=resolution,
                 )
                 source = "MANUAL_FALLBACK"
-        if entry is None:
+                if fallback_result is None:
+                    entry = None
+                    binding = None
+                else:
+                    entry, binding = fallback_result
+        if entry is None or binding is None:
             self.set_ui_state(UIState.IDLE, "Модель устройства не выбрана")
             return
 
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=ip_address,
+            binding_id=binding,
+        ):
+            return
+        if entry.screen_key not in {"codec", "matrix", "pdu", "audio_dsp"}:
+            self.set_ui_state(UIState.REQUEST_ERROR, "Неподдерживаемый экран диагностики")
+            return
+        if entry.screen_key not in self.screens:
+            self.set_ui_state(UIState.REQUEST_ERROR, "Экран диагностики недоступен")
+            return
         context = self._accept_diagnostic_model_context(
             normalized_ip=ip_address,
             entry=entry,
             source=source,
             generation=generation,
-        )
-        binding_id = self._binding_id(
-            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-            generation=generation,
-            normalized_ip=ip_address,
+            binding=binding,
         )
         if not self._is_action_binding_current(
             purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
             generation=generation,
             normalized_ip=ip_address,
-            binding_id=binding_id,
+            binding_id=binding,
         ):
             return
         device_name = context["model"]
 
         if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
+            if not self._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip=ip_address,
+                binding_id=binding,
+            ):
+                return
             self._pdu_controller().refresh_pdu(ip_address, device_name)
             return
 
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=ip_address,
+            binding_id=binding,
+        ):
+            return
         try:
             # Credential resolution is deliberately before ping or worker network I/O.
             self._active_request_credentials = self.device_credentials.get(device_name)
@@ -1595,6 +1822,13 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Настройка credentials", message)
             return
 
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=ip_address,
+            binding_id=binding,
+        ):
+            return
         if not self.ensure_ping_success(ip_address):
             return
 
@@ -1607,9 +1841,19 @@ class VCSDiagnosticApp(QMainWindow):
             target_screen = self.screens["matrix"]
         elif device_type == "audio_dsp":
             target_screen = self.screens["audio_dsp"]
+        elif device_type == "pdu":
+            target_screen = self.screens["pdu"]
         else:
-            target_screen = self.screens["codec"]
+            self.set_ui_state(UIState.REQUEST_ERROR, "Неподдерживаемый экран диагностики")
+            return
 
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=generation,
+            normalized_ip=ip_address,
+            binding_id=binding,
+        ):
+            return
         self._begin_request(device_name, ip_address, target_screen)
         
         # Показываем экран
@@ -2525,26 +2769,52 @@ class VCSDiagnosticApp(QMainWindow):
         if resolution.resolved:
             entry = resolution.entry
             source = "AUTO_INVENTORY"
+            binding = self._accepted_action_binding(
+                purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+                generation=generation,
+                normalized_ip=normalized_ip,
+                resolution_status=resolution.status.value,
+                source=source,
+                entry=entry,
+            )
         else:
-            entry = self._open_model_fallback(
+            fallback_result = self._open_model_fallback(
                 purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
                 generation=generation,
                 normalized_ip=normalized_ip,
                 resolution=resolution,
             )
             source = "MANUAL_FALLBACK"
-        if entry is None:
+            if fallback_result is None:
+                entry = None
+                binding = None
+            else:
+                entry, binding = fallback_result
+        if entry is None or binding is None:
             return
-        binding_id = self._binding_id(
+        if not self._is_action_binding_current(
             purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
             generation=generation,
             normalized_ip=normalized_ip,
+            binding_id=binding,
+        ):
+            return
+        credential_dialog_id = self._next_credential_dialog_id()
+        dialog_binding = self._accepted_action_binding(
+            purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation=generation,
+            normalized_ip=normalized_ip,
+            resolution_status=binding.resolution_status,
+            source=source,
+            entry=entry,
+            fallback_dialog_id=binding.fallback_dialog_id,
+            credential_dialog_id=credential_dialog_id,
         )
         if not self._is_action_binding_current(
             purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
             generation=generation,
             normalized_ip=normalized_ip,
-            binding_id=binding_id,
+            binding_id=dialog_binding,
         ):
             return
 
@@ -2552,11 +2822,17 @@ class VCSDiagnosticApp(QMainWindow):
         self._active_credential_configuration_context = {
             "purpose": DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION.value,
             "generation": generation,
-            "binding_id": binding_id,
+            "binding": dialog_binding,
+            "binding_id": dialog_binding,
             "ip": normalized_ip,
             "model": device_name,
+            "screen_key": entry.screen_key,
+            "lifecycle_route": entry.lifecycle_route,
             "source": source,
-            "inventory_context": self._inventory_context_id(),
+            "resolution_status": dialog_binding.resolution_status,
+            "fallback_dialog_id": dialog_binding.fallback_dialog_id,
+            "credential_dialog_id": dialog_binding.credential_dialog_id,
+            "inventory_context": dialog_binding.inventory_context_identity,
         }
         password_only = self._is_pcs4i_device(device_name)
         default_username = self.get_default_username_for_device(device_name)
@@ -2599,7 +2875,7 @@ class VCSDiagnosticApp(QMainWindow):
             purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
             generation=generation,
             normalized_ip=normalized_ip,
-            binding_id=binding_id,
+            binding_id=dialog_binding,
         ):
             return
 
@@ -2620,7 +2896,11 @@ class VCSDiagnosticApp(QMainWindow):
             if password_only
             else {'username': username, 'password': password}
         )
-        creds_list = self.device_credentials.setdefault(device_name, [])
+        if device_name in self.device_credentials:
+            creds_list = dict.__getitem__(self.device_credentials, device_name)
+        else:
+            creds_list = []
+            dict.__setitem__(self.device_credentials, device_name, creds_list)
 
         existing_index = None
         for i, cred in enumerate(creds_list):
@@ -2633,7 +2913,7 @@ class VCSDiagnosticApp(QMainWindow):
 
         if existing_index is None:
             creds_list.insert(0, new_credential)
-            self._on_credential_configuration_changed(device_name)
+            self._on_credential_configuration_changed(device_name, normalized_ip)
             message_title = "Успех"
             message_text = (
                 f"Credentials для {device_name} успешно сохранены\n"
@@ -2642,7 +2922,7 @@ class VCSDiagnosticApp(QMainWindow):
             )
         else:
             creds_list.insert(0, creds_list.pop(existing_index))
-            self._on_credential_configuration_changed(device_name)
+            self._on_credential_configuration_changed(device_name, normalized_ip)
             message_title = "Информация"
             message_text = (
                 f"Такие credentials для {device_name} уже есть в списке\n"
@@ -2654,7 +2934,6 @@ class VCSDiagnosticApp(QMainWindow):
                 f"Credentials для {device_name} успешно сохранены\n"
                 "Пароль будет использован при следующем подключении"
             )
-        self.set_current_credential_index(device_name, 0, normalized_ip)
         QMessageBox.information(self, message_title, message_text)
         if password_only:
             print(f"Сохранены password-only credentials для {device_name}: ***")

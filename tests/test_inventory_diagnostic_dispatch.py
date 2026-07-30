@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -159,6 +160,85 @@ class MainPanelTests(unittest.TestCase):
         labels = [label.text() for label in window.connection_panel.findChildren(QLabel)]
         self.assertNotIn("Устройство", labels)
         self.assertIn("IP-адрес", labels)
+
+
+@unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
+class FailClosedProductionRouteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_bind_worker_with_unknown_model_does_not_create_codec_request(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        worker = Mock()
+        worker.device_name = "Future Model"
+        worker.ip_address = "192.0.2.10"
+        worker.signals.result.connect = Mock()
+        worker.signals.error.connect = Mock()
+        worker.signals.progress.connect = Mock()
+        worker.signals.status.connect = Mock()
+        worker.signals.finished.connect = Mock()
+        window._fail_request_start = Mock()
+
+        window._bind_worker(worker)
+
+        self.assertIsNone(window._active_request)
+        window._fail_request_start.assert_called_once()
+        worker.signals.result.connect.assert_not_called()
+
+    def test_on_device_change_unknown_model_does_not_switch_to_codec(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.current_screen_type = "matrix"
+        before_widget = window.screen_container.currentWidget()
+        window.matrix_controller.invalidate_context = Mock()
+
+        changed = window.on_device_change("Future Model")
+
+        self.assertFalse(changed)
+        self.assertEqual("matrix", window.current_screen_type)
+        self.assertIs(before_widget, window.screen_container.currentWidget())
+        window.matrix_controller.invalidate_context.assert_not_called()
+
+    def test_unknown_screen_key_does_not_select_codec(self):
+        from gui.main_window import VCSDiagnosticApp
+        from gui.diagnostic_dispatch import DiagnosticDispatchEntry
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.ip_entry.setText("192.0.2.10")
+        bad_entry = DiagnosticDispatchEntry(
+            "Huawei TE40",
+            "unknown_screen",
+            "huawei_te40",
+        )
+        window._resolve_model_for_action = Mock(
+            return_value=type(
+                "Resolution",
+                (),
+                {
+                    "resolved": True,
+                    "entry": bad_entry,
+                    "status": ModelResolutionStatus.RESOLVED,
+                },
+            )()
+        )
+        window.ensure_ping_success = Mock(return_value=True)
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "operator", "password": "secret-password"}
+        ]
+        before_widget = window.screen_container.currentWidget()
+
+        with patch("gui.main_window.QMessageBox.warning"):
+            window.refresh_data()
+
+        self.assertIsNone(window._active_request)
+        self.assertIs(before_widget, window.screen_container.currentWidget())
 
 
 if __name__ == "__main__":
