@@ -568,6 +568,57 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
                 self.assertNotIn("UNMAPPED_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
                 self.assertNotIn("AMBIGUOUS_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
 
+    def test_importer_preserves_mixed_component_separator_boundaries(self):
+        positive_cases = [
+            ("RID-MIX-P1", "IPL_PCS_4i"),
+            ("RID-MIX-P2", "IPL-PCS-4i"),
+            ("RID-MIX-P3", "IPL PCS PCS4i"),
+        ]
+        negative_cases = [
+            ("RID-MIX-N1", "IPL_PCS_4_i"),
+            ("RID-MIX-N2", "IPL-PCS-4-i"),
+            ("RID-MIX-N3", "IPL PCS 4 i"),
+            ("RID-MIX-N4", "IPL.PCS.4.i"),
+            ("RID-MIX-N5", "IPL/PCS/4/i"),
+        ]
+        model_issue_codes = {"UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = []
+            for index, (record_id, model) in enumerate(positive_cases + negative_cases, start=1):
+                rows.append(
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-MIX-{index}",
+                        room_name=f"Mixed Component Room {index}",
+                        source_model=f"Source Authority {record_id}",
+                        source_type="Other",
+                        manufacturer="Extron",
+                        model=model,
+                        ip=f"192.0.2.{120 + index}",
+                        mac=f"00:11:22:33:66:{index:02x}",
+                        serial=f"MIXED-{index}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output)
+            self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+            inventory = load_equipment_inventory(output)
+
+        by_id = {record.record_id: record for record in inventory.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        for record_id, _model in positive_cases:
+            with self.subTest(record_id=record_id):
+                self.assertEqual("Extron IPL T PCS4i", by_id[record_id].diagnostic_model)
+                self.assertEqual(set(), codes_by_record.get(record_id, set()) & model_issue_codes)
+        for record_id, _model in negative_cases:
+            with self.subTest(record_id=record_id):
+                self.assertIsNone(by_id[record_id].diagnostic_model)
+                self.assertEqual({"UNMAPPED_DIAGNOSTIC_MODEL"}, codes_by_record.get(record_id, set()) & model_issue_codes)
+
     def test_importer_classifies_unmapped_and_ambiguous_model_evidence(self):
         cases = [
             ("RID-BLANK", None, "UNMAPPED_DIAGNOSTIC_MODEL"),

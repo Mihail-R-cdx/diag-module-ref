@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import posixpath
-import re
 import sys
 import tempfile
 import unicodedata
@@ -578,13 +577,28 @@ def _extract_model_components(value: str | None) -> frozenset[str]:
         return frozenset()
 
     components: set[str] = set()
-    for chunk in (part for part in re.split(r"[^\w]+", value) if part):
+    for chunk in _alphanumeric_chunks(value):
         runs = _split_alphanumeric_runs(chunk)
         components.update(run for _kind, run in runs)
         for first, second in zip(runs, runs[1:]):
             if first[0] == "decimal" and second[0] == "alpha":
                 components.add(first[1] + second[1])
     return frozenset(components)
+
+
+def _alphanumeric_chunks(value: str) -> tuple[str, ...]:
+    chunks: list[str] = []
+    current: list[str] = []
+    for character in value:
+        if character.isalnum():
+            current.append(character)
+            continue
+        if current:
+            chunks.append("".join(current))
+            current = []
+    if current:
+        chunks.append("".join(current))
+    return tuple(chunks)
 
 
 def _split_alphanumeric_runs(chunk: str) -> tuple[tuple[str, str], ...]:
