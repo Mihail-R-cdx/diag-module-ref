@@ -1,7 +1,7 @@
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -130,6 +130,7 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.window.pdu_controller.refresh_pdu.assert_called_once_with(
             "192.0.2.44",
             "Aten PE8208AV",
+            credential_snapshot=ANY,
         )
 
     def test_pdu_refresh_stale_binding_after_ping_does_not_start_controller(self):

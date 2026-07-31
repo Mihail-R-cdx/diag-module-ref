@@ -71,7 +71,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         worker = self.worker(index=3, total=5)
         window.current_worker = worker
 
-        def replace_worker(_ip_address):
+        def replace_worker(_ip_address, **_kwargs):
             window.current_worker = object()
 
         window.refresh_huawei_te40.side_effect = replace_worker
@@ -85,7 +85,11 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 "Huawei TE40|192.0.2.10"
             ].current_index,
         )
-        window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
+        window.refresh_huawei_te40.assert_called_once_with(
+            "192.0.2.10",
+            creds_list=worker.creds_list,
+            current_idx=4,
+        )
         self.assertIn("5", window.set_ui_state.call_args.args[1])
 
     def test_non_authentication_error_does_not_retry(self):
@@ -241,11 +245,21 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 worker = self.worker(index=0, total=5)
                 worker.device_name = device_name
                 window.current_worker = worker
-                refresh = Mock(side_effect=lambda _ip: setattr(window, "current_worker", object()))
+                refresh = Mock(
+                    side_effect=lambda _ip, **_kwargs: setattr(
+                        window,
+                        "current_worker",
+                        object(),
+                    )
+                )
                 setattr(window, method_name, refresh)
                 window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
-                refresh.assert_called_once_with("192.0.2.10")
+                refresh.assert_called_once_with(
+                    "192.0.2.10",
+                    creds_list=worker.creds_list,
+                    current_idx=1,
+                )
                 if device_name == "Biamp Tesira Forte CI":
                     window.set_current_credential_index.assert_called_once_with(
                         device_name, 1, "192.0.2.10"
@@ -264,7 +278,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         worker = self.worker(index=8, total=10)
         window.current_worker = worker
         window.refresh_huawei_te40.side_effect = (
-            lambda _ip: setattr(window, "current_worker", object())
+            lambda _ip, **_kwargs: setattr(window, "current_worker", object())
         )
 
         window.on_device_error(("authentication_error", "401", ""), worker, 1)
@@ -276,7 +290,11 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 "Huawei TE40|192.0.2.10"
             ].current_index,
         )
-        window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
+        window.refresh_huawei_te40.assert_called_once_with(
+            "192.0.2.10",
+            creds_list=worker.creds_list,
+            current_idx=9,
+        )
         self.assertIn("10", window.set_ui_state.call_args.args[1])
 
     def test_saved_index_exhausts_only_remaining_suffix_without_wraparound(self):
@@ -285,7 +303,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window.current_worker = first_worker
         attempted = [3]
 
-        def start_next(_ip_address):
+        def start_next(_ip_address, **_kwargs):
             next_index = window._credential_attempt_plans[
                 "Huawei TE40|192.0.2.10"
             ].current_index
