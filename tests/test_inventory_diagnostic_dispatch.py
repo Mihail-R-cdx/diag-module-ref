@@ -242,6 +242,161 @@ class FailClosedProductionRouteTests(unittest.TestCase):
         self.assertIs(before_widget, window.screen_container.currentWidget())
 
 
+class CapturingReachabilityPool:
+    def __init__(self):
+        self.runnables = []
+
+    def start(self, runnable):
+        self.runnables.append(runnable)
+
+
+@unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
+class AsyncReachabilityDispatchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _window_for_model(self, model, *, ip="192.0.2.10"):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.equipment_inventory = inventory(
+            [record("A", ip_address=ip, diagnostic_model=model)]
+        )
+        window.ip_entry.setText(ip)
+        window.device_credentials[model] = [
+            {"username": "operator", "password": "secret-password"}
+        ]
+        if model == "Extron IPL T PCS4i":
+            window.device_credentials[model] = [{"password": "secret-password"}]
+        pool = CapturingReachabilityPool()
+        window._reachability_thread_pool = lambda: pool
+        window._reachability_ping_callable = Mock(return_value=True)
+        return window, pool
+
+    def _finish_reachability(self, window, worker, *, reachable=True):
+        window._on_reachability_finished(
+            {
+                "operation_id": worker.operation_id,
+                "ip_address": worker.ip_address,
+                "reachable": reachable,
+            }
+        )
+
+    def test_refresh_submits_reachability_without_sync_subprocess_or_lifecycle(self):
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+        before_widget = window.screen_container.currentWidget()
+
+        with patch("gui.main_window.subprocess.run") as subprocess_run:
+            window.refresh_data()
+
+        subprocess_run.assert_not_called()
+        self.assertEqual(1, len(pool.runnables))
+        worker = pool.runnables[0]
+        self.assertEqual("192.0.2.10", worker.ip_address)
+        self.assertFalse(hasattr(worker, "credentials"))
+        self.assertFalse(hasattr(worker, "creds_list"))
+        self.assertIsNone(window._active_request)
+        self.assertIsNone(window._active_diagnostic_model_context)
+        self.assertIs(before_widget, window.screen_container.currentWidget())
+        window.refresh_huawei_te40.assert_not_called()
+
+    def test_successful_reachability_continues_exact_route_groups(self):
+        cases = (
+            ("Huawei TE40", "refresh_huawei_te40"),
+            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Aten PE8208AV", "pdu"),
+            ("Extron IPL T PCS4i", "pdu"),
+            ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
+            ("Extron DMP 64 Plus", "refresh_extron_dmp64_plus"),
+        )
+        for model, route in cases:
+            with self.subTest(model=model):
+                window, pool = self._window_for_model(model)
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu = Mock()
+                else:
+                    setattr(window, route, Mock())
+
+                window.refresh_data()
+                self._finish_reachability(window, pool.runnables[0], reachable=True)
+
+                self.assertEqual(model, window._active_diagnostic_model_context["model"])
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu.assert_called_once_with(
+                        "192.0.2.10",
+                        model,
+                    )
+                else:
+                    getattr(window, route).assert_called_once_with("192.0.2.10")
+
+    def test_failed_reachability_blocks_all_lifecycle_categories(self):
+        cases = (
+            ("Huawei TE40", "refresh_huawei_te40"),
+            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Aten PE8208AV", "pdu"),
+            ("Extron IPL T PCS4i", "pdu"),
+            ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
+            ("Extron DMP 64 Plus", "refresh_extron_dmp64_plus"),
+        )
+        for model, route in cases:
+            with self.subTest(model=model):
+                window, pool = self._window_for_model(model)
+                before_widget = window.screen_container.currentWidget()
+                window._begin_request = Mock(side_effect=AssertionError("request must not start"))
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu = Mock()
+                    window.pdu_controller._ensure_common_request = Mock(
+                        side_effect=AssertionError("PDU request must not start")
+                    )
+                else:
+                    setattr(window, route, Mock())
+
+                with patch("gui.main_window.QMessageBox.warning"):
+                    window.refresh_data()
+                    self._finish_reachability(window, pool.runnables[0], reachable=False)
+
+                self.assertIsNone(window._active_request)
+                self.assertIsNone(window._active_diagnostic_model_context)
+                self.assertIs(before_widget, window.screen_container.currentWidget())
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu.assert_not_called()
+                    window.pdu_controller._ensure_common_request.assert_not_called()
+                else:
+                    getattr(window, route).assert_not_called()
+
+    def test_stale_reachability_completion_after_ip_change_reset_or_shutdown_is_ignored(self):
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+
+        window.refresh_data()
+        worker = pool.runnables[0]
+        window.ip_entry.setText("192.0.2.11")
+        self._finish_reachability(window, worker, reachable=True)
+        window.refresh_huawei_te40.assert_not_called()
+        self.assertIsNone(window._active_request)
+
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+        window.refresh_data()
+        worker = pool.runnables[0]
+        window._supersede_model_actions("reset")
+        self._finish_reachability(window, worker, reachable=True)
+        window.refresh_huawei_te40.assert_not_called()
+        self.assertIsNone(window._active_request)
+
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+        window.refresh_data()
+        worker = pool.runnables[0]
+        window._supersede_model_actions("shutdown")
+        self._finish_reachability(window, worker, reachable=True)
+        window.refresh_huawei_te40.assert_not_called()
+        self.assertIsNone(window._active_request)
+
+
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
 class ActionBindingCurrentnessTests(unittest.TestCase):
     @classmethod

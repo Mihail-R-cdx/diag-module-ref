@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit, QSizePolicy
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent, QObject, QRunnable
 from PyQt5.QtGui import QColor
 import datetime
 import os
@@ -80,6 +80,34 @@ from core.redaction import redact_exception, redact_text
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyle
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QPainter
+
+
+class ReachabilitySignals(QObject):
+    finished = pyqtSignal(dict)
+
+
+class ReachabilityCheckWorker(QRunnable):
+    def __init__(self, *, operation_id, ip_address, ping_callable):
+        super().__init__()
+        self.operation_id = operation_id
+        self.ip_address = ip_address
+        self.ping_callable = ping_callable
+        self.signals = ReachabilitySignals()
+
+    def run(self):
+        reachable = False
+        try:
+            reachable = bool(self.ping_callable(self.ip_address))
+        except Exception:
+            reachable = False
+        self.signals.finished.emit(
+            {
+                "operation_id": self.operation_id,
+                "ip_address": self.ip_address,
+                "reachable": reachable,
+            }
+        )
+
 
 class RightAlignHeaderDelegate(QStyledItemDelegate):
     """Делегат для выравнивания заголовков по правому краю"""
@@ -219,6 +247,9 @@ class VCSDiagnosticApp(QMainWindow):
         self._credential_dialog_generation = 0
         self._active_diagnostic_model_context = None
         self._active_credential_configuration_context = None
+        self._reachability_operation_serial = 0
+        self._current_reachability_context = None
+        self._current_reachability_worker = None
         self._current_action_dialog_bindings = {}
         self._credential_attempt_plans = {}
         self._matrix_credential_context_revision = 0
@@ -455,9 +486,21 @@ class VCSDiagnosticApp(QMainWindow):
     def _supersede_model_actions(self, reason="context_changed"):
         self._diagnostic_action_generation += 1
         self._credential_action_generation += 1
+        self._invalidate_reachability_context(reason)
         self._active_credential_configuration_context = None
         self._active_diagnostic_model_context = None
         self.__dict__.setdefault("_current_action_dialog_bindings", {}).clear()
+
+    def _restore_refresh_button(self):
+        if hasattr(self, "refresh_btn"):
+            self.refresh_btn.setEnabled(True)
+            self.refresh_btn.setText("РћР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ")
+
+    def _invalidate_reachability_context(self, reason="context_changed"):
+        self._current_reachability_context = None
+        self._current_reachability_worker = None
+        if reason != "shutdown":
+            self._restore_refresh_button()
 
     @staticmethod
     def _fallback_dialog_stage(purpose):
@@ -1186,6 +1229,7 @@ class VCSDiagnosticApp(QMainWindow):
         else:
             creds_list = []
             dict.__setitem__(self.device_credentials, device_name, creds_list)
+        old_order = list(creds_list)
 
         existing_index = None
         password_only = self._is_pcs4i_device(device_name)
@@ -1201,8 +1245,72 @@ class VCSDiagnosticApp(QMainWindow):
             creds_list.insert(0, dict(credential))
         else:
             creds_list.insert(0, creds_list.pop(existing_index))
+        self._remap_successful_credential_indexes_after_reorder(
+            device_name,
+            old_order,
+            list(creds_list),
+        )
         self._on_credential_configuration_changed(device_name, normalized_ip)
         return inserted
+
+    @staticmethod
+    def _credential_identity_for_index_remap(device_name, credential):
+        if not isinstance(credential, dict):
+            return None
+        if VCSDiagnosticApp._is_pcs4i_device(device_name):
+            return ("password", credential.get("password"))
+        return ("username_password", credential.get("username"), credential.get("password"))
+
+    @staticmethod
+    def _credential_identity_positions(device_name, credentials, identity):
+        return [
+            index
+            for index, candidate in enumerate(credentials)
+            if VCSDiagnosticApp._credential_identity_for_index_remap(
+                device_name,
+                candidate,
+            ) == identity
+        ]
+
+    def _successful_credential_index_keys_for_model(self, device_name):
+        ip_prefix = f"{device_name}|"
+        return [
+            key
+            for key in list(self.current_credential_index)
+            if key == device_name or key.startswith(ip_prefix)
+        ]
+
+    def _remap_successful_credential_indexes_after_reorder(
+        self, device_name, old_order, new_order
+    ):
+        for key in self._successful_credential_index_keys_for_model(device_name):
+            saved_index = self.current_credential_index.get(key)
+            if (
+                not isinstance(saved_index, int)
+                or saved_index < 0
+                or saved_index >= len(old_order)
+            ):
+                self.current_credential_index.pop(key, None)
+                continue
+            identity = self._credential_identity_for_index_remap(
+                device_name,
+                old_order[saved_index],
+            )
+            if identity is None:
+                self.current_credential_index.pop(key, None)
+                continue
+            if len(self._credential_identity_positions(device_name, old_order, identity)) != 1:
+                self.current_credential_index.pop(key, None)
+                continue
+            new_positions = self._credential_identity_positions(
+                device_name,
+                new_order,
+                identity,
+            )
+            if len(new_positions) == 1:
+                self.current_credential_index[key] = new_positions[0]
+            else:
+                self.current_credential_index.pop(key, None)
 
     @staticmethod
     def _is_pdu_device(device_name):
@@ -1701,6 +1809,10 @@ class VCSDiagnosticApp(QMainWindow):
         return True
 
     def ping_device(self, ip_address: str) -> bool:
+        return self._ping_device_address(ip_address)
+
+    @staticmethod
+    def _ping_device_address(ip_address: str) -> bool:
         if platform.system().lower() == "windows":
             command = ["ping", "-n", "1", "-w", "1000", ip_address]
         else:
@@ -1736,6 +1848,189 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_btn.setText("Обновить данные")
         return False
 
+    def _next_reachability_operation_id(self):
+        self._reachability_operation_serial = (
+            self.__dict__.get("_reachability_operation_serial", 0) + 1
+        )
+        return self._reachability_operation_serial
+
+    def _reachability_thread_pool(self):
+        return QThreadPool.globalInstance()
+
+    def _submit_reachability_check(self, context):
+        operation_context = dict(context)
+        operation_context["operation_id"] = self._next_reachability_operation_id()
+        self._current_reachability_context = operation_context
+        if hasattr(self, "refresh_btn"):
+            self.refresh_btn.setEnabled(False)
+            self.refresh_btn.setText("Checking...")
+        self.set_ui_state(
+            UIState.LOADING,
+            f"Checking reachability for {operation_context['ip']}",
+        )
+        worker = ReachabilityCheckWorker(
+            operation_id=operation_context["operation_id"],
+            ip_address=operation_context["ip"],
+            ping_callable=self.__dict__.get(
+                "_reachability_ping_callable",
+                self._ping_device_address,
+            ),
+        )
+        worker.signals.finished.connect(self._on_reachability_finished)
+        self._current_reachability_worker = worker
+        self._reachability_thread_pool().start(worker)
+        return worker
+
+    def _is_reachability_context_current(self, context):
+        if context is None or self.__dict__.get("_current_reachability_context") is not context:
+            return False
+        return self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=context["generation"],
+            normalized_ip=context["ip"],
+            binding_id=context["binding"],
+        )
+
+    @pyqtSlot(dict)
+    def _on_reachability_finished(self, result):
+        context = self.__dict__.get("_current_reachability_context")
+        if context is None or result.get("operation_id") != context.get("operation_id"):
+            return
+        if result.get("ip_address") != context.get("ip"):
+            return
+        if not self._is_reachability_context_current(context):
+            return
+        if not result.get("reachable"):
+            self._current_reachability_context = None
+            self._current_reachability_worker = None
+            self.__dict__.pop("_active_request_credentials", None)
+            self.hide_progress_dialog()
+            self.set_ui_state(
+                UIState.DISCONNECTED,
+                f"No connection to {context['ip']}",
+            )
+            QMessageBox.warning(self, "Warning", "Ping failed")
+            self._restore_refresh_button()
+            return
+        self._current_reachability_context = None
+        self._current_reachability_worker = None
+        self._continue_diagnostic_after_reachability(context)
+
+    def _prepare_diagnostic_credentials_before_reachability(
+        self, *, device_name, ip_address
+    ):
+        try:
+            if self._is_pdu_device(device_name):
+                self._active_request_credentials = self._resolve_pdu_attempt_credentials(
+                    device_name,
+                    ip_address,
+                )
+            else:
+                self._active_request_credentials = self.device_credentials.get(device_name)
+            VCSDiagnosticApp._discard_credential_attempt_plan(
+                self,
+                device_name,
+                ip_address,
+            )
+            VCSDiagnosticApp._credential_attempt_plan(
+                self,
+                device_name,
+                self._active_request_credentials,
+                ip_address,
+            )
+        except CredentialConfigurationError as error:
+            message = str(error)
+            self.set_ui_state(UIState.REQUEST_ERROR, message)
+            QMessageBox.warning(
+                self,
+                "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 credentials",
+                message,
+            )
+            return False
+        return True
+
+    def _target_screen_for_diagnostic_context(self, context):
+        device_type = context["screen_key"]
+        if device_type == "codec":
+            return self.screens["codec"]
+        if device_type == "matrix":
+            return self.screens["matrix"]
+        if device_type == "audio_dsp":
+            return self.screens["audio_dsp"]
+        if device_type == "pdu":
+            return self.screens["pdu"]
+        return None
+
+    def _continue_diagnostic_after_reachability(self, context):
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=context["generation"],
+            normalized_ip=context["ip"],
+            binding_id=context["binding"],
+        ):
+            return
+        accepted_context = self._accept_diagnostic_model_context(
+            normalized_ip=context["ip"],
+            entry=context["entry"],
+            source=context["source"],
+            generation=context["generation"],
+            binding=context["binding"],
+        )
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation=context["generation"],
+            normalized_ip=context["ip"],
+            binding_id=context["binding"],
+        ):
+            return
+        device_name = accepted_context["model"]
+        ip_address = accepted_context["ip"]
+        if self._is_pdu_device(device_name):
+            self._pdu_controller().refresh_pdu(ip_address, device_name)
+            return
+
+        device_type = accepted_context["screen_key"]
+        target_screen = self._target_screen_for_diagnostic_context(accepted_context)
+        if target_screen is None:
+            self.set_ui_state(UIState.REQUEST_ERROR, "Unsupported diagnostic screen")
+            self._restore_refresh_button()
+            return
+
+        self._begin_request(device_name, ip_address, target_screen)
+        self.screen_container.setCurrentWidget(target_screen)
+        if device_type == "codec" and hasattr(target_screen, 'update_parameters_display'):
+            target_screen.update_parameters_display()
+        if hasattr(target_screen, 'clear_data'):
+            target_screen.clear_data()
+        elif hasattr(target_screen, 'update_data'):
+            target_screen.update_data({"status": "loading", "message": "Loading data..."})
+        if hasattr(target_screen, "set_ui_state"):
+            target_screen.set_ui_state(UIState.LOADING, "Loading data...")
+        self._publish_current_equipment_room_context("request_started")
+
+        if device_name == "Huawei TE40":
+            self.refresh_huawei_te40(ip_address)
+        elif device_name == "CloudLink Bar 310":
+            self.refresh_huawei_bar310(ip_address)
+        elif device_name == "Huawei TE20":
+            self.refresh_huawei_te20(ip_address)
+        elif device_name == "Polycom RPG 310":
+            self.refresh_polycom_rpg310(ip_address)
+        elif device_name == "Extron IN1804":
+            self.refresh_extron_in1804(ip_address)
+        elif device_name == "Biamp Tesira Forte CI":
+            self.refresh_biamp_tesira_forte_ci(ip_address)
+        elif device_name == "Extron DMP 64 Plus":
+            self.refresh_extron_dmp64_plus(ip_address)
+        elif device_type == "matrix":
+            self.refresh_matrix_data(ip_address)
+        else:
+            QMessageBox.information(
+                self,
+                "Information",
+                f"Support for {device_name} will be added later"
+            )
+
     def is_vcs_codec_device(self, device_name: str) -> bool:
         return self.device_to_screen.get(device_name) == "codec"
 
@@ -1754,7 +2049,7 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
     def refresh_data(self):
-        """Resolve current IP to one exact model and start the assigned lifecycle."""
+        """Resolve current IP to one exact model and submit reachability off the GUI thread."""
         ip_address = self._normalized_current_ip_or_warn()
         if ip_address is None:
             return
@@ -1802,7 +2097,7 @@ class VCSDiagnosticApp(QMainWindow):
                 else:
                     entry, binding = fallback_result
         if entry is None or binding is None:
-            self.set_ui_state(UIState.IDLE, "Модель устройства не выбрана")
+            self.set_ui_state(UIState.IDLE, "Device model is not selected")
             return
 
         if not self._is_action_binding_current(
@@ -1813,170 +2108,41 @@ class VCSDiagnosticApp(QMainWindow):
         ):
             return
         if entry.screen_key not in {"codec", "matrix", "pdu", "audio_dsp"}:
-            self.set_ui_state(UIState.REQUEST_ERROR, "Неподдерживаемый экран диагностики")
+            self.set_ui_state(UIState.REQUEST_ERROR, "Unsupported diagnostic screen")
             return
         if entry.screen_key not in self.screens:
-            self.set_ui_state(UIState.REQUEST_ERROR, "Экран диагностики недоступен")
+            self.set_ui_state(UIState.REQUEST_ERROR, "Diagnostic screen is unavailable")
             return
-        context = self._accept_diagnostic_model_context(
-            normalized_ip=ip_address,
-            entry=entry,
-            source=source,
+
+        device_name = entry.diagnostic_model
+        if not self._prepare_diagnostic_credentials_before_reachability(
+            device_name=device_name,
+            ip_address=ip_address,
+        ):
+            return
+        if not self._is_action_binding_current(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
             generation=generation,
-            binding=binding,
+            normalized_ip=ip_address,
+            binding_id=binding,
+        ):
+            return
+
+        self._submit_reachability_check(
+            {
+                "purpose": DiagnosticActionPurpose.DIAGNOSTIC_START.value,
+                "generation": generation,
+                "binding": binding,
+                "ip": ip_address,
+                "entry": entry,
+                "model": device_name,
+                "screen_key": entry.screen_key,
+                "lifecycle_route": entry.lifecycle_route,
+                "source": source,
+                "resolution_status": binding.resolution_status,
+                "inventory_context": binding.inventory_context_identity,
+            }
         )
-        if not self._is_action_binding_current(
-            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-            generation=generation,
-            normalized_ip=ip_address,
-            binding_id=binding,
-        ):
-            return
-        device_name = context["model"]
-
-        if device_name in {"Aten PE8208AV", "Extron IPL T PCS4i"}:
-            if not self._is_action_binding_current(
-                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-                generation=generation,
-                normalized_ip=ip_address,
-                binding_id=binding,
-            ):
-                return
-            try:
-                self._active_request_credentials = self._resolve_pdu_attempt_credentials(
-                    device_name,
-                    ip_address,
-                )
-                VCSDiagnosticApp._discard_credential_attempt_plan(
-                    self,
-                    device_name,
-                    ip_address,
-                )
-                VCSDiagnosticApp._credential_attempt_plan(
-                    self,
-                    device_name,
-                    self._active_request_credentials,
-                    ip_address,
-                )
-            except CredentialConfigurationError as error:
-                message = str(error)
-                self.set_ui_state(UIState.REQUEST_ERROR, message)
-                QMessageBox.warning(self, "РќР°СЃС‚СЂРѕР№РєР° credentials", message)
-                return
-            if not self._is_action_binding_current(
-                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-                generation=generation,
-                normalized_ip=ip_address,
-                binding_id=binding,
-            ):
-                return
-            if not self.ensure_ping_success(ip_address):
-                return
-            if not self._is_action_binding_current(
-                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-                generation=generation,
-                normalized_ip=ip_address,
-                binding_id=binding,
-            ):
-                return
-            self._pdu_controller().refresh_pdu(ip_address, device_name)
-            return
-
-        if not self._is_action_binding_current(
-            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-            generation=generation,
-            normalized_ip=ip_address,
-            binding_id=binding,
-        ):
-            return
-        try:
-            # Credential resolution is deliberately before ping or worker network I/O.
-            self._active_request_credentials = self.device_credentials.get(device_name)
-            VCSDiagnosticApp._discard_credential_attempt_plan(
-                self, device_name, ip_address
-            )
-            VCSDiagnosticApp._credential_attempt_plan(
-                self,
-                device_name, self._active_request_credentials, ip_address
-            )
-        except CredentialConfigurationError as error:
-            message = str(error)
-            self.set_ui_state(UIState.REQUEST_ERROR, message)
-            QMessageBox.warning(self, "Настройка credentials", message)
-            return
-
-        if not self._is_action_binding_current(
-            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-            generation=generation,
-            normalized_ip=ip_address,
-            binding_id=binding,
-        ):
-            return
-        if not self.ensure_ping_success(ip_address):
-            return
-
-        device_type = context["screen_key"]
-        
-        # Определяем, какой экран нужно показывать после успешного обновления
-        if device_type == "codec":
-            target_screen = self.screens["codec"]
-        elif device_type == "matrix":
-            target_screen = self.screens["matrix"]
-        elif device_type == "audio_dsp":
-            target_screen = self.screens["audio_dsp"]
-        elif device_type == "pdu":
-            target_screen = self.screens["pdu"]
-        else:
-            self.set_ui_state(UIState.REQUEST_ERROR, "Неподдерживаемый экран диагностики")
-            return
-
-        if not self._is_action_binding_current(
-            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
-            generation=generation,
-            normalized_ip=ip_address,
-            binding_id=binding,
-        ):
-            return
-        self._begin_request(device_name, ip_address, target_screen)
-        
-        # Показываем экран
-        self.screen_container.setCurrentWidget(target_screen)
-        if device_type == "codec" and hasattr(target_screen, 'update_parameters_display'):
-            target_screen.update_parameters_display()
-        
-        # Если есть метод очистки данных у экрана, вызываем его
-        if hasattr(target_screen, 'clear_data'):
-            target_screen.clear_data()
-        elif hasattr(target_screen, 'update_data'):
-            # Если нет clear_data, показываем индикатор загрузки через update_data
-            target_screen.update_data({"status": "loading", "message": "Загрузка данных..."})
-        if hasattr(target_screen, "set_ui_state"):
-            target_screen.set_ui_state(UIState.LOADING, "Загрузка данных…")
-        self._publish_current_equipment_room_context("request_started")
-        
-        # Вызываем соответствующий метод обновления
-        if device_name == "Huawei TE40":
-            self.refresh_huawei_te40(ip_address)
-        elif device_name == "CloudLink Bar 310":  
-            self.refresh_huawei_bar310(ip_address)
-        elif device_name == "Huawei TE20":
-            self.refresh_huawei_te20(ip_address)
-        elif device_name == "Polycom RPG 310":
-            self.refresh_polycom_rpg310(ip_address)
-        elif device_name == "Extron IN1804":
-            self.refresh_extron_in1804(ip_address)            
-        elif device_name == "Biamp Tesira Forte CI":
-            self.refresh_biamp_tesira_forte_ci(ip_address)
-        elif device_name == "Extron DMP 64 Plus":
-            self.refresh_extron_dmp64_plus(ip_address)
-        elif device_type == "matrix":
-            self.refresh_matrix_data(ip_address)
-        else:
-            QMessageBox.information(
-                self,
-                "Информация",
-                f"Поддержка {device_name} будет добавлена позже"
-            )
 
 
     def refresh_biamp_tesira_forte_ci(self, ip_address: str):

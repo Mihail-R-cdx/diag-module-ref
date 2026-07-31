@@ -43,20 +43,29 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.window.deleteLater()
         QApplication.processEvents()
 
+    def finish_reachability(self, worker, *, reachable=True):
+        self.window._on_reachability_finished(
+            {
+                "operation_id": worker.operation_id,
+                "ip_address": worker.ip_address,
+                "reachable": reachable,
+            }
+        )
+
     def test_pcs4i_without_mapping_starts_one_credentialless_attempt(self):
         started = []
         self.window.ip_entry.setText("192.0.2.44")
         self.window._accept_test_diagnostic_model("Extron IPL T PCS4i")
         self.window.credential_provider.resolve_candidates = self._missing_mapping
-        self.window.ensure_ping_success = lambda _ip: True
         self.window.show_progress_dialog = lambda _message: None
 
         with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
                 patch.object(QMessageBox, "warning"):
             self.window.refresh_data()
+            self.finish_reachability(started[0], reachable=True)
 
-        self.assertEqual(1, len(started))
-        worker = started[0]
+        self.assertEqual(2, len(started))
+        worker = started[1]
         self.assertFalse(hasattr(worker, "creds_list"))
         self.assertFalse(hasattr(worker, "current_idx"))
         self.assertEqual({}, worker.credentials)
@@ -71,19 +80,19 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.window.device_credentials["Aten PE8208AV"] = [
             {"username": "operator", "password": "secret"}
         ]
-        self.window.ensure_ping_success = Mock(return_value=False)
         self.window.pdu_controller.refresh_pdu = Mock()
         self.window.pdu_controller._ensure_common_request = Mock(
             side_effect=AssertionError("PDU request must not start before ping")
         )
 
-        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "warning"):
             self.window.refresh_data()
+            self.finish_reachability(started[0], reachable=False)
 
-        self.window.ensure_ping_success.assert_called_once_with("192.0.2.44")
         self.window.pdu_controller.refresh_pdu.assert_not_called()
         self.window.pdu_controller._ensure_common_request.assert_not_called()
-        self.assertEqual([], started)
+        self.assertEqual(1, len(started))
         self.assertIsNone(self.window._active_request)
 
     def test_pdu_refresh_failed_ping_blocks_controller_submission_for_pcs4i(self):
@@ -92,18 +101,19 @@ class PDUGuiCompositionTests(unittest.TestCase):
             [record("A", ip_address="192.0.2.44", diagnostic_model="Extron IPL T PCS4i")]
         )
         self.window.ip_entry.setText("192.0.2.44")
-        self.window.ensure_ping_success = Mock(return_value=False)
         self.window.pdu_controller.refresh_pdu = Mock()
 
-        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append), \
+                patch.object(QMessageBox, "warning"):
             self.window.refresh_data()
+            self.finish_reachability(started[0], reachable=False)
 
-        self.window.ensure_ping_success.assert_called_once_with("192.0.2.44")
         self.window.pdu_controller.refresh_pdu.assert_not_called()
-        self.assertEqual([], started)
+        self.assertEqual(1, len(started))
         self.assertIsNone(self.window._active_request)
 
     def test_pdu_refresh_successful_ping_continues_to_controller(self):
+        started = []
         self.window.equipment_inventory = inventory(
             [record("A", ip_address="192.0.2.44", diagnostic_model="Aten PE8208AV")]
         )
@@ -111,12 +121,12 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.window.device_credentials["Aten PE8208AV"] = [
             {"username": "operator", "password": "secret"}
         ]
-        self.window.ensure_ping_success = Mock(return_value=True)
         self.window.pdu_controller.refresh_pdu = Mock(return_value=True)
+        self.window._reachability_thread_pool = lambda: SimpleNamespace(start=started.append)
 
         self.window.refresh_data()
+        self.finish_reachability(started[0], reachable=True)
 
-        self.window.ensure_ping_success.assert_called_once_with("192.0.2.44")
         self.window.pdu_controller.refresh_pdu.assert_called_once_with(
             "192.0.2.44",
             "Aten PE8208AV",

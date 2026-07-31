@@ -136,9 +136,10 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
             window.device_credentials["Huawei TE40"],
         )
         self.assertEqual(
-            2,
+            0,
             window.get_current_credential_index("Huawei TE40", "192.0.2.10"),
         )
+        self.assertNotIn("Huawei TE40|192.0.2.10", window.current_credential_index)
         self.assertEqual(
             {"transport": "ssh"},
             window.get_device_connection_profile("Huawei TE40", "192.0.2.10"),
@@ -217,6 +218,31 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
         window.ensure_ping_success.assert_not_called()
         window.configure_credential_candidate.assert_called_once()
 
+    def test_pdu_credential_configuration_error_title_is_not_mojibake(self):
+        import inspect
+        import gui.main_window as main_window
+        from core.exceptions import CredentialConfigurationError
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window._resolve_pdu_attempt_credentials = Mock(
+            side_effect=CredentialConfigurationError("safe error")
+        )
+        with patch("gui.main_window.QMessageBox.warning") as warning:
+            prepared = window._prepare_diagnostic_credentials_before_reachability(
+                device_name="Aten PE8208AV",
+                ip_address="192.0.2.44",
+            )
+
+        self.assertFalse(prepared)
+        self.assertEqual("Настройка credentials", warning.call_args.args[1])
+        source = inspect.getsource(
+            main_window.VCSDiagnosticApp._prepare_diagnostic_credentials_before_reachability
+        )
+        for marker in ("Р Сњ", "Р В°", "РЎРѓ", "РЎвЂљ"):
+            self.assertNotIn(marker, source)
+
     def test_password_confirmation_promotes_existing_candidate_without_success_index(self):
         from PyQt5.QtWidgets import QLineEdit
         from gui.main_window import VCSDiagnosticApp
@@ -252,7 +278,7 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
             window.device_credentials["Huawei TE40"],
         )
         self.assertEqual(
-            1,
+            0,
             window.get_current_credential_index("Huawei TE40", "192.0.2.10"),
         )
 
@@ -398,7 +424,8 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
 
         self.assertTrue(inserted)
         window._invalidate_pdu_context.assert_not_called()
-        self.assertEqual(2, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
+        self.assertEqual(0, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
+        self.assertNotIn("Huawei TE40|192.0.2.10", window.current_credential_index)
         self.assertEqual(
             {"transport": "ssh"},
             window.get_device_connection_profile("Huawei TE40", "192.0.2.10"),
@@ -410,6 +437,134 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
             {"username": "operator", "password": "secret"},
         )
         window._invalidate_pdu_context.assert_called_once()
+
+    def test_candidate_reorder_remaps_successful_identity_on_promote_and_insert(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "a", "password": "a"},
+            {"username": "b", "password": "b"},
+        ]
+        window.current_credential_index["Huawei TE40|192.0.2.10"] = 1
+
+        inserted = window.configure_credential_candidate(
+            "Huawei TE40",
+            "192.0.2.10",
+            {"username": "b", "password": "b"},
+        )
+
+        self.assertFalse(inserted)
+        self.assertEqual(
+            [{"username": "b", "password": "b"}, {"username": "a", "password": "a"}],
+            window.device_credentials["Huawei TE40"],
+        )
+        self.assertEqual(0, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
+
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "a", "password": "a"},
+            {"username": "b", "password": "b"},
+        ]
+        window.current_credential_index["Huawei TE40|192.0.2.10"] = 1
+        inserted = window.configure_credential_candidate(
+            "Huawei TE40",
+            "192.0.2.10",
+            {"username": "c", "password": "c"},
+        )
+
+        self.assertTrue(inserted)
+        self.assertEqual(2, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
+
+    def test_candidate_reorder_preserves_multiple_ip_success_identities(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "a", "password": "a"},
+            {"username": "b", "password": "b"},
+            {"username": "c", "password": "c"},
+        ]
+        window.current_credential_index["Huawei TE40|192.0.2.10"] = 0
+        window.current_credential_index["Huawei TE40|192.0.2.11"] = 1
+        window.device_connection_profiles[("Huawei TE40", "192.0.2.10")] = {"transport": "https"}
+
+        window.configure_credential_candidate(
+            "Huawei TE40",
+            "192.0.2.12",
+            {"username": "b", "password": "b"},
+        )
+
+        self.assertEqual(1, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
+        self.assertEqual(0, window.get_current_credential_index("Huawei TE40", "192.0.2.11"))
+        self.assertNotIn("Huawei TE40|192.0.2.12", window.current_credential_index)
+        self.assertEqual(
+            {"transport": "https"},
+            window.get_device_connection_profile("Huawei TE40", "192.0.2.10"),
+        )
+        self.assertIsNone(window.get_device_connection_profile("Huawei TE40", "192.0.2.12"))
+
+    def test_candidate_reorder_deletes_ambiguous_invalid_or_removed_success_identity(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "dup", "password": "same"},
+            {"username": "dup", "password": "same"},
+            {"username": "gone", "password": "gone"},
+        ]
+        window.current_credential_index["Huawei TE40|192.0.2.10"] = 0
+        window.current_credential_index["Huawei TE40|192.0.2.11"] = 9
+        window.current_credential_index["Huawei TE40|192.0.2.12"] = 2
+
+        window.configure_credential_candidate(
+            "Huawei TE40",
+            "192.0.2.10",
+            {"username": "new", "password": "new"},
+        )
+
+        self.assertNotIn("Huawei TE40|192.0.2.10", window.current_credential_index)
+        self.assertNotIn("Huawei TE40|192.0.2.11", window.current_credential_index)
+        self.assertEqual(3, window.get_current_credential_index("Huawei TE40", "192.0.2.12"))
+
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "a", "password": "a"},
+            {"username": "b", "password": "b"},
+        ]
+        window.current_credential_index["Huawei TE40|192.0.2.13"] = 1
+        window._remap_successful_credential_indexes_after_reorder(
+            "Huawei TE40",
+            [{"username": "a", "password": "a"}, {"username": "b", "password": "b"}],
+            [{"username": "a", "password": "a"}],
+        )
+        self.assertNotIn("Huawei TE40|192.0.2.13", window.current_credential_index)
+
+    def test_attempt_plan_starts_with_remapped_successful_candidate(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "a", "password": "a"},
+            {"username": "b", "password": "b"},
+        ]
+        window.current_credential_index["Huawei TE40|192.0.2.10"] = 1
+
+        window.configure_credential_candidate(
+            "Huawei TE40",
+            "192.0.2.10",
+            {"username": "b", "password": "b"},
+        )
+        plan = window._credential_attempt_plan(
+            "Huawei TE40",
+            window.device_credentials["Huawei TE40"],
+            "192.0.2.10",
+        )
+
+        self.assertEqual(0, plan.current_index)
+        self.assertEqual({"username": "b", "password": "b"}, plan.current_candidate)
 
     def test_scoped_pdu_mutation_discards_only_exact_model_ip_attempt_plan(self):
         from gui.main_window import VCSDiagnosticApp
