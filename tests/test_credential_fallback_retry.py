@@ -168,6 +168,35 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
                 self.assertNotIn("Авторизация", window.set_ui_state.call_args.args[1])
 
+    def test_biamp_missing_telnet_login_prompt_does_not_retry_or_cache(self):
+        window = self.make_window()
+        worker = self.biamp_worker(index=0, total=2)
+        window.current_worker = worker
+        window.current_credential_index = {"Biamp Tesira Forte CI|192.0.2.10": 0}
+
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(
+                (
+                    "connection_error",
+                    "Biamp Telnet login prompt was not received before timeout.",
+                    "",
+                ),
+                worker,
+                1,
+            )
+
+        window.refresh_biamp_tesira_forte_ci.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(
+            {"Biamp Tesira Forte CI|192.0.2.10": 0},
+            window.current_credential_index,
+        )
+        self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
+        self.assertNotIn(
+            "Biamp Tesira Forte CI|192.0.2.10",
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
+
     def test_biamp_structured_authentication_uses_plan_until_final_success(self):
         window = self.make_window()
         first_worker = self.biamp_worker(index=0, total=2)

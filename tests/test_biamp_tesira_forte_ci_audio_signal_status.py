@@ -300,10 +300,38 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
         from core.exceptions import AuthenticationError
         from handlers.biamp import tesira_forte_ci as biamp
 
-        class LoginRejectedTelnet:
-            def __init__(self):
-                self.reads = [b"login:", b"Password:", b"login:"]
+        for followup in (
+            b"login:",
+            b"Password:",
+            b"Welcome to the Tesira Text Protocol Server\r\nPassword:",
+        ):
+            with self.subTest(followup=followup):
+                class LoginRejectedTelnet:
+                    def __init__(self):
+                        self.reads = [b"login:", b"Password:", followup]
+                        self.writes = []
+
+                    def read_until(self, _marker, _timeout):
+                        return self.reads.pop(0)
+
+                    def write(self, data):
+                        self.writes.append(data)
+
+                tn = LoginRejectedTelnet()
+                with self.assertRaises(AuthenticationError):
+                    biamp._telnet_write_login(tn, "synthetic-user", "synthetic-password", 1.0)
+
+                self.assertEqual([b"synthetic-user\n", b"synthetic-password\n"], tn.writes)
+
+    def test_telnet_missing_initial_login_prompt_fails_closed_without_session(self):
+        from core.exceptions import ConnectionError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class MissingLoginPromptTelnet:
+            def __init__(self, first_read):
+                self.reads = [first_read]
                 self.writes = []
+                self.close_count = 0
 
             def read_until(self, _marker, _timeout):
                 return self.reads.pop(0)
@@ -311,19 +339,35 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
             def write(self, data):
                 self.writes.append(data)
 
-        tn = LoginRejectedTelnet()
-        with self.assertRaises(AuthenticationError):
-            biamp._telnet_write_login(tn, "synthetic-user", "synthetic-password", 1.0)
+            def close(self):
+                self.close_count += 1
 
-        self.assertEqual([b"synthetic-user\n", b"synthetic-password\n"], tn.writes)
+        for first_read in (b"", b"Welcome operator\r\n"):
+            with self.subTest(first_read=first_read):
+                tn = MissingLoginPromptTelnet(first_read)
+                with patch("telnetlib.Telnet", return_value=tn):
+                    with self.assertRaises(ConnectionError) as caught:
+                        biamp._TelnetBiampSession.open(
+                            "192.0.2.10",
+                            23,
+                            "synthetic-user",
+                            "synthetic-password",
+                            1.0,
+                        )
+
+                self.assertEqual([], tn.writes)
+                self.assertEqual(1, tn.close_count)
+                self.assertIn("login prompt", str(caught.exception))
+                self.assertNotIn("synthetic-user", str(caught.exception))
+                self.assertNotIn("synthetic-password", str(caught.exception))
 
     def test_telnet_authentication_words_without_login_state_are_protocol_timeout(self):
-        from core.exceptions import ConnectionError
+        from core.exceptions import AuthenticationError, ConnectionError
         from handlers.biamp import tesira_forte_ci as biamp
 
         class MisleadingTelnet:
-            def __init__(self):
-                self.reads = [b"login:", b"Password:", b"AUTHENTICATION 401 FAILED\n"]
+            def __init__(self, followup):
+                self.reads = [b"login:", b"Password:", followup]
 
             def read_until(self, _marker, _timeout):
                 return self.reads.pop(0)
@@ -331,10 +375,20 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
             def write(self, _data):
                 pass
 
-        with self.assertRaises(ConnectionError):
-            biamp._telnet_write_login(
-                MisleadingTelnet(), "synthetic-user", "synthetic-password", 1.0
-            )
+        for followup in (
+            b"AUTHENTICATION 401 FAILED\n",
+            b"auth failed 403\n",
+            b"Tesira authentication failed\n",
+        ):
+            with self.subTest(followup=followup):
+                with self.assertRaises(ConnectionError) as caught:
+                    biamp._telnet_write_login(
+                        MisleadingTelnet(followup),
+                        "synthetic-user",
+                        "synthetic-password",
+                        1.0,
+                    )
+                self.assertNotIsInstance(caught.exception, AuthenticationError)
 
     def test_telnet_failed_open_closes_socket_and_preserves_authentication_error(self):
         from core.exceptions import AuthenticationError
@@ -485,7 +539,7 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
         class ReadyTelnet:
             def __init__(self):
                 self.reads = [b"login:", b"Password:"]
-                self.followups = [b"Welcome to Tesira Text Protocol\n"]
+                self.followups = [b"\r\nWelcome to the Tesira Text Protocol Server\r\n"]
 
             def read_until(self, _marker, _timeout):
                 return self.reads.pop(0)
@@ -499,6 +553,83 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
         with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0]):
             biamp._telnet_write_login(
                 ReadyTelnet(),
+                "synthetic-user",
+                "synthetic-password",
+                5.0,
+            )
+
+    def test_telnet_readiness_marker_is_exact_and_case_insensitive(self):
+        from core.exceptions import ConnectionError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class ReadyTelnet:
+            def __init__(self, followup):
+                self.reads = [b"LoGiN:", b"Password:"]
+                self.followups = [followup]
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, _data):
+                pass
+
+            def read_very_eager(self):
+                return self.followups.pop(0)
+
+        for followup in (
+            b"WELCOME TO THE TESIRA TEXT PROTOCOL\r\n",
+            b" welcome to the tesira text protocol server \r\n",
+        ):
+            with self.subTest(followup=followup):
+                with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0]):
+                    biamp._telnet_write_login(
+                        ReadyTelnet(followup),
+                        "synthetic-user",
+                        "synthetic-password",
+                        5.0,
+                    )
+
+        for followup in (
+            b"Welcome operator\r\n",
+            b"Welcome to the Tesira Text Protocol Server extra\r\n",
+            b"Tesira\r\n",
+            b"+OK\r\n",
+        ):
+            with self.subTest(followup=followup):
+                with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0, 5.1]), \
+                        patch.object(biamp.time, "sleep", return_value=None):
+                    with self.assertRaises(ConnectionError):
+                        biamp._telnet_write_login(
+                            ReadyTelnet(followup),
+                            "synthetic-user",
+                            "synthetic-password",
+                            5.0,
+                        )
+
+    def test_telnet_split_readiness_banner_is_accepted_after_join(self):
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class SplitReadyTelnet:
+            def __init__(self):
+                self.reads = [b"login:", b"Password:"]
+                self.followups = [
+                    b"Welcome to the Tes",
+                    b"ira Text Protocol Server\r\n",
+                ]
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, _data):
+                pass
+
+            def read_very_eager(self):
+                return self.followups.pop(0)
+
+        with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0, 0.1]), \
+                patch.object(biamp.time, "sleep", return_value=None):
+            biamp._telnet_write_login(
+                SplitReadyTelnet(),
                 "synthetic-user",
                 "synthetic-password",
                 5.0,

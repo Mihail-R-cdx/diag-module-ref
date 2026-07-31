@@ -302,17 +302,18 @@ class _TelnetBiampSession:
 
 def _telnet_write_login(tn: Any, username: str, password: str, timeout_seconds: float) -> None:
     banner = tn.read_until(b"login:", timeout_seconds)
-    if b"login:" in banner.lower():
-        tn.write(username.encode("ascii") + b"\n")
-        password_prompt = tn.read_until(b"assword:", timeout_seconds)
-        if b"assword:" not in password_prompt.lower():
-            raise ConnectionError("Biamp Telnet login did not request a password.")
-        tn.write(password.encode("ascii") + b"\n")
-        followup = _telnet_read_post_password_phase(tn, timeout_seconds)
-        if _telnet_contains_auth_prompt(followup):
-            raise AuthenticationError("Biamp Telnet rejected the assigned credential.")
-        if not _telnet_contains_readiness(followup):
-            raise ConnectionError("Biamp Telnet login did not reach readiness before timeout.")
+    if b"login:" not in banner.lower():
+        raise ConnectionError("Biamp Telnet login prompt was not received before timeout.")
+    tn.write(username.encode("ascii") + b"\n")
+    password_prompt = tn.read_until(b"assword:", timeout_seconds)
+    if b"assword:" not in password_prompt.lower():
+        raise ConnectionError("Biamp Telnet login did not request a password.")
+    tn.write(password.encode("ascii") + b"\n")
+    followup = _telnet_read_post_password_phase(tn, timeout_seconds)
+    if _telnet_contains_auth_prompt(followup):
+        raise AuthenticationError("Biamp Telnet rejected the assigned credential.")
+    if not _telnet_contains_readiness(followup):
+        raise ConnectionError("Biamp Telnet login did not reach readiness before timeout.")
 
 
 def _telnet_read_post_password_phase(tn: Any, timeout_seconds: float) -> bytes:
@@ -339,8 +340,11 @@ def _telnet_contains_auth_prompt(data: bytes) -> bool:
 
 
 def _telnet_contains_readiness(data: bytes) -> bool:
-    lower = data.lower()
-    return b"welcome" in lower or b"tesira" in lower or b"+ok" in lower
+    normalized = " ".join(data.decode("ascii", errors="ignore").lower().split())
+    return normalized in {
+        "welcome to the tesira text protocol",
+        "welcome to the tesira text protocol server",
+    }
 
 
 def _read_until_ttp_complete(read_once: Any, *, timeout_seconds: float) -> str:

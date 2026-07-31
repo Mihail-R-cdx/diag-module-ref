@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from core.exceptions import AuthenticationError
+from core.exceptions import ConnectionError
 from core.exceptions import ProtocolError
 from core.te20_worker import HuaweiTE20Worker
 from core.worker import (
@@ -345,6 +346,14 @@ class RemainingProductionWorkerRetryOwnershipTests(unittest.TestCase):
             BiampTesiraForteCIWorker,
             "handlers.biamp.tesira_forte_ci.BiampTesiraForteCIHandler",
             ProtocolError("Paramiko BadAuthenticationType did not confirm rejection"),
+            "connection_error",
+        )
+
+    def test_biamp_missing_telnet_login_prompt_is_connection_error(self):
+        self.assert_single_attempt(
+            BiampTesiraForteCIWorker,
+            "handlers.biamp.tesira_forte_ci.BiampTesiraForteCIHandler",
+            ConnectionError("Biamp Telnet login prompt was not received before timeout."),
             "connection_error",
         )
 
