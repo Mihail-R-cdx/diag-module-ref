@@ -294,6 +294,31 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
             }
         )
 
+    def _reachability_plan_key(self, window, model, ip, worker):
+        return window._credential_attempt_plan_key(
+            model,
+            ip,
+            worker.operation_id,
+        )
+
+    def _assert_no_reachability_plan(self, window, model, ip, worker):
+        self.assertNotIn(
+            self._reachability_plan_key(window, model, ip, worker),
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
+
+    def _assert_terminal_reachability_cleanup(self, window):
+        self.assertIsNone(window._current_reachability_context)
+        self.assertIsNone(window._current_reachability_worker)
+        self.assertEqual({}, window._diagnostic_credential_snapshots)
+        self.assertTrue(window.refresh_btn.isEnabled())
+        self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self.assertNotEqual(UIState.LOADING, window.ui_state)
+        status_text = window.connection_status.text()
+        self.assertNotIn("Проверка...", status_text)
+        self.assertNotIn("Проверка доступности", status_text)
+        self.assertNotIn("LOADING", status_text)
+
     def test_refresh_submits_reachability_without_sync_subprocess_or_lifecycle(self):
         window, pool = self._window_for_model("Huawei TE40")
         window.refresh_huawei_te40 = Mock()
@@ -312,6 +337,44 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
         self.assertIsNone(window._active_diagnostic_model_context)
         self.assertIs(before_widget, window.screen_container.currentWidget())
         window.refresh_huawei_te40.assert_not_called()
+        self._assert_no_reachability_plan(
+            window,
+            "Huawei TE40",
+            "192.0.2.10",
+            worker,
+        )
+
+    def test_reachability_stage_does_not_retain_operation_plan_or_grow_registry(self):
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+        unrelated_key = window._credential_attempt_plan_key(
+            "Huawei TE20",
+            "192.0.2.20",
+        )
+        window._credential_attempt_plan(
+            "Huawei TE20",
+            ({"username": "other", "password": "unrelated"},),
+            "192.0.2.20",
+        )
+
+        with patch("gui.main_window.QMessageBox.warning"):
+            for _ in range(3):
+                window.refresh_data()
+                worker = pool.runnables[-1]
+                self._assert_no_reachability_plan(
+                    window,
+                    "Huawei TE40",
+                    "192.0.2.10",
+                    worker,
+                )
+                self.assertEqual(
+                    [unrelated_key],
+                    list(window._credential_attempt_plans),
+                )
+                self._finish_reachability(window, worker, reachable=False)
+                self._assert_terminal_reachability_cleanup(window)
+
+        self.assertEqual([unrelated_key], list(window._credential_attempt_plans))
 
     def test_successful_reachability_continues_exact_route_groups(self):
         cases = (
@@ -385,6 +448,12 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
                 self.assertEqual("old-2", snapshot.candidates[1]["password"])
                 with self.assertRaises(TypeError):
                     snapshot.candidates[0]["password"] = "mutated"
+                self._assert_no_reachability_plan(
+                    window,
+                    model,
+                    "192.0.2.10",
+                    pool.runnables[0],
+                )
 
                 window.device_credentials[model] = [
                     {"username": "new", "password": "new-secret"}
@@ -397,6 +466,12 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
                     self._finish_reachability(window, pool.runnables[0], reachable=True)
 
                 self.assertEqual({}, window._diagnostic_credential_snapshots)
+                self._assert_no_reachability_plan(
+                    window,
+                    model,
+                    "192.0.2.10",
+                    pool.runnables[0],
+                )
                 if route == "pdu":
                     _, args, kwargs = window.pdu_controller.refresh_pdu.mock_calls[0]
                     self.assertEqual(("192.0.2.10", model), args)
@@ -497,10 +572,13 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
             "192.0.2.10",
             {"username": "operator", "password": "replacement"},
         )
-        self.assertIsNone(window._current_reachability_context)
-        self.assertEqual({}, window._diagnostic_credential_snapshots)
-        self.assertTrue(window.refresh_btn.isEnabled())
-        self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self._assert_terminal_reachability_cleanup(window)
+        self._assert_no_reachability_plan(
+            window,
+            "Huawei TE40",
+            "192.0.2.10",
+            worker,
+        )
 
         self._finish_reachability(window, worker, reachable=True)
         window.refresh_huawei_te40.assert_not_called()
@@ -515,11 +593,37 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
 
         self._finish_reachability(window, worker, reachable=True)
 
-        self.assertIsNone(window._current_reachability_context)
-        self.assertIsNone(window._current_reachability_worker)
-        self.assertEqual({}, window._diagnostic_credential_snapshots)
-        self.assertTrue(window.refresh_btn.isEnabled())
-        self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self._assert_terminal_reachability_cleanup(window)
+        self._assert_no_reachability_plan(
+            window,
+            "Huawei TE40",
+            "192.0.2.10",
+            worker,
+        )
+        self.assertIsNone(window._active_request)
+        window.refresh_huawei_te40.assert_not_called()
+
+    def test_malformed_current_reachability_callback_wrong_ip_cleans_loading(self):
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+
+        window.refresh_data()
+        worker = pool.runnables[0]
+        window._on_reachability_finished(
+            {
+                "operation_id": worker.operation_id,
+                "ip_address": "192.0.2.99",
+                "reachable": True,
+            }
+        )
+
+        self._assert_terminal_reachability_cleanup(window)
+        self._assert_no_reachability_plan(
+            window,
+            "Huawei TE40",
+            "192.0.2.10",
+            worker,
+        )
         self.assertIsNone(window._active_request)
         window.refresh_huawei_te40.assert_not_called()
 
@@ -539,6 +643,12 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
         self.assertEqual(new_worker.operation_id, new_context["operation_id"])
         self.assertFalse(window.refresh_btn.isEnabled())
         self.assertEqual(1, len(window._diagnostic_credential_snapshots))
+        self._assert_no_reachability_plan(
+            window,
+            "Huawei TE40",
+            "192.0.2.10",
+            old_worker,
+        )
         window.refresh_huawei_te40.assert_not_called()
 
     def test_reachability_submission_error_restores_ui_and_clears_snapshot(self):
@@ -548,11 +658,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
         with patch("gui.main_window.QMessageBox.warning"):
             window.refresh_data()
 
-        self.assertIsNone(window._current_reachability_context)
-        self.assertIsNone(window._current_reachability_worker)
-        self.assertEqual({}, window._diagnostic_credential_snapshots)
-        self.assertTrue(window.refresh_btn.isEnabled())
-        self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self._assert_terminal_reachability_cleanup(window)
         self.assertEqual(UIState.REQUEST_ERROR, window.ui_state)
 
     def test_inventory_replacement_supersedes_pending_reachability(self):
@@ -571,10 +677,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
 
         window.set_equipment_inventory(replacement)
 
-        self.assertIsNone(window._current_reachability_context)
-        self.assertEqual({}, window._diagnostic_credential_snapshots)
-        self.assertTrue(window.refresh_btn.isEnabled())
-        self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self._assert_terminal_reachability_cleanup(window)
         self._finish_reachability(window, worker, reachable=True)
         window.refresh_huawei_te40.assert_not_called()
 
@@ -591,9 +694,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
             )
         )
 
-        self.assertIsNone(window._current_reachability_context)
-        self.assertEqual({}, window._diagnostic_credential_snapshots)
-        self.assertTrue(window.refresh_btn.isEnabled())
+        self._assert_terminal_reachability_cleanup(window)
         self._finish_reachability(window, worker, reachable=False)
         window.refresh_huawei_te40.assert_not_called()
 
@@ -619,12 +720,14 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
         window._diagnostic_action_generation += 1
         self._finish_reachability(window, pool.runnables[0], reachable=True)
         self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self.assertNotEqual(UIState.LOADING, window.ui_state)
 
         window, _pool = self._window_for_model("Huawei TE40")
         window._reachability_thread_pool = lambda: FailingReachabilityPool()
         with patch("gui.main_window.QMessageBox.warning"):
             window.refresh_data()
         self.assertEqual("Обновить данные", window.refresh_btn.text())
+        self.assertNotEqual(UIState.LOADING, window.ui_state)
 
     def test_failed_reachability_blocks_all_lifecycle_categories(self):
         cases = (

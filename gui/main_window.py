@@ -117,7 +117,6 @@ class DiagnosticCredentialSnapshot:
     ip_address: str
     candidates: tuple
     starting_successful_index: int
-    attempt_plan_identity: str
     diagnostic_generation: int
     reachability_operation_id: int
     inventory_context_identity: str
@@ -130,7 +129,6 @@ class DiagnosticCredentialSnapshot:
             self.diagnostic_generation,
             self.reachability_operation_id,
             self.inventory_context_identity,
-            self.attempt_plan_identity,
         )
 
 
@@ -532,6 +530,10 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_btn.setEnabled(True)
             self.refresh_btn.setText("Обновить данные")
 
+    def _complete_reachability_loading_state(self):
+        if self.__dict__.get("ui_state") == UIState.LOADING:
+            self.set_ui_state(UIState.IDLE, "Готово к обновлению")
+
     def _discard_diagnostic_credential_snapshot(self, operation_id):
         if operation_id is None:
             return None
@@ -599,6 +601,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._current_reachability_worker = None
         if restore:
             self._restore_refresh_button()
+            self._complete_reachability_loading_state()
         return True
 
     def _invalidate_reachability_context(self, reason="context_changed"):
@@ -609,6 +612,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._current_reachability_worker = None
         if reason != "shutdown":
             self._restore_refresh_button()
+            self._complete_reachability_loading_state()
 
     def _supersede_pending_diagnostic_reachability(self, reason="diagnostic_superseded"):
         self._invalidate_reachability_context(reason)
@@ -2062,6 +2066,7 @@ class VCSDiagnosticApp(QMainWindow):
         if context is None or result.get("operation_id") != context.get("operation_id"):
             return
         if result.get("ip_address") != context.get("ip"):
+            self._cleanup_reachability_operation(context, restore=True)
             return
         if not self._is_reachability_context_current(context):
             self._cleanup_reachability_operation(context, restore=True)
@@ -2113,25 +2118,16 @@ class VCSDiagnosticApp(QMainWindow):
             else:
                 candidates = self.device_credentials.get(device_name)
             frozen_candidates = self._freeze_credential_candidates(candidates)
-            plan_identity = VCSDiagnosticApp._credential_attempt_plan_key(
-                self,
-                device_name,
-                ip_address,
-                operation_id,
-            )
-            plan = VCSDiagnosticApp._credential_attempt_plan(
-                self,
+            starting_successful_index = self.get_valid_current_credential_index(
                 device_name,
                 frozen_candidates,
                 ip_address,
-                operation_id,
             )
             snapshot = DiagnosticCredentialSnapshot(
                 diagnostic_model=device_name,
                 ip_address=ip_address,
                 candidates=frozen_candidates,
-                starting_successful_index=plan.current_index,
-                attempt_plan_identity=plan_identity,
+                starting_successful_index=starting_successful_index,
                 diagnostic_generation=generation,
                 reachability_operation_id=operation_id,
                 inventory_context_identity=inventory_context,
