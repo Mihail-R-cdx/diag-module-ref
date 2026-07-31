@@ -283,6 +283,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._reachability_operation_serial = 0
         self._current_reachability_context = None
         self._current_reachability_worker = None
+        self._reachability_presentation_operation_id = None
         self._diagnostic_credential_snapshots = {}
         self._current_action_dialog_bindings = {}
         self._credential_attempt_plans = {}
@@ -365,10 +366,13 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _resolve_pdu_attempt_credentials(self, device_name, ip_address):
         try:
-            return normalize_pdu_credential_candidates(
+            candidates = normalize_pdu_credential_candidates(
                 device_name,
                 self.device_credentials.get(device_name),
             )
+            if device_name == "Extron IPL T PCS4i" and not candidates:
+                return [{}]
+            return candidates
         except CredentialConfigurationError as error:
             if self._is_pcs4i_credentialless_fallback(device_name, error):
                 return [{}]
@@ -530,9 +534,21 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_btn.setEnabled(True)
             self.refresh_btn.setText("Обновить данные")
 
-    def _complete_reachability_loading_state(self):
+    def _release_reachability_presentation_owner(self, operation_id):
+        if (
+            operation_id is not None
+            and self.__dict__.get("_reachability_presentation_operation_id") == operation_id
+        ):
+            self._reachability_presentation_operation_id = None
+            return True
+        return False
+
+    def _complete_reachability_loading_state(self, operation_id):
+        if not self._release_reachability_presentation_owner(operation_id):
+            return False
         if self.__dict__.get("ui_state") == UIState.LOADING:
             self.set_ui_state(UIState.IDLE, "Готово к обновлению")
+        return True
 
     def _discard_diagnostic_credential_snapshot(self, operation_id):
         if operation_id is None:
@@ -571,6 +587,13 @@ class VCSDiagnosticApp(QMainWindow):
     def _freeze_credential_candidates(self, candidates):
         return tuple(MappingProxyType(dict(candidate)) for candidate in tuple(candidates or ()))
 
+    def _ensure_diagnostic_credential_candidates(self, device_name, candidates):
+        if candidates or device_name == "Extron IPL T PCS4i":
+            return
+        raise CredentialConfigurationError(
+            f"Credentials are required before refreshing {device_name}."
+        )
+
     def _snapshot_credential_candidates(self, snapshot, device_name, ip_address):
         if (
             snapshot is None
@@ -601,18 +624,19 @@ class VCSDiagnosticApp(QMainWindow):
         self._current_reachability_worker = None
         if restore:
             self._restore_refresh_button()
-            self._complete_reachability_loading_state()
+            self._complete_reachability_loading_state(context.get("operation_id"))
+        else:
+            self._release_reachability_presentation_owner(context.get("operation_id"))
         return True
 
     def _invalidate_reachability_context(self, reason="context_changed"):
         context = self.__dict__.get("_current_reachability_context")
-        if context is not None:
-            self._discard_diagnostic_credential_snapshot(context.get("operation_id"))
-        self._current_reachability_context = None
-        self._current_reachability_worker = None
-        if reason != "shutdown":
-            self._restore_refresh_button()
-            self._complete_reachability_loading_state()
+        if context is None:
+            return False
+        return self._cleanup_reachability_operation(
+            context,
+            restore=reason != "shutdown",
+        )
 
     def _supersede_pending_diagnostic_reachability(self, reason="diagnostic_superseded"):
         self._invalidate_reachability_context(reason)
@@ -2021,6 +2045,7 @@ class VCSDiagnosticApp(QMainWindow):
     def _submit_reachability_check(self, context):
         operation_context = dict(context)
         self._current_reachability_context = operation_context
+        self._reachability_presentation_operation_id = operation_context["operation_id"]
         if hasattr(self, "refresh_btn"):
             self.refresh_btn.setEnabled(False)
             self.refresh_btn.setText("Проверка...")
@@ -2084,6 +2109,7 @@ class VCSDiagnosticApp(QMainWindow):
         snapshot = self._take_diagnostic_credential_snapshot(context)
         self._current_reachability_context = None
         self._current_reachability_worker = None
+        self._release_reachability_presentation_owner(context.get("operation_id"))
         if snapshot is None:
             self.hide_progress_dialog()
             self.set_ui_state(
@@ -2118,6 +2144,10 @@ class VCSDiagnosticApp(QMainWindow):
             else:
                 candidates = self.device_credentials.get(device_name)
             frozen_candidates = self._freeze_credential_candidates(candidates)
+            self._ensure_diagnostic_credential_candidates(
+                device_name,
+                frozen_candidates,
+            )
             starting_successful_index = self.get_valid_current_credential_index(
                 device_name,
                 frozen_candidates,

@@ -310,6 +310,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
     def _assert_terminal_reachability_cleanup(self, window):
         self.assertIsNone(window._current_reachability_context)
         self.assertIsNone(window._current_reachability_worker)
+        self.assertIsNone(window._reachability_presentation_operation_id)
         self.assertEqual({}, window._diagnostic_credential_snapshots)
         self.assertTrue(window.refresh_btn.isEnabled())
         self.assertEqual("Обновить данные", window.refresh_btn.text())
@@ -411,6 +412,99 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
                         "192.0.2.10",
                         credential_snapshot=ANY,
                     )
+
+    def test_empty_credential_chain_blocks_auth_required_models_before_reachability(self):
+        cases = (
+            ("Huawei TE40", "refresh_huawei_te40"),
+            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Aten PE8208AV", "pdu"),
+            ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
+            ("Extron DMP 64 Plus", "refresh_extron_dmp64_plus"),
+        )
+        for model, route in cases:
+            with self.subTest(model=model):
+                window, pool = self._window_for_model(model)
+                before_widget = window.screen_container.currentWidget()
+                window.device_credentials[model] = []
+                window._reachability_ping_callable = Mock(
+                    side_effect=AssertionError("ping must not run")
+                )
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu = Mock()
+                else:
+                    setattr(window, route, Mock())
+
+                with patch("gui.main_window.QMessageBox.warning"):
+                    window.refresh_data()
+
+                self.assertEqual([], pool.runnables)
+                window._reachability_ping_callable.assert_not_called()
+                self.assertEqual({}, window._diagnostic_credential_snapshots)
+                self.assertIsNone(window._current_reachability_context)
+                self.assertIsNone(window._current_reachability_worker)
+                self.assertIsNone(window._reachability_presentation_operation_id)
+                self.assertIsNone(window._active_request)
+                self.assertIs(before_widget, window.screen_container.currentWidget())
+                self.assertEqual(UIState.REQUEST_ERROR, window.ui_state)
+                self.assertTrue(window.refresh_btn.isEnabled())
+                self.assertEqual("Обновить данные", window.refresh_btn.text())
+                status_text = window.connection_status.text()
+                self.assertIn(model, status_text)
+                self.assertNotIn("secret-password", status_text)
+                self.assertNotIn("operator", status_text)
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu.assert_not_called()
+                else:
+                    getattr(window, route).assert_not_called()
+
+    def test_empty_credential_preflight_reads_store_once(self):
+        window, pool = self._window_for_model("Huawei TE40")
+        window.refresh_huawei_te40 = Mock()
+        window.device_credentials["Huawei TE40"] = []
+        original_get = window.device_credentials.get
+        reads = 0
+
+        def guarded_get(*args, **kwargs):
+            nonlocal reads
+            reads += 1
+            if reads > 1:
+                raise AssertionError("store must not be read after configuration failure")
+            return original_get(*args, **kwargs)
+
+        with patch.object(window.device_credentials, "get", side_effect=guarded_get):
+            with patch("gui.main_window.QMessageBox.warning"):
+                window.refresh_data()
+
+        self.assertEqual(1, reads)
+        self.assertEqual([], pool.runnables)
+        self.assertEqual({}, window._diagnostic_credential_snapshots)
+        self.assertIsNone(window._active_request)
+        window.refresh_huawei_te40.assert_not_called()
+
+    def test_pcs4i_without_configured_credentials_reaches_with_passwordless_snapshot(self):
+        for configured_chain in (None, []):
+            with self.subTest(configured_chain=configured_chain):
+                window, pool = self._window_for_model("Extron IPL T PCS4i")
+                if configured_chain is None:
+                    window.device_credentials.pop("Extron IPL T PCS4i", None)
+                else:
+                    window.device_credentials["Extron IPL T PCS4i"] = configured_chain
+                window.pdu_controller.refresh_pdu = Mock()
+
+                window.refresh_data()
+
+                self.assertEqual(1, len(pool.runnables))
+                self.assertEqual(1, len(window._diagnostic_credential_snapshots))
+                snapshot = next(iter(window._diagnostic_credential_snapshots.values()))
+                self.assertEqual(({},), tuple(dict(candidate) for candidate in snapshot.candidates))
+                self._finish_reachability(window, pool.runnables[0], reachable=True)
+
+                _, args, kwargs = window.pdu_controller.refresh_pdu.mock_calls[0]
+                self.assertEqual(("192.0.2.10", "Extron IPL T PCS4i"), args)
+                handed_snapshot = kwargs["credential_snapshot"]
+                self.assertEqual(({},), tuple(dict(candidate) for candidate in handed_snapshot.candidates))
+                self.assertEqual({}, window._diagnostic_credential_snapshots)
+                self.assertIsNone(window._reachability_presentation_operation_id)
 
     def test_all_routes_receive_prepared_snapshot_after_store_mutation(self):
         cases = (
@@ -642,6 +736,10 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
         self.assertIs(window._current_reachability_context, new_context)
         self.assertEqual(new_worker.operation_id, new_context["operation_id"])
         self.assertFalse(window.refresh_btn.isEnabled())
+        self.assertEqual(
+            new_worker.operation_id,
+            window._reachability_presentation_operation_id,
+        )
         self.assertEqual(1, len(window._diagnostic_credential_snapshots))
         self._assert_no_reachability_plan(
             window,
@@ -660,6 +758,50 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
 
         self._assert_terminal_reachability_cleanup(window)
         self.assertEqual(UIState.REQUEST_ERROR, window.ui_state)
+
+    def test_reachability_invalidation_without_pending_context_preserves_lifecycle_ui(self):
+        window, _pool = self._window_for_model("Huawei TE40")
+        window.refresh_btn.setEnabled(False)
+        window.refresh_btn.setText("Подключение...")
+        window.set_ui_state(UIState.LOADING, "Подключение к Huawei TE40 (192.0.2.10)...")
+
+        self.assertFalse(window._invalidate_reachability_context("ip_changed"))
+
+        self.assertEqual(UIState.LOADING, window.ui_state)
+        self.assertFalse(window.refresh_btn.isEnabled())
+        self.assertEqual("Подключение...", window.refresh_btn.text())
+        self.assertIn("Подключение к Huawei TE40", window.connection_status.text())
+
+    def test_supersede_after_reachability_handoff_preserves_active_lifecycle_ui(self):
+        cases = (
+            ("Huawei TE40", "refresh_huawei_te40"),
+            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Aten PE8208AV", "pdu"),
+            ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
+            ("Extron DMP 64 Plus", "refresh_extron_dmp64_plus"),
+        )
+        for model, route in cases:
+            with self.subTest(model=model):
+                window, pool = self._window_for_model(model)
+                if route == "pdu":
+                    window.pdu_controller.refresh_pdu = Mock()
+                else:
+                    setattr(window, route, Mock())
+
+                window.refresh_data()
+                self._finish_reachability(window, pool.runnables[0], reachable=True)
+                self.assertIsNone(window._current_reachability_context)
+                self.assertIsNone(window._reachability_presentation_operation_id)
+
+                window.refresh_btn.setEnabled(False)
+                window.refresh_btn.setText("Подключение...")
+                window.set_ui_state(UIState.LOADING, f"Подключение к {model} (192.0.2.10)...")
+                window._supersede_model_actions("ip_changed")
+
+                self.assertEqual(UIState.LOADING, window.ui_state)
+                self.assertFalse(window.refresh_btn.isEnabled())
+                self.assertEqual("Подключение...", window.refresh_btn.text())
+                self.assertIn(f"Подключение к {model}", window.connection_status.text())
 
     def test_inventory_replacement_supersedes_pending_reachability(self):
         window, pool = self._window_for_model("Huawei TE40")
