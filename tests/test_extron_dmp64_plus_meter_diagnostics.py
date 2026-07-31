@@ -1226,7 +1226,10 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         previous_revision = controller.credential_context_revision
         self.window.set_current_credential_index = Mock()
 
-        self.window._on_credential_configuration_changed("Extron DMP 64 Plus")
+        self.window._on_credential_configuration_changed(
+            "Extron DMP 64 Plus",
+            "192.0.2.64",
+        )
         controller.on_result(
             {"_credential_used": True, "complete": True, "meter_sections": []},
             worker,

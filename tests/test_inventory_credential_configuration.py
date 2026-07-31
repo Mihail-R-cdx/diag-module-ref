@@ -144,6 +144,79 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
             window.get_device_connection_profile("Huawei TE40", "192.0.2.10"),
         )
 
+    def test_password_confirmation_does_not_publish_credential_values(self):
+        from PyQt5.QtWidgets import QLineEdit
+        from gui.main_window import VCSDiagnosticApp
+        from tests.test_inventory_diagnostic_dispatch import inventory, record
+
+        username = "SENTINEL-USERNAME-NOT-FOR-OUTPUT"
+        password = "SENTINEL-PASSWORD-NOT-FOR-OUTPUT"
+        public_output = []
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.10", diagnostic_model="Huawei TE40")]
+        )
+        window.ip_entry.setText("192.0.2.10")
+        original_set_ui_state = window.set_ui_state
+
+        def capture_state(state, text=None, screen=None):
+            if text is not None:
+                public_output.append(str(text))
+            return original_set_ui_state(state, text, screen)
+
+        def accept_with_sentinel_credentials(dialog):
+            entries = dialog.findChildren(QLineEdit)
+            entries[0].setText(username)
+            entries[1].setText(password)
+            return QDialog.Accepted
+
+        def capture_information(_parent, title, text):
+            public_output.extend([str(title), str(text)])
+
+        window.set_ui_state = capture_state
+        with patch("gui.main_window.QDialog.exec_", accept_with_sentinel_credentials), \
+                patch("gui.main_window.QMessageBox.information", capture_information), \
+                patch("builtins.print", lambda *args, **_kwargs: public_output.append(" ".join(map(str, args)))):
+            window.show_password_dialog()
+
+        self.assertIn(
+            {"username": username, "password": password},
+            window.device_credentials["Huawei TE40"],
+        )
+        rendered = "\n".join(public_output)
+        self.assertNotIn(username, rendered)
+        self.assertNotIn(password, rendered)
+
+    def test_password_configuration_does_not_ping(self):
+        from PyQt5.QtWidgets import QLineEdit
+        from gui.main_window import VCSDiagnosticApp
+        from tests.test_inventory_diagnostic_dispatch import inventory, record
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.44", diagnostic_model="Aten PE8208AV")]
+        )
+        window.ip_entry.setText("192.0.2.44")
+        window.ensure_ping_success = Mock(side_effect=AssertionError("credential config must not ping"))
+        window.configure_credential_candidate = Mock(return_value=True)
+
+        def accept_with_credentials(dialog):
+            entries = dialog.findChildren(QLineEdit)
+            entries[0].setText("operator")
+            entries[1].setText("secret-password")
+            return QDialog.Accepted
+
+        with patch("gui.main_window.QDialog.exec_", accept_with_credentials), \
+                patch("gui.main_window.QMessageBox.information"), \
+                patch("builtins.print"):
+            window.show_password_dialog()
+
+        window.ensure_ping_success.assert_not_called()
+        window.configure_credential_candidate.assert_called_once()
+
     def test_password_confirmation_promotes_existing_candidate_without_success_index(self):
         from PyQt5.QtWidgets import QLineEdit
         from gui.main_window import VCSDiagnosticApp
@@ -275,6 +348,99 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
         window._on_credential_configuration_changed("Aten PE8208AV", "192.0.2.44")
 
         window._invalidate_pdu_context.assert_called_once()
+
+    def test_generic_credential_store_mutation_does_not_globally_invalidate(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window._related_codec_credential_context_revision = 3
+        window._equipment_room_credential_context_revision = 4
+        window._matrix_credential_context_revision = 5
+        window._invalidate_pdu_context = Mock()
+        window._publish_current_equipment_room_context = Mock()
+        window.pdu_room_codec_enrichment_controller.invalidate_context = Mock()
+        window.matrix_controller.invalidate_context = Mock()
+
+        window.device_credentials["Huawei TE40"] = [
+            {"username": "operator", "password": "secret"}
+        ]
+        window.device_credentials.setdefault("Aten PE8208AV", [{"password": "secret"}])
+
+        self.assertEqual(3, window._related_codec_credential_context_revision)
+        self.assertEqual(4, window._equipment_room_credential_context_revision)
+        self.assertEqual(5, window._matrix_credential_context_revision)
+        window._invalidate_pdu_context.assert_not_called()
+        window._publish_current_equipment_room_context.assert_not_called()
+        window.pdu_room_codec_enrichment_controller.invalidate_context.assert_not_called()
+        window.matrix_controller.invalidate_context.assert_not_called()
+
+    def test_scoped_credential_mutation_invalidates_only_exact_context(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.current_credential_index["Huawei TE40|192.0.2.10"] = 2
+        window.device_connection_profiles[("Huawei TE40", "192.0.2.10")] = {"transport": "ssh"}
+        window._active_request = {
+            "id": 1,
+            "device": "Aten PE8208AV",
+            "ip": "192.0.2.44",
+            "screen": None,
+        }
+        window._invalidate_pdu_context = Mock()
+
+        inserted = window.configure_credential_candidate(
+            "Huawei TE40",
+            "192.0.2.10",
+            {"username": "operator", "password": "secret"},
+        )
+
+        self.assertTrue(inserted)
+        window._invalidate_pdu_context.assert_not_called()
+        self.assertEqual(2, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
+        self.assertEqual(
+            {"transport": "ssh"},
+            window.get_device_connection_profile("Huawei TE40", "192.0.2.10"),
+        )
+
+        window.configure_credential_candidate(
+            "Aten PE8208AV",
+            "192.0.2.44",
+            {"username": "operator", "password": "secret"},
+        )
+        window._invalidate_pdu_context.assert_called_once()
+
+    def test_scoped_pdu_mutation_discards_only_exact_model_ip_attempt_plan(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window._credential_attempt_plan(
+            "Aten PE8208AV",
+            [{"username": "a", "password": "a"}],
+            "192.0.2.44",
+        )
+        window._credential_attempt_plan(
+            "Aten PE8208AV",
+            [{"username": "b", "password": "b"}],
+            "192.0.2.45",
+        )
+        window._credential_attempt_plan(
+            "Extron IPL T PCS4i",
+            [{"password": "c"}],
+            "192.0.2.44",
+        )
+
+        window.configure_credential_candidate(
+            "Aten PE8208AV",
+            "192.0.2.44",
+            {"username": "operator", "password": "secret"},
+        )
+
+        self.assertNotIn("Aten PE8208AV|192.0.2.44", window._credential_attempt_plans)
+        self.assertIn("Aten PE8208AV|192.0.2.45", window._credential_attempt_plans)
+        self.assertIn("Extron IPL T PCS4i|192.0.2.44", window._credential_attempt_plans)
 
 
 if __name__ == "__main__":

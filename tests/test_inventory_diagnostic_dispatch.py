@@ -15,6 +15,7 @@ from core.equipment_inventory import (
     EquipmentRecord,
 )
 from gui.diagnostic_dispatch import (
+    ActionBinding,
     DiagnosticActionPurpose,
     ModelResolutionStatus,
     dispatch_entries,
@@ -239,6 +240,309 @@ class FailClosedProductionRouteTests(unittest.TestCase):
 
         self.assertIsNone(window._active_request)
         self.assertIs(before_widget, window.screen_container.currentWidget())
+
+
+@unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
+class ActionBindingCurrentnessTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _binding(self, window, purpose, generation, *, ip="192.0.2.10", model=None,
+                 fallback_dialog_id=None, credential_dialog_id=None):
+        entry = dispatch_entry_for_model(model) if model else None
+        if entry is None:
+            return window._binding_id(
+                purpose=purpose,
+                generation=generation,
+                normalized_ip=ip,
+                resolution_status=ModelResolutionStatus.IP_NOT_FOUND.value,
+                fallback_dialog_id=fallback_dialog_id,
+                credential_dialog_id=credential_dialog_id,
+            )
+        return window._accepted_action_binding(
+            purpose=purpose,
+            generation=generation,
+            normalized_ip=ip,
+            resolution_status=ModelResolutionStatus.RESOLVED.value,
+            source="AUTO_INVENTORY",
+            entry=entry,
+            fallback_dialog_id=fallback_dialog_id,
+            credential_dialog_id=credential_dialog_id,
+        )
+
+    def test_old_diagnostic_fallback_after_new_fallback_is_not_current(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.ip_entry.setText("192.0.2.10")
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        old = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=1,
+        )
+        new = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=2,
+        )
+
+        window._publish_current_dialog_binding("diagnostic_fallback", old)
+        window._publish_current_dialog_binding("diagnostic_fallback", new)
+
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=old,
+            )
+        )
+        self.assertTrue(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=new,
+            )
+        )
+
+    def test_old_credential_fallback_and_dialog_after_new_same_stage_are_not_current(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.ip_entry.setText("192.0.2.10")
+        generation = window._next_action_generation(
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION
+        )
+        old_fallback = self._binding(
+            window,
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation,
+            fallback_dialog_id=1,
+        )
+        new_fallback = self._binding(
+            window,
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation,
+            fallback_dialog_id=2,
+        )
+        old_dialog = self._binding(
+            window,
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation,
+            model="Huawei TE40",
+            credential_dialog_id=1,
+        )
+        new_dialog = self._binding(
+            window,
+            DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation,
+            model="Huawei TE40",
+            credential_dialog_id=2,
+        )
+
+        window._publish_current_dialog_binding("credential_fallback", old_fallback)
+        window._publish_current_dialog_binding("credential_fallback", new_fallback)
+        window._publish_current_dialog_binding("credential_dialog", old_dialog)
+        window._publish_current_dialog_binding("credential_dialog", new_dialog)
+
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=old_fallback,
+            )
+        )
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=old_dialog,
+            )
+        )
+        self.assertTrue(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=new_dialog,
+            )
+        )
+
+    def test_arbitrary_dialog_id_and_cross_purpose_binding_are_rejected(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.ip_entry.setText("192.0.2.10")
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        arbitrary = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            model="Huawei TE40",
+            fallback_dialog_id=404,
+        )
+        credential_binding = ActionBinding(
+            purpose=DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION,
+            generation=generation,
+            normalized_ip="192.0.2.10",
+            inventory_context_identity=arbitrary.inventory_context_identity,
+            resolution_status=arbitrary.resolution_status,
+            selection_source=arbitrary.selection_source,
+            accepted_model=arbitrary.accepted_model,
+            screen_key=arbitrary.screen_key,
+            lifecycle_route=arbitrary.lifecycle_route,
+            fallback_dialog_id=404,
+        )
+
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=arbitrary,
+            )
+        )
+        window._publish_current_dialog_binding("credential_fallback", credential_binding)
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=credential_binding,
+            )
+        )
+
+    def test_binding_rejected_after_ip_inventory_reset_and_shutdown(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.10", diagnostic_model="Huawei TE40")]
+        )
+        window.ip_entry.setText("192.0.2.10")
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        binding = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=1,
+        )
+        window._publish_current_dialog_binding("diagnostic_fallback", binding)
+
+        window.ip_entry.setText("192.0.2.11")
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=binding,
+            )
+        )
+
+        window.ip_entry.setText("192.0.2.10")
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        binding = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=2,
+        )
+        window._publish_current_dialog_binding("diagnostic_fallback", binding)
+        window.equipment_inventory = EquipmentInventory.from_records(
+            (record("B", ip_address="192.0.2.10", diagnostic_model="Huawei TE40"),),
+            EquipmentInventoryMetadata(
+                schema_version=2,
+                snapshot_id="sha256:" + "3" * 64,
+            ),
+        )
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=binding,
+            )
+        )
+
+        window.equipment_inventory = None
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        binding = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=3,
+        )
+        window._publish_current_dialog_binding("diagnostic_fallback", binding)
+        window._supersede_model_actions("reset")
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=binding,
+            )
+        )
+
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        binding = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=4,
+        )
+        window._publish_current_dialog_binding("diagnostic_fallback", binding)
+        window.close()
+        self.assertFalse(
+            window._is_action_binding_current(
+                purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                generation=generation,
+                normalized_ip="192.0.2.10",
+                binding_id=binding,
+            )
+        )
+
+    def test_old_dialog_clear_does_not_remove_newer_binding(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window.ip_entry.setText("192.0.2.10")
+        generation = window._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+        old = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=1,
+        )
+        new = self._binding(
+            window,
+            DiagnosticActionPurpose.DIAGNOSTIC_START,
+            generation,
+            fallback_dialog_id=2,
+        )
+        window._publish_current_dialog_binding("diagnostic_fallback", old)
+        window._publish_current_dialog_binding("diagnostic_fallback", new)
+
+        window._clear_current_dialog_binding("diagnostic_fallback", old)
+
+        self.assertEqual(
+            new,
+            window._current_dialog_binding(
+                DiagnosticActionPurpose.DIAGNOSTIC_START,
+                "diagnostic_fallback",
+            ),
+        )
 
 
 if __name__ == "__main__":

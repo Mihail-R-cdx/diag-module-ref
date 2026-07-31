@@ -21,6 +21,7 @@ from core.pdu import (
     REFRESH,
     execute_pdu_command,
 )
+from tests.test_inventory_diagnostic_dispatch import inventory, record
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
@@ -60,6 +61,86 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.assertFalse(hasattr(worker, "current_idx"))
         self.assertEqual({}, worker.credentials)
         self.assertIsNone(worker.descriptor.credential_index)
+
+    def test_pdu_refresh_failed_ping_blocks_controller_submission_for_aten(self):
+        started = []
+        self.window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.44", diagnostic_model="Aten PE8208AV")]
+        )
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.device_credentials["Aten PE8208AV"] = [
+            {"username": "operator", "password": "secret"}
+        ]
+        self.window.ensure_ping_success = Mock(return_value=False)
+        self.window.pdu_controller.refresh_pdu = Mock()
+        self.window.pdu_controller._ensure_common_request = Mock(
+            side_effect=AssertionError("PDU request must not start before ping")
+        )
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.refresh_data()
+
+        self.window.ensure_ping_success.assert_called_once_with("192.0.2.44")
+        self.window.pdu_controller.refresh_pdu.assert_not_called()
+        self.window.pdu_controller._ensure_common_request.assert_not_called()
+        self.assertEqual([], started)
+        self.assertIsNone(self.window._active_request)
+
+    def test_pdu_refresh_failed_ping_blocks_controller_submission_for_pcs4i(self):
+        started = []
+        self.window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.44", diagnostic_model="Extron IPL T PCS4i")]
+        )
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.ensure_ping_success = Mock(return_value=False)
+        self.window.pdu_controller.refresh_pdu = Mock()
+
+        with patch.object(QThreadPool.globalInstance(), "start", side_effect=started.append):
+            self.window.refresh_data()
+
+        self.window.ensure_ping_success.assert_called_once_with("192.0.2.44")
+        self.window.pdu_controller.refresh_pdu.assert_not_called()
+        self.assertEqual([], started)
+        self.assertIsNone(self.window._active_request)
+
+    def test_pdu_refresh_successful_ping_continues_to_controller(self):
+        self.window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.44", diagnostic_model="Aten PE8208AV")]
+        )
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.device_credentials["Aten PE8208AV"] = [
+            {"username": "operator", "password": "secret"}
+        ]
+        self.window.ensure_ping_success = Mock(return_value=True)
+        self.window.pdu_controller.refresh_pdu = Mock(return_value=True)
+
+        self.window.refresh_data()
+
+        self.window.ensure_ping_success.assert_called_once_with("192.0.2.44")
+        self.window.pdu_controller.refresh_pdu.assert_called_once_with(
+            "192.0.2.44",
+            "Aten PE8208AV",
+        )
+
+    def test_pdu_refresh_stale_binding_after_ping_does_not_start_controller(self):
+        self.window.equipment_inventory = inventory(
+            [record("A", ip_address="192.0.2.44", diagnostic_model="Aten PE8208AV")]
+        )
+        self.window.ip_entry.setText("192.0.2.44")
+        self.window.device_credentials["Aten PE8208AV"] = [
+            {"username": "operator", "password": "secret"}
+        ]
+
+        def ping_and_change_ip(_ip):
+            self.window.ip_entry.setText("192.0.2.45")
+            return True
+
+        self.window.ensure_ping_success = Mock(side_effect=ping_and_change_ip)
+        self.window.pdu_controller.refresh_pdu = Mock()
+
+        self.window.refresh_data()
+
+        self.window.pdu_controller.refresh_pdu.assert_not_called()
 
     def test_non_pcs4i_missing_mapping_is_blocked_before_worker_creation(self):
         started = []
@@ -599,7 +680,11 @@ class PDUGuiCompositionTests(unittest.TestCase):
             old_descriptor.operation_id,
         )
 
-        self.window.device_credentials["Extron IPL T PCS4i"] = [new_credential]
+        self.window.configure_credential_candidate(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+            new_credential,
+        )
 
         acquired = []
         result = execute_pdu_command(
@@ -634,6 +719,13 @@ class PDUGuiCompositionTests(unittest.TestCase):
         self.window.show_progress_dialog = lambda _message: None
         self.window.validate_ip_address = lambda _ip: True
         self.window._active_request_credentials = old_chain
+        self.window._active_request = {
+            "id": 8,
+            "device": "Extron IPL T PCS4i",
+            "ip": "192.0.2.44",
+            "credential_context": self.window._pdu_context_token(),
+            "credential_index": 1,
+        }
         self.window._credential_attempt_plan(
             "Extron IPL T PCS4i",
             old_chain,
@@ -652,7 +744,11 @@ class PDUGuiCompositionTests(unittest.TestCase):
             ].current_index,
         )
 
-        self.window.device_credentials["Extron IPL T PCS4i"] = new_chain
+        dict.__setitem__(self.window.device_credentials, "Extron IPL T PCS4i", new_chain)
+        self.window._on_credential_configuration_changed(
+            "Extron IPL T PCS4i",
+            "192.0.2.44",
+        )
 
         self.assertNotIn("_active_request_credentials", self.window.__dict__)
         self.assertNotIn(
