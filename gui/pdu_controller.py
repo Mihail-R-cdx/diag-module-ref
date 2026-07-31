@@ -126,8 +126,14 @@ class PDUController:
             return False
         return self.refresh_pdu(ip_address, device_name)
 
-    def refresh_pdu(self, ip_address: str, device_name: Optional[str] = None) -> bool:
-        device_name = device_name or self.shell.device_combo.currentText()
+    def refresh_pdu(
+        self,
+        ip_address: str,
+        device_name: Optional[str] = None,
+        *,
+        credential_snapshot=None,
+    ) -> bool:
+        device_name = device_name or self.shell.current_device_name()
         print(f"=== Начинаю обновление {device_name} для {ip_address} ===")
 
         if not self.shell.validate_ip_address(ip_address):
@@ -142,12 +148,24 @@ class PDUController:
             self._publish_superseded("user_refresh_started")
             if not self._ensure_common_request(device_name, ip_address):
                 return False
-            creds_list = self._credential_candidates(device_name, ip_address)
+            uses_prepared_candidates = (
+                credential_snapshot is not None
+                and credential_snapshot.diagnostic_model == device_name
+                and credential_snapshot.ip_address == ip_address
+            )
+            if uses_prepared_candidates:
+                creds_list = tuple(credential_snapshot.candidates)
+            else:
+                creds_list = self._credential_candidates(device_name, ip_address)
             operation_id = self.next_operation_id()
-            current_idx = self._refresh_credential_index(
-                device_name,
-                ip_address,
-                creds_list,
+            current_idx = (
+                credential_snapshot.starting_successful_index
+                if uses_prepared_candidates
+                else self._refresh_credential_index(
+                    device_name,
+                    ip_address,
+                    creds_list,
+                )
             )
             worker = self._build_refresh_worker(
                 device_name=device_name,
@@ -1125,7 +1143,7 @@ class PDUController:
 
     def _selected_context(self) -> tuple[str, str]:
         return (
-            self.shell.device_combo.currentText(),
+            self.shell.current_device_name(),
             self.shell.ip_entry.text().strip(),
         )
 

@@ -968,15 +968,16 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.window.deleteLater()
         QApplication.processEvents()
 
-    def test_selector_registration_and_audio_dsp_routing(self):
-        items = [
-            self.window.device_combo.itemText(index)
-            for index in range(self.window.device_combo.count())
-        ]
+    def finish_reachability(self, worker, *, reachable=True):
+        self.window._on_reachability_finished(
+            {
+                "operation_id": worker.operation_id,
+                "ip_address": worker.ip_address,
+                "reachable": reachable,
+            }
+        )
 
-        self.assertIn("Extron DMP 64 Plus", items)
-        self.assertGreater(items.index("Extron DMP 64 Plus"), items.index("Audio DSP"))
-        self.assertLess(items.index("Extron DMP 64 Plus"), items.index("Управление питанием"))
+    def test_selector_registration_and_audio_dsp_routing(self):
         self.assertEqual("audio_dsp", self.window.device_to_screen["Extron DMP 64 Plus"])
         self.assertEqual("audio_dsp", self.window.device_to_screen["Biamp Tesira Forte CI"])
 
@@ -1026,16 +1027,22 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.window.device_credentials["Extron DMP 64 Plus"] = [
             {"username": "synthetic-user", "password": "synthetic-password"}
         ]
-        self.window.device_combo.setCurrentText("Extron DMP 64 Plus")
         self.window.ip_entry.setText("192.0.2.64")
-        self.window.ensure_ping_success = lambda _ip: True
+        self.window._accept_test_diagnostic_model("Extron DMP 64 Plus")
         self.window.show_progress_dialog = lambda _message: None
+        reachability_started = []
+        self.window._reachability_thread_pool = lambda: SimpleNamespace(
+            start=reachability_started.append
+        )
+        controller = self.window._dmp_controller()
+        controller._thread_pool = SimpleNamespace(start=started.append)
 
-        with patch.object(QThreadPool_global(), "start", side_effect=started.append):
-            self.window.refresh_data()
-            first_worker = started[0]
-            self.window.refresh_data()
-            second_worker = started[1]
+        self.window.refresh_data()
+        self.finish_reachability(reachability_started[0], reachable=True)
+        first_worker = started[0]
+        self.window.refresh_data()
+        self.finish_reachability(reachability_started[1], reachable=True)
+        second_worker = started[1]
 
         self.assertEqual(2, len(started))
         self.assertIsInstance(first_worker.cancellation.is_cancelled(), bool)
@@ -1052,14 +1059,18 @@ class DMPGuiIntegrationTests(unittest.TestCase):
             {"username": "synthetic-user-b", "password": "synthetic-password-b"},
         ]
         self.window.device_credentials["Extron DMP 64 Plus"] = credentials
-        self.window.device_combo.setCurrentText("Extron DMP 64 Plus")
         self.window.ip_entry.setText(ip_address)
-        self.window.ensure_ping_success = lambda _ip: True
+        self.window._accept_test_diagnostic_model("Extron DMP 64 Plus")
         self.window.show_progress_dialog = Mock()
         self.window.show_codec_poll_terminal = Mock()
         controller = self.window._dmp_controller()
         controller._thread_pool = SimpleNamespace(start=started.append)
+        reachability_started = []
+        self.window._reachability_thread_pool = lambda: SimpleNamespace(
+            start=reachability_started.append
+        )
         self.window.refresh_data()
+        self.finish_reachability(reachability_started[0], reachable=True)
         return controller, started[-1], controller.active_context
 
     def test_dmp_non_auth_failure_does_not_advance_credential_chain(self):
@@ -1155,7 +1166,12 @@ class DMPGuiIntegrationTests(unittest.TestCase):
     def test_dmp_stale_callbacks_do_not_update_current_context(self):
         started = []
         controller, first_worker, first_context = self._start_dmp_polling(started)
+        reachability_started = []
+        self.window._reachability_thread_pool = lambda: SimpleNamespace(
+            start=reachability_started.append
+        )
         self.window.refresh_data()
+        self.finish_reachability(reachability_started[0], reachable=True)
         self.assertEqual(2, len(started))
         self.window.set_current_credential_index = Mock()
         self.window.on_codec_poll_terminal_log = Mock()
@@ -1197,7 +1213,7 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         self.window.set_current_credential_index = Mock()
         model_generation = controller._generation
 
-        self.window.device_combo.setCurrentText("Biamp Tesira Forte CI")
+        self.window._accept_test_diagnostic_model("Biamp Tesira Forte CI")
         controller.on_result(
             {"_credential_used": True, "complete": True, "meter_sections": []},
             worker,
@@ -1234,7 +1250,10 @@ class DMPGuiIntegrationTests(unittest.TestCase):
         previous_revision = controller.credential_context_revision
         self.window.set_current_credential_index = Mock()
 
-        self.window._on_credential_configuration_changed("Extron DMP 64 Plus")
+        self.window._on_credential_configuration_changed(
+            "Extron DMP 64 Plus",
+            "192.0.2.64",
+        )
         controller.on_result(
             {"_credential_used": True, "complete": True, "meter_sections": []},
             worker,

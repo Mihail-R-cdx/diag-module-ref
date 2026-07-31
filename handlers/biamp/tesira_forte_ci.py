@@ -8,7 +8,7 @@ import socket
 import time
 from typing import Any, Protocol
 
-from core.exceptions import AuthenticationError, CommandError, ConnectionError
+from core.exceptions import AuthenticationError, CommandError, ConnectionError, ProtocolError
 
 
 class BiampSession(Protocol):
@@ -170,12 +170,16 @@ class _DefaultBiampSessionManager:
             return _ParamikoBiampSession.open(
                 ip_address, self.ssh_port, username, password, timeout_seconds
             )
+        except AuthenticationError:
+            raise
         except Exception as exc:
             errors.append(f"ssh:{self.ssh_port} {_safe_message(exc, password)}")
         try:
             return _TelnetBiampSession.open(
                 ip_address, self.telnet_port, username, password, timeout_seconds
             )
+        except AuthenticationError:
+            raise
         except Exception as exc:
             errors.append(f"telnet:{self.telnet_port} {_safe_message(exc, password)}")
         raise ConnectionError(
@@ -205,19 +209,43 @@ class _ParamikoBiampSession:
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(
-            ip_address,
-            port=port,
-            username=username,
-            password=password,
-            timeout=timeout_seconds,
-            banner_timeout=timeout_seconds,
-            auth_timeout=timeout_seconds,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-        channel = client.invoke_shell()
-        channel.settimeout(timeout_seconds)
+        non_retry_auth_errors = _paramiko_non_retry_authentication_error_types(paramiko)
+        authentication_error = _paramiko_authentication_exception_type(paramiko)
+        try:
+            client.connect(
+                ip_address,
+                port=port,
+                username=username,
+                password=password,
+                timeout=timeout_seconds,
+                banner_timeout=timeout_seconds,
+                auth_timeout=timeout_seconds,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            channel = client.invoke_shell()
+            channel.settimeout(timeout_seconds)
+        except Exception as error:
+            try:
+                client.close()
+            finally:
+                if isinstance(error, non_retry_auth_errors):
+                    raise ProtocolError(
+                        "Biamp SSH authentication negotiation did not confirm "
+                        "assigned credential rejection."
+                    ) from error
+                if authentication_error is not None and isinstance(
+                    error, authentication_error
+                ):
+                    if type(error) is authentication_error:
+                        raise AuthenticationError(
+                            "Biamp SSH rejected the assigned credential."
+                        ) from error
+                    raise ProtocolError(
+                        "Biamp SSH authentication negotiation produced an "
+                        "unclassified authentication outcome."
+                    ) from error
+                raise
         return cls(client, channel, port, timeout_seconds)
 
     def send_command(self, command: str) -> str:
@@ -254,8 +282,12 @@ class _TelnetBiampSession:
         import telnetlib
 
         tn = telnetlib.Telnet(ip_address, port, timeout_seconds)
-        _telnet_write_login(tn, username, password, timeout_seconds)
-        return cls(tn, port, timeout_seconds)
+        try:
+            _telnet_write_login(tn, username, password, timeout_seconds)
+            return cls(tn, port, timeout_seconds)
+        except Exception:
+            tn.close()
+            raise
 
     def send_command(self, command: str) -> str:
         self.tn.write((command.rstrip("\n") + "\n").encode("ascii"))
@@ -270,10 +302,49 @@ class _TelnetBiampSession:
 
 def _telnet_write_login(tn: Any, username: str, password: str, timeout_seconds: float) -> None:
     banner = tn.read_until(b"login:", timeout_seconds)
-    if b"login:" in banner.lower():
-        tn.write(username.encode("ascii") + b"\n")
-        tn.read_until(b"assword:", timeout_seconds)
-        tn.write(password.encode("ascii") + b"\n")
+    if b"login:" not in banner.lower():
+        raise ConnectionError("Biamp Telnet login prompt was not received before timeout.")
+    tn.write(username.encode("ascii") + b"\n")
+    password_prompt = tn.read_until(b"assword:", timeout_seconds)
+    if b"assword:" not in password_prompt.lower():
+        raise ConnectionError("Biamp Telnet login did not request a password.")
+    tn.write(password.encode("ascii") + b"\n")
+    followup = _telnet_read_post_password_phase(tn, timeout_seconds)
+    if _telnet_contains_auth_prompt(followup):
+        raise AuthenticationError("Biamp Telnet rejected the assigned credential.")
+    if not _telnet_contains_readiness(followup):
+        raise ConnectionError("Biamp Telnet login did not reach readiness before timeout.")
+
+
+def _telnet_read_post_password_phase(tn: Any, timeout_seconds: float) -> bytes:
+    timeout_seconds = max(0.0, timeout_seconds)
+    read_very_eager = getattr(tn, "read_very_eager", None)
+    if callable(read_very_eager):
+        deadline = time.monotonic() + timeout_seconds
+        chunks: list[bytes] = []
+        while time.monotonic() < deadline:
+            chunk = read_very_eager()
+            if chunk:
+                chunks.append(chunk)
+                joined = b"".join(chunks).lower()
+                if _telnet_contains_auth_prompt(joined) or _telnet_contains_readiness(joined):
+                    break
+            time.sleep(0.05)
+        return b"".join(chunks)
+    return tn.read_until(b"\n", timeout_seconds)
+
+
+def _telnet_contains_auth_prompt(data: bytes) -> bool:
+    lower = data.lower()
+    return b"login:" in lower or b"assword:" in lower
+
+
+def _telnet_contains_readiness(data: bytes) -> bool:
+    normalized = " ".join(data.decode("ascii", errors="ignore").lower().split())
+    return normalized in {
+        "welcome to the tesira text protocol",
+        "welcome to the tesira text protocol server",
+    }
 
 
 def _read_until_ttp_complete(read_once: Any, *, timeout_seconds: float) -> str:
@@ -374,6 +445,34 @@ def _safe_message(exc: BaseException, password: str) -> str:
     if password:
         message = message.replace(password, "***")
     return message
+
+
+def _paramiko_authentication_exception_type(paramiko_module: Any) -> type[BaseException] | None:
+    for source in (
+        paramiko_module,
+        getattr(paramiko_module, "ssh_exception", None),
+    ):
+        error_type = getattr(source, "AuthenticationException", None)
+        if isinstance(error_type, type):
+            return error_type
+    return None
+
+
+def _paramiko_non_retry_authentication_error_types(paramiko_module: Any) -> tuple[type[BaseException], ...]:
+    types: list[type[BaseException]] = []
+    for source in (
+        paramiko_module,
+        getattr(paramiko_module, "ssh_exception", None),
+    ):
+        for name in (
+            "BadAuthenticationType",
+            "PartialAuthentication",
+            "UnableToAuthenticate",
+        ):
+            error_type = getattr(source, name, None) if source is not None else None
+            if isinstance(error_type, type) and error_type not in types:
+                types.append(error_type)
+    return tuple(types)
 
 
 __all__ = ["BiampSession", "BiampSessionManager", "BiampTesiraForteCIHandler"]

@@ -114,8 +114,8 @@ class EquipmentRoomContextGUITests(unittest.TestCase):
 
     def test_selecting_new_ip_publishes_room_context_without_refresh(self):
         window = self.build_window()
-        window.device_combo.setCurrentText("Huawei TE20")
         window.ip_entry.setText("192.0.2.10")
+        window._accept_test_diagnostic_model("Huawei TE20")
         QApplication.processEvents()
 
         block = window.screens["codec"].shared_room_information_block
@@ -126,8 +126,8 @@ class EquipmentRoomContextGUITests(unittest.TestCase):
 
     def test_device_error_does_not_clear_available_room_context(self):
         window = self.build_window()
-        window.device_combo.setCurrentText("Huawei TE20")
         window.ip_entry.setText("192.0.2.10")
+        window._accept_test_diagnostic_model("Huawei TE20")
         screen = window.screens["codec"]
         window._begin_request("Huawei TE20", "192.0.2.10", screen)
         window._publish_current_equipment_room_context("request_started", force=True)
@@ -147,8 +147,8 @@ class EquipmentRoomContextGUITests(unittest.TestCase):
 
     def test_stale_room_publication_is_rejected_after_context_changes(self):
         window = self.build_window()
-        window.device_combo.setCurrentText("Huawei TE20")
         window.ip_entry.setText("192.0.2.10")
+        window._accept_test_diagnostic_model("Huawei TE20")
         binding = window._equipment_room_context_binding
         generation = window._equipment_room_context_generation
         stale_result = EquipmentRoomResolutionResult(
@@ -177,8 +177,8 @@ class EquipmentRoomContextGUITests(unittest.TestCase):
         )
         window = self.build_window(error=error)
         with patch.object(QMessageBox, "critical") as critical, patch.object(QMessageBox, "warning") as warning:
-            window.device_combo.setCurrentText("Huawei TE20")
             window.ip_entry.setText("192.0.2.10")
+            window._accept_test_diagnostic_model("Huawei TE20")
             QApplication.processEvents()
 
         critical.assert_not_called()

@@ -37,6 +37,15 @@ from core.interactive_session import (
 from .base_screen import BaseScreen
 
 
+def _parent_device_name(parent):
+    if parent is None:
+        return None
+    current_device_name = getattr(parent, "current_device_name", None)
+    if callable(current_device_name):
+        return current_device_name()
+    return None
+
+
 class SIPRegistrationIndicator(QLabel):
     """Compact round SIP registration state without an external icon pack."""
 
@@ -156,7 +165,7 @@ class CodecScreen(BaseScreen):
     def _activate_interactive_context(self):
         if not self.parent:
             return None
-        device_name = self.parent.device_combo.currentText()
+        device_name = _parent_device_name(self.parent)
         ip_address = self.parent.ip_entry.text().strip()
         if not device_name or not ip_address:
             return None
@@ -205,7 +214,7 @@ class CodecScreen(BaseScreen):
             return False
         return (
             payload.get("generation") == self.interactive_controller.generation
-            and payload.get("model") == self.parent.device_combo.currentText()
+            and payload.get("model") == _parent_device_name(self.parent)
             and payload.get("ip_address") == self.parent.ip_entry.text().strip()
         )
 
@@ -280,15 +289,13 @@ class CodecScreen(BaseScreen):
     def _is_te20_device(self):
         return bool(
             self.parent
-            and hasattr(self.parent, 'device_combo')
-            and self.parent.device_combo.currentText() == "Huawei TE20"
+            and _parent_device_name(self.parent) == "Huawei TE20"
         )
 
     def _uses_microphone_mute_control(self):
         return bool(
             self.parent
-            and hasattr(self.parent, 'device_combo')
-            and self.parent.device_combo.currentText() in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}
+            and _parent_device_name(self.parent) in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}
         )
 
     def _microphone_param_name(self):
@@ -719,7 +726,7 @@ class CodecScreen(BaseScreen):
         self.call_log_window.raise_()
         self.call_log_window.activateWindow()
 
-        device_name = self.parent.device_combo.currentText() if self.parent else ""
+        device_name = _parent_device_name(self.parent) or ""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
 
         if device_name not in {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "Polycom RPG 310"}:
@@ -805,7 +812,7 @@ class CodecScreen(BaseScreen):
             ):
                 return False
             return (
-                screen.parent.device_combo.currentText(),
+                _parent_device_name(screen.parent),
                 screen.parent.ip_entry.text().strip(),
             ) == request_key
 
@@ -927,7 +934,7 @@ class CodecScreen(BaseScreen):
 
         if (
             self.parent
-            and self.parent.device_combo.currentText() == "Polycom RPG 310"
+            and _parent_device_name(self.parent) == "Polycom RPG 310"
         ):
             self._apply_polycom_microphone_connection_state()
 
@@ -1021,7 +1028,7 @@ class CodecScreen(BaseScreen):
         """Обработчик нажатия кнопки "Исправить" для SIP регистрации"""
         # Получаем IP адрес из главного окна
         ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
+        device_name = _parent_device_name(self.parent)
         
         if not ip_address or not device_name:
             print("Не удалось получить IP адрес или имя устройства")
@@ -1178,8 +1185,7 @@ class CodecScreen(BaseScreen):
     def _is_polycom_selected(self):
         return bool(
             self.parent
-            and hasattr(self.parent, "device_combo")
-            and self.parent.device_combo.currentText() == "Polycom RPG 310"
+            and _parent_device_name(self.parent) == "Polycom RPG 310"
         )
 
     def _show_polycom_command_progress(self, message):
@@ -1214,7 +1220,7 @@ class CodecScreen(BaseScreen):
     def set_presentation_state(self, direction):
         """Submit desired presentation state without blocking the GUI thread."""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
+        device_name = _parent_device_name(self.parent)
 
         if not ip_address or not device_name:
             print("Не удалось получить IP адрес или имя устройства для управления презентацией")
@@ -1451,9 +1457,7 @@ class CodecScreen(BaseScreen):
         if current_volume is None:
             current_volume = min_volume
         device_name = (
-            self.parent.device_combo.currentText()
-            if self.parent and hasattr(self.parent, "device_combo")
-            else None
+            _parent_device_name(self.parent)
         )
         step = (
             2
@@ -1647,7 +1651,7 @@ class CodecScreen(BaseScreen):
             controller.invalidate_context()
 
     def _get_volume_range(self, param_name="Громкость динамиков"):
-        device_name = self.parent.device_combo.currentText() if self.parent else None
+        device_name = _parent_device_name(self.parent)
         control_kind = self._get_volume_control_kind(param_name)
         ranges = {
             "speaker": {
@@ -1680,7 +1684,7 @@ class CodecScreen(BaseScreen):
                 break
 
         if self.parent and hasattr(self.parent, 'codec_data'):
-            device_name = self.parent.device_combo.currentText()
+            device_name = _parent_device_name(self.parent)
             if device_name in self.parent.codec_data:
                 data = self.parent.codec_data[device_name]
                 numeric_value = self._extract_numeric_value(data.get(param_name))
@@ -1691,8 +1695,8 @@ class CodecScreen(BaseScreen):
         return None
 
     def _should_show_te20_monitor_audio_fields(self):
-        if self.parent and hasattr(self.parent, 'device_combo'):
-            return self.parent.device_combo.currentText() in {
+        if self.parent:
+            return _parent_device_name(self.parent) in {
                 "Huawei TE20",
                 "Huawei TE40",
             }
@@ -1824,7 +1828,7 @@ class CodecScreen(BaseScreen):
             return
 
         ip_address = self.parent.ip_entry.text().strip()
-        device_name = self.parent.device_combo.currentText()
+        device_name = _parent_device_name(self.parent)
         if not ip_address or device_name != "Huawei TE20":
             return
 
@@ -1873,7 +1877,7 @@ class CodecScreen(BaseScreen):
             return
 
         ip_address = self.parent.ip_entry.text().strip() if self.parent else None
-        device_name = self.parent.device_combo.currentText() if self.parent else None
+        device_name = _parent_device_name(self.parent)
         if not ip_address or device_name not in {
             "Huawei TE20",
             "Huawei TE40",

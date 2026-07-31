@@ -44,15 +44,10 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
 
         for device_name in selectable_devices:
             with self.subTest(device=device_name):
-                self.window.device_combo.setCurrentText(device_name)
+                self.window._accept_test_diagnostic_model(device_name)
                 QApplication.processEvents()
                 expected_type = self.window.device_to_screen[device_name]
                 self.assertEqual(expected_type, self.window.current_screen_type)
-                self.assertIs(
-                    self.window.placeholder_widget,
-                    self.window.screen_container.currentWidget(),
-                )
-
                 target = self.window.screens[expected_type]
                 self.window.screen_container.setCurrentWidget(target)
                 self.assertIs(
@@ -64,7 +59,7 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
         from gui.ui_states import STATE_SPECS, UIState
 
         codec = self.window.screens["codec"]
-        self.window.device_combo.setCurrentText("Huawei TE40")
+        self.window._accept_test_diagnostic_model("Huawei TE40")
         codec.update_data(
             {
                 "Версия ПО": "V3.1",
@@ -160,7 +155,7 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
                 "Aten PE8208AV",
             ):
                 with self.subTest(device=device_name):
-                    self.window.device_combo.setCurrentText(device_name)
+                    self.window._accept_test_diagnostic_model(device_name)
                     self.window.show_debug_window()
                     QApplication.processEvents()
 

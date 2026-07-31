@@ -29,7 +29,8 @@ RESOLUTION_STATUS_MESSAGES = {
     "INVENTORY_UNAVAILABLE": "База оборудования недоступна.",
     "PDU_NOT_FOUND": "PDU не найден в базе оборудования.",
     "AMBIGUOUS_PDU_IP": "В базе найдено несколько устройств с этим IP-адресом.",
-    "PDU_KIND_MISMATCH": "Устройство с этим IP-адресом не классифицировано как PDU.",
+    "PDU_MODEL_UNSUPPORTED": "Модель PDU не поддерживает автоматический контекст комнаты.",
+    "PDU_MODEL_MISMATCH": "Модель PDU в базе не совпадает с текущим диагностическим контекстом.",
     "ROOM_UNRESOLVED": "Для PDU не указано помещение.",
     "CODEC_NOT_FOUND": "В помещении не найден кодек ВКС.",
     "AMBIGUOUS_CODEC": "В помещении найдено несколько кодеков ВКС.",
@@ -284,9 +285,9 @@ class PDUScreen(BaseScreen):
     def _uses_aten_pe8208av_firmware_rule(self):
         model_names = [self.device_info.get("model")]
         parent = getattr(self, "parent", None)
-        device_combo = getattr(parent, "device_combo", None)
-        if device_combo is not None:
-            model_names.append(device_combo.currentText())
+        current_device_name = getattr(parent, "current_device_name", None)
+        if callable(current_device_name):
+            model_names.append(current_device_name())
         return any(self._is_aten_pe8208av_model(model) for model in model_names)
 
     @staticmethod

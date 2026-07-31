@@ -79,8 +79,8 @@ def main() -> int:
                 raise RuntimeError("Credential index is out of range")
             credential = credentials[args.credential_index]
             window.device_credentials["Polycom RPG 310"] = [credential]
-            window.device_combo.setCurrentText("Polycom RPG 310")
             window.ip_entry.setText("link.ru")
+            window._accept_test_diagnostic_model("Polycom RPG 310")
 
             handler = PolycomRPG310Handler(
                 "link.ru",

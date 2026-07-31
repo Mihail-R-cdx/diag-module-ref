@@ -100,7 +100,7 @@ class DMPPollingController:
     def shutdown(self) -> None:
         self.invalidate_context()
 
-    def refresh(self, ip_address: str) -> bool:
+    def refresh(self, ip_address: str, *, credential_snapshot=None) -> bool:
         if not self.shell.validate_ip_address(ip_address):
             QMessageBox.warning(self.shell, "Invalid IP", "Enter a valid IP address.")
             return False
@@ -108,17 +108,25 @@ class DMPPollingController:
         self.invalidate_context()
         try:
             request = self._ensure_request(ip_address)
-            creds_list = tuple(self.shell.device_credentials.get(DMP_DEVICE_NAME) or ())
+            if (
+                credential_snapshot is not None
+                and credential_snapshot.diagnostic_model == DMP_DEVICE_NAME
+                and credential_snapshot.ip_address == ip_address
+            ):
+                creds_list = tuple(credential_snapshot.candidates)
+                current_idx = credential_snapshot.starting_successful_index
+            else:
+                creds_list = tuple(self.shell.device_credentials.get(DMP_DEVICE_NAME) or ())
+                current_idx = self.shell._credential_attempt_index(
+                    DMP_DEVICE_NAME,
+                    creds_list,
+                    ip_address,
+                    request["id"],
+                )
             if not creds_list:
                 raise CredentialConfigurationError(
                     "Credentials are required for Extron DMP 64 Plus."
                 )
-            current_idx = self.shell._credential_attempt_index(
-                DMP_DEVICE_NAME,
-                creds_list,
-                ip_address,
-                request["id"],
-            )
             self._start_attempt(
                 ip_address=ip_address,
                 request_id=request["id"],

@@ -135,7 +135,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.assertEqual(5, self.window.screen_container.count())
         self.assertIs(self.window.placeholder_widget, self.window.screen_container.currentWidget())
         self.assertEqual("Никогда", self.window.time_display.text())
-        self.assertEqual("Huawei TE20", self.window.device_combo.currentText())
+        self.assertFalse(hasattr(self.window, "device_combo"))
         self.assertEqual("primary", self.window.refresh_btn.property("uiRole"))
         self.assertEqual("secondary", self.window.password_btn.property("uiRole"))
         self.assertEqual("secondary", self.window.debug_btn.property("uiRole"))
@@ -143,7 +143,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.assertEqual("screenContainer", self.window.screen_container.objectName())
         self.assertEqual("inactive", self.window.connection_indicator.property("status"))
         self.assertEqual(
-            "Данные ещё не запрашивались",
+            "Соединение: не установлено",
             self.window.connection_status.text(),
         )
         self.assertTrue(self.window.update_timer.isActive())
@@ -225,7 +225,6 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
                 self.assertEqual((width, height), (self.window.width(), self.window.height()))
 
                 controls = (
-                    self.window.device_combo,
                     self.window.ip_entry,
                     self.window.password_btn,
                     self.window.refresh_btn,
@@ -274,7 +273,6 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
                 else:
                     self.assertLessEqual(value.width(), 360)
 
-        self.assertIs(self.window.ip_entry, self.window.device_combo.nextInFocusChain())
         self.assertIs(self.window.password_btn, self.window.ip_entry.nextInFocusChain())
         self.assertIs(self.window.refresh_btn, self.window.password_btn.nextInFocusChain())
         self.assertIs(self.window.debug_btn, self.window.refresh_btn.nextInFocusChain())

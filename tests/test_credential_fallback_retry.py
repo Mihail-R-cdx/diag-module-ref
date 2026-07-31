@@ -53,6 +53,11 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             creds_list=[{"username": f"synthetic-{item}", "password": f"synthetic-password-{item}"} for item in range(total)],
         )
 
+    def biamp_worker(self, index=0, total=5):
+        worker = self.worker(index=index, total=total)
+        worker.device_name = "Biamp Tesira Forte CI"
+        return worker
+
     def prepare_data_window(self, worker):
         window = self.make_window()
         window.current_worker = worker
@@ -71,7 +76,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         worker = self.worker(index=3, total=5)
         window.current_worker = worker
 
-        def replace_worker(_ip_address):
+        def replace_worker(_ip_address, **_kwargs):
             window.current_worker = object()
 
         window.refresh_huawei_te40.side_effect = replace_worker
@@ -85,7 +90,11 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 "Huawei TE40|192.0.2.10"
             ].current_index,
         )
-        window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
+        window.refresh_huawei_te40.assert_called_once_with(
+            "192.0.2.10",
+            creds_list=worker.creds_list,
+            current_idx=4,
+        )
         self.assertIn("5", window.set_ui_state.call_args.args[1])
 
     def test_non_authentication_error_does_not_retry(self):
@@ -129,6 +138,169 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                     window.on_device_error((error_type, message, ""), worker, 1)
                 window.refresh_huawei_te40.assert_not_called()
                 window.set_current_credential_index.assert_not_called()
+
+    def test_biamp_retry_authority_ignores_misleading_non_authentication_text(self):
+        for marker in ("auth", "authentication", "401", "403", "16781315", "100666780"):
+            with self.subTest(marker=marker):
+                window = self.make_window()
+                worker = self.biamp_worker(index=0, total=3)
+                window.current_worker = worker
+                VCSDiagnosticApp._credential_attempt_plan(
+                    window,
+                    worker.device_name,
+                    worker.creds_list,
+                    worker.ip_address,
+                )
+
+                with patch.object(QMessageBox, "critical"):
+                    window.on_device_error(
+                        ("connection_error", f"transport failure mentions {marker}", ""),
+                        worker,
+                        1,
+                    )
+
+                window.refresh_biamp_tesira_forte_ci.assert_not_called()
+                window.set_current_credential_index.assert_not_called()
+                self.assertNotIn(
+                    "Biamp Tesira Forte CI|192.0.2.10",
+                    window.__dict__.get("_credential_attempt_plans", {}),
+                )
+                self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
+                self.assertNotIn("Авторизация", window.set_ui_state.call_args.args[1])
+
+    def test_biamp_missing_telnet_login_prompt_does_not_retry_or_cache(self):
+        window = self.make_window()
+        worker = self.biamp_worker(index=0, total=2)
+        window.current_worker = worker
+        window.current_credential_index = {"Biamp Tesira Forte CI|192.0.2.10": 0}
+
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(
+                (
+                    "connection_error",
+                    "Biamp Telnet login prompt was not received before timeout.",
+                    "",
+                ),
+                worker,
+                1,
+            )
+
+        window.refresh_biamp_tesira_forte_ci.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(
+            {"Biamp Tesira Forte CI|192.0.2.10": 0},
+            window.current_credential_index,
+        )
+        self.assertEqual(UIState.REQUEST_ERROR, window.set_ui_state.call_args.args[0])
+        self.assertNotIn(
+            "Biamp Tesira Forte CI|192.0.2.10",
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
+
+    def test_biamp_structured_authentication_uses_plan_until_final_success(self):
+        window = self.make_window()
+        first_worker = self.biamp_worker(index=0, total=2)
+        window.current_worker = first_worker
+
+        window.on_device_error(("authentication_error", "rejected", ""), first_worker, 1)
+
+        window.refresh_biamp_tesira_forte_ci.assert_called_once_with(
+            "192.0.2.10",
+            creds_list=first_worker.creds_list,
+            current_idx=1,
+        )
+        window.set_current_credential_index.assert_not_called()
+        self.assertEqual(
+            1,
+            window._credential_attempt_plans[
+                "Biamp Tesira Forte CI|192.0.2.10"
+            ].current_index,
+        )
+
+        success_worker = self.biamp_worker(index=1, total=2)
+        window.current_worker = success_worker
+        window.ip_entry = SimpleNamespace(text=lambda: success_worker.ip_address)
+        window.screens = {}
+        window.current_screen_type = None
+        window.progress_dialog = None
+        window.suppress_success_message_once = False
+        window.update_time_display = Mock()
+        window.set_device_connection_profile = Mock()
+
+        with patch.object(QMessageBox, "information"):
+            window.on_device_data_received(
+                {"ip_address": "192.0.2.10", "status": "ok"},
+                success_worker,
+                1,
+            )
+
+        window.set_current_credential_index.assert_called_once_with(
+            "Biamp Tesira Forte CI",
+            1,
+            "192.0.2.10",
+        )
+        self.assertNotIn(
+            "Biamp Tesira Forte CI|192.0.2.10",
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
+
+    def test_biamp_saved_index_exhausts_suffix_without_wraparound(self):
+        window = self.make_window()
+        first_worker = self.biamp_worker(index=1, total=3)
+        window.current_worker = first_worker
+        attempted = [1]
+
+        def start_next(_ip_address, **_kwargs):
+            next_index = window._credential_attempt_plans[
+                "Biamp Tesira Forte CI|192.0.2.10"
+            ].current_index
+            attempted.append(next_index)
+            window.current_worker = self.biamp_worker(index=next_index, total=3)
+
+        window.refresh_biamp_tesira_forte_ci.side_effect = start_next
+        window.on_device_error(("authentication_error", "bad 1", ""), first_worker, 1)
+
+        terminal_worker = window.current_worker
+        with patch.object(QMessageBox, "warning"):
+            window.on_device_error(
+                ("authentication_error", "bad 2", ""),
+                terminal_worker,
+                1,
+            )
+
+        self.assertEqual([1, 2], attempted)
+        self.assertEqual(1, window.refresh_biamp_tesira_forte_ci.call_count)
+        window.set_current_credential_index.assert_not_called()
+        self.assertNotIn(
+            "Biamp Tesira Forte CI|192.0.2.10",
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
+
+    def test_biamp_later_non_authentication_failure_stops_chain(self):
+        window = self.make_window()
+        first_worker = self.biamp_worker(index=0, total=3)
+        window.current_worker = first_worker
+
+        def start_next(_ip_address, **_kwargs):
+            window.current_worker = self.biamp_worker(index=1, total=3)
+
+        window.refresh_biamp_tesira_forte_ci.side_effect = start_next
+        window.on_device_error(("authentication_error", "bad 0", ""), first_worker, 1)
+
+        later_worker = window.current_worker
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(
+                ("protocol_error", "malformed authentication 401 403", ""),
+                later_worker,
+                1,
+            )
+
+        self.assertEqual(1, window.refresh_biamp_tesira_forte_ci.call_count)
+        window.set_current_credential_index.assert_not_called()
+        self.assertNotIn(
+            "Biamp Tesira Forte CI|192.0.2.10",
+            window.__dict__.get("_credential_attempt_plans", {}),
+        )
 
     def test_exhausted_chain_emits_one_safe_terminal_authentication_message(self):
         window = self.make_window()
@@ -241,30 +413,35 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 worker = self.worker(index=0, total=5)
                 worker.device_name = device_name
                 window.current_worker = worker
-                refresh = Mock(side_effect=lambda _ip: setattr(window, "current_worker", object()))
+                refresh = Mock(
+                    side_effect=lambda _ip, **_kwargs: setattr(
+                        window,
+                        "current_worker",
+                        object(),
+                    )
+                )
                 setattr(window, method_name, refresh)
                 window.on_device_error(("authentication_error", "401", ""), worker, 1)
 
-                refresh.assert_called_once_with("192.0.2.10")
-                if device_name == "Biamp Tesira Forte CI":
-                    window.set_current_credential_index.assert_called_once_with(
-                        device_name, 1, "192.0.2.10"
-                    )
-                else:
-                    window.set_current_credential_index.assert_not_called()
-                    self.assertEqual(
-                        1,
-                        window._credential_attempt_plans[
-                            f"{device_name}|192.0.2.10"
-                        ].current_index,
-                    )
+                refresh.assert_called_once_with(
+                    "192.0.2.10",
+                    creds_list=worker.creds_list,
+                    current_idx=1,
+                )
+                window.set_current_credential_index.assert_not_called()
+                self.assertEqual(
+                    1,
+                    window._credential_attempt_plans[
+                        f"{device_name}|192.0.2.10"
+                    ].current_index,
+                )
 
     def test_chain_length_ten_has_no_special_case_limit(self):
         window = self.make_window()
         worker = self.worker(index=8, total=10)
         window.current_worker = worker
         window.refresh_huawei_te40.side_effect = (
-            lambda _ip: setattr(window, "current_worker", object())
+            lambda _ip, **_kwargs: setattr(window, "current_worker", object())
         )
 
         window.on_device_error(("authentication_error", "401", ""), worker, 1)
@@ -276,7 +453,11 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                 "Huawei TE40|192.0.2.10"
             ].current_index,
         )
-        window.refresh_huawei_te40.assert_called_once_with("192.0.2.10")
+        window.refresh_huawei_te40.assert_called_once_with(
+            "192.0.2.10",
+            creds_list=worker.creds_list,
+            current_idx=9,
+        )
         self.assertIn("10", window.set_ui_state.call_args.args[1])
 
     def test_saved_index_exhausts_only_remaining_suffix_without_wraparound(self):
@@ -285,7 +466,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window.current_worker = first_worker
         attempted = [3]
 
-        def start_next(_ip_address):
+        def start_next(_ip_address, **_kwargs):
             next_index = window._credential_attempt_plans[
                 "Huawei TE40|192.0.2.10"
             ].current_index
@@ -861,7 +1042,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             {"username": "matrix-user-1", "password": "matrix-pass-1"},
             {"username": "matrix-user-2", "password": "matrix-pass-2"},
         ]
-        window.device_combo = SimpleNamespace(currentText=lambda: device_name)
+        window.current_device_name = lambda: device_name
         window.device_credentials = {device_name: creds}
         window._active_request_credentials = creds
         window.validate_ip_address = Mock(return_value=True)
@@ -895,7 +1076,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             {"username": "matrix-user-0", "password": "matrix-pass-0"},
             {"username": "matrix-user-1", "password": "matrix-pass-1"},
         ]
-        window.device_combo = SimpleNamespace(currentText=lambda: device_name)
+        window.current_device_name = lambda: device_name
         window._active_request_credentials = creds
         window.current_worker = SimpleNamespace(
             device_name=device_name,
