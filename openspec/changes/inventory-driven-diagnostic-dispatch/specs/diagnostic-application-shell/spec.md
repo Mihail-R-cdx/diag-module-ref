@@ -27,7 +27,7 @@ Preliminary reachability failure after the final exact diagnostic model is assig
 - **THEN** that action does not read a model from `deviceCombo`, current screen, window title, prior diagnostic request, prior fallback, or another Qt presentation value
 - **AND** it begins the purpose-bound credential-configuration resolution flow
 
-#### Scenario: Valid supported inventory-assisted refresh
+#### Scenario: Valid supported device refresh
 
 - **GIVEN** a valid current inventory contains exactly one record for the normalized IP
 - **AND** that record has an exact `diagnostic_model` present in the closed dispatch registry

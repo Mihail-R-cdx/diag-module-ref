@@ -44,7 +44,7 @@ Both model failures SHALL stop before room-codec credential resolution, handler/
 - **THEN** resolution is `AMBIGUOUS_PDU_IP`
 - **AND** no record is filtered, preferred, deduplicated, or selected by kind or model
 
-#### Scenario: One familiar PDU record and one other record share the IP
+#### Scenario: One PDU and one non-PDU share the IP
 
 - **WHEN** IP lookup returns one record whose model matches the accepted PDU context and one additional record
 - **THEN** resolution remains `AMBIGUOUS_PDU_IP`
@@ -95,7 +95,7 @@ Both model failures SHALL stop before room-codec credential resolution, handler/
 - **AND** the resolver does not guess from `device_kind`, `source_model`, or page classification
 - **AND** no room-codec credential or network work starts
 
-#### Scenario: Matching PDU record has another device kind
+#### Scenario: Exact IP record is not a PDU
 
 - **GIVEN** accepted model and the one inventory record's exact `diagnostic_model` agree in the closed PDU set
 - **WHEN** the inventory record has any canonical `device_kind`, including `other` or `pdu`

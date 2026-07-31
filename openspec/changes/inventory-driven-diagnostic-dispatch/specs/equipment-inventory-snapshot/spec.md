@@ -65,7 +65,7 @@ These expected values reflect the authoritative source-type contract for the rev
 - **THEN** no `KNOWN_MODEL_TYPE_MISMATCH` is emitted for that record
 - **AND** `device_kind` remains `other`
 
-#### Scenario: Aten known model conflicts with source type
+#### Scenario: Known model conflicts with source type
 
 - **GIVEN** source `Модель` evidence recognizes exact `diagnostic_model = Aten PE8208AV`
 - **AND** exact source `Тип модели` mapping produces `device_kind = pdu` or `video_codec`

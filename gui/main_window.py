@@ -1926,18 +1926,15 @@ class VCSDiagnosticApp(QMainWindow):
     def _uses_request_scoped_credential_retry(self, device_name):
         return (
             self.is_vcs_codec_device(device_name)
-            or self._is_pcs4i_device(device_name)
+            or VCSDiagnosticApp._is_pcs4i_device(device_name)
             or device_name == MATRIX_DEVICE_NAME
+            or device_name == "Biamp Tesira Forte CI"
         )
 
     def _is_structured_retry_authentication_error(self, device_name, error_type, error_message):
-        if (
-            self.is_vcs_codec_device(device_name)
-            or self._is_pcs4i_device(device_name)
-            or device_name == MATRIX_DEVICE_NAME
-        ):
+        if VCSDiagnosticApp._uses_request_scoped_credential_retry(self, device_name):
             return error_type == CodecFailureCategory.AUTHENTICATION.value
-        return self.is_authentication_error(error_type, error_message)
+        return False
 
     @staticmethod
     def _credential_secrets(creds_list):
