@@ -11,12 +11,6 @@ if errorlevel 1 goto :repository_unavailable
 
 call "%LOCAL_OPENSPEC%" %*
 set "EXIT_CODE=%ERRORLEVEL%"
-if "%EXIT_CODE%"=="0" if /I "%~1"=="archive" (
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%tools\normalize_openspec_spec_eof.ps1" -RepositoryRoot "%SCRIPT_DIR%."
-    if errorlevel 1 (
-        set "EXIT_CODE=%ERRORLEVEL%"
-    )
-)
 popd
 exit /b %EXIT_CODE%
 

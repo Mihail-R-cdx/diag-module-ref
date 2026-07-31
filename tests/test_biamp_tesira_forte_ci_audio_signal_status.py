@@ -134,6 +134,40 @@ class BiampHandlerParserTest(unittest.TestCase):
 
 
 class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
+    def assert_paramiko_non_retry_outcome(self, error):
+        from core.exceptions import AuthenticationError, ProtocolError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class RejectingSSHClient:
+            closed = False
+
+            def set_missing_host_key_policy(self, _policy):
+                pass
+
+            def connect(self, *_args, **_kwargs):
+                raise error
+
+            def close(self):
+                self.closed = True
+
+        client = RejectingSSHClient()
+        import paramiko
+
+        with patch.object(paramiko, "SSHClient", return_value=client):
+            with self.assertRaises(ProtocolError) as caught:
+                biamp._ParamikoBiampSession.open(
+                    "192.0.2.10",
+                    22,
+                    "synthetic-user",
+                    "synthetic-password",
+                    1.0,
+                )
+
+        self.assertTrue(client.closed)
+        self.assertIs(caught.exception.__cause__, error)
+        self.assertNotIsInstance(caught.exception, AuthenticationError)
+        self.assertNotIn("synthetic-password", str(caught.exception))
+
     def test_ssh_authentication_rejection_stops_before_telnet_fallback(self):
         from core.exceptions import AuthenticationError
         from handlers.biamp import tesira_forte_ci as biamp
@@ -240,6 +274,28 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
         self.assertIn("Biamp SSH rejected", str(error.exception))
         self.assertNotIn("synthetic-password", str(error.exception))
 
+    def test_paramiko_non_retry_authentication_types_are_not_authentication_error(self):
+        import paramiko
+
+        cases = (
+            paramiko.BadAuthenticationType("publickey", ["password"]),
+            paramiko.ssh_exception.PartialAuthentication(["keyboard-interactive"]),
+            paramiko.ssh_exception.UnableToAuthenticate(),
+        )
+        for error in cases:
+            with self.subTest(error=type(error).__name__):
+                self.assert_paramiko_non_retry_outcome(error)
+
+    def test_paramiko_unknown_authentication_subclass_is_fail_closed_non_retry(self):
+        import paramiko
+
+        class UnknownAuthenticationOutcome(paramiko.AuthenticationException):
+            pass
+
+        self.assert_paramiko_non_retry_outcome(
+            UnknownAuthenticationOutcome("future auth outcome")
+        )
+
     def test_telnet_repeated_login_prompt_after_password_is_authentication_error(self):
         from core.exceptions import AuthenticationError
         from handlers.biamp import tesira_forte_ci as biamp
@@ -261,7 +317,8 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
 
         self.assertEqual([b"synthetic-user\n", b"synthetic-password\n"], tn.writes)
 
-    def test_telnet_authentication_words_without_login_state_are_not_auth_boundary(self):
+    def test_telnet_authentication_words_without_login_state_are_protocol_timeout(self):
+        from core.exceptions import ConnectionError
         from handlers.biamp import tesira_forte_ci as biamp
 
         class MisleadingTelnet:
@@ -274,7 +331,178 @@ class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
             def write(self, _data):
                 pass
 
-        biamp._telnet_write_login(MisleadingTelnet(), "synthetic-user", "synthetic-password", 1.0)
+        with self.assertRaises(ConnectionError):
+            biamp._telnet_write_login(
+                MisleadingTelnet(), "synthetic-user", "synthetic-password", 1.0
+            )
+
+    def test_telnet_failed_open_closes_socket_and_preserves_authentication_error(self):
+        from core.exceptions import AuthenticationError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class CountingTelnet:
+            def __init__(self):
+                self.close_count = 0
+
+            def close(self):
+                self.close_count += 1
+
+        tn = CountingTelnet()
+        original = AuthenticationError("Biamp Telnet rejected the assigned credential.")
+        with patch("telnetlib.Telnet", return_value=tn), patch.object(
+            biamp, "_telnet_write_login", side_effect=original
+        ):
+            with self.assertRaises(AuthenticationError) as caught:
+                biamp._TelnetBiampSession.open(
+                    "192.0.2.10",
+                    23,
+                    "synthetic-user",
+                    "synthetic-password",
+                    1.0,
+                )
+
+        self.assertIs(caught.exception, original)
+        self.assertEqual(1, tn.close_count)
+
+    def test_telnet_failed_open_closes_socket_and_preserves_non_auth_error(self):
+        from core.exceptions import ConnectionError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class CountingTelnet:
+            def __init__(self):
+                self.close_count = 0
+
+            def close(self):
+                self.close_count += 1
+
+        tn = CountingTelnet()
+        original = ConnectionError("Biamp Telnet login did not reach readiness.")
+        with patch("telnetlib.Telnet", return_value=tn), patch.object(
+            biamp, "_telnet_write_login", side_effect=original
+        ):
+            with self.assertRaises(ConnectionError) as caught:
+                biamp._TelnetBiampSession.open(
+                    "192.0.2.10",
+                    23,
+                    "synthetic-user",
+                    "synthetic-password",
+                    1.0,
+                )
+
+        self.assertIs(caught.exception, original)
+        self.assertEqual(1, tn.close_count)
+
+    def test_successful_telnet_open_stays_open_until_session_close(self):
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class CountingTelnet:
+            def __init__(self):
+                self.close_count = 0
+
+            def close(self):
+                self.close_count += 1
+
+        tn = CountingTelnet()
+        with patch("telnetlib.Telnet", return_value=tn), patch.object(
+            biamp, "_telnet_write_login", return_value=None
+        ):
+            session = biamp._TelnetBiampSession.open(
+                "192.0.2.10",
+                23,
+                "synthetic-user",
+                "synthetic-password",
+                1.0,
+            )
+
+        self.assertEqual(0, tn.close_count)
+        session.close()
+        self.assertEqual(1, tn.close_count)
+
+    def test_telnet_delayed_repeated_prompt_inside_timeout_is_rejection(self):
+        from core.exceptions import AuthenticationError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class DelayedRejectedTelnet:
+            def __init__(self):
+                self.reads = [b"login:", b"Password:"]
+                self.followups = [b"", b"login:"]
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, _data):
+                pass
+
+            def read_very_eager(self):
+                return self.followups.pop(0)
+
+        with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0, 0.6]), \
+                patch.object(biamp.time, "sleep", return_value=None):
+            with self.assertRaises(AuthenticationError):
+                biamp._telnet_write_login(
+                    DelayedRejectedTelnet(),
+                    "synthetic-user",
+                    "synthetic-password",
+                    1.0,
+                )
+
+    def test_telnet_prompt_after_timeout_is_not_current_rejection(self):
+        from core.exceptions import ConnectionError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class PromptAfterTimeoutTelnet:
+            def __init__(self):
+                self.reads = [b"login:", b"Password:"]
+                self.followups = [b"", b"login:"]
+                self.followup_reads = 0
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, _data):
+                pass
+
+            def read_very_eager(self):
+                self.followup_reads += 1
+                return self.followups.pop(0)
+
+        tn = PromptAfterTimeoutTelnet()
+        with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0, 1.01]), \
+                patch.object(biamp.time, "sleep", return_value=None):
+            with self.assertRaises(ConnectionError):
+                biamp._telnet_write_login(
+                    tn,
+                    "synthetic-user",
+                    "synthetic-password",
+                    1.0,
+                )
+
+        self.assertEqual(1, tn.followup_reads)
+
+    def test_telnet_explicit_readiness_finishes_before_full_timeout(self):
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class ReadyTelnet:
+            def __init__(self):
+                self.reads = [b"login:", b"Password:"]
+                self.followups = [b"Welcome to Tesira Text Protocol\n"]
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, _data):
+                pass
+
+            def read_very_eager(self):
+                return self.followups.pop(0)
+
+        with patch.object(biamp.time, "monotonic", side_effect=[0.0, 0.0]):
+            biamp._telnet_write_login(
+                ReadyTelnet(),
+                "synthetic-user",
+                "synthetic-password",
+                5.0,
+            )
 
 
 class BiampMainWindowRoutingTest(unittest.TestCase):

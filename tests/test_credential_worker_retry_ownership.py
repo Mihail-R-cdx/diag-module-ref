@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from core.exceptions import AuthenticationError
+from core.exceptions import ProtocolError
 from core.te20_worker import HuaweiTE20Worker
 from core.worker import (
     AtenPDUWorker,
@@ -338,6 +339,14 @@ class RemainingProductionWorkerRetryOwnershipTests(unittest.TestCase):
                     RuntimeError(f"transport {OTHER_PASSWORD}"),
                     "connection_error",
                 )
+
+    def test_biamp_non_retry_authentication_protocol_outcome_is_not_authentication_error(self):
+        self.assert_single_attempt(
+            BiampTesiraForteCIWorker,
+            "handlers.biamp.tesira_forte_ci.BiampTesiraForteCIHandler",
+            ProtocolError("Paramiko BadAuthenticationType did not confirm rejection"),
+            "connection_error",
+        )
 
     def assert_single_attempt(
         self, worker_class, handler_target, failure, expected_category
