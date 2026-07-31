@@ -170,12 +170,16 @@ class _DefaultBiampSessionManager:
             return _ParamikoBiampSession.open(
                 ip_address, self.ssh_port, username, password, timeout_seconds
             )
+        except AuthenticationError:
+            raise
         except Exception as exc:
             errors.append(f"ssh:{self.ssh_port} {_safe_message(exc, password)}")
         try:
             return _TelnetBiampSession.open(
                 ip_address, self.telnet_port, username, password, timeout_seconds
             )
+        except AuthenticationError:
+            raise
         except Exception as exc:
             errors.append(f"telnet:{self.telnet_port} {_safe_message(exc, password)}")
         raise ConnectionError(
@@ -205,19 +209,32 @@ class _ParamikoBiampSession:
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(
-            ip_address,
-            port=port,
-            username=username,
-            password=password,
-            timeout=timeout_seconds,
-            banner_timeout=timeout_seconds,
-            auth_timeout=timeout_seconds,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-        channel = client.invoke_shell()
-        channel.settimeout(timeout_seconds)
+        try:
+            client.connect(
+                ip_address,
+                port=port,
+                username=username,
+                password=password,
+                timeout=timeout_seconds,
+                banner_timeout=timeout_seconds,
+                auth_timeout=timeout_seconds,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            channel = client.invoke_shell()
+            channel.settimeout(timeout_seconds)
+        except _paramiko_authentication_error_types(paramiko) as error:
+            try:
+                client.close()
+            finally:
+                raise AuthenticationError(
+                    "Biamp SSH rejected the assigned credential."
+                ) from error
+        except Exception:
+            try:
+                client.close()
+            finally:
+                raise
         return cls(client, channel, port, timeout_seconds)
 
     def send_command(self, command: str) -> str:
@@ -272,8 +289,31 @@ def _telnet_write_login(tn: Any, username: str, password: str, timeout_seconds: 
     banner = tn.read_until(b"login:", timeout_seconds)
     if b"login:" in banner.lower():
         tn.write(username.encode("ascii") + b"\n")
-        tn.read_until(b"assword:", timeout_seconds)
+        password_prompt = tn.read_until(b"assword:", timeout_seconds)
+        if b"assword:" not in password_prompt.lower():
+            raise ConnectionError("Biamp Telnet login did not request a password.")
         tn.write(password.encode("ascii") + b"\n")
+        followup = _telnet_read_post_password_phase(tn, timeout_seconds)
+        lower_followup = followup.lower()
+        if b"login:" in lower_followup or b"assword:" in lower_followup:
+            raise AuthenticationError("Biamp Telnet rejected the assigned credential.")
+
+
+def _telnet_read_post_password_phase(tn: Any, timeout_seconds: float) -> bytes:
+    read_very_eager = getattr(tn, "read_very_eager", None)
+    if callable(read_very_eager):
+        deadline = time.monotonic() + min(timeout_seconds, 0.5)
+        chunks: list[bytes] = []
+        while time.monotonic() < deadline:
+            chunk = read_very_eager()
+            if chunk:
+                chunks.append(chunk)
+                joined = b"".join(chunks).lower()
+                if b"login:" in joined or b"assword:" in joined:
+                    break
+            time.sleep(0.05)
+        return b"".join(chunks)
+    return tn.read_until(b"\n", min(timeout_seconds, 0.5))
 
 
 def _read_until_ttp_complete(read_once: Any, *, timeout_seconds: float) -> str:
@@ -374,6 +414,24 @@ def _safe_message(exc: BaseException, password: str) -> str:
     if password:
         message = message.replace(password, "***")
     return message
+
+
+def _paramiko_authentication_error_types(paramiko_module: Any) -> tuple[type[BaseException], ...]:
+    types: list[type[BaseException]] = []
+    for source in (
+        paramiko_module,
+        getattr(paramiko_module, "ssh_exception", None),
+    ):
+        for name in (
+            "AuthenticationException",
+            "BadAuthenticationType",
+            "PartialAuthentication",
+            "UnableToAuthenticate",
+        ):
+            error_type = getattr(source, name, None) if source is not None else None
+            if isinstance(error_type, type) and error_type not in types:
+                types.append(error_type)
+    return tuple(types)
 
 
 __all__ = ["BiampSession", "BiampSessionManager", "BiampTesiraForteCIHandler"]

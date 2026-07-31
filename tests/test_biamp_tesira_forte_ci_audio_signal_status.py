@@ -5,6 +5,7 @@ import ast
 import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -130,6 +131,150 @@ class BiampHandlerParserTest(unittest.TestCase):
         self.assertEqual("Biamp Tesira Forte CI", parsed["model"])
         self.assertEqual("absent", parsed["signal_sources"][0]["rows"][0]["state"])
         self.assertIsNone(parsed["signal_sources"][0]["rows"][1]["state"])
+
+
+class BiampTransportAuthenticationBoundaryTest(unittest.TestCase):
+    def test_ssh_authentication_rejection_stops_before_telnet_fallback(self):
+        from core.exceptions import AuthenticationError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        telnet_attempts = []
+
+        def reject_ssh(*_args):
+            raise AuthenticationError("Biamp SSH rejected the assigned credential.")
+
+        def open_telnet(*_args):
+            telnet_attempts.append(True)
+            return FakeBiampSession(transport="telnet", port=23)
+
+        manager = biamp._DefaultBiampSessionManager()
+        with patch.object(biamp._ParamikoBiampSession, "open", side_effect=reject_ssh), \
+                patch.object(biamp._TelnetBiampSession, "open", side_effect=open_telnet):
+            with self.assertRaises(AuthenticationError):
+                manager.connect(
+                    ip_address="192.0.2.10",
+                    username="synthetic-user",
+                    password="synthetic-password",
+                    timeout_seconds=1.0,
+                )
+
+        self.assertEqual([], telnet_attempts)
+
+    def test_ssh_transport_failure_then_telnet_authentication_is_authentication_error(self):
+        from core.exceptions import AuthenticationError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        manager = biamp._DefaultBiampSessionManager()
+        with patch.object(biamp._ParamikoBiampSession, "open", side_effect=OSError("ssh down")), \
+                patch.object(
+                    biamp._TelnetBiampSession,
+                    "open",
+                    side_effect=AuthenticationError("Biamp Telnet rejected the assigned credential."),
+                ):
+            with self.assertRaises(AuthenticationError):
+                manager.connect(
+                    ip_address="192.0.2.10",
+                    username="synthetic-user",
+                    password="synthetic-password",
+                    timeout_seconds=1.0,
+                )
+
+    def test_non_authentication_transport_failures_remain_connection_error(self):
+        from core.exceptions import ConnectionError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        manager = biamp._DefaultBiampSessionManager()
+        with patch.object(
+            biamp._ParamikoBiampSession,
+            "open",
+            side_effect=OSError("ssh synthetic-password down"),
+        ), patch.object(
+            biamp._TelnetBiampSession,
+            "open",
+            side_effect=TimeoutError("telnet synthetic-password timeout"),
+        ):
+            with self.assertRaises(ConnectionError) as error:
+                manager.connect(
+                    ip_address="192.0.2.10",
+                    username="synthetic-user",
+                    password="synthetic-password",
+                    timeout_seconds=1.0,
+                )
+
+        message = str(error.exception)
+        self.assertIn("ssh:22", message)
+        self.assertIn("telnet:23", message)
+        self.assertIn("***", message)
+        self.assertNotIn("synthetic-password", message)
+
+    def test_paramiko_authentication_exception_is_mapped_to_safe_authentication_error(self):
+        import paramiko
+
+        from core.exceptions import AuthenticationError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class RejectingSSHClient:
+            closed = False
+
+            def set_missing_host_key_policy(self, _policy):
+                pass
+
+            def connect(self, *_args, **_kwargs):
+                raise paramiko.AuthenticationException("Authentication failed.")
+
+            def close(self):
+                self.closed = True
+
+        client = RejectingSSHClient()
+        with patch.object(paramiko, "SSHClient", return_value=client):
+            with self.assertRaises(AuthenticationError) as error:
+                biamp._ParamikoBiampSession.open(
+                    "192.0.2.10",
+                    22,
+                    "synthetic-user",
+                    "synthetic-password",
+                    1.0,
+                )
+
+        self.assertTrue(client.closed)
+        self.assertIn("Biamp SSH rejected", str(error.exception))
+        self.assertNotIn("synthetic-password", str(error.exception))
+
+    def test_telnet_repeated_login_prompt_after_password_is_authentication_error(self):
+        from core.exceptions import AuthenticationError
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class LoginRejectedTelnet:
+            def __init__(self):
+                self.reads = [b"login:", b"Password:", b"login:"]
+                self.writes = []
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, data):
+                self.writes.append(data)
+
+        tn = LoginRejectedTelnet()
+        with self.assertRaises(AuthenticationError):
+            biamp._telnet_write_login(tn, "synthetic-user", "synthetic-password", 1.0)
+
+        self.assertEqual([b"synthetic-user\n", b"synthetic-password\n"], tn.writes)
+
+    def test_telnet_authentication_words_without_login_state_are_not_auth_boundary(self):
+        from handlers.biamp import tesira_forte_ci as biamp
+
+        class MisleadingTelnet:
+            def __init__(self):
+                self.reads = [b"login:", b"Password:", b"AUTHENTICATION 401 FAILED\n"]
+
+            def read_until(self, _marker, _timeout):
+                return self.reads.pop(0)
+
+            def write(self, _data):
+                pass
+
+        biamp._telnet_write_login(MisleadingTelnet(), "synthetic-user", "synthetic-password", 1.0)
 
 
 class BiampMainWindowRoutingTest(unittest.TestCase):
