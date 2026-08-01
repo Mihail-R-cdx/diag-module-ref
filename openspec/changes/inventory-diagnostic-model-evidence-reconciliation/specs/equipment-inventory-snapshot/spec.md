@@ -91,7 +91,7 @@ The same closed reviewed registry SHALL be evaluated independently against each 
 
 `AV`, `CI`, and `Plus` SHALL NOT be required components for their canonical rules. Rule order and evidence-field order SHALL NOT grant authority or priority. This requirement SHALL NOT add any canonical model outside the existing registry.
 
-#### Scenario: Compact TE40 evidence is recognized in either field
+#### Scenario: Compact TE40 evidence is recognized
 
 - **WHEN** normalized source `Модель` or normalized source `Наименование` is `TE40`, `TE 40`, or `TE-40`
 - **THEN** that field's evidence contains exact components `te` and `40`
@@ -143,13 +143,13 @@ The importer SHALL NOT select the first matching rule, depend on registry order,
 
 An unmapped or ambiguous model SHALL NOT by itself make an otherwise representable canonical record fatal or remove it from the candidate snapshot. Structured model-recognition issues MAY expose the safe source row number and canonical `record_id`. Normal diagnostics SHALL NOT dump either complete source field, the complete source row, workbook, production snapshot, or organization inventory.
 
-#### Scenario: Exactly one distinct rule matches across the evidence fields
+#### Scenario: Exactly one rule matches
 
 - **WHEN** the union of all reviewed matches from `Модель` and `Наименование` contains exactly one canonical model
 - **THEN** canonical `diagnostic_model` is that exact supported model name
 - **AND** no unmapped or ambiguous model issue is emitted
 
-#### Scenario: No rule matches either field
+#### Scenario: No rule matches
 
 - **WHEN** no reviewed rule matches normalized `Модель` or normalized `Наименование`, including when either or both fields are missing or blank
 - **THEN** canonical `diagnostic_model` is null
@@ -171,7 +171,7 @@ An unmapped or ambiguous model SHALL NOT by itself make an otherwise representab
 - **AND** neither evidence field overrides the other
 - **AND** the row remains publishable when otherwise valid
 
-#### Scenario: One evidence field is internally ambiguous
+#### Scenario: Multiple rules match
 
 - **GIVEN** one approved evidence field satisfies more than one registry rule, such as combined `TE20 / TE40` evidence
 - **WHEN** the other field is unmapped or agrees with only one of those candidates
