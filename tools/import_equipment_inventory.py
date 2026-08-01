@@ -289,7 +289,10 @@ def _build_records(
 
         manufacturer = normalize_text(_value(row, header_index, EVIDENCE_COLUMNS["manufacturer"]))
         model = normalize_text(_value(row, header_index, EVIDENCE_COLUMNS["model"]))
-        diagnostic_model, diagnostic_issue = _recognize_diagnostic_model(model)
+        diagnostic_model, diagnostic_issue = _reconcile_diagnostic_model_evidence(
+            model,
+            source_model,
+        )
         if diagnostic_issue is not None:
             issues.append(ImportIssue("data_quality", diagnostic_issue, row=row_number, record_id=record_id, description="Diagnostic model is not mapped by reviewed model evidence."))
         expected_kind = EXPECTED_KIND_BY_DIAGNOSTIC_MODEL.get(diagnostic_model)
@@ -554,14 +557,24 @@ def _map_device_kind(source_type: str | None) -> str:
     return "other"
 
 
-def _recognize_diagnostic_model(model: Any) -> tuple[str | None, str | None]:
-    components = _extract_model_components(_normalize_model_evidence(model))
-    matches = _evaluate_diagnostic_model_rules(components)
+def _evaluate_diagnostic_model_evidence(value: Any) -> frozenset[str]:
+    components = _extract_model_components(_normalize_model_evidence(value))
+    return frozenset(_evaluate_diagnostic_model_rules(components))
+
+
+def _reconcile_diagnostic_model_evidence(
+    model_value: Any,
+    name_value: Any,
+) -> tuple[str | None, str | None]:
+    matches = (
+        _evaluate_diagnostic_model_evidence(model_value)
+        | _evaluate_diagnostic_model_evidence(name_value)
+    )
     if not matches:
         return None, "UNMAPPED_DIAGNOSTIC_MODEL"
     if len(matches) > 1:
         return None, "AMBIGUOUS_DIAGNOSTIC_MODEL"
-    return matches[0], None
+    return next(iter(matches)), None
 
 
 def _normalize_model_evidence(value: Any) -> str | None:

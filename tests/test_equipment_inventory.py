@@ -88,7 +88,7 @@ def write_snapshot(path, records, **metadata):
     return document
 
 
-def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", source_model="Huawei TE20", source_type="Video Conference", room_vip=None, ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-1", manufacturer="Huawei", model="TE20", controller="CTRL-1"):
+def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", source_model=None, source_type="Video Conference", room_vip=None, ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-1", manufacturer="Huawei", model="TE20", controller="CTRL-1"):
     return {
         SOURCE_COLUMNS["room_id"]: room_id,
         SOURCE_COLUMNS["room_name"]: room_name,
@@ -561,6 +561,233 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
                 "KNOWN_MODEL_TYPE_MISMATCH",
                 codes_by_record.get("RID-ATEN-CONFLICT", set()),
             )
+
+    def test_diagnostic_model_reconciles_model_and_name_evidence_by_distinct_union(self):
+        cases = [
+            {
+                "record_id": "RID-NAME-ONLY",
+                "model": None,
+                "source_model": " ATEN Aten PE8208AV ",
+                "expected_model": "Aten PE8208AV",
+                "expected_issue": None,
+                "expected_source_model": "ATEN Aten PE8208AV",
+            },
+            {
+                "record_id": "RID-MODEL-ONLY",
+                "model": "TE40",
+                "source_model": None,
+                "expected_model": "Huawei TE40",
+                "expected_issue": None,
+                "source_type": "Video Conference",
+            },
+            {
+                "record_id": "RID-MODEL-UNMAPPED-NAME",
+                "model": "TE40",
+                "source_model": "Synthetic terminal",
+                "expected_model": "Huawei TE40",
+                "expected_issue": None,
+                "source_type": "Video Conference",
+            },
+            {
+                "record_id": "RID-AGREE",
+                "model": "PE8208AV",
+                "source_model": "ATEN Aten PE8208AV",
+                "expected_model": "Aten PE8208AV",
+                "expected_issue": None,
+                "source_type": "Other",
+                "manufacturer": "Aten",
+            },
+            {
+                "record_id": "RID-DISAGREE",
+                "model": "IPL-T-PCS-4i",
+                "source_model": "ATEN Aten PE8208AV",
+                "expected_model": None,
+                "expected_issue": "AMBIGUOUS_DIAGNOSTIC_MODEL",
+                "source_type": "Other",
+                "manufacturer": None,
+            },
+            {
+                "record_id": "RID-MODEL-AMB-NAME-AGREES",
+                "model": "TE20 / TE40",
+                "source_model": "Huawei TE20",
+                "expected_model": None,
+                "expected_issue": "AMBIGUOUS_DIAGNOSTIC_MODEL",
+                "source_type": "Video Conference",
+                "manufacturer": None,
+            },
+            {
+                "record_id": "RID-NAME-AMB-MODEL-AGREES",
+                "model": "TE20",
+                "source_model": "Huawei TE20 / Huawei TE40",
+                "expected_model": None,
+                "expected_issue": "AMBIGUOUS_DIAGNOSTIC_MODEL",
+                "source_type": "Video Conference",
+                "manufacturer": None,
+            },
+            {
+                "record_id": "RID-AMB-UNMAPPED",
+                "model": "TE20 / TE40",
+                "source_model": "Synthetic terminal",
+                "expected_model": None,
+                "expected_issue": "AMBIGUOUS_DIAGNOSTIC_MODEL",
+                "source_type": "Video Conference",
+                "manufacturer": None,
+            },
+            {
+                "record_id": "RID-BOTH-UNMAPPED",
+                "model": "CloudLink Box 610",
+                "source_model": "Huawei CloudLink Box 610",
+                "expected_model": None,
+                "expected_issue": "UNMAPPED_DIAGNOSTIC_MODEL",
+                "source_type": "Video Conference",
+                "manufacturer": None,
+            },
+        ]
+        model_issue_codes = {"UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = []
+            for index, case in enumerate(cases, start=1):
+                rows.append(
+                    source_row(
+                        case["record_id"],
+                        room_id=f"ROOM-REC-{index}",
+                        room_name=f"Reconciliation Room {index}",
+                        source_model=case["source_model"],
+                        source_type=case.get("source_type", "Other"),
+                        manufacturer=case.get("manufacturer", "Huawei"),
+                        model=case["model"],
+                        ip=f"192.0.2.{30 + index}",
+                        mac=f"00:11:22:33:77:{index:02x}",
+                        serial=f"REC-{index}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output)
+            inventory = load_equipment_inventory(output)
+
+        self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+        by_id = {record.record_id: record for record in inventory.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        for case in cases:
+            with self.subTest(record_id=case["record_id"]):
+                item = by_id[case["record_id"]]
+                self.assertEqual(case["expected_model"], item.diagnostic_model)
+                self.assertEqual(case.get("expected_source_model", case["source_model"]), item.source_model)
+                model_issues = codes_by_record.get(case["record_id"], set()) & model_issue_codes
+                if case["expected_issue"] is None:
+                    self.assertEqual(set(), model_issues)
+                else:
+                    self.assertEqual({case["expected_issue"]}, model_issues)
+
+    def test_name_evidence_recognizes_every_closed_registry_model(self):
+        cases = [
+            ("RID-NAME-01", "Huawei TE20", "Huawei TE20", "Video Conference"),
+            ("RID-NAME-02", "Huawei TE40", "Huawei_TE.40", "Video Conference"),
+            ("RID-NAME-03", "CloudLink Bar 310", "cloudlink/bar-310", "Video Conference"),
+            ("RID-NAME-04", "Polycom RPG 310", "polycom_rpg_310", "Video Conference"),
+            ("RID-NAME-05", "Polycom RPG 310", "RealPresence Group 310", "Video Conference"),
+            ("RID-NAME-06", "Extron IN1804", "in1804", "Other"),
+            ("RID-NAME-07", "Aten PE8208AV", "pe8208", "Other"),
+            ("RID-NAME-08", "Extron IPL T PCS4i", "IPL-T-PCS-4i", "Other"),
+            ("RID-NAME-09", "Biamp Tesira Forte CI", "tesira forte", "Other"),
+            ("RID-NAME-10", "Biamp Tesira Forte CI", "TESIRA FORTÉ CI", "Other"),
+            ("RID-NAME-11", "Extron DMP 64 Plus", "DMP64", "Other"),
+            ("RID-NAME-12", "Extron DMP 64 Plus", "DMP 64 Plus", "Other"),
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = []
+            for index, (record_id, _expected_model, source_model, source_type) in enumerate(cases, start=1):
+                rows.append(
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-NAME-{index}",
+                        room_name=f"Name Evidence Room {index}",
+                        source_model=source_model,
+                        source_type=source_type,
+                        manufacturer=None,
+                        model=None,
+                        ip=f"192.0.2.{50 + index}",
+                        mac=f"00:11:22:33:88:{index:02x}",
+                        serial=f"NAME-{index}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output)
+            inventory = load_equipment_inventory(output)
+
+        self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+        codes_by_record = issue_codes_by_record(result.issues)
+        by_id = {record.record_id: record for record in inventory.records}
+        self.assertEqual({case[1] for case in cases}, {record.diagnostic_model for record in inventory.records})
+        for record_id, expected_model, source_model, source_type in cases:
+            with self.subTest(record_id=record_id):
+                self.assertEqual(expected_model, by_id[record_id].diagnostic_model)
+                self.assertEqual(source_model, by_id[record_id].source_model)
+                self.assertEqual("video_codec" if source_type == "Video Conference" else "other", by_id[record_id].device_kind)
+                self.assertNotIn("UNMAPPED_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
+                self.assertNotIn("AMBIGUOUS_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
+
+    def test_name_evidence_preserves_boundaries_and_kind_diagnostics(self):
+        boundary_values = ("LTE 40", "TE200", "TE401", "IN18040", "PE82080", "DMP640")
+        model_issue_codes = {"UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            rows = [
+                source_row(
+                    "RID-KIND-MISMATCH",
+                    source_model="ATEN Aten PE8208AV",
+                    source_type="БРП",
+                    manufacturer=None,
+                    model=None,
+                    ip="192.0.2.70",
+                    mac="00:11:22:33:99:01",
+                    serial="KIND-1",
+                    controller=None,
+                )
+            ]
+            for index, value in enumerate(boundary_values, start=1):
+                rows.append(
+                    source_row(
+                        f"RID-BOUNDARY-{index}",
+                        room_id=f"ROOM-BOUNDARY-{index}",
+                        room_name=f"Boundary Name Room {index}",
+                        source_model=value,
+                        source_type="Video Conference",
+                        manufacturer=None,
+                        model=value,
+                        ip=f"192.0.2.{70 + index}",
+                        mac=f"00:11:22:33:99:{index + 1:02x}",
+                        serial=f"BOUNDARY-NAME-{index}",
+                        controller=None,
+                    )
+                )
+            write_xlsx(source, rows)
+            result = import_equipment_inventory(source, output_path=output)
+            inventory = load_equipment_inventory(output)
+
+        self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+        by_id = {record.record_id: record for record in inventory.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        kind_record = by_id["RID-KIND-MISMATCH"]
+        self.assertEqual("Aten PE8208AV", kind_record.diagnostic_model)
+        self.assertEqual("pdu", kind_record.device_kind)
+        self.assertIn("KNOWN_MODEL_TYPE_MISMATCH", codes_by_record.get("RID-KIND-MISMATCH", set()))
+        for index, value in enumerate(boundary_values, start=1):
+            record_id = f"RID-BOUNDARY-{index}"
+            with self.subTest(value=value):
+                self.assertIsNone(by_id[record_id].diagnostic_model)
+                self.assertEqual(value, by_id[record_id].source_model)
+                self.assertEqual({"UNMAPPED_DIAGNOSTIC_MODEL"}, codes_by_record.get(record_id, set()) & model_issue_codes)
 
     def test_importer_recognizes_closed_diagnostic_model_registry_components(self):
         cases = [

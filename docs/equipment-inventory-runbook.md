@@ -110,6 +110,7 @@ Importer-only evidence may include:
 ```text
 Производитель
 Модель
+Наименование
 SmartRoomID контроллера
 ```
 
@@ -120,9 +121,22 @@ model guessing are forbidden.
 
 ## Diagnostic model recognition
 
-The offline importer recognizes `diagnostic_model` only from the source
-`Модель` evidence. The source `Производитель` column is optional consistency
-evidence only: it is not required for recognition, cannot veto a unique model
+The offline importer recognizes `diagnostic_model` from two independent
+importer-only evidence fields:
+
+```text
+Модель
+Наименование
+```
+
+`Наименование` remains the authoritative source for canonical `source_model`.
+Using that same normalized value as recognition evidence does not rewrite
+`source_model` and does not make free-form `source_model` runtime dispatch
+authority. Runtime code remains exact-only and uses canonical
+`diagnostic_model`, not `source_model`.
+
+The source `Производитель` column is optional consistency evidence only: it is
+not required for recognition, cannot add, remove, veto, or select a model
 match, and cannot choose between multiple matching model rules.
 
 Recognition evidence is built by applying the canonical text conversion,
@@ -186,23 +200,32 @@ without a new approved OpenSpec change.
 All rules are evaluated before the importer selects an outcome:
 
 ```text
-zero matching canonical rules
+M = complete distinct canonical match set from Модель
+N = complete distinct canonical match set from Наименование
+C = M union N
+
+zero distinct matches in C
     -> diagnostic_model = null
     -> UNMAPPED_DIAGNOSTIC_MODEL
 
-one matching canonical rule
+one distinct match in C
     -> diagnostic_model = exact canonical model
     -> no model-recognition issue
 
-many matching canonical rules
+many distinct matches in C
     -> diagnostic_model = null
     -> AMBIGUOUS_DIAGNOSTIC_MODEL
 ```
 
+Neither evidence field has priority over the other. Agreement on the same one
+canonical model is still one distinct match. If one field is internally
+ambiguous, the ambiguity is preserved even when the other field agrees with one
+candidate.
+
 `UNMAPPED_DIAGNOSTIC_MODEL` and `AMBIGUOUS_DIAGNOSTIC_MODEL` are non-fatal
 data-quality issues when the row is otherwise representable. They are mutually
-exclusive for one row. Missing or blank `Модель` is an unmapped outcome rather
-than a fatal source-structure error.
+exclusive for one row. Missing or blank `Модель` or `Наименование` contributes
+an empty match set rather than a fatal source-structure error.
 
 Normal diagnostics may include a safe row number and canonical `record_id`, but
 must not dump complete source rows, workbook content, production inventory, or

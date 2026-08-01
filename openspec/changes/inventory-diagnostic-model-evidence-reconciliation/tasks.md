@@ -24,87 +24,87 @@ git diff --check
 
 ## 3. Implement independent evidence evaluation
 
-- [ ] Preserve normalized `Наименование -> source_model` exactly as today.
-- [ ] Apply the existing reviewed component normalization and extractor independently to source `Модель` and source `Наименование`.
-- [ ] Evaluate every closed-registry rule for each evidence field and return the complete immutable canonical-model match set for that field.
-- [ ] Do not prematurely collapse one field to a single mapped/unmapped/ambiguous result before cross-field reconciliation.
-- [ ] Form the distinct canonical union of both complete match sets.
-- [ ] Publish one exact canonical `diagnostic_model` only when the union contains exactly one model.
-- [ ] Emit only `UNMAPPED_DIAGNOSTIC_MODEL` when the union is empty.
-- [ ] Emit only `AMBIGUOUS_DIAGNOSTIC_MODEL` when the union contains more than one model.
-- [ ] Preserve ambiguity when one field is internally ambiguous even if the other field agrees with one candidate.
-- [ ] Keep unmapped and ambiguous outcomes non-fatal when the canonical row is otherwise representable.
+- [x] Preserve normalized `Наименование -> source_model` exactly as today.
+- [x] Apply the existing reviewed component normalization and extractor independently to source `Модель` and source `Наименование`.
+- [x] Evaluate every closed-registry rule for each evidence field and return the complete immutable canonical-model match set for that field.
+- [x] Do not prematurely collapse one field to a single mapped/unmapped/ambiguous result before cross-field reconciliation.
+- [x] Form the distinct canonical union of both complete match sets.
+- [x] Publish one exact canonical `diagnostic_model` only when the union contains exactly one model.
+- [x] Emit only `UNMAPPED_DIAGNOSTIC_MODEL` when the union is empty.
+- [x] Emit only `AMBIGUOUS_DIAGNOSTIC_MODEL` when the union contains more than one model.
+- [x] Preserve ambiguity when one field is internally ambiguous even if the other field agrees with one candidate.
+- [x] Keep unmapped and ambiguous outcomes non-fatal when the canonical row is otherwise representable.
 
 ## 4. Preserve authorities and boundaries
 
-- [ ] Preserve the existing closed nine-model registry unchanged.
-- [ ] Preserve Unicode NFC, trim, casefold, separator, letter/digit transition, and reviewed mixed `4i` component semantics for both evidence fields.
-- [ ] Preserve `Производитель` as optional consistency evidence only; it must not add, veto, remove, or select a model match.
-- [ ] Preserve exact `Тип модели -> device_kind` mapping and expected-kind consistency behavior.
-- [ ] Preserve canonical schema versions, exact record fields, deterministic snapshot identity, atomic publication, runtime loader behavior, and inventory query APIs.
-- [ ] Keep runtime exact-only: do not add recognition or fallback from `source_model`, `Модель`, `Производитель`, or other free-form evidence in diagnostic runtime code.
-- [ ] Do not change diagnostic GUI, dispatch, credentials, controllers, workers, handlers, transports, PDU enrichment, or related-codec status logic.
-- [ ] Do not add a converter GUI, PyQt import, worker thread, expanded report model, report export, second source workbook, or switch-port fields.
-- [ ] Keep diagnostics safe: no complete source fields, complete rows, production inventory, internal IPs, room IDs, MAC addresses, serial numbers, or unnecessary free-form evidence in normal output.
+- [x] Preserve the existing closed nine-model registry unchanged.
+- [x] Preserve Unicode NFC, trim, casefold, separator, letter/digit transition, and reviewed mixed `4i` component semantics for both evidence fields.
+- [x] Preserve `Производитель` as optional consistency evidence only; it must not add, veto, remove, or select a model match.
+- [x] Preserve exact `Тип модели -> device_kind` mapping and expected-kind consistency behavior.
+- [x] Preserve canonical schema versions, exact record fields, deterministic snapshot identity, atomic publication, runtime loader behavior, and inventory query APIs.
+- [x] Keep runtime exact-only: do not add recognition or fallback from `source_model`, `Модель`, `Производитель`, or other free-form evidence in diagnostic runtime code.
+- [x] Do not change diagnostic GUI, dispatch, credentials, controllers, workers, handlers, transports, PDU enrichment, or related-codec status logic.
+- [x] Do not add a converter GUI, PyQt import, worker thread, expanded report model, report export, second source workbook, or switch-port fields.
+- [x] Keep diagnostics safe: no complete source fields, complete rows, production inventory, internal IPs, room IDs, MAC addresses, serial numbers, or unnecessary free-form evidence in normal output.
 
 ## 5. Add synthetic regression coverage
 
-- [ ] Add blank `Модель` plus recognized `Наименование` coverage.
-- [ ] Add recognized `Модель` plus blank `Наименование` coverage.
-- [ ] Add recognized `Модель` plus unmapped `Наименование` coverage.
-- [ ] Add both fields resolving to the same canonical model.
-- [ ] Add fields resolving to different canonical models and prove ambiguity.
-- [ ] Add internally ambiguous `Модель` plus one agreeing `Наименование`; ambiguity must remain.
-- [ ] Add internally ambiguous `Наименование` plus one agreeing `Модель`; ambiguity must remain.
-- [ ] Add one internally ambiguous field plus an unmapped field.
-- [ ] Add both fields unmapped.
-- [ ] Cover all nine existing canonical models through `Наименование` evidence.
-- [ ] Repeat positive separator, compact-form, optional-suffix, accent-alternative, and boundary-negative cases for `Наименование` evidence.
-- [ ] Prove exactly one mapped/unmapped/ambiguous outcome per row.
-- [ ] Prove normalized `source_model` remains unchanged.
-- [ ] Prove authoritative `device_kind` and known-model mismatch behavior remain unchanged.
-- [ ] Prove schema version, canonical record shape, and deterministic snapshot identity remain unchanged.
-- [ ] Use only synthetic values and ensure no production workbook or inventory data enters fixtures, reports, screenshots, or logs.
+- [x] Add blank `Модель` plus recognized `Наименование` coverage.
+- [x] Add recognized `Модель` plus blank `Наименование` coverage.
+- [x] Add recognized `Модель` plus unmapped `Наименование` coverage.
+- [x] Add both fields resolving to the same canonical model.
+- [x] Add fields resolving to different canonical models and prove ambiguity.
+- [x] Add internally ambiguous `Модель` plus one agreeing `Наименование`; ambiguity must remain.
+- [x] Add internally ambiguous `Наименование` plus one agreeing `Модель`; ambiguity must remain.
+- [x] Add one internally ambiguous field plus an unmapped field.
+- [x] Add both fields unmapped.
+- [x] Cover all nine existing canonical models through `Наименование` evidence.
+- [x] Repeat positive separator, compact-form, optional-suffix, accent-alternative, and boundary-negative cases for `Наименование` evidence.
+- [x] Prove exactly one mapped/unmapped/ambiguous outcome per row.
+- [x] Prove normalized `source_model` remains unchanged.
+- [x] Prove authoritative `device_kind` and known-model mismatch behavior remain unchanged.
+- [x] Prove schema version, canonical record shape, and deterministic snapshot identity remain unchanged.
+- [x] Use only synthetic values and ensure no production workbook or inventory data enters fixtures, reports, screenshots, or logs.
 
 ## 6. Update operational documentation
 
-- [ ] Update `docs/equipment-inventory-runbook.md` so `Модель` and `Наименование` are documented as independent importer-only recognition evidence.
-- [ ] Document complete per-field match sets and distinct-union cardinality.
-- [ ] Document that `Наименование` remains canonical `source_model` and does not become runtime authority.
-- [ ] Document that `Производитель` remains optional non-authoritative consistency evidence.
-- [ ] Document that the closed registry, exact boundary matching, `device_kind`, schema, and runtime behavior remain unchanged.
-- [ ] Document that unsupported models, including `Huawei CloudLink Box 610`, remain unmapped.
-- [ ] Require offline regeneration of `equipment_inventory.local.json` after deployment.
-- [ ] Do not document a standalone GUI or second workbook in this change.
+- [x] Update `docs/equipment-inventory-runbook.md` so `Модель` and `Наименование` are documented as independent importer-only recognition evidence.
+- [x] Document complete per-field match sets and distinct-union cardinality.
+- [x] Document that `Наименование` remains canonical `source_model` and does not become runtime authority.
+- [x] Document that `Производитель` remains optional non-authoritative consistency evidence.
+- [x] Document that the closed registry, exact boundary matching, `device_kind`, schema, and runtime behavior remain unchanged.
+- [x] Document that unsupported models, including `Huawei CloudLink Box 610`, remain unmapped.
+- [x] Require offline regeneration of `equipment_inventory.local.json` after deployment.
+- [x] Do not document a standalone GUI or second workbook in this change.
 
 ## 7. Validate implementation
 
-- [ ] Run focused importer tests with the repository-supported Python interpreter and record exact counts:
+- [x] Run focused importer tests with the repository-supported Python interpreter and record exact counts:
 
 ```powershell
 <python> -m unittest tests.test_equipment_inventory -v
 ```
 
-- [ ] Run runtime dispatch and PDU enrichment regressions:
+- [x] Run runtime dispatch and PDU enrichment regressions:
 
 ```powershell
 <python> -m unittest tests.test_inventory_diagnostic_dispatch tests.test_pdu_room_codec_enrichment -v
 ```
 
-- [ ] Run the canonical full offline test suite and record exact counts:
+- [x] Run the canonical full offline test suite and record exact counts:
 
 ```powershell
 <python> -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-- [ ] Run repository-local OpenSpec validation only:
+- [x] Run repository-local OpenSpec validation only:
 
 ```powershell
 .\openspec.cmd validate inventory-diagnostic-model-evidence-reconciliation --strict
 .\openspec.cmd validate --all --strict
 ```
 
-- [ ] Run repository-protection checks:
+- [x] Run repository-protection checks:
 
 ```powershell
 git diff --check
@@ -113,8 +113,8 @@ git diff --stat origin/master...HEAD
 git diff --name-only origin/master...HEAD
 ```
 
-- [ ] Review that only the approved importer, focused importer tests, runbook, and change evidence changed after implementation.
-- [ ] Review that no converter GUI, Qt code, expanded report refactor, second workbook support, runtime code, operational data, installer output, Graphify output, or unrelated files changed.
+- [x] Review that only the approved importer, focused importer tests, runbook, and change evidence changed after implementation.
+- [x] Review that no converter GUI, Qt code, expanded report refactor, second workbook support, runtime code, operational data, installer output, Graphify output, or unrelated files changed.
 
 ## 8. Publish implementation for independent validation
 
