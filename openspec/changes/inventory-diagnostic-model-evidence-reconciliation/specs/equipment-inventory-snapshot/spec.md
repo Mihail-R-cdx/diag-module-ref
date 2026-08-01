@@ -179,3 +179,212 @@ An unmapped or ambiguous model SHALL NOT by itself make an otherwise representab
 - **AND** canonical `diagnostic_model` is null
 - **AND** the importer emits `AMBIGUOUS_DIAGNOSTIC_MODEL`
 - **AND** it does not erase contradictory evidence through field priority or manufacturer evidence
+
+## ADDED Requirements
+
+### Requirement: Converter GUI is a separate offline program
+
+The repository SHALL provide a standalone equipment-inventory converter GUI with its own process entry point and top-level Qt application. The converter GUI SHALL call the same UI-independent importer boundary used by CLI and direct automation.
+
+The standalone converter SHALL NOT be added as a page, dialog, menu item, button, startup action, controller, worker, or composition dependency of the diagnostic application. The diagnostic application SHALL NOT import, launch, or require the converter GUI to start or execute device diagnostics.
+
+The importer/domain module SHALL NOT import PyQt or require a running `QApplication`.
+
+#### Scenario: Converter starts independently
+
+- **WHEN** the standalone converter entry point starts
+- **THEN** it creates its own Qt application and converter window
+- **AND** it does not create the diagnostic main window
+- **AND** it does not initialize diagnostic controllers, workers, handlers, credentials, or network operations
+
+#### Scenario: Diagnostic application starts without converter GUI
+
+- **WHEN** the normal diagnostic application starts
+- **THEN** it does not import or instantiate the standalone converter GUI
+- **AND** converter-GUI availability does not affect runtime inventory loading or diagnostics
+
+### Requirement: Standalone GUI selects exact source and output paths
+
+The converter window SHALL expose an editable source-workbook path and an editable exact output-JSON file path.
+
+The source browse action SHALL use the platform-native open-file dialog where available and SHALL filter for `.xlsx` workbooks. The output browse action SHALL use the platform-native Save As dialog where available, SHALL filter for `.json`, and SHALL suggest `equipment_inventory.local.json` as the output file name.
+
+The GUI SHALL validate that the source path is non-empty, resolves to an existing regular file, the output path is non-empty and does not resolve to an existing directory, and source and output are not the same file. Invalid preflight SHALL produce a structured failed report and SHALL perform no workbook import or output mutation.
+
+When the output file already exists, the GUI SHALL require explicit operator confirmation immediately before conversion. Declining replacement SHALL perform no conversion and no file mutation.
+
+#### Scenario: Operator chooses paths with native dialogs
+
+- **WHEN** the operator activates the source and output browse actions
+- **THEN** the GUI opens the corresponding native file dialogs where supported
+- **AND** accepted selections populate the exact path fields
+
+#### Scenario: Existing output replacement is declined
+
+- **GIVEN** the selected output file already exists
+- **WHEN** the operator declines replacement confirmation
+- **THEN** conversion does not start
+- **AND** the existing output remains unchanged
+
+#### Scenario: Preflight path is invalid
+
+- **WHEN** the source is missing, is not a regular file, the output is an existing directory, or source and output resolve to the same file
+- **THEN** the GUI publishes a structured failed run report
+- **AND** it performs no workbook parsing or snapshot publication
+
+### Requirement: Standalone GUI keeps conversion off the GUI thread
+
+Workbook reading, row conversion, candidate validation, and snapshot publication SHALL execute outside the Qt GUI thread through one dedicated worker boundary.
+
+While conversion is active, the GUI SHALL disable path mutation and additional conversion submission, SHALL show an indeterminate progress state or current safe stage, and SHALL keep widget mutation on the GUI thread.
+
+The initial implementation SHALL NOT forcibly terminate the conversion worker during publication. Closing the window during an active run SHALL not abruptly kill the worker in a way that can bypass atomic-publication cleanup.
+
+#### Scenario: Conversion is running
+
+- **WHEN** the operator starts conversion with valid confirmed paths
+- **THEN** the importer runs through the dedicated worker boundary
+- **AND** source/output controls and Convert are disabled until completion
+- **AND** the GUI thread remains available to paint progress and receive the final report
+
+#### Scenario: Second conversion is requested while active
+
+- **WHEN** one conversion is already active
+- **THEN** the GUI does not submit another importer run
+- **AND** the active run retains sole ownership of its immutable path inputs
+
+### Requirement: Every attempted conversion produces one structured run report
+
+The converter boundary SHALL produce one structured report for successful publication and every known failure stage. CLI output, direct API consumers, GUI presentation, and report export SHALL use the same report serializer rather than separate ad hoc result shapes.
+
+The report SHALL expose fields equivalent to:
+
+```text
+status
+published
+source_path
+output_path
+stage_reached
+worksheet
+header_row
+source_row_count
+record_count
+snapshot_id
+issue counts by class
+issues
+```
+
+Each issue SHALL expose fields equivalent to:
+
+```text
+issue_class
+stage
+code
+worksheet, when applicable
+row, when applicable
+source_column, when applicable
+record_id, when safe and applicable
+related_row, when applicable
+safe description
+safe structured details, when applicable
+```
+
+Known blocking outcomes SHALL be represented as `fatal` issues rather than escaping as unstructured exceptions. At minimum, configuration, missing/non-file source, unreadable workbook, missing/ambiguous source structure, missing/duplicate `SmartRoomID`, invalid candidate snapshot, and output publication failure SHALL be structured.
+
+Unexpected outer-boundary failures SHALL become a safe fatal `UNEXPECTED_CONVERTER_FAILURE` report containing stage and exception type but not complete workbook rows, cell contents, production inventory, or complete traceback text.
+
+#### Scenario: Conversion succeeds
+
+- **WHEN** the complete candidate validates and atomic publication succeeds
+- **THEN** the report has success status and `published = true`
+- **AND** it contains the output path, source-row count, canonical-record count, snapshot ID, and all non-fatal issues
+
+#### Scenario: Conversion fails before publication
+
+- **WHEN** a blocking failure occurs at configuration, workbook read, layout discovery, row mapping, candidate validation, or publication
+- **THEN** the report has failed status and `published = false`
+- **AND** it contains at least one fatal issue identifying the failure stage and code
+- **AND** the failure is available to CLI and GUI consumers through the same report shape
+
+### Requirement: Fatal source-structure and required-value evidence is detailed but safe
+
+When no worksheet contains the required source structure, the fatal report SHALL identify required header names missing from inspected candidate worksheets using safe worksheet/header metadata. It SHALL NOT dump complete source rows or arbitrary cell values.
+
+A missing `SmartRoomID` fatal issue SHALL identify the source row and `SmartRoomID` source column. A duplicate `SmartRoomID` fatal issue SHALL identify the later row, safe canonical record ID, and first conflicting row when available.
+
+Output publication failure SHALL identify the resolved output path and safe exception type or OS error category. It SHALL preserve the previous valid output through the atomic-publication contract.
+
+#### Scenario: Required columns are missing
+
+- **WHEN** layout discovery cannot find all required headers
+- **THEN** the failed report identifies the missing required column names for inspected candidate worksheet/header locations
+- **AND** it does not include complete source rows or unrelated cell values
+
+#### Scenario: SmartRoomID is missing
+
+- **WHEN** a source equipment row has no usable `SmartRoomID`
+- **THEN** the fatal issue identifies that row and source column
+- **AND** the report explains that publication was blocked
+
+#### Scenario: SmartRoomID is duplicated
+
+- **WHEN** a later row repeats a canonical `SmartRoomID`
+- **THEN** the fatal issue identifies the later row and first conflicting row when available
+- **AND** no fallback identity is generated
+
+#### Scenario: Output cannot be replaced
+
+- **GIVEN** a previous valid output exists
+- **WHEN** temporary output creation or atomic replacement fails
+- **THEN** the report contains fatal `OUTPUT_WRITE_FAILED`
+- **AND** the previous valid output remains intact
+
+### Requirement: GUI presents and exports the complete report
+
+After each completed run, the standalone GUI SHALL present a prominent success/failure state, snapshot publication state, source/output paths, worksheet/header when available, source-row count, canonical-record count, snapshot ID when available, and issue counts by class.
+
+The GUI SHALL show a read-only detailed issue table with fields equivalent to class, stage, code, worksheet, row, source column, record ID, and description. Fatal issues SHALL appear before data-quality and consistency issues in the deterministic initial order. The GUI SHALL support at least issue-class filtering and SHALL show full safe details for the selected issue.
+
+The GUI SHALL allow the operator to save the complete report as UTF-8 JSON after both successful and failed runs. Report export SHALL use a file name distinct from the snapshot, such as `equipment_inventory_import_report.json`. Filtering or sorting the visible table SHALL NOT alter the exported report content or order.
+
+Failure to save the optional report SHALL be presented as a GUI-local error and SHALL NOT change the completed conversion result or snapshot publication state.
+
+#### Scenario: Fatal conversion report is displayed
+
+- **WHEN** conversion completes with fatal issues
+- **THEN** the GUI shows failed publication prominently
+- **AND** fatal issues are visible before non-fatal issues
+- **AND** the operator can inspect row/column/missing-header context where available
+
+#### Scenario: Successful report is displayed
+
+- **WHEN** snapshot publication succeeds
+- **THEN** the GUI shows success, output path, record counts, snapshot ID, and any non-fatal issues
+
+#### Scenario: Report is saved after failure
+
+- **GIVEN** a failed conversion produced a structured report
+- **WHEN** the operator saves the report
+- **THEN** the complete UTF-8 JSON report is written independently of snapshot publication
+- **AND** the failed conversion does not create or replace the snapshot
+
+### Requirement: CLI and direct importer API remain supported
+
+The existing command-line converter and direct import API SHALL remain supported. They SHALL use the same importer/domain execution and report serialization as the standalone GUI.
+
+The CLI SHALL continue returning a non-zero process exit code when publication fails and zero when publication succeeds. It SHALL emit the complete structured report as UTF-8 JSON in both cases.
+
+Adding the standalone GUI SHALL NOT require CLI callers or tests to create a Qt application.
+
+#### Scenario: CLI conversion succeeds
+
+- **WHEN** the CLI runs with valid source and output paths and publication succeeds
+- **THEN** it emits the shared successful report
+- **AND** exits with code zero
+
+#### Scenario: CLI conversion fails
+
+- **WHEN** the CLI encounters a structured blocking failure
+- **THEN** it emits the shared failed report
+- **AND** exits with a non-zero code
+- **AND** no Qt application is required
