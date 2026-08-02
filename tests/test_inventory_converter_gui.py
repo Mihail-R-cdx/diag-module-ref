@@ -115,6 +115,64 @@ class InventoryConverterGUITests(unittest.TestCase):
             self.window._mark_stale_if_needed()
             self.assertEqual("STALE", self.window.primary_state_label.text())
 
+    def test_completed_missing_source_observations_become_stale_when_files_appear(self):
+        with tempfile.TemporaryDirectory() as directory:
+            primary = Path(directory) / "missing-primary.xlsx"
+            network = Path(directory) / "missing-network.xlsx"
+            scenarios = (
+                (
+                    "primary",
+                    primary,
+                    self.window.primary_edit,
+                    self.window.primary_state_label,
+                    self.window.run_primary_test,
+                    lambda path: write_xlsx(path, [source_row("RID-1", controller=None)]),
+                ),
+                (
+                    "network",
+                    network,
+                    self.window.network_edit,
+                    self.window.network_state_label,
+                    self.window.run_network_test,
+                    lambda path: write_network_xlsx(path, [network_row("00-11-22-33-44-01")]),
+                ),
+            )
+            for role, path, edit, state_label, runner, create_source in scenarios:
+                with self.subTest(role=role):
+                    edit.setText(str(path))
+                    runner()
+                    wait_for_idle(self.window)
+                    self.assertEqual("FAILED", self.window._current_report.status)
+                    self.assertEqual("FAILED", state_label.text())
+                    observation = getattr(self.window, f"_{role}_observation")
+                    self.assertIsNotNone(observation)
+                    self.assertIsNone(observation.fingerprint)
+
+                    self.window._mark_stale_if_needed()
+                    self.assertEqual("FAILED", state_label.text())
+
+                    create_source(path)
+                    self.window._mark_stale_if_needed()
+                    self.assertEqual("STALE", state_label.text())
+
+    def test_completed_present_source_deletion_marks_stale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, network = self._write_sources(directory)
+            self.window.primary_edit.setText(str(source))
+            self.window.network_edit.setText(str(network))
+
+            self.window.run_primary_test()
+            wait_for_idle(self.window)
+            self.window.run_network_test()
+            wait_for_idle(self.window)
+
+            source.unlink()
+            network.unlink()
+            self.window._mark_stale_if_needed()
+
+            self.assertEqual("STALE", self.window.primary_state_label.text())
+            self.assertEqual("STALE", self.window.network_state_label.text())
+
     def test_independent_tests_check_all_without_output_and_conversion(self):
         with tempfile.TemporaryDirectory() as directory:
             source, network = self._write_sources(directory)

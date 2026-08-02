@@ -1,5 +1,32 @@
 # Tasks: Standalone inventory converter operator workflow
 
+## Implementation evidence: 2026-08-02 (independent-validation follow-up)
+
+- Remote refs before the follow-up:
+  - `origin/master = 642d691d9065fb04c8e6c94f4d26af3921e20430`
+  - `origin/agent/standalone-inventory-converter-operator-workflow = c051be35f0c081378d230fceb581e6c05cca5496`
+  - clean starting `HEAD = c051be35f0c081378d230fceb581e6c05cca5496`
+- Independent validation found two MEDIUM findings. This implementation follow-up fixes them; independent revalidation remains pending.
+- Missing-source completed observation fix:
+  - `tools/inventory_converter_gui.py` now keeps an internal `SourceObservation` separate from GUI `NOT_TESTED` state.
+  - A completed missing Primary or Network test remains `FAILED` while the source is still absent and becomes `STALE` when that same path appears later.
+  - Path edits still clear the completed observation and reset the presentation state to `NOT_TESTED`.
+  - The observation remains GUI-only; canonical JSON, `ImportResult`, report shape, snapshot identity, and importer/domain behavior are unchanged.
+- Archive EOF formatting fix:
+  - Initial disposable archive from `c051be35f0c081378d230fceb581e6c05cca5496` reproduced `openspec/specs/equipment-inventory-snapshot/spec.md:1578: new blank line at EOF` from `git diff --check`.
+  - The root-spec EOF boundary now has the same terminal separator that repository-local OpenSpec emits when rebuilding a terminal `## Requirements` section.
+  - Temporary committed-baseline archive applicability passed: archive exit 0, `validate --all --strict` 11 passed/0 failed, and `git diff --check` exit 0.
+  - Requirement and scenario text are unchanged; this is an EOF-formatting-only root-spec change.
+- Accepted UX waiver: manual verification not performed; project owner accepted residual UX risk; offscreen regression coverage exists.
+- Fresh validation results:
+  - `node --version -> v20.19.0`; `npm --version -> 10.8.2`; `npm ci -> added 79 packages, audited 80 packages, 0 vulnerabilities`.
+  - `QT_QPA_PLATFORM=offscreen python -m unittest tests.test_inventory_converter_gui -v -> Ran 16 tests, OK`.
+  - `python -m unittest tests.test_equipment_inventory -v -> Ran 29 tests, OK`.
+  - `python -m unittest tests.test_equipment_inventory tests.test_inventory_diagnostic_dispatch tests.test_inventory_credential_configuration tests.test_pdu_room_codec_enrichment tests.test_equipment_room_context_gui -v -> Ran 127 tests, OK`.
+  - `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py" -v -> Ran 629 tests, OK`.
+  - `./openspec.cmd validate standalone-inventory-converter-operator-workflow --strict -> valid`.
+  - `./openspec.cmd validate --all --strict -> 11 passed, 0 failed`.
+
 ## Implementation evidence: 2026-08-02
 
 - Remote refs before follow-up fixes:
@@ -27,7 +54,7 @@
   - `Start-Process` launched `tools\inventory_converter_gui.py` as a standalone process; the main diagnostic application did not launch.
   - Real detached GUI checks passed with synthetic inputs: startup separation, Primary Test success, Primary Test `PASSED_WITH_WARNINGS`, Primary Test failed report, Network Test success, Network Test failed report, path-edit reset to `NOT_TESTED`, file-change `STALE`, `Check all` without output, successful conversion, failed conversion without publication, overwrite decline preserving output, overwrite acceptance replacing output, `OUTPUT_CHANGED_SINCE_CONFIRMATION` with output preserved and exported report, main application launch without converter window, controls disabled/re-enabled across a worker run, and close blocked while an operation runs.
   - Real detached GUI report checks passed: failed report table visible with fatal issue first and native Save report dialog can export UTF-8 JSON with exactly one trailing newline.
-  - Real detached GUI smoke remains partial: UI Automation could not make the Qt issue-class filter mutate `currentTextChanged`, and UIA table selection did not trigger `itemSelectionChanged`; the offscreen GUI regression covers filtering and details, but these two real-interaction scenarios are not manually completed.
+  - manual verification not performed; project owner accepted residual UX risk; offscreen regression coverage exists.
 
 ## 1. Architecture and baseline
 
@@ -120,7 +147,7 @@
 - [ ] Run independent validation in a new clean detached worktree from exact `origin/<feature-branch>`.
 - [ ] Independently rerun focused tests, offscreen GUI tests, runtime regressions, full suite, both strict validations, and repository-protection checks.
 - [ ] Independently review GUI thread ownership, no duplicated importer rules, output precondition/overwrite/close safety, closed report compatibility, main-application separation, and current remote SHA.
-- [ ] Perform a disposable archive-applicability check because this change adds root-spec requirements and a new root capability.
+- [x] Perform a disposable archive-applicability check because this change adds root-spec requirements and a new root capability.
 - [ ] Obtain `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` before archive.
 
 ## 9. Archive and merge

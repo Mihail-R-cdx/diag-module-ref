@@ -1303,3 +1303,4 @@ The importer MAY extend its structured result with safe network worksheet/header
 
 - **WHEN** safe network-run counters or source-location context differ while canonical schema-v3 records remain identical
 - **THEN** deterministic `snapshot_id` remains identical
+

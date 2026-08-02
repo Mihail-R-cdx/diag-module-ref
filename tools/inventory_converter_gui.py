@@ -81,6 +81,12 @@ class SourceFingerprint:
     mtime_ns: int
 
 
+@dataclass(frozen=True)
+class SourceObservation:
+    path: str
+    fingerprint: SourceFingerprint | None
+
+
 class InventoryOperationWorker(QObject):
     finished = pyqtSignal(object)
 
@@ -122,13 +128,13 @@ class InventoryConverterWindow(QMainWindow):
         self.setWindowTitle("Inventory Converter")
         self._primary_state = "NOT_TESTED"
         self._network_state = "NOT_TESTED"
-        self._primary_fingerprint: SourceFingerprint | None = None
-        self._network_fingerprint: SourceFingerprint | None = None
+        self._primary_observation: SourceObservation | None = None
+        self._network_observation: SourceObservation | None = None
         self._current_report: ImportResult | None = None
         self._active_thread: QThread | None = None
         self._active_worker: InventoryOperationWorker | None = None
         self._active_source_role: str | None = None
-        self._active_source_fingerprint: SourceFingerprint | None = None
+        self._active_source_observation: SourceObservation | None = None
         self._build_ui()
         self._set_running(False)
         self._update_source_labels()
@@ -260,34 +266,38 @@ class InventoryConverterWindow(QMainWindow):
     def _reset_source_state(self, role: str) -> None:
         if role == "primary":
             self._primary_state = "NOT_TESTED"
-            self._primary_fingerprint = None
+            self._primary_observation = None
         else:
             self._network_state = "NOT_TESTED"
-            self._network_fingerprint = None
+            self._network_observation = None
         self._update_source_labels()
 
     def _update_source_labels(self) -> None:
         self.primary_state_label.setText(self._primary_state)
         self.network_state_label.setText(self._network_state)
 
-    def _current_fingerprint(self, path_text: str) -> SourceFingerprint | None:
-        if not path_text.strip():
-            return None
-        path = Path(path_text).expanduser().resolve(strict=False)
+    def _current_source_observation(self, path_text: str) -> SourceObservation:
+        normalized_path = path_text.strip()
+        if not normalized_path:
+            return SourceObservation("", None)
+        path = Path(normalized_path).expanduser().resolve(strict=False)
         try:
             stat = path.stat()
         except OSError:
-            return None
-        return SourceFingerprint(str(path), stat.st_size, stat.st_mtime_ns)
+            return SourceObservation(str(path), None)
+        return SourceObservation(
+            str(path),
+            SourceFingerprint(str(path), stat.st_size, stat.st_mtime_ns),
+        )
 
     def _mark_stale_if_needed(self) -> None:
-        if self._primary_fingerprint is not None:
-            current = self._current_fingerprint(self.primary_edit.text())
-            if current != self._primary_fingerprint:
+        if self._primary_observation is not None:
+            current = self._current_source_observation(self.primary_edit.text())
+            if current != self._primary_observation:
                 self._primary_state = "STALE"
-        if self._network_fingerprint is not None:
-            current = self._current_fingerprint(self.network_edit.text())
-            if current != self._network_fingerprint:
+        if self._network_observation is not None:
+            current = self._current_source_observation(self.network_edit.text())
+            if current != self._network_observation:
                 self._network_state = "STALE"
         self._update_source_labels()
 
@@ -296,14 +306,14 @@ class InventoryConverterWindow(QMainWindow):
         if not path:
             self._show_configuration_failure(ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value, "Primary workbook path is required.")
             return
-        fingerprint = self._current_fingerprint(path)
+        observation = self._current_source_observation(path)
         self._primary_state = "RUNNING"
         self._update_source_labels()
         self._start_operation(
             ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value,
             lambda: preflight_primary_source(path),
             source_role="primary",
-            source_fingerprint=fingerprint,
+            source_observation=observation,
         )
 
     def run_network_test(self) -> None:
@@ -311,14 +321,14 @@ class InventoryConverterWindow(QMainWindow):
         if not path:
             self._show_configuration_failure(ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value, "Network workbook path is required.")
             return
-        fingerprint = self._current_fingerprint(path)
+        observation = self._current_source_observation(path)
         self._network_state = "RUNNING"
         self._update_source_labels()
         self._start_operation(
             ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value,
             lambda: preflight_network_source(path),
             source_role="network",
-            source_fingerprint=fingerprint,
+            source_observation=observation,
         )
 
     def run_combined_preflight(self) -> None:
@@ -392,14 +402,14 @@ class InventoryConverterWindow(QMainWindow):
         callback: Callable[[], ImportResult],
         *,
         source_role: str | None = None,
-        source_fingerprint: SourceFingerprint | None = None,
+        source_observation: SourceObservation | None = None,
     ) -> None:
         if self._active_thread is not None:
             return
         self._set_running(True)
         self.status_label.setText("RUNNING")
         self._active_source_role = source_role
-        self._active_source_fingerprint = source_fingerprint
+        self._active_source_observation = source_observation
         thread = QThread(self)
         worker = InventoryOperationWorker(operation, callback)
         worker.moveToThread(thread)
@@ -420,7 +430,7 @@ class InventoryConverterWindow(QMainWindow):
         self._active_thread = None
         self._active_worker = None
         self._active_source_role = None
-        self._active_source_fingerprint = None
+        self._active_source_observation = None
 
     @pyqtSlot(object)
     def _operation_finished(self, result: ImportResult) -> None:
@@ -439,20 +449,20 @@ class InventoryConverterWindow(QMainWindow):
             edit = self.primary_edit
         else:
             edit = self.network_edit
-        before = self._active_source_fingerprint if self._active_source_role == role else None
-        after = self._current_fingerprint(edit.text())
+        before = self._active_source_observation if self._active_source_role == role else None
+        after = self._current_source_observation(edit.text())
         if after != before:
             state = "STALE"
-            fingerprint = None
+            observation = None
         else:
             state = STATUS_TO_SOURCE_STATE[result.status]
-            fingerprint = before if before is not None and after == before else None
+            observation = before
         if role == "primary":
             self._primary_state = state
-            self._primary_fingerprint = fingerprint
+            self._primary_observation = observation
         else:
             self._network_state = state
-            self._network_fingerprint = fingerprint
+            self._network_observation = observation
 
     def _set_running(self, running: bool) -> None:
         for widget in (
