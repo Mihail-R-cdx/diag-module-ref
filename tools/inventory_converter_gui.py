@@ -304,7 +304,11 @@ class InventoryConverterWindow(QMainWindow):
     def run_primary_test(self) -> None:
         path = self.primary_edit.text().strip()
         if not path:
-            self._show_configuration_failure(ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value, "Primary workbook path is required.")
+            self._show_configuration_failure(
+                ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value,
+                "Primary workbook path is required.",
+                source_role="primary",
+            )
             return
         observation = self._current_source_observation(path)
         self._primary_state = "RUNNING"
@@ -319,7 +323,11 @@ class InventoryConverterWindow(QMainWindow):
     def run_network_test(self) -> None:
         path = self.network_edit.text().strip()
         if not path:
-            self._show_configuration_failure(ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value, "Network workbook path is required.")
+            self._show_configuration_failure(
+                ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value,
+                "Network workbook path is required.",
+                source_role="network",
+            )
             return
         observation = self._current_source_observation(path)
         self._network_state = "RUNNING"
@@ -372,7 +380,13 @@ class InventoryConverterWindow(QMainWindow):
             )
         )
 
-    def _show_configuration_failure(self, operation: str, description: str) -> None:
+    def _show_configuration_failure(
+        self,
+        operation: str,
+        description: str,
+        *,
+        source_role: str | None = None,
+    ) -> None:
         result = ImportResult(
             published=False,
             output_path=Path(self.output_edit.text()).expanduser().resolve(strict=False) if self.output_edit.text().strip() else None,
@@ -394,7 +408,7 @@ class InventoryConverterWindow(QMainWindow):
             primary_source_path=Path(self.primary_edit.text()).expanduser().resolve(strict=False) if self.primary_edit.text().strip() else None,
             network_source_path=Path(self.network_edit.text()).expanduser().resolve(strict=False) if self.network_edit.text().strip() else None,
         )
-        self._operation_finished(result)
+        self._operation_finished(result, configuration_source_role=source_role)
 
     def _start_operation(
         self,
@@ -433,11 +447,22 @@ class InventoryConverterWindow(QMainWindow):
         self._active_source_observation = None
 
     @pyqtSlot(object)
-    def _operation_finished(self, result: ImportResult) -> None:
+    def _operation_finished(
+        self,
+        result: ImportResult,
+        *,
+        configuration_source_role: str | None = None,
+    ) -> None:
         self._current_report = result
         self.status_label.setText(result.status)
         self._set_running(False)
-        if result.operation == ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value:
+        if configuration_source_role == "primary":
+            self._primary_state = STATUS_TO_SOURCE_STATE[result.status]
+            self._primary_observation = None
+        elif configuration_source_role == "network":
+            self._network_state = STATUS_TO_SOURCE_STATE[result.status]
+            self._network_observation = None
+        elif result.operation == ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value:
             self._finish_source_test("primary", result)
         elif result.operation == ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value:
             self._finish_source_test("network", result)

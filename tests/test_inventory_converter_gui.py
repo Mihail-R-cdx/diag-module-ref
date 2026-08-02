@@ -115,6 +115,36 @@ class InventoryConverterGUITests(unittest.TestCase):
             self.window._mark_stale_if_needed()
             self.assertEqual("STALE", self.window.primary_state_label.text())
 
+    def test_empty_source_path_reports_failed_without_worker_or_observation(self):
+        scenarios = (
+            (
+                "primary",
+                self.window.run_primary_test,
+                self.window.primary_state_label,
+                "_primary_observation",
+                ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value,
+            ),
+            (
+                "network",
+                self.window.run_network_test,
+                self.window.network_state_label,
+                "_network_observation",
+                ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value,
+            ),
+        )
+        for role, runner, state_label, observation_name, operation in scenarios:
+            with self.subTest(role=role):
+                runner()
+
+                self.assertEqual(operation, self.window._current_report.operation)
+                self.assertEqual("FAILED", self.window._current_report.status)
+                self.assertEqual(ConverterStage.CONFIGURATION.value, self.window._current_report.stage_reached)
+                self.assertEqual(("GUI_CONFIGURATION_MISSING",), tuple(issue.code for issue in self.window._current_report.fatal_issues))
+                self.assertEqual("FAILED", state_label.text())
+                self.assertIsNone(getattr(self.window, observation_name))
+                self.assertIsNone(self.window._active_thread)
+                self._assert_report_exportable(operation)
+
     def test_completed_missing_source_observations_become_stale_when_files_appear(self):
         with tempfile.TemporaryDirectory() as directory:
             primary = Path(directory) / "missing-primary.xlsx"

@@ -1,5 +1,25 @@
 # Tasks: Standalone inventory converter operator workflow
 
+## Implementation evidence: 2026-08-02 (empty source-path follow-up)
+
+- Remote refs before the follow-up:
+  - `origin/master = 642d691d9065fb04c8e6c94f4d26af3921e20430`
+  - `origin/agent/standalone-inventory-converter-operator-workflow = d4fb800ad06d81127d9a9497ba3b5b053aa27036`
+  - clean starting `HEAD = d4fb800ad06d81127d9a9497ba3b5b053aa27036`
+- Empty source-path state mapping fix:
+  - Primary and Network configuration failures now bypass completed-source freshness handling because no worker and no completed observation exist.
+  - Each empty source test renders its terminal `FAILED` state, preserves the structured `GUI_CONFIGURATION_MISSING` report at `CONFIGURATION`, starts no worker, stores no source observation, and remains exportable.
+  - Non-empty missing-source, appearance, deletion, fingerprint-change, and path-edit semantics are unchanged.
+- Accepted UX waiver: manual verification not performed; project owner accepted residual UX risk; offscreen regression coverage exists.
+- Fresh validation results:
+  - `node --version -> v20.19.0`; `npm --version -> 10.8.2`; `npm ci -> added 79 packages, audited 80 packages, 0 vulnerabilities`.
+  - `QT_QPA_PLATFORM=offscreen python -m unittest tests.test_inventory_converter_gui -v -> Ran 17 tests, OK`.
+  - `python -m unittest tests.test_equipment_inventory -v -> Ran 29 tests, OK`.
+  - `python -m unittest tests.test_equipment_inventory tests.test_inventory_diagnostic_dispatch tests.test_inventory_credential_configuration tests.test_pdu_room_codec_enrichment tests.test_equipment_room_context_gui -v -> Ran 127 tests, OK`.
+  - `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py" -v -> Ran 630 tests, OK`.
+  - `./openspec.cmd validate standalone-inventory-converter-operator-workflow --strict -> valid`.
+  - `./openspec.cmd validate --all --strict -> 11 passed, 0 failed`.
+
 ## Implementation evidence: 2026-08-02 (independent-validation follow-up)
 
 - Remote refs before the follow-up:
