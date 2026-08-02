@@ -17,7 +17,7 @@ The importer already owns workbook parsing, source layout discovery, normalizati
 
 The diagnostic application uses PyQt5, but the converter must be a separate process. The main application must not import the converter GUI, launch it, expose it in navigation, or depend on its configuration or state.
 
-The existing report is intentionally small. It lacks reusable read-only preflight operations, operation/stage metadata, source-file roles, source columns, related rows, and file-test state. Change 3 may extend those UI-independent structures additively, but it must preserve current CLI keys, the public direct conversion signature, and all conversion behavior approved by Change 1 and Change 2.
+The existing report is intentionally small. It lacks reusable read-only preflight operations, operation/stage metadata, source-file roles, source columns, related rows, and file-test state. Change 3 may extend those UI-independent structures additively, but it must preserve current CLI keys, the public direct conversion call, and all conversion behavior approved by Change 1 and Change 2.
 
 ## Goals
 
@@ -26,7 +26,7 @@ The existing report is intentionally small. It lacks reusable read-only prefligh
 3. Test each workbook independently without writing JSON.
 4. Revalidate both current source files together before every conversion.
 5. Keep all workbook and conversion work outside the Qt GUI thread.
-6. Preserve atomic publication and require overwrite confirmation in the GUI.
+6. Preserve atomic publication, require overwrite confirmation, and reject publication when the output changes after confirmation.
 7. Show and export one safe complete report on success or failure.
 8. Preserve one-source schema-v2 CLI/direct API operation and schema-v1/v2/v3 runtime loading.
 9. Make state transitions deterministic and testable without relying on manual timing.
@@ -68,7 +68,7 @@ Those operations SHALL reuse the same workbook reader, layout discovery, normali
 
 The GUI SHALL NOT reproduce source headers, model rules, issue severity, MAC joins, schema fields, snapshot identity, or publication logic.
 
-The current public conversion signature remains supported:
+The current direct conversion call remains valid:
 
 ```python
 import_equipment_inventory(
@@ -80,7 +80,7 @@ import_equipment_inventory(
 )
 ```
 
-Existing serialized CLI report keys remain present. New report metadata is additive.
+The implementation MAY add one optional keyword-only publication-precondition argument or expose a separate UI-independent guarded-publication entry point. Existing callers using the current call SHALL continue to work without changes. Existing serialized CLI report keys remain present. New report metadata is additive.
 
 ## Decision 3: GUI conversion is explicit two-source schema-v3 workflow
 
@@ -98,6 +98,27 @@ This GUI requirement does not remove the importer's intentional one-source schem
 
 File dialogs use `.xlsx` filters for inputs and a JSON `Save As` dialog for output. The selected exact output filename remains visible before conversion.
 
+Operation prerequisites are distinct:
+
+```text
+PRIMARY_SOURCE_PREFLIGHT
+    primary workbook
+
+NETWORK_SOURCE_PREFLIGHT
+    network workbook
+
+COMBINED_PREFLIGHT
+    primary workbook
+    network workbook
+
+CONVERSION from the standalone GUI
+    primary workbook
+    network workbook
+    exact output JSON path
+```
+
+An empty output path SHALL NOT block `COMBINED_PREFLIGHT`. If an output path has already been selected, combined preflight MAY report a path conflict as additional configuration evidence, but output is not an input to candidate construction and is not a prerequisite for `Check all`.
+
 ## Decision 4: Independent read-only source tests
 
 Each source row has a `Test` operation.
@@ -113,7 +134,7 @@ A source test SHALL NOT:
 - perform partial conversion publication;
 - become authority for a later conversion.
 
-The result states are exactly:
+The GUI presentation states are exactly:
 
 ```text
 NOT_TESTED
@@ -124,7 +145,13 @@ FAILED
 STALE
 ```
 
-No fatal issue yields `PASSED` or `PASSED_WITH_WARNINGS`; any fatal issue yields `FAILED`. Non-fatal issues distinguish the two successful states.
+These values are GUI state only. `NOT_TESTED`, `RUNNING`, and `STALE` are not terminal report statuses. A completed report maps to GUI state as follows:
+
+```text
+SUCCEEDED               -> PASSED
+SUCCEEDED_WITH_WARNINGS -> PASSED_WITH_WARNINGS
+FAILED                  -> FAILED
+```
 
 ## Decision 5: Fingerprint and stale semantics
 
@@ -140,7 +167,7 @@ Changing the path text resets the corresponding result to `NOT_TESTED`. Before t
 
 No background file watcher or full-workbook hash is required. Conversion always rereads and revalidates current bytes regardless of test status.
 
-## Decision 6: Combined preflight is distinct from individual tests
+## Decision 6: Combined preflight is distinct from individual tests and publication
 
 `Check all` runs a read-only combined preflight over both current sources. It repeats each source validation and additionally performs the approved MAC-only reconciliation needed to expose:
 
@@ -152,13 +179,13 @@ DUPLICATE_SWITCH_CONNECTION_SOURCE
 partial connection outcomes
 ```
 
-Combined preflight builds and validates an in-memory candidate document but SHALL NOT publish it. It may compute the candidate schema version, record count, and snapshot ID for reporting.
+Combined preflight builds and validates an in-memory candidate document but SHALL NOT publish it. It may compute candidate schema version 3, record count, and snapshot ID for reporting. It neither requires nor owns an output path.
 
-`Convert` does not trust a previous combined result. It repeats full preflight and candidate validation on current bytes before atomic publication.
+`Convert` does not trust a previous combined result. It repeats full preflight and candidate validation on current bytes before guarded atomic publication.
 
 ## Decision 7: One serialized background operation
 
-All source tests, combined preflight, workbook reads, reconciliation, candidate validation, JSON serialization, and publication run outside the GUI thread.
+All source tests, combined preflight, workbook reads, reconciliation, candidate validation, JSON serialization, publication-precondition validation, and publication run outside the GUI thread.
 
 Only one operation may run at a time. While an operation is active, the GUI disables path editing, browse buttons, tests, combined preflight, conversion, and report export actions that could conflict with the operation.
 
@@ -168,55 +195,181 @@ The worker SHALL NOT be killed with `terminate()`. Closing the window while an o
 
 The progress indicator is indeterminate unless a real measurable progress contract is introduced. The status label may display coarse operation/stage names from the UI-independent report callback; it must not invent percentages.
 
-## Decision 8: Unified safe report contract
+## Decision 8: Closed unified safe report contract
 
 CLI conversion, GUI conversion, direct API conversion, source tests, and combined preflight SHALL serialize reports from shared UI-independent result types.
 
-The report contains, where applicable:
+### Operations
+
+`operation` is exactly one of:
 
 ```text
-operation
-status
-published
-source file roles and resolved paths
-output_path
-stage_reached
-primary worksheet/header/row metadata
-network worksheet/header/row metadata
+PRIMARY_SOURCE_PREFLIGHT
+NETWORK_SOURCE_PREFLIGHT
+COMBINED_PREFLIGHT
+CONVERSION
+```
+
+### Terminal statuses
+
+`status` is exactly one of:
+
+```text
+SUCCEEDED
+SUCCEEDED_WITH_WARNINGS
+FAILED
+```
+
+`SUCCEEDED` means no issue was emitted. `SUCCEEDED_WITH_WARNINGS` means no fatal issue was emitted and at least one `data_quality` or `consistency` issue was emitted. `FAILED` means at least one fatal issue was emitted or the operation could not safely produce its intended terminal result.
+
+### Stages
+
+`stage_reached` is exactly one of:
+
+```text
+CONFIGURATION
+SOURCE_PREFLIGHT
+WORKBOOK_READ
+LAYOUT_DISCOVERY
+ROW_MAPPING
+SOURCE_VALIDATION
+CROSS_SOURCE_RECONCILIATION
+CANDIDATE_VALIDATION
+PUBLICATION
+COMPLETE
+INTERNAL
+```
+
+It records the furthest stage entered by the operation. `COMPLETE` is used only for a successful or successful-with-warnings terminal operation. `INTERNAL` is used only when an unexpected internal failure prevents a more specific stage classification.
+
+### Exact additive root keys
+
+Every serialized shared report contains all of these additive keys:
+
+```text
+operation: non-null operation enum
+status: non-null terminal-status enum
+stage_reached: non-null stage enum
+schema_version: integer or null
+source_files: object
+    primary: resolved absolute string or null
+    network: resolved absolute string or null
+output_path: resolved absolute string or null
+published: boolean
+data_quality_issue_count: non-negative integer
+consistency_issue_count: non-negative integer
+```
+
+The existing conversion report keys remain present with their current names and meanings:
+
+```text
+worksheet
+header_row
+source_row_count
 record_count
 snapshot_id
-existing network counters
-issue counts
+network_worksheet
+network_header_row
+network_source_row_count
+distinct_network_mac_count
+enriched_record_count
+empty_connection_row_count
+duplicate_connection_count
+ambiguity_count
+unmatched_network_mac_count
+fatal_issue_count
+non_fatal_issue_count
 issues
 ```
 
-Existing conversion report keys remain present for compatibility.
+For preflight reports, existing fields that are not applicable are present with `null`, except counts that are known for that operation remain non-negative integers. For conversion reports, existing values preserve their current semantics. `output_path` is non-null for `CONVERSION` and null for all three preflight operations. `schema_version` is null until a candidate schema is known.
 
-Each issue retains existing safe fields and may add:
+`published` is normative:
 
 ```text
-stage
-source_file_role
-source_column
-related_row
-safe structured details
+PRIMARY_SOURCE_PREFLIGHT -> false
+NETWORK_SOURCE_PREFLIGHT -> false
+COMBINED_PREFLIGHT       -> false
+successful CONVERSION    -> true
+failed CONVERSION        -> false
 ```
 
-Reports SHALL NOT contain complete source rows, workbook content, production inventory dumps, secrets, credentials, or unnecessary free-form evidence.
+### Exact issue shape
+
+Every serialized issue contains all existing keys:
+
+```text
+class: fatal | data_quality | consistency
+code: non-empty string
+sheet: string or null
+row: positive integer or null
+record_id: string or null
+description: safe string
+```
+
+and all additive keys:
+
+```text
+stage: stage enum
+source_file_role: PRIMARY | NETWORK | OUTPUT | null
+source_column: string or null
+related_row: positive integer or null
+details: object
+```
+
+`details` is a flat JSON object whose values are JSON scalars or arrays of JSON scalars. It SHALL NOT contain nested source rows, workbook fragments, canonical record dumps, credentials, secrets, or unnecessary free-form evidence. Consumers SHALL serialize the same shape; adapters may not invent alternate field names or omit the additive issue keys.
 
 The GUI displays fatal issues first, supports filtering by issue class, and shows details for the selected issue. Filtering affects presentation only. `Save report` writes the complete unfiltered report as UTF-8 JSON with a trailing newline.
 
-## Decision 9: Overwrite confirmation and publication ownership
+## Decision 9: Overwrite confirmation creates a publication precondition
 
-If the selected output exists, the GUI asks for explicit confirmation immediately before starting conversion. Declining confirmation performs no conversion and changes no file.
+Immediately before starting a GUI conversion, the GUI resolves the selected output path and records a UI-independent publication precondition:
 
-After confirmation, the GUI delegates publication to the importer. It does not pre-delete, truncate, rename, or directly rewrite the existing output. Fatal failure leaves the previous output unchanged under the importer atomic-publication contract.
+```text
+resolved output path
+existed at confirmation: true | false
+if existing:
+    file size
+    last-modified time with the platform's highest available precision
+    file identity when the platform exposes a stable identity without opening unsafe content
+```
 
-The output path may equal neither input path after path normalization. Invalid path relationships are fatal configuration/preflight issues.
+If the output exists, the operator confirms replacement of that exact observed file state. If the output does not exist, the operator confirms creation only under the precondition that it remains absent until publication.
+
+After confirmation, the GUI delegates conversion and guarded publication to the UI-independent importer/publication boundary. The GUI SHALL NOT delete, truncate, pre-create, rename, or directly rewrite the output.
+
+Immediately before `os.replace` or an equivalent atomic replacement, the publication boundary SHALL resolve and inspect the output again. Publication proceeds only when the current state matches the confirmed precondition:
+
+```text
+confirmed absent -> still absent
+confirmed existing -> still the same observed file state
+```
+
+The precondition fails when, after confirmation:
+
+```text
+the absent output appears;
+the existing output disappears;
+the existing output size or mtime changes;
+the existing path resolves to a replacement file with different available identity;
+the normalized output path no longer matches the confirmed path.
+```
+
+A failed precondition emits structured fatal issue:
+
+```text
+OUTPUT_CHANGED_SINCE_CONFIRMATION
+```
+
+with `stage = PUBLICATION` and `source_file_role = OUTPUT`. It SHALL leave the current output untouched. The guard is checked after candidate validation and immediately before replacement, closing the time-of-check/time-of-use gap as far as the local filesystem contract permits.
+
+CLI/direct API callers that do not supply a publication precondition retain the existing atomic-publication behavior. The current direct conversion call remains valid. The standalone GUI SHALL always use guarded publication.
+
+The output path may equal neither input path after path normalization. Invalid path relationships are fatal conversion-configuration issues. They do not block combined preflight when no output is selected.
 
 ## Decision 10: Tests and manual validation
 
-Domain tests cover preflight/report compatibility without Qt. GUI tests run with `QT_QPA_PLATFORM=offscreen` and verify state transitions, path resets, stale detection, disabled controls, signal handling, report filtering/export, overwrite decline, and close blocking without reading production workbooks.
+Domain tests cover preflight/report compatibility and guarded publication without Qt. GUI tests run with `QT_QPA_PLATFORM=offscreen` and verify state transitions, path resets, stale detection, disabled controls, signal handling, report filtering/export, overwrite decline, output-change rejection, and close blocking without reading production workbooks.
 
 Manual smoke validation launches the standalone GUI as a detached process under the repository GUI launch rule. It uses synthetic workbooks and must not generate or commit production inventory.
 
@@ -225,6 +378,7 @@ Manual smoke validation launches the standalone GUI as a detached process under 
 - **Risk: GUI duplicates importer behavior.** Mitigation: only shared UI-independent APIs may classify or convert source data.
 - **Risk: operator trusts stale tests.** Mitigation: fingerprint state plus mandatory reread on every combined preflight and conversion.
 - **Risk: GUI freezes.** Mitigation: all workbook and conversion operations run in one background worker.
-- **Risk: existing CLI consumers break.** Mitigation: preserve conversion signature and existing serialized report keys; additions are backward-compatible.
-- **Risk: output is damaged on failure or close.** Mitigation: explicit confirmation, importer-owned atomic publication, and no worker termination.
-- **Risk: reports leak operational data.** Mitigation: safe structured metadata only and no source-row dumps.
+- **Risk: existing CLI consumers break.** Mitigation: preserve the current direct call and existing serialized report keys; additions are backward-compatible.
+- **Risk: output changes after confirmation.** Mitigation: mandatory publication precondition and immediate pre-replacement recheck for GUI conversion.
+- **Risk: output is damaged on failure or close.** Mitigation: guarded importer-owned atomic publication and no worker termination.
+- **Risk: reports leak operational data.** Mitigation: closed safe structured metadata only and no source-row dumps.
