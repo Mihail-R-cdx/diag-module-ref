@@ -222,6 +222,21 @@ git diff --name-only origin/master...HEAD
 - [ ] Inspect the disposable archive/root-spec diff and confirm exact requirement/scenario identity preservation, run `.\openspec.cmd validate --all --strict`, and discard the throwaway worktree without publishing archive output.
 - [ ] Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a required check fails, the validated remote HEAD changes, the worktree is dirty, or archive applicability is unproven.
 
+## 13A. Review correction session
+
+- [x] Fix source-side duplicate/conflicting switch candidate reporting so it is preserved when the network MAC is unmatched in primary inventory.
+- [x] Fix source-side duplicate/conflicting switch candidate reporting so it is preserved when the primary inventory has duplicate records for the MAC.
+- [x] Add regression coverage for unmatched network MAC plus repeated identical usable candidates.
+- [x] Add regression coverage for unmatched network MAC plus conflicting distinct usable candidates.
+- [x] Add regression coverage for duplicate primary MAC plus repeated identical usable candidates.
+- [x] Add regression coverage for duplicate primary MAC plus conflicting distinct usable candidates.
+- [x] Add a controlled workbook parsing boundary for expected XLSX filesystem, ZIP, XML, and package-structure failures without catching arbitrary programming errors.
+- [x] Add malformed network-source XLSX package regressions for missing `xl/workbook.xml`, missing worksheet member, shared-string index overflow, and invalid row number.
+- [x] Add candidate snapshot validation failure coverage proving previous output preservation and no candidate publication.
+- [x] Add output publication failure coverage proving previous output preservation and temporary-file cleanup.
+- [x] Update implementation evidence to record the correction session and remove stale final readiness wording.
+- [ ] Push the focused correction commit and request independent revalidation of the new remote HEAD.
+
 ## 14. Archive and post-archive checks
 
 - [ ] Archive only after an independent approving verdict and explicit user authorization.

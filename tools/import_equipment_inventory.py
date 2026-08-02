@@ -41,6 +41,10 @@ NS = {
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
 }
 
+
+class WorkbookReadError(Exception):
+    """Raised when an XLSX package cannot be read as importer workbook input."""
+
 SOURCE_COLUMNS = {
     "record_id": "SmartRoomID",
     "room_id": "ID комнаты",
@@ -226,7 +230,7 @@ def import_equipment_inventory(
     issues: list[ImportIssue] = []
     try:
         workbook = _read_workbook(source)
-    except (OSError, zipfile.BadZipFile, ET.ParseError) as exc:
+    except WorkbookReadError as exc:
         return ImportResult(
             published=False,
             output_path=output,
@@ -260,7 +264,7 @@ def import_equipment_inventory(
         schema_version = SCHEMA_VERSION_V3
         try:
             network_workbook = _read_workbook(network_source)
-        except (OSError, zipfile.BadZipFile, ET.ParseError) as exc:
+        except WorkbookReadError as exc:
             issues.append(
                 ImportIssue(
                     "fatal",
@@ -681,7 +685,42 @@ def _apply_network_enrichment(
     unmatched_network_mac_count = 0
     all_network_macs = set(rows_by_network_mac)
     for mac_address in sorted(all_network_macs):
+        candidate_rows = candidates_by_mac.get(mac_address, {})
         primary_records = primary_by_mac.get(mac_address, [])
+        issue_record_id = primary_records[0].record_id if len(primary_records) == 1 else None
+        candidate_issue_row = min(
+            (row_number for rows in candidate_rows.values() for row_number in rows),
+            default=rows_by_network_mac[mac_address][0],
+        )
+
+        for candidate, rows in sorted(candidate_rows.items(), key=lambda item: (item[0][0] or "", item[0][1] or "")):
+            if len(rows) > 1:
+                duplicate_connection_count += 1
+                issues.append(
+                    ImportIssue(
+                        "consistency",
+                        "DUPLICATE_SWITCH_CONNECTION_SOURCE",
+                        sheet=layout.worksheet,
+                        row=rows[0],
+                        record_id=issue_record_id,
+                        description="Repeated network rows normalize to one switch connection.",
+                    )
+                )
+
+        has_source_ambiguity = len(candidate_rows) > 1
+        if has_source_ambiguity:
+            ambiguity_count += 1
+            issues.append(
+                ImportIssue(
+                    "consistency",
+                    "AMBIGUOUS_SWITCH_CONNECTION",
+                    sheet=layout.worksheet,
+                    row=candidate_issue_row,
+                    record_id=issue_record_id,
+                    description="Multiple distinct switch connections exist for one inventory MAC.",
+                )
+            )
+
         if not primary_records:
             unmatched_network_mac_count += 1
             issues.append(
@@ -694,9 +733,6 @@ def _apply_network_enrichment(
                 )
             )
             continue
-        candidate_rows = candidates_by_mac.get(mac_address, {})
-        if not candidate_rows:
-            continue
         if len(primary_records) > 1:
             ambiguity_count += 1
             issues.append(
@@ -704,39 +740,16 @@ def _apply_network_enrichment(
                     "consistency",
                     "AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH",
                     sheet=layout.worksheet,
-                    row=min(row_number for rows in candidate_rows.values() for row_number in rows),
+                    row=candidate_issue_row,
                     record_id=primary_records[0].record_id,
                     description="Multiple primary records share the network MAC.",
                 )
             )
             continue
-        if len(candidate_rows) == 1:
-            (candidate, rows), = candidate_rows.items()
-            if len(rows) > 1:
-                duplicate_connection_count += 1
-                issues.append(
-                    ImportIssue(
-                        "consistency",
-                        "DUPLICATE_SWITCH_CONNECTION_SOURCE",
-                        sheet=layout.worksheet,
-                        row=rows[0],
-                        record_id=primary_records[0].record_id,
-                        description="Repeated network rows normalize to one switch connection.",
-                    )
-                )
+
+        if len(candidate_rows) == 1 and not has_source_ambiguity:
+            candidate = next(iter(candidate_rows))
             enrichment_by_record_id[primary_records[0].record_id] = candidate
-            continue
-        ambiguity_count += 1
-        issues.append(
-            ImportIssue(
-                "consistency",
-                "AMBIGUOUS_SWITCH_CONNECTION",
-                sheet=layout.worksheet,
-                row=min(row_number for rows in candidate_rows.values() for row_number in rows),
-                record_id=primary_records[0].record_id,
-                description="Multiple distinct switch connections exist for one inventory MAC.",
-            )
-        )
 
     enriched_records = tuple(
         replace(
@@ -759,6 +772,13 @@ def _apply_network_enrichment(
 
 
 def _read_workbook(path: Path) -> dict[str, Any]:
+    try:
+        return _read_workbook_package(path)
+    except (OSError, zipfile.BadZipFile, ET.ParseError, KeyError, IndexError, ValueError) as exc:
+        raise WorkbookReadError(type(exc).__name__) from exc
+
+
+def _read_workbook_package(path: Path) -> dict[str, Any]:
     with zipfile.ZipFile(path) as archive:
         shared_strings = _read_shared_strings(archive)
         workbook_root = ET.fromstring(archive.read("xl/workbook.xml"))

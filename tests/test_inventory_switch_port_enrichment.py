@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from core.equipment_inventory import (
     RECORD_FIELDS,
@@ -105,6 +106,42 @@ def write_network_xlsx(path, rows, *, headers=NETWORK_HEADERS, include_changes=T
             )
         )
     write_xlsx_sheets(path, sheets)
+
+
+def write_zip_members(path, members):
+    with ZipFile(path, "w", ZIP_DEFLATED) as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+
+
+def xlsx_package_members(*, sheet_xml=None, rel_target="worksheets/sheet1.xml", shared_strings=None):
+    members = {
+        "[Content_Types].xml": """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>""",
+        "_rels/.rels": """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""",
+        "xl/workbook.xml": f"""<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<bookViews><workbookView activeTab="0"/></bookViews>
+<sheets><sheet name="{NETWORK_WORKSHEET}" sheetId="1" r:id="rId1"/></sheets>
+</workbook>""",
+        "xl/_rels/workbook.xml.rels": f"""<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="{rel_target}"/>
+</Relationships>""",
+    }
+    if sheet_xml is not None:
+        members["xl/worksheets/sheet1.xml"] = sheet_xml
+    if shared_strings is not None:
+        members["xl/sharedStrings.xml"] = shared_strings
+    return members
 
 
 def snapshot_document(records, *, schema_version=SCHEMA_VERSION_V3):
@@ -390,6 +427,110 @@ class SwitchPortImporterTests(unittest.TestCase):
         self.assertEqual(2, result.unmatched_network_mac_count)
         self.assertEqual((), result.fatal_issues)
 
+    def test_source_multiplicity_is_reported_when_primary_match_fails(self):
+        cases = [
+            (
+                "unmatched_repeated",
+                [primary_row(1, "00:11:22:33:44:01")],
+                [
+                    network_row("00:11:22:33:44:10", switch_ip="198.51.100.10", port="Gi1/0/10"),
+                    network_row("00-11-22-33-44-10", switch_ip="198.51.100.10", port="Gi1/0/10"),
+                ],
+                {"DUPLICATE_SWITCH_CONNECTION_SOURCE", "NETWORK_MAC_NOT_IN_INVENTORY"},
+                {"enriched": 0, "duplicate": 1, "ambiguity": 0, "unmatched": 1},
+            ),
+            (
+                "unmatched_conflicting",
+                [primary_row(1, "00:11:22:33:44:01")],
+                [
+                    network_row("00:11:22:33:44:10", switch_ip="198.51.100.10", port="Gi1/0/10"),
+                    network_row("00-11-22-33-44-10", switch_ip="198.51.100.11", port="Gi1/0/11"),
+                ],
+                {"AMBIGUOUS_SWITCH_CONNECTION", "NETWORK_MAC_NOT_IN_INVENTORY"},
+                {"enriched": 0, "duplicate": 0, "ambiguity": 1, "unmatched": 1},
+            ),
+            (
+                "duplicate_primary_repeated",
+                [
+                    primary_row(1, "00:11:22:33:44:10", record_id="RID-1A"),
+                    primary_row(2, "00:11:22:33:44:10", record_id="RID-1B"),
+                ],
+                [
+                    network_row("00:11:22:33:44:10", switch_ip="198.51.100.10", port="Gi1/0/10"),
+                    network_row("00-11-22-33-44-10", switch_ip="198.51.100.10", port="Gi1/0/10"),
+                ],
+                {"DUPLICATE_SWITCH_CONNECTION_SOURCE", "AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH"},
+                {"enriched": 0, "duplicate": 1, "ambiguity": 1, "unmatched": 0},
+            ),
+            (
+                "duplicate_primary_conflicting",
+                [
+                    primary_row(1, "00:11:22:33:44:10", record_id="RID-1A"),
+                    primary_row(2, "00:11:22:33:44:10", record_id="RID-1B"),
+                ],
+                [
+                    network_row("00:11:22:33:44:10", switch_ip="198.51.100.10", port="Gi1/0/10"),
+                    network_row("00-11-22-33-44-10", switch_ip="198.51.100.11", port="Gi1/0/11"),
+                ],
+                {"AMBIGUOUS_SWITCH_CONNECTION", "AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH"},
+                {"enriched": 0, "duplicate": 0, "ambiguity": 2, "unmatched": 0},
+            ),
+        ]
+
+        for name, primary_rows, network_rows, expected_codes, expected_counters in cases:
+            with self.subTest(name=name):
+                first = self._import_network_case(primary_rows, network_rows)
+                second = self._import_network_case(primary_rows, list(reversed(network_rows)))
+
+                for summary in (first, second):
+                    self.assertTrue(summary["published"], summary["issues"])
+                    self.assertEqual(SCHEMA_VERSION_V3, summary["schema_version"])
+                    self.assertTrue(expected_codes.issubset(summary["codes"]))
+                    self.assertEqual(expected_counters["enriched"], summary["enriched_record_count"])
+                    self.assertEqual(expected_counters["duplicate"], summary["duplicate_connection_count"])
+                    self.assertEqual(expected_counters["ambiguity"], summary["ambiguity_count"])
+                    self.assertEqual(expected_counters["unmatched"], summary["unmatched_network_mac_count"])
+                    self.assertEqual((), summary["fatal_codes"])
+                    for switch_fields in summary["switch_fields"].values():
+                        self.assertEqual((None, None), switch_fields)
+
+                self.assertEqual(first["codes"], second["codes"])
+                self.assertEqual(first["switch_fields"], second["switch_fields"])
+                self.assertEqual(first["enriched_record_count"], second["enriched_record_count"])
+                self.assertEqual(first["duplicate_connection_count"], second["duplicate_connection_count"])
+                self.assertEqual(first["ambiguity_count"], second["ambiguity_count"])
+                self.assertEqual(first["unmatched_network_mac_count"], second["unmatched_network_mac_count"])
+
+    def _import_network_case(self, primary_rows, network_rows):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            network = Path(directory) / "network.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(source, primary_rows)
+            write_network_xlsx(network, network_rows)
+
+            result = import_equipment_inventory(source, network_source_path=network, output_path=output)
+            document = json.loads(output.read_text(encoding="utf-8")) if output.exists() else {}
+            inventory = load_equipment_inventory(output) if result.published else None
+            switch_fields = {}
+            if inventory is not None:
+                switch_fields = {
+                    record.record_id: (record.switch_ip_address, record.switch_port)
+                    for record in inventory.records
+                }
+            return {
+                "published": result.published,
+                "schema_version": document.get("schema_version"),
+                "codes": {issue.code for issue in result.issues},
+                "fatal_codes": tuple(issue.code for issue in result.fatal_issues),
+                "issues": [issue.to_dict() for issue in result.issues],
+                "switch_fields": switch_fields,
+                "enriched_record_count": result.enriched_record_count,
+                "duplicate_connection_count": result.duplicate_connection_count,
+                "ambiguity_count": result.ambiguity_count,
+                "unmatched_network_mac_count": result.unmatched_network_mac_count,
+            }
+
     def test_fatal_network_structure_preserves_previous_output(self):
         cases = [
             ("missing_sheet", [("NotDevices", [], NETWORK_HEADERS)], "NETWORK_WORKSHEET_MISSING"),
@@ -441,6 +582,102 @@ class SwitchPortImporterTests(unittest.TestCase):
             self.assertFalse(result.published)
             self.assertEqual("previous-output", output.read_text(encoding="utf-8"))
             self.assertEqual(("NETWORK_WORKBOOK_UNREADABLE",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_malformed_network_xlsx_package_is_structured_fatal(self):
+        shared_string_overflow_sheet = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="1"><c r="A1" t="s"><v>99</v></c></row></sheetData>
+</worksheet>"""
+        invalid_row_number_sheet = """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData><row r="not-a-number"><c r="A1" t="inlineStr"><is><t>header</t></is></c></row></sheetData>
+</worksheet>"""
+        shared_strings = """<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>only-entry</t></si></sst>"""
+        cases = [
+            (
+                "missing_workbook",
+                {"[Content_Types].xml": """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>"""},
+            ),
+            (
+                "missing_worksheet_member",
+                xlsx_package_members(sheet_xml=None, rel_target="worksheets/missing.xml"),
+            ),
+            (
+                "shared_string_index_out_of_range",
+                xlsx_package_members(sheet_xml=shared_string_overflow_sheet, shared_strings=shared_strings),
+            ),
+            (
+                "invalid_row_number",
+                xlsx_package_members(sheet_xml=invalid_row_number_sheet),
+            ),
+        ]
+
+        for name, members in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as directory:
+                    source = Path(directory) / "inventory.xlsx"
+                    network = Path(directory) / "network.xlsx"
+                    output = Path(directory) / "snapshot.json"
+                    output.write_text("previous-output", encoding="utf-8")
+                    write_xlsx(source, [primary_row(1, "00:11:22:33:44:01")])
+                    write_zip_members(network, members)
+
+                    result = import_equipment_inventory(source, network_source_path=network, output_path=output)
+
+                    self.assertFalse(result.published)
+                    self.assertEqual("previous-output", output.read_text(encoding="utf-8"))
+                    self.assertEqual(("NETWORK_WORKBOOK_UNREADABLE",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_valid_network_xlsx_package_still_publishes_schema_v3(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            network = Path(directory) / "network.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(source, [primary_row(1, "00:11:22:33:44:01")])
+            write_network_xlsx(network, [network_row("00:11:22:33:44:01", switch_ip="198.51.100.10", port="Gi1/0/10")])
+
+            result = import_equipment_inventory(source, network_source_path=network, output_path=output)
+            inventory = load_equipment_inventory(output)
+
+        self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+        self.assertEqual(SCHEMA_VERSION_V3, inventory.metadata.schema_version)
+        self.assertEqual(("198.51.100.10", "Gi1/0/10"), (inventory.records[0].switch_ip_address, inventory.records[0].switch_port))
+
+    def test_candidate_snapshot_validation_failure_preserves_previous_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            network = Path(directory) / "network.xlsx"
+            output = Path(directory) / "snapshot.json"
+            output.write_text("previous-output", encoding="utf-8")
+            write_xlsx(source, [primary_row(1, "00:11:22:33:44:01")])
+            write_network_xlsx(network, [network_row("00:11:22:33:44:01", switch_ip="198.51.100.10", port="Gi1/0/10")])
+
+            with patch.object(importer, "inventory_from_document", side_effect=ValueError("synthetic validation failure")):
+                with patch.object(importer, "_atomic_write_json", side_effect=AssertionError("candidate was published")):
+                    result = import_equipment_inventory(source, network_source_path=network, output_path=output)
+
+            self.assertFalse(result.published)
+            self.assertEqual("previous-output", output.read_text(encoding="utf-8"))
+            self.assertEqual(("CANDIDATE_SNAPSHOT_INVALID",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_output_publication_failure_preserves_previous_output_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            network = Path(directory) / "network.xlsx"
+            output = Path(directory) / "snapshot.json"
+            output.write_text("previous-output", encoding="utf-8")
+            write_xlsx(source, [primary_row(1, "00:11:22:33:44:01")])
+            write_network_xlsx(network, [network_row("00:11:22:33:44:01", switch_ip="198.51.100.10", port="Gi1/0/10")])
+
+            with patch.object(importer.os, "replace", side_effect=OSError("synthetic replace failure")):
+                result = import_equipment_inventory(source, network_source_path=network, output_path=output)
+
+            self.assertFalse(result.published)
+            self.assertEqual("previous-output", output.read_text(encoding="utf-8"))
+            self.assertEqual(("OUTPUT_PUBLICATION_FAILED",), tuple(issue.code for issue in result.fatal_issues))
+            self.assertEqual([], list(Path(directory).glob(".snapshot.json.*.tmp")))
 
 
 if __name__ == "__main__":
