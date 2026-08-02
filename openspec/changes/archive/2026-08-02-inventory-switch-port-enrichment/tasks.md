@@ -235,7 +235,7 @@ git diff --name-only origin/master...HEAD
 - [x] Add candidate snapshot validation failure coverage proving previous output preservation and no candidate publication.
 - [x] Add output publication failure coverage proving previous output preservation and temporary-file cleanup.
 - [x] Update implementation evidence to record the correction session and remove stale final readiness wording.
-- [ ] Push the focused correction commit and request independent revalidation of the new remote HEAD.
+- [x] Push the focused correction commit and request independent revalidation of the new remote HEAD.
 
 ## 14. Archive and post-archive checks
 
