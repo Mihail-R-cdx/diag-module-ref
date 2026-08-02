@@ -4,18 +4,19 @@
 
 The approved equipment-inventory pipeline now supports both the primary organization workbook and the optional network-connection workbook, schema-v2 and schema-v3 publication, deterministic identity, structured import issues, and atomic JSON replacement. The only supported operator surface is still the command line or a direct Python API.
 
-Operational users need a separate Windows GUI that can select the two approved source workbooks and the exact output JSON path, test each workbook without publication, run combined cross-source validation, execute conversion without blocking the Qt GUI thread, and present one safe detailed report for both success and failure.
+Operational users need a separate Windows GUI that can select the two approved source workbooks and the exact output JSON path, test each workbook without publication, run combined cross-source validation before choosing an output path, execute conversion without blocking the Qt GUI thread, guard confirmed output state against concurrent changes, and present one safe detailed report for both success and failure.
 
-The GUI must reuse the importer as the only conversion authority. It must not duplicate workbook parsing, model recognition, MAC reconciliation, schema generation, candidate validation, snapshot identity, or atomic publication rules, and it must not be integrated into the main diagnostic application.
+The GUI must reuse the importer as the only conversion authority. It must not duplicate workbook parsing, model recognition, MAC reconciliation, schema generation, candidate validation, snapshot identity, report classification, or atomic publication rules, and it must not be integrated into the main diagnostic application.
 
 ## What changes
 
 - Add a standalone PyQt5 inventory-converter application with its own `QApplication` and launch entry point.
 - Add explicit path controls for the primary equipment workbook, the network workbook, and the exact output JSON file.
 - Add independent read-only `Test` operations for each workbook with explicit result states and safe file fingerprints.
-- Add combined preflight validation for both current workbook bytes before conversion.
-- Run workbook I/O, validation, reconciliation, and conversion in one serialized background operation outside the Qt GUI thread.
-- Extend the UI-independent importer boundary with reusable preflight operations and one additive structured report contract shared by CLI, GUI, and direct API consumers.
+- Add combined preflight validation for both current workbook bytes without requiring or publishing an output path.
+- Run workbook I/O, validation, reconciliation, guarded publication, and conversion in one serialized background operation outside the Qt GUI thread.
+- Extend the UI-independent importer boundary with reusable preflight operations and one closed additive structured report contract shared by CLI, GUI, and direct API consumers.
+- Add an optional UI-independent output-publication precondition that rejects replacement if output state changes after operator confirmation.
 - Present summary counts and a filterable issue table, and export the complete unfiltered UTF-8 JSON report.
 - Require explicit confirmation before replacing an existing output file while preserving importer-owned atomic publication.
 - Preserve current one-source CLI/direct API conversion and all schema-v1/v2/v3 runtime behavior.
@@ -24,11 +25,11 @@ The GUI must reuse the importer as the only conversion authority. It must not du
 
 ### New capability
 
-- `inventory-converter-operator-workflow`: standalone GUI ownership, file-test states, background operation lifecycle, report presentation, export, and overwrite/close behavior.
+- `inventory-converter-operator-workflow`: standalone GUI ownership, file-test states, background operation lifecycle, report presentation, export, overwrite precondition, and close behavior.
 
 ### Extended capability
 
-- `equipment-inventory-snapshot`: reusable read-only source preflight and additive structured reporting for CLI, GUI, and direct API use.
+- `equipment-inventory-snapshot`: reusable read-only source preflight, closed additive structured reporting, and optional guarded publication for CLI, GUI, and direct API use.
 
 ## Non-goals
 
