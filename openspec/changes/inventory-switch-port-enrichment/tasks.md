@@ -204,10 +204,10 @@ git diff --name-only origin/master...HEAD
 
 ## 12. Publish implementation for independent validation
 
-- [ ] Create focused implementation commit(s) and push to `agent/inventory-switch-port-enrichment` without force-push.
-- [ ] Verify local HEAD equals `origin/agent/inventory-switch-port-enrichment` after push.
-- [ ] Record exact change base, branch SHA, commands, exit codes, test counts, and changed-file scope.
-- [ ] Do not self-issue final `APPROVE`; request independent validation in a clean detached worktree from the exact published remote HEAD.
+- [x] Create focused implementation commit(s) and push to `agent/inventory-switch-port-enrichment` without force-push.
+- [x] Verify local HEAD equals `origin/agent/inventory-switch-port-enrichment` after push.
+- [x] Record exact change base, branch SHA, commands, exit codes, test counts, and changed-file scope.
+- [x] Do not self-issue final `APPROVE`; request independent validation in a clean detached worktree from the exact published remote HEAD.
 
 ## 13. Independent validation and archive applicability
 

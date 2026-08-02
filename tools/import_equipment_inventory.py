@@ -1028,7 +1028,7 @@ def resolve_converter_paths(
     source_value = source_override or values.get(SOURCE_XLSX_ENV)
     if source_value in (None, ""):
         raise ConverterConfigurationError(
-        "Source workbook path is not configured. Use --source or DIAG_INVENTORY_XLSX."
+            "Source workbook path is not configured. Use --source or DIAG_INVENTORY_XLSX."
         )
     output_value = output_override or values.get(OUTPUT_JSON_ENV) or default_snapshot_path()
     network_value = network_override or values.get(NETWORK_XLSX_ENV)
