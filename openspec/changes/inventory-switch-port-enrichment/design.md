@@ -40,6 +40,7 @@ The `Изменения` sheet is historical audit data and is not a source of c
 6. Preserve deterministic identity, strict per-version record validation, and atomic publication.
 7. Make ambiguity observable without first-row selection or source-order authority.
 8. Keep switch fields passive in runtime during this change.
+9. Establish exact public configuration names that the future standalone converter GUI can call without inventing another adapter contract.
 
 ## Non-goals
 
@@ -74,7 +75,32 @@ primary equipment workbook
     -> schema_version = 3
 ```
 
-If a network source path is explicitly supplied but the file is missing, unreadable, structurally invalid, or cannot be reconciled safely enough to construct a candidate, conversion fails before publication. The importer must not silently downgrade that requested run to schema v2.
+Supplying a network source explicitly requests schema-v3 conversion. The importer must not silently downgrade that run to schema v2.
+
+The fatal boundary for the requested two-source run is exact:
+
+```text
+fatal
+    network path/configuration failure
+    network workbook unreadable
+    worksheet Устройства missing or ambiguous
+    required network header missing or ambiguous
+    complete candidate fails runtime schema validation
+    output publication fails
+```
+
+Row-level network quality and reconciliation conditions are non-fatal when the primary candidate remains representable:
+
+```text
+non-fatal
+    missing or invalid network MAC
+    valid MAC with no usable switch IP and no usable port
+    invalid or missing switch IP or port
+    repeated identical connection rows
+    conflicting distinct connection rows
+    duplicate primary MAC for enrichment
+    network MAC absent from primary inventory
+```
 
 This split preserves existing deployment behavior while giving the future operator GUI one explicit two-input schema-v3 path.
 
@@ -132,7 +158,7 @@ Missing or invalid network MAC cannot participate in the join and produces a str
 
 ### Switch IP
 
-`IP коммутатора`, when present, must normalize to canonical dotted-decimal IPv4. Invalid non-blank input becomes null plus `INVALID_SWITCH_IP` when the network row can otherwise be represented as enrichment evidence.
+`IP коммутатора`, when present, must normalize to canonical dotted-decimal IPv4. Invalid non-blank input becomes null plus `INVALID_SWITCH_IP`.
 
 ### Switch port
 
@@ -149,15 +175,27 @@ primary canonical MAC
     -> all primary EquipmentRecord candidates
 
 network canonical MAC
-    -> all distinct normalized (switch_ip_address, switch_port) candidates
+    -> all distinct usable normalized (switch_ip_address, switch_port) candidates
 ```
+
+A network row creates a connection candidate only when at least one of `switch_ip_address` or `switch_port` is usable after normalization.
+
+A row with a valid MAC and both normalized connection fields null does not create a connection candidate:
+
+```text
+valid MAC + blank switch IP + blank port
+    -> no candidate
+    -> EMPTY_SWITCH_CONNECTION
+```
+
+If invalid non-blank switch IP already produces `INVALID_SWITCH_IP` and the port is null, the row still creates no candidate; `INVALID_SWITCH_IP` is the row-level issue and an additional `EMPTY_SWITCH_CONNECTION` is not required. An empty or unusable row for a MAC does not create ambiguity with another usable row for that same MAC, but it remains visible through its structured issue.
 
 A connection may be assigned only when:
 
 ```text
 exactly one primary record has the MAC
 and
-exactly one distinct normalized network connection candidate exists
+exactly one distinct usable normalized network connection candidate exists
 ```
 
 The outcome table is:
@@ -168,22 +206,22 @@ primary record has null MAC
     -> switch_port = null
     -> no join attempted
 
-one primary record, no network candidate
+one primary record, no usable network candidate
     -> both switch fields null
     -> absence alone is not a per-record error
 
-one primary record, one distinct network candidate
+one primary record, one distinct usable network candidate
     -> copy each normalized candidate field independently
 
 multiple primary records share the MAC
     -> enrich none of those records
     -> AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH
 
-one primary record, repeated identical network candidates
+one primary record, repeated identical usable network candidates
     -> treat as one distinct candidate
     -> DUPLICATE_SWITCH_CONNECTION_SOURCE
 
-one primary record, multiple distinct network candidates
+one primary record, multiple distinct usable network candidates
     -> enrich neither field
     -> AMBIGUOUS_SWITCH_CONNECTION
 
@@ -201,13 +239,18 @@ valid switch IP + null port
     -> switch_port = null
     -> MISSING_SWITCH_PORT
 
-null/invalid switch IP + normalized port
+blank switch IP + normalized port
     -> switch_ip_address = null
     -> preserve switch_port
-    -> MISSING_SWITCH_IP or INVALID_SWITCH_IP
+    -> MISSING_SWITCH_IP
+
+invalid non-blank switch IP + normalized port
+    -> switch_ip_address = null
+    -> preserve switch_port
+    -> INVALID_SWITCH_IP
 ```
 
-If multiple rows produce different partial or complete normalized pairs, the connection is ambiguous and both canonical fields remain null.
+If multiple usable rows produce different partial or complete normalized pairs, the connection is ambiguous and both canonical fields remain null.
 
 ## Decision 5: Add strict schema v3
 
@@ -246,6 +289,15 @@ records sorted by record_id
 
 Both switch fields participate in identity. Generation metadata and import-report counters remain outside identity.
 
+Canonical root metadata keeps its existing meaning:
+
+```text
+source_row_count
+    = number of inspected rows from the primary equipment workbook
+```
+
+The network workbook row count is report metadata only. It must not be added to `source_row_count` and must not affect `snapshot_id`.
+
 The loader validates every version against its own exact fields:
 
 ```text
@@ -254,7 +306,7 @@ schema v2 -> read room_vip, switch_ip_address = null, switch_port = null
 schema v3 -> read room_vip and both switch fields
 ```
 
-A hybrid record claiming v1/v2 while containing v3 fields is invalid. Unknown schema versions remain unsupported.
+A hybrid record claiming v1/v2 while containing later-version fields is invalid. Unknown schema versions remain unsupported.
 
 ## Decision 6: Runtime behavior remains passive
 
@@ -270,29 +322,61 @@ room_id -> tuple[EquipmentRecord, ...]
 
 Diagnostic dispatch, PDU-room-codec resolution, room VIP aggregation, credential selection, and device operations ignore both switch fields in this change.
 
-## Decision 7: Extend configuration without embedding local paths
+## Decision 7: Extend configuration with exact public names
 
-The converter adds one network-source configuration value analogous to the current primary source path. The implementation may use names equivalent to:
+The public configuration and invocation contract is fixed as follows:
 
 ```text
-NETWORK_XLSX_PATH
-DIAG_INVENTORY_NETWORK_XLSX
---network-source
+module configuration variable
+    NETWORK_XLSX_PATH
+
+environment variable
+    DIAG_INVENTORY_NETWORK_XLSX
+
+CLI option
+    --network-source
+
+direct API keyword
+    network_source_path
+```
+
+The direct API signature is:
+
+```python
+import_equipment_inventory(
+    source_path,
+    *,
+    network_source_path=None,
+    output_path=None,
+    generated_at=None,
+)
 ```
 
 Semantic priority is:
 
 ```text
 explicit API/CLI network source
-environment/configured network source
+environment variable DIAG_INVENTORY_NETWORK_XLSX
+module configuration NETWORK_XLSX_PATH when explicitly configured
 no network source -> intentional schema-v2 mode
 ```
 
-All configured paths are resolved absolute paths before workbook I/O. No user-specific workbook path is committed.
+All configured paths are resolved absolute paths before workbook I/O. No user-specific workbook path is committed. The future standalone GUI must call this approved direct API keyword rather than create a second reconciliation entry point.
 
 ## Decision 8: Preserve structured reporting and atomic publication
 
 The existing `ImportResult`/JSON report remains the single conversion result. It is extended only with safe optional network-run context and counts needed to validate two-source conversion, such as network worksheet/header, network source row count, distinct normalized network MAC count, enriched record count, and ambiguity count.
+
+Every non-empty network source row is accounted for as one or more of:
+
+```text
+a usable connection candidate
+a structured row-level issue
+```
+
+A row may contribute both a usable partial candidate and a missing/invalid-field issue. No non-empty network row disappears silently.
+
+Fatal conversion outcomes are limited to configuration/path failure, unreadable workbook, missing or ambiguous required network structure, candidate schema validation failure, and publication failure. Row-level quality, duplication, unmatched, and ambiguity outcomes remain non-fatal and preserve otherwise valid primary records with null switch fields where no unique candidate exists.
 
 Normal issues may expose safe sheet name, row number, issue code, and canonical `record_id` where available. They must not dump complete source rows, complete workbook contents, production snapshots, or unrelated network topology.
 
@@ -303,6 +387,7 @@ The complete candidate is validated through the runtime schema loader before pub
 Synthetic tests must cover at least:
 
 - one-source conversion still emits schema v2 with unchanged identity behavior;
+- exact public names `NETWORK_XLSX_PATH`, `DIAG_INVENTORY_NETWORK_XLSX`, `--network-source`, and `network_source_path`;
 - two-source conversion emits schema v3;
 - exact sheet/header requirements;
 - complete ignoring of `Изменения` and `Корректная запись`;
@@ -310,6 +395,8 @@ Synthetic tests must cover at least:
 - no join by IP, room, manufacturer, model, or source order;
 - one unique complete connection;
 - unique partial connection;
+- valid MAC with blank IP and blank port producing `EMPTY_SWITCH_CONNECTION` and no candidate;
+- an empty row not creating ambiguity with another usable row for the same MAC;
 - invalid/missing network MAC;
 - invalid/missing switch IP;
 - missing switch port;
@@ -317,6 +404,8 @@ Synthetic tests must cover at least:
 - distinct conflicting network rows;
 - duplicate primary MAC;
 - network MAC absent from primary inventory;
+- exact fatal versus non-fatal boundary;
+- schema-v3 `source_row_count` remaining the primary-workbook row count;
 - v1/v2/v3 loader compatibility and runtime null adaptation;
 - strict rejection of hybrid records and unsupported schema versions;
 - schema-v3 identity changes when either switch field changes;
