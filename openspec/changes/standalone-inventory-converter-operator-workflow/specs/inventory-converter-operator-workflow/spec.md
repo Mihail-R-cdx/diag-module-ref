@@ -20,7 +20,7 @@ The main diagnostic application SHALL NOT import the converter GUI, expose it in
 - **THEN** it does not import or launch the converter GUI
 - **AND** it does not require converter configuration or state
 
-### Requirement: Operator selects exact two-source inputs and output
+### Requirement: Operator selects exact source and output paths by operation
 
 The standalone GUI SHALL display separate path controls for:
 
@@ -34,16 +34,46 @@ Each workbook control SHALL use an `.xlsx` file-selection dialog. The output con
 
 The GUI SHALL NOT silently substitute environment or module configuration for a path after the operator has selected or edited a value. The selected output path SHALL NOT normalize to either input path.
 
+Operation prerequisites SHALL be exactly:
+
+```text
+Primary Test:
+    primary workbook
+
+Network Test:
+    network workbook
+
+Check all:
+    primary workbook
+    network workbook
+
+Convert:
+    primary workbook
+    network workbook
+    exact output JSON
+```
+
+An empty output path SHALL NOT block `Check all`. If an output path is already selected, `Check all` MAY additionally report a path conflict, but it SHALL remain a read-only operation over the two source workbooks and in-memory candidate.
+
 #### Scenario: Operator selects all conversion paths
 
 - **WHEN** the operator chooses the primary workbook, network workbook, and output JSON
 - **THEN** the window displays all three exact paths
 - **AND** conversion passes those explicit paths to the shared importer API
 
-#### Scenario: Required GUI path is missing
+#### Scenario: Combined preflight runs before output selection
+
+- **GIVEN** valid primary and network workbook paths
+- **AND** the output path is blank
+- **WHEN** the operator requests `Check all`
+- **THEN** combined preflight runs normally
+- **AND** it validates and reports the in-memory candidate
+- **AND** it publishes no JSON
+
+#### Scenario: Conversion path is missing
 
 - **GIVEN** one of the two workbook paths or the output path is blank
-- **WHEN** the operator requests combined validation or conversion
+- **WHEN** the operator requests `Convert`
 - **THEN** the GUI presents a structured configuration failure
 - **AND** it starts no publication operation
 
@@ -58,7 +88,7 @@ The GUI SHALL NOT silently substitute environment or module configuration for a 
 
 The primary and network workbook controls SHALL each have a separate `Test` action. A test SHALL run the corresponding approved read-only source preflight outside the GUI thread and SHALL NOT publish JSON or modify source files.
 
-Each source test state SHALL be exactly one of:
+Each source test presentation state SHALL be exactly one of:
 
 ```text
 NOT_TESTED
@@ -69,26 +99,32 @@ FAILED
 STALE
 ```
 
-No fatal issue SHALL result in `PASSED` or `PASSED_WITH_WARNINGS`. Non-fatal issues SHALL distinguish `PASSED_WITH_WARNINGS` from `PASSED`.
+`NOT_TESTED`, `RUNNING`, and `STALE` are GUI presentation states only and SHALL NOT appear as terminal report statuses. Completed report statuses map exactly:
+
+```text
+SUCCEEDED               -> PASSED
+SUCCEEDED_WITH_WARNINGS -> PASSED_WITH_WARNINGS
+FAILED                  -> FAILED
+```
 
 #### Scenario: Source test passes cleanly
 
 - **GIVEN** a selected source satisfies its approved source contract without issues
-- **WHEN** its `Test` action finishes
+- **WHEN** its `Test` action finishes with report status `SUCCEEDED`
 - **THEN** its state becomes `PASSED`
 - **AND** no output JSON is created or changed
 
 #### Scenario: Source test passes with non-fatal issues
 
 - **GIVEN** a selected source has no fatal issue but has data-quality or consistency issues
-- **WHEN** its `Test` action finishes
+- **WHEN** its `Test` action finishes with report status `SUCCEEDED_WITH_WARNINGS`
 - **THEN** its state becomes `PASSED_WITH_WARNINGS`
 - **AND** the report exposes those issues
 
 #### Scenario: Source test fails
 
 - **GIVEN** a selected source has a fatal read, worksheet, header, or source-contract issue
-- **WHEN** its `Test` action finishes
+- **WHEN** its `Test` action finishes with report status `FAILED`
 - **THEN** its state becomes `FAILED`
 - **AND** the safe failure report remains available
 
@@ -121,18 +157,20 @@ No file watcher or full-file hash is required. A test result SHALL remain operat
 
 ### Requirement: Combined preflight and conversion use one serialized worker lifecycle
 
-The GUI SHALL provide a `Check all` action that runs the approved combined two-source preflight without publication and a `Convert` action that repeats full validation and then delegates atomic publication to the importer.
+The GUI SHALL provide a `Check all` action that runs the approved combined two-source preflight without publication and a `Convert` action that repeats full validation and then delegates guarded atomic publication to the importer.
 
-All source tests, combined preflight, workbook reads, reconciliation, candidate validation, serialization, and publication SHALL execute outside the Qt GUI thread. Only one operation may run at a time. While an operation runs, path controls and conflicting actions SHALL be disabled. Widgets SHALL be modified only in the GUI thread through signals or an equivalent safe queued mechanism.
+All source tests, combined preflight, workbook reads, reconciliation, candidate validation, serialization, publication-precondition validation, and publication SHALL execute outside the Qt GUI thread. Only one operation may run at a time. While an operation runs, path controls and conflicting actions SHALL be disabled. Widgets SHALL be modified only in the GUI thread through signals or an equivalent safe queued mechanism.
 
 The worker SHALL NOT be forcefully terminated. Window close while an operation runs SHALL be blocked or deferred with a clear message, including during atomic publication. Progress SHALL be indeterminate unless a real measurable progress contract exists; the GUI SHALL NOT invent percentages.
 
 #### Scenario: Combined preflight completes without publication
 
-- **WHEN** the operator selects valid current inputs and chooses `Check all`
+- **GIVEN** valid primary and network workbook paths
+- **WHEN** the operator chooses `Check all`
 - **THEN** both workbooks are reread and reconciled in the worker
 - **AND** an in-memory candidate is validated and reported
-- **AND** the output JSON is not created or replaced
+- **AND** no output path is required
+- **AND** no JSON is created or replaced
 
 #### Scenario: Conversion runs without freezing the GUI thread
 
@@ -148,11 +186,34 @@ The worker SHALL NOT be forcefully terminated. Window close while an operation r
 - **THEN** the GUI does not terminate the worker
 - **AND** close is blocked or deferred until the operation reaches a safe completion state
 
-### Requirement: Existing output replacement requires explicit confirmation
+### Requirement: Existing output replacement uses a guarded confirmation precondition
 
-If the selected output path already exists, the GUI SHALL request explicit operator confirmation immediately before starting conversion. Declining SHALL start no conversion and SHALL leave the existing output unchanged.
+Immediately before starting a GUI conversion, the GUI SHALL resolve the selected output path and record a publication precondition containing:
 
-After confirmation, the GUI SHALL NOT delete, truncate, pre-create, or directly rewrite the output. Publication remains owned by the importer and SHALL use the existing atomic replacement contract. A fatal failure SHALL preserve the previous valid output.
+```text
+resolved normalized output path
+existed at confirmation: true | false
+for an existing output:
+    file size
+    last-modified time with the platform's highest available precision
+    stable file identity when available without reading unsafe content
+```
+
+If the output exists, the GUI SHALL request explicit confirmation to replace that exact observed file state. If the output is absent, the GUI SHALL proceed only under the explicit precondition that the path remains absent until publication. Declining confirmation SHALL start no conversion and SHALL leave the output unchanged.
+
+After confirmation, the GUI SHALL NOT delete, truncate, pre-create, rename, or directly rewrite the output. It SHALL pass the precondition to the approved UI-independent guarded-publication boundary.
+
+Immediately before atomic replacement, the publication boundary SHALL reject the operation if:
+
+```text
+a confirmed-absent output appeared;
+a confirmed-existing output disappeared;
+a confirmed-existing output size or mtime changed;
+available stable file identity changed;
+the normalized output path differs from the confirmed path.
+```
+
+A rejected publication SHALL report fatal `OUTPUT_CHANGED_SINCE_CONFIRMATION`, `stage = PUBLICATION`, and `source_file_role = OUTPUT`. It SHALL leave the current output untouched.
 
 #### Scenario: Operator declines overwrite
 
@@ -161,22 +222,39 @@ After confirmation, the GUI SHALL NOT delete, truncate, pre-create, or directly 
 - **THEN** no conversion worker starts
 - **AND** the existing output remains byte-for-byte unchanged
 
-#### Scenario: Confirmed conversion fails
+#### Scenario: Absent output appears during conversion
 
-- **GIVEN** the operator confirms replacement of an existing output
-- **AND** conversion later encounters a fatal issue before successful atomic replacement
-- **WHEN** the operation finishes
-- **THEN** the prior output remains intact
-- **AND** the GUI presents the failed run report
+- **GIVEN** the output was absent when conversion started
+- **AND** another process creates it before publication
+- **WHEN** the publication precondition is checked
+- **THEN** conversion fails with `OUTPUT_CHANGED_SINCE_CONFIRMATION`
+- **AND** the newly created file is not replaced or removed
 
-### Requirement: GUI presents and exports the complete safe report
+#### Scenario: Existing output changes during conversion
+
+- **GIVEN** the operator confirmed an existing output fingerprint
+- **AND** the output is modified or replaced before publication
+- **WHEN** the publication precondition is checked
+- **THEN** conversion fails with `OUTPUT_CHANGED_SINCE_CONFIRMATION`
+- **AND** the changed output remains untouched
+
+#### Scenario: Confirmed output remains unchanged
+
+- **GIVEN** the output state still matches the recorded precondition
+- **WHEN** candidate validation succeeds and publication begins
+- **THEN** the importer replaces the output through the existing atomic-publication boundary
+
+### Requirement: GUI presents and exports the complete closed safe report
 
 After every completed source test, combined preflight, or conversion, the GUI SHALL show the shared operation report for success or failure.
+
+The GUI SHALL consume the exact report enums and fields defined by `equipment-inventory-snapshot`. It SHALL NOT invent alternate terminal statuses, stages, issue keys, or source-role names.
 
 The summary SHALL display, where applicable:
 
 ```text
-operation result
+operation
+terminal status
 published state
 output path
 stage reached
@@ -187,21 +265,29 @@ network reconciliation counters
 fatal, data-quality, and consistency issue counts
 ```
 
-The issue table SHALL show fatal issues before non-fatal issues and SHALL expose class, stage, code, source role, worksheet, row, source column, record ID, and safe description when available. The operator SHALL be able to filter the table by issue class and inspect safe details for a selected issue.
+The issue table SHALL show fatal issues before non-fatal issues and SHALL expose class, stage, code, source role, worksheet, row, source column, record ID, and safe description. The operator SHALL be able to filter the table by issue class and inspect the exact shared `details` object for a selected issue.
 
 Filtering SHALL affect presentation only. `Save report` SHALL export the complete unfiltered shared report as UTF-8 JSON with a trailing newline. Reports and exports SHALL NOT include complete source rows, workbook content, production inventory dumps, secrets, credentials, or unnecessary free-form evidence.
 
 #### Scenario: Successful conversion report is displayed
 
 - **WHEN** conversion publishes a valid snapshot
-- **THEN** the GUI shows publication state, output path, record count, snapshot ID, counters, and all non-fatal issues
+- **THEN** the report has `operation = CONVERSION`, terminal status `SUCCEEDED` or `SUCCEEDED_WITH_WARNINGS`, and `published = true`
+- **AND** the GUI shows output path, record count, snapshot ID, counters, and all issues
 - **AND** the complete report can be exported
 
-#### Scenario: Failed operation report is displayed
+#### Scenario: Failed conversion report is displayed
 
-- **WHEN** a test, combined preflight, or conversion fails
-- **THEN** the GUI shows the reached stage and fatal issues
+- **WHEN** conversion fails
+- **THEN** the report has `operation = CONVERSION`, `status = FAILED`, and `published = false`
+- **AND** the GUI shows the reached stage and fatal issues
 - **AND** the report remains exportable even though no new snapshot was published
+
+#### Scenario: Preflight publication state is false
+
+- **WHEN** any primary, network, or combined preflight completes
+- **THEN** its report has `published = false`
+- **AND** no output path is required
 
 #### Scenario: Filtering does not alter export
 
@@ -211,7 +297,7 @@ Filtering SHALL affect presentation only. `Save report` SHALL export the complet
 
 ### Requirement: Standalone GUI remains testable and locally disposable
 
-GUI behavior SHALL be testable with synthetic workbooks and temporary files under an offscreen Qt platform. Tests SHALL cover state transitions, stale detection, serialized operations, overwrite decline, close blocking, report rendering, filtering, and export without requiring production workbooks or the main diagnostic application.
+GUI behavior SHALL be testable with synthetic workbooks and temporary files under an offscreen Qt platform. Tests SHALL cover state transitions, stale detection, serialized operations, overwrite decline, output-change rejection, close blocking, report rendering, filtering, and export without requiring production workbooks or the main diagnostic application.
 
 Local selected-path preferences MAY be retained only as ignored local user state. Such preferences SHALL NOT be canonical data, snapshot identity, repository artifacts, validation evidence, or required configuration for CLI/direct API use.
 
