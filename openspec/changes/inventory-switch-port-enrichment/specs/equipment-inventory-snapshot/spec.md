@@ -10,7 +10,9 @@ Normal diagnostic application runtime modules SHALL NOT parse `.xlsx` workbooks 
 
 The confirmed primary organization source mapping and the confirmed network-enrichment source mapping defined by this capability SHALL be implemented explicitly. Source-only fields and consistency evidence SHALL remain inside the importer boundary unless the canonical schema explicitly includes them.
 
-A one-source conversion with no network workbook configured SHALL remain an intentional supported mode and SHALL publish schema version 2 under the existing schema-v2 contract. A conversion with an explicitly configured valid network workbook SHALL publish schema version 3. If a network workbook is explicitly configured but cannot be read or does not satisfy its required source structure, the importer SHALL fail before publication and SHALL NOT silently downgrade the requested run to schema version 2.
+A one-source conversion with no network workbook configured SHALL remain an intentional supported mode and SHALL publish schema version 2 under the existing schema-v2 contract. A conversion with an explicitly configured valid network workbook SHALL publish schema version 3. If a network workbook is explicitly configured but its path/configuration is invalid, the workbook is unreadable, worksheet `Устройства` is missing or ambiguous, or a required network header is missing or ambiguous, the importer SHALL fail before publication and SHALL NOT silently downgrade the requested run to schema version 2.
+
+Row-level network data-quality, duplication, unmatched-MAC, and ambiguity outcomes SHALL remain non-fatal when the primary candidate can still be represented. They SHALL preserve otherwise valid primary records and SHALL NOT downgrade the run to schema v2.
 
 #### Scenario: Runtime loads inventory without Excel support
 
@@ -31,14 +33,14 @@ A one-source conversion with no network workbook configured SHALL remain an inte
 #### Scenario: Explicit two-source conversion publishes schema v3
 
 - **GIVEN** both the primary equipment workbook and a valid network workbook are explicitly configured
-- **WHEN** the offline importer completes successfully
+- **WHEN** the offline importer completes successfully despite any non-fatal row-level network issues
 - **THEN** it publishes a schema-v3 canonical snapshot
 - **AND** the diagnostic runtime still consumes only the canonical JSON snapshot
 
 #### Scenario: Invalid requested network source does not downgrade
 
 - **GIVEN** a network workbook path is explicitly configured
-- **AND** that source is missing, unreadable, or structurally invalid
+- **AND** that source has a fatal path, read, worksheet, or required-header failure
 - **WHEN** conversion is attempted
 - **THEN** the importer reports a structured fatal source failure
 - **AND** it does not publish schema v2 as a fallback
@@ -46,7 +48,7 @@ A one-source conversion with no network workbook configured SHALL remain an inte
 
 ### Requirement: Converter paths use repository-safe absolute configuration
 
-The offline converter SHALL expose execution-time configuration variables named `SOURCE_XLSX_PATH` and `OUTPUT_JSON_PATH`. It SHALL additionally expose a network-source configuration value equivalent to `NETWORK_XLSX_PATH`. Each configured value SHALL be a resolved absolute `Path` before workbook reading or snapshot publication begins.
+The offline converter SHALL preserve execution-time configuration variables named `SOURCE_XLSX_PATH` and `OUTPUT_JSON_PATH` and SHALL add the exact optional network-source configuration variable `NETWORK_XLSX_PATH`. Every configured value SHALL be a resolved absolute `Path` before workbook reading or snapshot publication begins.
 
 Primary source and output path resolution priority SHALL remain:
 
@@ -57,36 +59,65 @@ repository-safe default where approved
 configuration failure
 ```
 
-The supported primary/output environment variables SHALL remain `DIAG_INVENTORY_XLSX` and `DIAG_INVENTORY_JSON`. The JSON output MAY default to the repository-local deployment snapshot path. No user-specific source workbook path SHALL be committed as a default.
-
-Network source resolution SHALL use this semantic priority:
+The supported primary/output environment variables SHALL remain `DIAG_INVENTORY_XLSX` and `DIAG_INVENTORY_JSON`. The exact network environment variable SHALL be:
 
 ```text
-explicit API or command-line network source
-environment or approved configured network source
+DIAG_INVENTORY_NETWORK_XLSX
+```
+
+The exact network CLI option SHALL be:
+
+```text
+--network-source
+```
+
+The exact optional direct API keyword SHALL be:
+
+```text
+network_source_path
+```
+
+The direct API contract SHALL be:
+
+```python
+import_equipment_inventory(
+    source_path,
+    *,
+    network_source_path=None,
+    output_path=None,
+    generated_at=None,
+)
+```
+
+Network source resolution SHALL use this priority:
+
+```text
+explicit network_source_path or --network-source
+DIAG_INVENTORY_NETWORK_XLSX
+explicitly configured NETWORK_XLSX_PATH
 no network source configured -> intentional one-source schema-v2 mode
 ```
 
-The supported network environment variable SHALL be `DIAG_INVENTORY_NETWORK_XLSX`, or an exactly equivalent reviewed implementation name documented by the runbook before implementation approval. Supplying a network source SHALL request schema-v3 conversion; failure of that configured source SHALL be fatal for that run and SHALL NOT be interpreted as absence of configuration.
+Supplying a network source through any approved public surface SHALL request schema-v3 conversion. Failure of that configured source SHALL be fatal for that run and SHALL NOT be interpreted as absence of configuration. No equivalent or implementation-selected public name is permitted.
 
-The direct import API SHALL continue to accept explicit primary source and output paths for tests and automation and SHALL accept an explicit optional network source path. A source-path configuration failure SHALL occur before candidate publication and SHALL leave any previous valid output intact.
+The JSON output MAY default to the repository-local deployment snapshot path. No user-specific workbook path SHALL be committed as a default. A source-path configuration failure SHALL occur before candidate publication and SHALL leave any previous valid output intact.
 
 #### Scenario: Environment paths are resolved
 
-- **GIVEN** relative or user-expanded path text is supplied through supported environment variables
+- **GIVEN** relative or user-expanded path text is supplied through the supported environment variables
 - **WHEN** converter configuration is initialized
-- **THEN** every configured source/output path contains an absolute resolved `Path` value
+- **THEN** `SOURCE_XLSX_PATH`, `OUTPUT_JSON_PATH`, and any configured `NETWORK_XLSX_PATH` contain absolute resolved `Path` values
 
-#### Scenario: Primary source path is not configured
+#### Scenario: Source path is not configured
 
-- **GIVEN** no CLI primary source override, no primary source environment variable, and no approved repository-safe primary source default
+- **GIVEN** no CLI source override, no source environment variable, and no approved repository-safe source default
 - **WHEN** the converter starts
 - **THEN** it exits with a clear safe configuration error
 - **AND** it does not modify the existing JSON snapshot
 
 #### Scenario: Network source is not configured
 
-- **GIVEN** no explicit or configured network source exists
+- **GIVEN** `network_source_path`, `--network-source`, `DIAG_INVENTORY_NETWORK_XLSX`, and `NETWORK_XLSX_PATH` provide no network source
 - **WHEN** converter configuration is initialized
 - **THEN** the run remains in intentional one-source mode
 - **AND** absence of the optional source is not reported as a failure
@@ -98,6 +129,147 @@ The direct import API SHALL continue to accept explicit primary source and outpu
 - **WHEN** the converter starts
 - **THEN** it returns a structured fatal configuration/source issue
 - **AND** it does not publish or replace the output snapshot
+
+#### Scenario: Direct API uses the approved keyword
+
+- **WHEN** a caller supplies `network_source_path` to `import_equipment_inventory`
+- **THEN** that exact value requests schema-v3 conversion
+- **AND** the caller does not need another implementation-specific adapter or keyword
+
+### Requirement: Existing schema-v1 snapshots remain loadable
+
+The runtime inventory loader SHALL continue to accept valid schema-v1 snapshots and SHALL additionally accept valid schema-v2 and schema-v3 snapshots. It SHALL strictly validate each supported schema version against its own approved exact record fields and identity payload.
+
+Runtime adaptation SHALL be exactly:
+
+```text
+schema v1
+    -> room_vip = null
+    -> switch_ip_address = null
+    -> switch_port = null
+
+schema v2
+    -> room_vip read from the source record
+    -> switch_ip_address = null
+    -> switch_port = null
+
+schema v3
+    -> room_vip, switch_ip_address, and switch_port read and validated
+```
+
+Adaptation SHALL NOT rewrite the source file or bypass or alter source-version snapshot identity verification. The loader SHALL NOT accept undeclared hybrid records. Unknown schema versions SHALL remain `UNSUPPORTED_SCHEMA`; missing, extra, or hybrid fields in a declared supported version SHALL remain `INVALID_SNAPSHOT`.
+
+#### Scenario: Existing deployment snapshot is loaded
+
+- **GIVEN** a valid schema-v1 snapshot created before this change
+- **WHEN** the runtime loader loads it
+- **THEN** the inventory is available
+- **AND** every runtime record exposes unknown VIP state and null switch fields
+
+#### Scenario: Hybrid snapshot is rejected
+
+- **WHEN** a snapshot claims schema version 1 but contains `room_vip` or either switch field, or claims schema version 2 but contains either switch field
+- **THEN** loading fails as an invalid snapshot
+- **AND** no partial inventory is published
+
+#### Scenario: Existing schema-v2 deployment snapshot is loaded
+
+- **GIVEN** a valid schema-v2 snapshot
+- **WHEN** the runtime loader loads it
+- **THEN** the inventory is available
+- **AND** every runtime record exposes source `room_vip` and null switch fields
+
+#### Scenario: Valid schema-v3 snapshot is loaded
+
+- **GIVEN** a valid schema-v3 snapshot with correct deterministic identity
+- **WHEN** the runtime loader loads it
+- **THEN** the inventory is available
+- **AND** both switch fields are exposed exactly as canonical nullable attributes
+
+#### Scenario: Future schema is rejected
+
+- **WHEN** a snapshot declares an undeclared schema version
+- **THEN** loading fails as `UNSUPPORTED_SCHEMA`
+- **AND** no partial inventory is published
+
+### Requirement: Structured importer diagnostics and source-row accounting
+
+Every inspected source equipment row SHALL remain accounted for as either a canonical record or a structured issue. Every non-empty inspected row from network worksheet `Устройства` SHALL additionally be accounted for as a usable connection candidate, a structured issue, or both. No non-empty row from either approved source SHALL disappear silently.
+
+Importer diagnostics SHALL continue to distinguish at least these semantic classes:
+
+```text
+fatal source-contract issue
+non-fatal invalid-field/data-quality issue
+cross-row or source-consistency issue
+```
+
+The concrete Python exception hierarchy and exact implementation type names are not part of this architecture contract. Each diagnostic SHALL nevertheless expose a machine-readable issue category/code, its semantic class, and only the minimum safe worksheet, row, or record reference needed to investigate the problem.
+
+Normal diagnostics SHALL NOT dump complete source rows, complete canonical records when not needed, complete workbook contents, production snapshots, or unrelated topology.
+
+For the network source, fatal outcomes SHALL be limited to:
+
+```text
+network path or configuration failure
+network workbook unreadable
+worksheet Устройства missing or ambiguous
+required network header missing or ambiguous
+complete candidate fails runtime schema validation
+output publication failure
+```
+
+The following network conditions SHALL be non-fatal when the primary candidate remains representable:
+
+```text
+missing or invalid network MAC
+EMPTY_SWITCH_CONNECTION
+invalid or missing switch IP or port
+DUPLICATE_SWITCH_CONNECTION_SOURCE
+AMBIGUOUS_SWITCH_CONNECTION
+AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH
+NETWORK_MAC_NOT_IN_INVENTORY
+```
+
+A row with a usable partial candidate MAY produce both the candidate and a missing/invalid-field issue. A non-fatal row-level network issue SHALL NOT block schema-v3 publication, delete a primary record, or cause silent fallback to schema v2.
+
+Consistency evidence SHALL NOT grant authority to delete records, rewrite authoritative source mappings, guess missing values, change `record_id`, change `device_kind`, merge rooms, or select a first match.
+
+#### Scenario: Invalid optional field is encountered
+
+- **WHEN** a source row has valid required fields but contains invalid optional IP or MAC data
+- **THEN** the affected canonical nullable field is null
+- **AND** the importer reports a non-fatal data-quality issue
+- **AND** the row remains represented as a canonical record
+
+#### Scenario: Consistency evidence conflicts with authoritative mapping
+
+- **WHEN** importer-side evidence suggests an authoritative mapped value may be inconsistent
+- **THEN** the importer preserves the authoritative mapping
+- **AND** it may report a consistency issue
+- **AND** it does not silently correct the canonical record from secondary evidence
+
+#### Scenario: Empty network connection row is accounted for
+
+- **GIVEN** a non-empty `Устройства` row has a valid canonical MAC
+- **AND** both switch IP and port normalize to null without another invalid-field issue describing the row
+- **WHEN** network candidates are built
+- **THEN** the row creates no connection candidate
+- **AND** the importer emits non-fatal `EMPTY_SWITCH_CONNECTION`
+
+#### Scenario: Row-level network ambiguity remains non-fatal
+
+- **GIVEN** one canonical MAC has multiple distinct usable network candidates
+- **WHEN** reconciliation runs
+- **THEN** the importer emits non-fatal `AMBIGUOUS_SWITCH_CONNECTION`
+- **AND** otherwise valid primary records remain publishable with null switch fields
+
+#### Scenario: Fatal network structure blocks publication
+
+- **GIVEN** an explicitly configured network workbook lacks the required worksheet or required header structure
+- **WHEN** conversion is attempted
+- **THEN** the importer reports a fatal source-structure issue
+- **AND** the previous valid output remains intact
 
 ## ADDED Requirements
 
@@ -117,11 +289,11 @@ The importer SHALL ignore column `Корректная запись` completely.
 
 All other columns in `Устройства`, including device IP, room text, manufacturer, model, source labels, confidence values, and prefixes, SHALL remain non-authoritative and SHALL NOT participate in the join or break ambiguity.
 
-A configured network workbook missing worksheet `Устройства` or any required semantic column SHALL produce a structured fatal source-structure issue and SHALL block candidate publication.
+A configured network workbook missing or ambiguously identifying worksheet `Устройства`, or missing or ambiguously identifying any required semantic column, SHALL produce a structured fatal source-structure issue and SHALL block candidate publication.
 
 #### Scenario: Required network source structure is present
 
-- **WHEN** the configured workbook contains worksheet `Устройства` and all three required semantic columns
+- **WHEN** the configured workbook contains one worksheet `Устройства` and one unambiguous instance of all three required semantic columns
 - **THEN** the importer may construct normalized network connection candidates
 - **AND** no other workbook column gains canonical authority
 
@@ -148,11 +320,15 @@ A configured network workbook missing worksheet `Устройства` or any re
 
 The importer SHALL normalize network `MAC-адрес` with the same canonical MAC normalization used for primary canonical `mac_address`. Missing or invalid network MAC SHALL not participate in reconciliation and SHALL produce a structured non-fatal source issue.
 
-`IP коммутатора`, when present, SHALL normalize to canonical dotted-decimal IPv4. Invalid non-blank switch IP SHALL become null plus `INVALID_SWITCH_IP` when the network row can otherwise contribute safe enrichment evidence.
+`IP коммутатора`, when present, SHALL normalize to canonical dotted-decimal IPv4. Invalid non-blank switch IP SHALL become null plus `INVALID_SWITCH_IP`.
 
 `Порт` SHALL use canonical nullable text normalization: Unicode NFC and leading/trailing trim, with empty normalized text becoming null. Case and internal text SHALL be preserved. The importer SHALL treat the value as opaque and SHALL NOT require a vendor-specific interface grammar.
 
-The importer SHALL preserve multiplicity on both sides of the join. A canonical connection SHALL be assigned only when exactly one primary canonical record and exactly one distinct normalized network connection candidate share one canonical MAC.
+A network row SHALL create a connection candidate only when at least one normalized connection field is usable. A row with valid canonical MAC and both normalized connection fields null SHALL create no candidate. When both source fields are blank/empty and no other invalid-field issue describes the condition, the importer SHALL emit `EMPTY_SWITCH_CONNECTION`. When invalid non-blank switch IP already emits `INVALID_SWITCH_IP` and port is null, the row SHALL create no candidate and an additional `EMPTY_SWITCH_CONNECTION` is not required.
+
+A no-candidate row SHALL NOT create candidate multiplicity or ambiguity with another usable row for the same canonical MAC, but its structured issue SHALL remain visible.
+
+The importer SHALL preserve multiplicity on both sides of the join. A canonical connection SHALL be assigned only when exactly one primary canonical record and exactly one distinct usable normalized network connection candidate share one canonical MAC.
 
 Reconciliation SHALL follow this table:
 
@@ -162,22 +338,22 @@ primary record has null MAC
     -> switch_port = null
     -> no join attempted
 
-one primary record, no network candidate
+one primary record, no usable network candidate
     -> both switch fields null
     -> absence alone is not a per-record issue
 
-one primary record, one distinct network candidate
+one primary record, one distinct usable network candidate
     -> copy each normalized candidate field independently
 
 multiple primary records share one MAC
     -> enrich none
     -> AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH
 
-repeated identical normalized network candidates
+repeated identical usable network candidates
     -> one distinct candidate
     -> DUPLICATE_SWITCH_CONNECTION_SOURCE
 
-multiple distinct normalized network candidates
+multiple distinct usable network candidates
     -> both canonical switch fields null
     -> AMBIGUOUS_SWITCH_CONNECTION
 
@@ -185,7 +361,7 @@ network MAC has no primary record
     -> NETWORK_MAC_NOT_IN_INVENTORY
 ```
 
-A unique partial candidate SHALL preserve its valid field. A null port with a valid switch IP SHALL produce `MISSING_SWITCH_PORT`; a null switch IP with a valid port SHALL produce `MISSING_SWITCH_IP` unless `INVALID_SWITCH_IP` already describes invalid non-blank source input.
+A unique partial candidate SHALL preserve its valid field. A null port with a valid switch IP SHALL produce `MISSING_SWITCH_PORT`; a blank switch IP with a valid port SHALL produce `MISSING_SWITCH_IP`; an invalid non-blank switch IP with a valid port SHALL produce `INVALID_SWITCH_IP` rather than an additional missing-IP issue.
 
 The importer SHALL NOT break ambiguity by first/last row, source order, non-null preference, valid-IP preference, device IP, room evidence, manufacturer, model, source metadata, confidence, prefixes, worksheet `Изменения`, or `Корректная запись`.
 
@@ -203,16 +379,31 @@ The importer SHALL NOT break ambiguity by first/last row, source order, non-null
 - **WHEN** reconciliation runs
 - **THEN** no connection is assigned from that evidence
 
+#### Scenario: Empty connection row creates no candidate
+
+- **GIVEN** one `Устройства` row has a valid canonical MAC and no usable switch IP or port
+- **WHEN** candidates for that MAC are counted
+- **THEN** that row contributes no candidate
+- **AND** its row-level issue remains observable
+
+#### Scenario: Empty row does not create ambiguity
+
+- **GIVEN** one row for a canonical MAC has no usable connection fields
+- **AND** another row for that MAC provides one usable connection candidate
+- **WHEN** reconciliation runs
+- **THEN** the usable row remains the only candidate
+- **AND** the empty row does not create `AMBIGUOUS_SWITCH_CONNECTION`
+
 #### Scenario: Duplicate identical network rows
 
-- **GIVEN** multiple `Устройства` rows for one canonical MAC normalize to the same switch IP and port pair
+- **GIVEN** multiple `Устройства` rows for one canonical MAC normalize to the same usable switch IP and port pair
 - **WHEN** reconciliation runs
 - **THEN** the pair is treated as one distinct candidate
 - **AND** the importer emits `DUPLICATE_SWITCH_CONNECTION_SOURCE`
 
 #### Scenario: Conflicting network rows remain ambiguous
 
-- **GIVEN** multiple `Устройства` rows for one canonical MAC normalize to different switch IP and/or port pairs
+- **GIVEN** multiple `Устройства` rows for one canonical MAC normalize to different usable switch IP and/or port pairs
 - **WHEN** reconciliation runs
 - **THEN** both canonical switch fields are null
 - **AND** the importer emits `AMBIGUOUS_SWITCH_CONNECTION`
@@ -227,7 +418,7 @@ The importer SHALL NOT break ambiguity by first/last row, source order, non-null
 
 #### Scenario: Unique partial connection is retained
 
-- **GIVEN** exactly one primary record and one distinct network candidate share a canonical MAC
+- **GIVEN** exactly one primary record and one distinct usable network candidate share a canonical MAC
 - **AND** exactly one of switch IP or port is usable
 - **WHEN** reconciliation runs
 - **THEN** the usable field is retained
@@ -273,6 +464,8 @@ records
 
 Records SHALL remain sorted by normalized `record_id` for identity construction. Both switch fields SHALL participate in schema-v3 identity. Generation metadata and structured import-report metadata/counters SHALL remain outside identity.
 
+For schema v3, canonical root metadata `source_row_count` SHALL retain its existing meaning and SHALL count inspected rows from the primary equipment workbook only. It SHALL NOT be the sum of both workbooks. Network worksheet row counts SHALL exist only in `ImportResult` or report metadata and SHALL NOT affect canonical identity.
+
 Schema-v3 publication SHALL remain atomic and SHALL validate the complete candidate through the runtime loader before replacing the prior output.
 
 #### Scenario: Unique connection is published
@@ -293,60 +486,17 @@ Schema-v3 publication SHALL remain atomic and SHALL validate the complete candid
 - **WHEN** one record's `switch_ip_address` or `switch_port` differs
 - **THEN** their deterministic `snapshot_id` values differ
 
+#### Scenario: Primary source row count remains canonical metadata
+
+- **GIVEN** two successful schema-v3 conversions inspect the same primary equipment rows but different numbers of network rows
+- **WHEN** canonical root metadata is produced
+- **THEN** `source_row_count` equals the primary equipment-workbook row count in both outputs
+- **AND** the network row count remains report metadata only
+
 #### Scenario: Hybrid schema-v2 record is rejected
 
 - **WHEN** a snapshot claims schema version 2 but contains either schema-v3 switch field
 - **THEN** loading fails as an invalid snapshot
-- **AND** no partial inventory is published
-
-### Requirement: Existing schema-v1 and schema-v2 snapshots remain loadable after schema v3
-
-The runtime loader SHALL accept valid snapshots with schema versions 1, 2, and 3 and SHALL strictly validate each version against its own exact record fields and identity payload.
-
-Runtime adaptation SHALL be:
-
-```text
-schema v1
-    -> room_vip = null
-    -> switch_ip_address = null
-    -> switch_port = null
-
-schema v2
-    -> room_vip read from source record
-    -> switch_ip_address = null
-    -> switch_port = null
-
-schema v3
-    -> room_vip, switch_ip_address, and switch_port read and validated
-```
-
-Adaptation SHALL NOT rewrite the source file or alter source-version identity verification. Unknown schema versions SHALL remain `UNSUPPORTED_SCHEMA`. Missing, extra, or hybrid fields within a declared supported version SHALL remain `INVALID_SNAPSHOT`.
-
-#### Scenario: Existing schema-v1 deployment snapshot is loaded
-
-- **GIVEN** a valid schema-v1 snapshot
-- **WHEN** the runtime loader loads it
-- **THEN** the inventory is available
-- **AND** runtime records expose null VIP and null switch fields
-
-#### Scenario: Existing schema-v2 deployment snapshot is loaded
-
-- **GIVEN** a valid schema-v2 snapshot
-- **WHEN** the runtime loader loads it
-- **THEN** the inventory is available
-- **AND** runtime records expose source `room_vip` and null switch fields
-
-#### Scenario: Valid schema-v3 snapshot is loaded
-
-- **GIVEN** a valid schema-v3 snapshot with correct deterministic identity
-- **WHEN** the runtime loader loads it
-- **THEN** the inventory is available
-- **AND** both switch fields are exposed exactly as canonical nullable attributes
-
-#### Scenario: Future schema is rejected
-
-- **WHEN** a snapshot declares an undeclared schema version
-- **THEN** loading fails as `UNSUPPORTED_SCHEMA`
 - **AND** no partial inventory is published
 
 ### Requirement: Schema-v3 switch fields are passive runtime data in this change
@@ -363,7 +513,7 @@ room_id -> tuple[EquipmentRecord, ...]
 
 This change SHALL NOT add an index or public query by switch IP or switch port. Diagnostic dispatch, credential configuration, room-context aggregation, PDU-room-codec enrichment, related-codec status, handlers, controllers, workers, transports, and device I/O SHALL ignore both switch fields.
 
-The importer MAY extend its structured result with safe network worksheet/header context and aggregate counts needed to validate two-source conversion. Those report fields SHALL NOT enter canonical records or `snapshot_id`.
+The importer MAY extend its structured result with safe network worksheet/header context and aggregate counts needed to validate two-source conversion. Those report fields SHALL NOT enter canonical records, canonical `source_row_count`, or `snapshot_id`.
 
 #### Scenario: Existing IP and room queries are unchanged
 
