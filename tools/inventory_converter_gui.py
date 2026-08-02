@@ -441,7 +441,7 @@ class InventoryConverterWindow(QMainWindow):
             edit = self.network_edit
         before = self._active_source_fingerprint if self._active_source_role == role else None
         after = self._current_fingerprint(edit.text())
-        if result.status != "FAILED" and before is not None and after != before:
+        if after != before:
             state = "STALE"
             fingerprint = None
         else:

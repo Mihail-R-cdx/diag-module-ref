@@ -4,10 +4,10 @@
 
 - Remote refs before follow-up fixes:
   - `origin/master = 642d691d9065fb04c8e6c94f4d26af3921e20430`
-  - `origin/agent/standalone-inventory-converter-operator-workflow = 5ad94981652db5e75c8027cd778deb7a4fc70e5e`
+  - `origin/agent/standalone-inventory-converter-operator-workflow = 98bb2aaa72f17ac64bb42c3949b076e5008d9878`
 - Implementation worktree:
   - `.worktrees/impl-standalone-inventory-converter-operator-workflow`
-  - starting `HEAD = 5ad94981652db5e75c8027cd778deb7a4fc70e5e`
+  - starting `HEAD = 98bb2aaa72f17ac64bb42c3949b076e5008d9878`
 - Python:
   - `C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe`
   - `Python 3.12.9`
@@ -17,15 +17,17 @@
   - `npm ci -> added 79 packages, audited 80 packages, 0 vulnerabilities`
 - Fresh validation results:
   - `python -m unittest tests.test_equipment_inventory -v -> Ran 29 tests, OK`
-  - `QT_QPA_PLATFORM=offscreen python -m unittest tests.test_inventory_converter_gui -v -> Ran 11 tests, OK`
+  - `QT_QPA_PLATFORM=offscreen python -m unittest tests.test_inventory_converter_gui -v -> Ran 14 tests, OK`
   - `python -m unittest tests.test_equipment_inventory tests.test_inventory_diagnostic_dispatch tests.test_inventory_credential_configuration tests.test_pdu_room_codec_enrichment tests.test_equipment_room_context_gui -v -> Ran 127 tests, OK`
-  - `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py" -v -> Ran 624 tests, OK`
+  - `QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -p "test_*.py" -v -> Ran 627 tests, OK`
   - `.\openspec.cmd validate standalone-inventory-converter-operator-workflow --strict -> valid`
   - `.\openspec.cmd validate --all --strict -> 11 passed, 0 failed`
   - `git diff --check -> passed`
 - Detached GUI smoke:
   - `Start-Process` launched `tools\inventory_converter_gui.py` as a standalone process; the main diagnostic application did not launch.
-  - Detached functional smoke ran `tests.test_inventory_converter_gui` against synthetic workbooks and temporary outputs/reports: startup separation, Primary Test success, Network Test success, source failure, `PASSED_WITH_WARNINGS`, path edit reset, file-change stale, Check all without output, successful conversion, failed conversion/internal error, overwrite decline, overwrite acceptance, `OUTPUT_CHANGED_SINCE_CONFIRMATION`, fatal-first ordering, issue filtering/details, complete report export with exact trailing newline, and close blocking while an operation runs.
+  - Real detached GUI checks passed with synthetic inputs: startup separation, Primary Test success, Primary Test `PASSED_WITH_WARNINGS`, Primary Test failed report, Network Test success, Network Test failed report, path-edit reset to `NOT_TESTED`, file-change `STALE`, `Check all` without output, successful conversion, failed conversion without publication, overwrite decline preserving output, overwrite acceptance replacing output, `OUTPUT_CHANGED_SINCE_CONFIRMATION` with output preserved and exported report, main application launch without converter window, controls disabled/re-enabled across a worker run, and close blocked while an operation runs.
+  - Real detached GUI report checks passed: failed report table visible with fatal issue first and native Save report dialog can export UTF-8 JSON with exactly one trailing newline.
+  - Real detached GUI smoke remains partial: UI Automation could not make the Qt issue-class filter mutate `currentTextChanged`, and UIA table selection did not trigger `itemSelectionChanged`; the offscreen GUI regression covers filtering and details, but these two real-interaction scenarios are not manually completed.
 
 ## 1. Architecture and baseline
 
@@ -97,7 +99,7 @@
 - [x] Document that `Check all` requires no output path.
 - [x] Document that `Изменения` and `Корректная запись` remain ignored.
 - [x] Launch the standalone GUI as a detached process under `RULES.md` using synthetic inputs.
-- [x] Manually verify primary test, network test, stale transition, combined preflight before output selection, successful conversion, failed conversion, overwrite decline/acceptance, output-change rejection, report filtering, report export, and close behavior.
+- [ ] Manually verify primary test, network test, stale transition, combined preflight before output selection, successful conversion, failed conversion, overwrite decline/acceptance, output-change rejection, report filtering, report export, and close behavior.
 - [x] Confirm the main diagnostic application starts and operates without importing or launching the converter GUI.
 
 ## 7. Required validation

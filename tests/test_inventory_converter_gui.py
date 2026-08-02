@@ -305,6 +305,98 @@ class InventoryConverterGUITests(unittest.TestCase):
             self.assertEqual("STALE", self.window.network_state_label.text())
             self.assertTrue(self.window.save_report_button.isEnabled())
 
+    def test_failed_source_preflight_changes_during_operation_mark_state_stale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "bad-primary.xlsx"
+            network = Path(directory) / "bad-network.xlsx"
+            source.write_text("not a workbook", encoding="utf-8")
+            network.write_text("not a workbook", encoding="utf-8")
+            self.window.primary_edit.setText(str(source))
+            self.window.network_edit.setText(str(network))
+
+            real_primary_preflight = importer.preflight_primary_source
+
+            def failing_changed_primary(path):
+                result = real_primary_preflight(path)
+                write_xlsx(Path(path), [source_row("RID-2", mac="00:11:22:33:44:02", controller=None)])
+                return result
+
+            with patch.object(converter_gui, "preflight_primary_source", side_effect=failing_changed_primary):
+                self.window.run_primary_test()
+                wait_for_idle(self.window)
+            self.assertEqual("FAILED", self.window._current_report.status)
+            self.assertEqual(ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value, self.window._current_report.operation)
+            self.assertEqual("STALE", self.window.primary_state_label.text())
+            self._assert_report_exportable(ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value)
+
+            real_network_preflight = importer.preflight_network_source
+
+            def failing_changed_network(path):
+                result = real_network_preflight(path)
+                write_network_xlsx(Path(path), [network_row("00-11-22-33-44-02")])
+                return result
+
+            with patch.object(converter_gui, "preflight_network_source", side_effect=failing_changed_network):
+                self.window.run_network_test()
+                wait_for_idle(self.window)
+            self.assertEqual("FAILED", self.window._current_report.status)
+            self.assertEqual(ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value, self.window._current_report.operation)
+            self.assertEqual("STALE", self.window.network_state_label.text())
+            self._assert_report_exportable(ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value)
+
+    def test_source_preflight_none_fingerprint_transitions_mark_state_stale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            write_xlsx(source, [source_row("RID-1", controller=None)])
+            self.window.primary_edit.setText(str(source))
+
+            real_primary_preflight = importer.preflight_primary_source
+
+            def disappearing_primary(path):
+                result = real_primary_preflight(path)
+                Path(path).unlink()
+                return result
+
+            with patch.object(converter_gui, "preflight_primary_source", side_effect=disappearing_primary):
+                self.window.run_primary_test()
+                wait_for_idle(self.window)
+            self.assertEqual("SUCCEEDED", self.window._current_report.status)
+            self.assertEqual("STALE", self.window.primary_state_label.text())
+
+            missing_source = Path(directory) / "appears-during-test.xlsx"
+            self.window.primary_edit.setText(str(missing_source))
+
+            def appearing_primary(path):
+                result = real_primary_preflight(path)
+                write_xlsx(Path(path), [source_row("RID-2", controller=None)])
+                return result
+
+            with patch.object(converter_gui, "preflight_primary_source", side_effect=appearing_primary):
+                self.window.run_primary_test()
+                wait_for_idle(self.window)
+            self.assertEqual("FAILED", self.window._current_report.status)
+            self.assertEqual("STALE", self.window.primary_state_label.text())
+            self._assert_report_exportable(ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value)
+
+    def test_stable_failed_source_preflight_maps_to_failed_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "bad-primary.xlsx"
+            network = Path(directory) / "bad-network.xlsx"
+            source.write_text("not a workbook", encoding="utf-8")
+            network.write_text("not a workbook", encoding="utf-8")
+            self.window.primary_edit.setText(str(source))
+            self.window.network_edit.setText(str(network))
+
+            self.window.run_primary_test()
+            wait_for_idle(self.window)
+            self.assertEqual("FAILED", self.window._current_report.status)
+            self.assertEqual("FAILED", self.window.primary_state_label.text())
+
+            self.window.run_network_test()
+            wait_for_idle(self.window)
+            self.assertEqual("FAILED", self.window._current_report.status)
+            self.assertEqual("FAILED", self.window.network_state_label.text())
+
     def test_unchanged_source_preflight_maps_success_and_warning_states(self):
         with tempfile.TemporaryDirectory() as directory:
             source, network = self._write_sources(directory)
