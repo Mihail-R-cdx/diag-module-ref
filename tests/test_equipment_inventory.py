@@ -296,7 +296,7 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             self.assertEqual(InventoryLoadFailure.INVALID_FORMAT, error.exception.category)
 
             unsupported = Path(directory) / "unsupported.json"
-            unsupported.write_text(json.dumps({"schema_version": 3, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
+            unsupported.write_text(json.dumps({"schema_version": 4, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
             with self.assertRaises(EquipmentInventoryLoadError) as error:
                 load_equipment_inventory(unsupported)
             self.assertEqual(InventoryLoadFailure.UNSUPPORTED_SCHEMA, error.exception.category)
