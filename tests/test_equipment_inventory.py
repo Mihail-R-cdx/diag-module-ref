@@ -14,6 +14,7 @@ from core.equipment_inventory import (
     SCHEMA_VERSION,
     SCHEMA_VERSION_V1,
     SCHEMA_VERSION_V2,
+    SCHEMA_VERSION_V3,
     EquipmentInventoryLoadError,
     EquipmentRecord,
     InventoryLoadFailure,
@@ -26,11 +27,20 @@ from core.equipment_inventory import (
 )
 from tools.import_equipment_inventory import (
     ConverterConfigurationError,
+    ConverterOperation,
+    ConverterStage,
     EVIDENCE_COLUMNS,
+    NETWORK_COLUMNS,
+    NETWORK_WORKSHEET,
     OUTPUT_JSON_ENV,
     SOURCE_COLUMNS,
     SOURCE_XLSX_ENV,
+    SourceFileRole,
+    capture_output_precondition,
     import_equipment_inventory,
+    preflight_combined_sources,
+    preflight_network_source,
+    preflight_primary_source,
     resolve_converter_paths,
 )
 
@@ -48,6 +58,12 @@ HEADERS = [
     SOURCE_COLUMNS["ip_address"],
     SOURCE_COLUMNS["mac_address"],
     SOURCE_COLUMNS["serial_number"],
+]
+NETWORK_HEADERS = [
+    NETWORK_COLUMNS["mac_address"],
+    NETWORK_COLUMNS["switch_ip_address"],
+    NETWORK_COLUMNS["switch_port"],
+    "Корректная запись",
 ]
 
 
@@ -182,6 +198,25 @@ def write_xlsx_sheets(path, sheets, active_index=0):
                 _name, sheet_rows, sheet_headers = sheet
                 header_row = 1
             archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet_rows, sheet_headers, header_row))
+
+
+def network_row(mac, *, switch_ip="198.51.100.10", port="Gi1/0/10", correct="Нет"):
+    return {
+        NETWORK_COLUMNS["mac_address"]: mac,
+        NETWORK_COLUMNS["switch_ip_address"]: switch_ip,
+        NETWORK_COLUMNS["switch_port"]: port,
+        "Корректная запись": correct,
+    }
+
+
+def write_network_xlsx(path, rows, *, headers=NETWORK_HEADERS):
+    write_xlsx_sheets(
+        path,
+        [
+            (NETWORK_WORKSHEET, rows, headers),
+            ("Изменения", [network_row("00:11:22:33:44:ff", port="IGNORED")], headers),
+        ],
+    )
 
 
 def issue_codes_by_record(issues):
@@ -1017,6 +1052,188 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
         self.assertFalse(result.published)
         self.assertFalse(output.exists())
         self.assertEqual(("SOURCE_STRUCTURE_AMBIGUOUS",), tuple(issue.code for issue in result.fatal_issues))
+
+
+class EquipmentInventoryConverterOperationTests(unittest.TestCase):
+    def _write_primary_and_network(self, directory):
+        source = Path(directory) / "inventory.xlsx"
+        network = Path(directory) / "network.xlsx"
+        write_xlsx(
+            source,
+            [
+                source_row(
+                    "RID-1",
+                    source_model="Huawei TE20",
+                    ip="192.0.2.10",
+                    mac="00:11:22:33:44:01",
+                    serial="SER-1",
+                    manufacturer="Huawei",
+                    model="TE20",
+                    controller=None,
+                )
+            ],
+        )
+        write_network_xlsx(network, [network_row("00-11-22-33-44-01")])
+        return source, network
+
+    def assertClosedReportShape(self, report):
+        self.assertTrue(
+            {
+                "operation",
+                "status",
+                "stage_reached",
+                "schema_version",
+                "source_files",
+                "output_path",
+                "published",
+                "data_quality_issue_count",
+                "consistency_issue_count",
+                "worksheet",
+                "header_row",
+                "source_row_count",
+                "record_count",
+                "snapshot_id",
+                "fatal_issue_count",
+                "non_fatal_issue_count",
+                "issues",
+            }.issubset(report)
+        )
+        self.assertEqual({"primary", "network"}, set(report["source_files"]))
+        for issue in report["issues"]:
+            self.assertEqual(
+                {
+                    "class",
+                    "code",
+                    "sheet",
+                    "row",
+                    "record_id",
+                    "description",
+                    "stage",
+                    "source_file_role",
+                    "source_column",
+                    "related_row",
+                    "details",
+                },
+                set(issue),
+            )
+            self.assertIsInstance(issue["details"], dict)
+
+    def test_preflight_operations_use_closed_report_shape_and_do_not_publish(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, network = self._write_primary_and_network(directory)
+            output = Path(directory) / "snapshot.json"
+            output.write_text("previous-output", encoding="utf-8")
+
+            primary = preflight_primary_source(source)
+            network_result = preflight_network_source(network)
+            combined = preflight_combined_sources(source, network)
+            preserved_output = output.read_text(encoding="utf-8")
+
+        self.assertEqual("previous-output", preserved_output)
+        self.assertEqual(ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value, primary.operation)
+        self.assertEqual(ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value, network_result.operation)
+        self.assertEqual(ConverterOperation.COMBINED_PREFLIGHT.value, combined.operation)
+        self.assertFalse(primary.published)
+        self.assertFalse(network_result.published)
+        self.assertFalse(combined.published)
+        self.assertIsNone(primary.output_path)
+        self.assertIsNone(network_result.output_path)
+        self.assertIsNone(combined.output_path)
+        self.assertEqual(SCHEMA_VERSION_V3, combined.schema_version)
+        self.assertIsNotNone(combined.snapshot_id)
+        self.assertEqual(1, combined.record_count)
+        self.assertNotIn("NETWORK_MAC_NOT_IN_INVENTORY", {issue.code for issue in network_result.issues})
+        for result in (primary, network_result, combined):
+            self.assertEqual(ConverterStage.COMPLETE.value, result.stage_reached)
+            self.assertClosedReportShape(result.to_report())
+
+    def test_conversion_rereads_current_source_after_successful_preflight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, network = self._write_primary_and_network(directory)
+            output = Path(directory) / "snapshot.json"
+            preflight = preflight_combined_sources(source, network)
+            self.assertEqual("SUCCEEDED", preflight.status)
+
+            write_xlsx(source, [source_row(None, mac="00:11:22:33:44:01")])
+            result = import_equipment_inventory(source, network_source_path=network, output_path=output)
+
+        self.assertFalse(result.published)
+        self.assertFalse(output.exists())
+        self.assertEqual(("MISSING_RECORD_ID",), tuple(issue.code for issue in result.fatal_issues))
+
+    def test_guarded_publication_allows_absent_and_unchanged_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, network = self._write_primary_and_network(directory)
+            absent_output = Path(directory) / "absent.json"
+            absent_precondition = capture_output_precondition(absent_output)
+            absent = import_equipment_inventory(
+                source,
+                network_source_path=network,
+                output_path=absent_output,
+                publication_precondition=absent_precondition,
+            )
+
+            existing_output = Path(directory) / "existing.json"
+            existing_output.write_text("previous-output", encoding="utf-8")
+            existing_precondition = capture_output_precondition(existing_output)
+            existing = import_equipment_inventory(
+                source,
+                network_source_path=network,
+                output_path=existing_output,
+                publication_precondition=existing_precondition,
+            )
+            absent_schema = json.loads(absent_output.read_text(encoding="utf-8"))["schema_version"]
+            existing_schema = json.loads(existing_output.read_text(encoding="utf-8"))["schema_version"]
+
+        self.assertTrue(absent.published)
+        self.assertTrue(existing.published)
+        self.assertEqual(SCHEMA_VERSION_V3, absent_schema)
+        self.assertEqual(SCHEMA_VERSION_V3, existing_schema)
+
+    def test_guarded_publication_rejects_output_state_changes_and_preserves_bytes(self):
+        cases = ("appeared", "modified", "deleted", "path_mismatch")
+        for case in cases:
+            with self.subTest(case=case):
+                with tempfile.TemporaryDirectory() as directory:
+                    source, network = self._write_primary_and_network(directory)
+                    output = Path(directory) / "snapshot.json"
+                    call_output = output
+                    if case == "appeared":
+                        precondition = capture_output_precondition(output)
+                        output.write_text("new-current-output", encoding="utf-8")
+                        expected = "new-current-output"
+                    elif case == "modified":
+                        output.write_text("previous-output", encoding="utf-8")
+                        precondition = capture_output_precondition(output)
+                        output.write_text("changed-output", encoding="utf-8")
+                        expected = "changed-output"
+                    elif case == "deleted":
+                        output.write_text("previous-output", encoding="utf-8")
+                        precondition = capture_output_precondition(output)
+                        output.unlink()
+                        expected = None
+                    else:
+                        output.write_text("previous-output", encoding="utf-8")
+                        precondition = capture_output_precondition(output)
+                        call_output = Path(directory) / "other.json"
+                        expected = "previous-output"
+
+                    result = import_equipment_inventory(
+                        source,
+                        network_source_path=network,
+                        output_path=call_output,
+                        publication_precondition=precondition,
+                    )
+
+                    self.assertFalse(result.published)
+                    self.assertEqual(("OUTPUT_CHANGED_SINCE_CONFIRMATION",), tuple(issue.code for issue in result.fatal_issues))
+                    self.assertEqual(SourceFileRole.OUTPUT.value, result.fatal_issues[0].source_file_role)
+                    if expected is None:
+                        self.assertFalse(output.exists())
+                    else:
+                        self.assertEqual(expected, output.read_text(encoding="utf-8"))
+                    if call_output != output:
+                        self.assertFalse(call_output.exists())
 
 
 class EquipmentInventoryGitignoreTests(unittest.TestCase):

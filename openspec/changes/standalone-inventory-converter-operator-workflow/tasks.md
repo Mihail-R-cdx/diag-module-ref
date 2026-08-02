@@ -1,5 +1,32 @@
 # Tasks: Standalone inventory converter operator workflow
 
+## Implementation evidence: 2026-08-02
+
+- Remote refs before implementation:
+  - `origin/master = 642d691d9065fb04c8e6c94f4d26af3921e20430`
+  - `origin/agent/standalone-inventory-converter-operator-workflow = 05e61b9fd27f5104d27eb8fbb05533f10d719e3a`
+  - `gh auth status` failed because saved tokens were invalid; PR metadata beyond remote refs was not available through authenticated `gh`.
+- Implementation worktree:
+  - `.worktrees/impl-standalone-inventory-converter-operator-workflow`
+  - starting `HEAD = 05e61b9fd27f5104d27eb8fbb05533f10d719e3a`
+- Python:
+  - `C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe`
+  - `Python 3.12.9`
+- Node/npm:
+  - `node --version -> v20.19.0`
+  - `npm --version -> 10.8.2`
+  - `npm ci -> added 79 packages, audited 80 packages, 0 vulnerabilities`
+- Fresh validation results:
+  - `python -m unittest tests.test_equipment_inventory -v -> Ran 29 tests, OK`
+  - `QT_QPA_PLATFORM=offscreen python -m unittest tests.test_inventory_converter_gui -v -> Ran 6 tests, OK`
+  - `python -m unittest tests.test_equipment_inventory tests.test_inventory_diagnostic_dispatch tests.test_inventory_credential_configuration tests.test_pdu_room_codec_enrichment tests.test_equipment_room_context_gui -v -> Ran 127 tests, OK`
+  - `python -m unittest discover -s tests -p "test_*.py" -v -> Ran 619 tests, OK`
+  - `.\openspec.cmd validate standalone-inventory-converter-operator-workflow --strict -> valid`
+  - `.\openspec.cmd validate --all --strict -> 11 passed, 0 failed`
+  - `git diff --check -> passed with existing Windows filename-length warning for archived .gitattributes lookup`
+- Detached GUI smoke:
+  - `Start-Process` launched `tools\inventory_converter_gui.py`; the idle process started successfully and was stopped after startup verification.
+
 ## 1. Architecture and baseline
 
 - [ ] Read current `RULES.md` and `docs/equipment-inventory-runbook.md` before implementation.
