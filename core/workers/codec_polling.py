@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from PyQt5.QtCore import QRunnable, pyqtSlot
 
 from core.codec_connection_profiles import order_codec_profiles
-from core.exceptions import AuthenticationError, ConnectionError, ProtocolError
+from core.exceptions import AuthenticationError, ConnectionError, ParseError, ProtocolError
 from core.parser import HuaweiBar310DataParser, HuaweiTE40DataParser
 from core.redaction import (
     redact_data,
@@ -298,8 +298,9 @@ class HuaweiBar310Worker(QRunnable):
                 or parsed_data.get("Модель") != "Huawei CloudLink Bar 310"
                 or not isinstance(parsed_data.get("Версия ПО"), str)
                 or not parsed_data["Версия ПО"].strip()
+                or parsed_data["Версия ПО"].casefold() == "unknown"
             ):
-                raise ProtocolError("Bar 310 parser returned unusable status")
+                raise ParseError("Bar 310 parser returned unusable status")
 
             parsed_data['ip_address'] = self.ip_address
             parsed_data['connection_profile'] = {

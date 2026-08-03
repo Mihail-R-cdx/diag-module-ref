@@ -189,6 +189,20 @@ class Bar310StatusPollingTests(unittest.TestCase):
         self.assertNotIn("Режим презентации", parsed)
         self.assertNotIn("Статус звонка", parsed)
 
+    def test_parser_keeps_hd_ai_microphone_fields_owned_by_hd_ai_endpoint(self):
+        core = {"model": "Huawei CloudLink Bar 310", "version": "V1"}
+        audio_only = HuaweiBar310DataParser.parse_raw_data(
+            dict(core, mic_mute="On")
+        )
+        self.assertNotIn("Статус микрофона", audio_only)
+        self.assertNotIn("Громкость микрофона", audio_only)
+
+        hd_ai = HuaweiBar310DataParser.parse_raw_data(
+            dict(core, mic_connection_status="Подключён", mic_volume=0)
+        )
+        self.assertEqual(hd_ai["Статус микрофона"], "Подключён")
+        self.assertEqual(hd_ai["Громкость микрофона"], "0")
+
     def test_worker_rejects_unusable_raw_status_as_protocol_error(self):
         self._assert_worker_outcome({}, expect_result=False)
         self._assert_worker_outcome([], expect_result=False)
@@ -202,6 +216,23 @@ class Bar310StatusPollingTests(unittest.TestCase):
             parser_error=ParseError("synthetic parser contract failure"),
         )
 
+    def test_worker_rejects_invalid_parser_mappings_as_protocol_error(self):
+        invalid_results = [
+            {},
+            {"Модель": "Huawei CloudLink Bar 310"},
+            {"Модель": "wrong", "Версия ПО": "V1"},
+            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": ""},
+            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": "   "},
+            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": "Unknown"},
+            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": "uNkNoWn"},
+        ]
+        raw_status = {"model": "Huawei CloudLink Bar 310", "version": "V1"}
+        for parsed_result in invalid_results:
+            with self.subTest(parsed_result=parsed_result):
+                self._assert_worker_outcome(
+                    raw_status, expect_result=False, parser_result=parsed_result
+                )
+
     def test_worker_emits_usable_partial_status_then_cleans_up(self):
         events, results, errors = self._assert_worker_outcome(
             {"model": "Huawei CloudLink Bar 310", "version": "V1", "speaker_volume": 0},
@@ -213,7 +244,9 @@ class Bar310StatusPollingTests(unittest.TestCase):
         self.assertLess(events.index("result"), events.index("disconnected"))
         self.assertLess(events.index("disconnected"), events.index("finished"))
 
-    def _assert_worker_outcome(self, payload, expect_result, parser_error=None):
+    def _assert_worker_outcome(
+        self, payload, expect_result, parser_error=None, parser_result=None
+    ):
         class FakeHandler:
             port = 443
             use_ssl = True
@@ -242,6 +275,11 @@ class Bar310StatusPollingTests(unittest.TestCase):
                 side_effect=parser_error,
             )
             if parser_error is not None
+            else patch(
+                "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data",
+                return_value=parser_result,
+            )
+            if parser_result is not None
             else nullcontext()
         )
         with patch("core.workers.codec_polling.CloudLinkBar310Handler", FakeHandler), parser_context:
