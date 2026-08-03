@@ -2,6 +2,7 @@ import re
 import datetime
 from collections.abc import Mapping, Sequence
 from typing import Dict, Any
+from core.exceptions import ParseError
 from utils.te20_audio import format_te20_monitor_audio_level
 
 
@@ -433,81 +434,74 @@ class HuaweiBar310DataParser:
     
     @staticmethod
     def parse_raw_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Парсинг сырых данных от Huawei CloudLink Bar 310"""
-        parsed = {}
-        
-        if not raw_data:
-            return parsed
-        
-        # Модель и версия
-        parsed['Модель'] = raw_data.get('model', 'Huawei CloudLink Bar 310')
-        parsed['Версия ПО'] = HuaweiBar310DataParser._clean_version(raw_data.get('version', ''))
-        parsed['Серийный номер'] = raw_data.get('serial_number', 'N/A')
-        parsed['Версия микрофона'] = raw_data.get('mic_version', 'N/A')
-        parsed['MAC адрес'] = raw_data.get('mac_address', 'N/A')
-        
-        # Статусы SIP
-        sip_status = HuaweiBar310DataParser._map_sip_status(raw_data.get('sip_status', 'Off'))
-        parsed['SIP регистрация'] = sip_status
-        parsed['SIP адрес'] = raw_data.get('sip_server', 'N/A')
-        parsed['SIP номер'] = raw_data.get('sip_number', 'N/A')
-        
-        # Время работы
-        parsed['Время работы'] = raw_data.get('uptime', 'N/A')
-        
-        # Статус звонка
-        parsed['Статус звонка'] = HuaweiBar310DataParser._map_call_status(
-            raw_data.get('call_status', 'No Call')
-        )
-        
-        # Тип вызова и состояние конференции
-        parsed['Тип вызова'] = HuaweiBar310DataParser._map_call_type(
-            raw_data.get('call_type', 'Unknown')
-        )
-        parsed['Состояние конференции'] = HuaweiBar310DataParser._map_conference_state(
-            raw_data.get('conference_state', 'Idle')
-        )
-        
-        # Презентация
-        parsed['Режим презентации'] = HuaweiBar310DataParser._map_presentation(
-            raw_data.get('presentation', 'Stop')
-        )
-        
-        # Режим сна
-        parsed['Режим сна'] = HuaweiBar310DataParser._map_sleep_mode(
-            raw_data.get('sleep_mode', 'Off')
-        )
-        
-        # Аудио статусы
-        if raw_data.get('mic_connection_status'):
-            parsed['Статус микрофона'] = raw_data.get('mic_connection_status')
-        else:
-            parsed['Статус микрофона'] = HuaweiBar310DataParser._map_mic_status(
-                raw_data.get('mic_mute', 'Off')
+        """Convert only validated canonical Bar 310 observations for display."""
+        if not isinstance(raw_data, Mapping):
+            raise ParseError("Bar 310 payload is not an object")
+        if raw_data.get("model") != "Huawei CloudLink Bar 310":
+            raise ParseError("Bar 310 model evidence is missing or invalid")
+        version = raw_data.get("version")
+        if not isinstance(version, str) or not version.strip() or version.casefold() == "unknown":
+            raise ParseError("Bar 310 version evidence is missing or invalid")
+        cleaned_version = HuaweiBar310DataParser._clean_version(version)
+        if not cleaned_version or cleaned_version.casefold() == "unknown":
+            raise ParseError("Bar 310 display version is unusable")
+
+        parsed = {
+            "Модель": "Huawei CloudLink Bar 310",
+            "Версия ПО": cleaned_version,
+        }
+        direct_fields = {
+            "serial_number": "Серийный номер",
+            "mic_version": "Версия микрофона",
+            "mac_address": "MAC адрес",
+            "sip_server": "SIP адрес",
+            "sip_number": "SIP номер",
+            "uptime": "Время работы",
+        }
+        for source, target in direct_fields.items():
+            if source in raw_data and raw_data[source] is not None:
+                parsed[target] = raw_data[source]
+
+        if "sip_status" in raw_data and raw_data["sip_status"] is not None:
+            parsed["SIP регистрация"] = HuaweiBar310DataParser._map_sip_status(
+                raw_data["sip_status"]
             )
-        if 'mic_volume' in raw_data and raw_data.get('mic_volume') is not None:
-            parsed['Громкость микрофона'] = str(raw_data.get('mic_volume'))
-        
-        parsed['Статус динамика'] = HuaweiBar310DataParser._map_speaker_status(
-            raw_data.get('speaker_mute', 'Off')
-        )
-        if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
-            parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
-        
-        
-        parsed['Статус камеры'] = 'Подключена'
-        
-        # WAN IP
-        if 'wan_ip' in raw_data:
-            parsed['WAN IP'] = raw_data['wan_ip']
-        
+        if "call_status" in raw_data and raw_data["call_status"] is not None:
+            parsed["Статус звонка"] = HuaweiBar310DataParser._map_call_status(
+                raw_data["call_status"]
+            )
+        if "presentation" in raw_data and raw_data["presentation"] is not None:
+            parsed["Режим презентации"] = HuaweiBar310DataParser._map_presentation(
+                raw_data["presentation"]
+            )
+        if "sleep_mode" in raw_data and raw_data["sleep_mode"] is not None:
+            parsed["Режим сна"] = HuaweiBar310DataParser._map_sleep_mode(
+                raw_data["sleep_mode"]
+            )
+        if "mic_connection_status" in raw_data and raw_data["mic_connection_status"] is not None:
+            parsed["Статус микрофона"] = raw_data["mic_connection_status"]
+        elif "mic_mute" in raw_data and raw_data["mic_mute"] is not None:
+            parsed["Статус микрофона"] = HuaweiBar310DataParser._map_mic_status(
+                raw_data["mic_mute"]
+            )
+        if "mic_volume" in raw_data and raw_data["mic_volume"] is not None:
+            parsed["Громкость микрофона"] = str(raw_data["mic_volume"])
+        if "speaker_mute" in raw_data and raw_data["speaker_mute"] is not None:
+            parsed["Статус динамика"] = HuaweiBar310DataParser._map_speaker_status(
+                raw_data["speaker_mute"]
+            )
+        if "speaker_volume" in raw_data and raw_data["speaker_volume"] is not None:
+            parsed["Громкость динамиков"] = str(raw_data["speaker_volume"])
+        if "camera_status" in raw_data and raw_data["camera_status"] is not None:
+            camera_states = {"On": "Подключена", "Off": "Не подключена"}
+            parsed["Статус камеры"] = camera_states.get(
+                raw_data["camera_status"], raw_data["camera_status"]
+            )
         return parsed
     
     @staticmethod
     def _clean_version(version: str) -> str:
         """Очистка версии ПО"""
-        if not version:
-            return "Unknown"
         # Убираем все управляющие символы
         version = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', version)
         # Убираем лишние пробелы
