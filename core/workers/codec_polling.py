@@ -2,11 +2,12 @@
 
 import builtins
 import traceback
+from collections.abc import Mapping
 
 from PyQt5.QtCore import QRunnable, pyqtSlot
 
 from core.codec_connection_profiles import order_codec_profiles
-from core.exceptions import AuthenticationError, ConnectionError
+from core.exceptions import AuthenticationError, ConnectionError, ParseError, ProtocolError
 from core.parser import HuaweiBar310DataParser, HuaweiTE40DataParser
 from core.redaction import (
     redact_data,
@@ -236,6 +237,20 @@ class HuaweiBar310Worker(QRunnable):
         self.current_idx = 0
         self.device_name = "Huawei CloudLink Bar 310"
 
+    @staticmethod
+    def _validate_raw_status(raw_data):
+        if not isinstance(raw_data, Mapping):
+            raise ProtocolError("Bar 310 status payload is not an object")
+        if raw_data.get("model") != "Huawei CloudLink Bar 310":
+            raise ProtocolError("Bar 310 status payload has no valid model")
+        version = raw_data.get("version")
+        if (
+            not isinstance(version, str)
+            or not version.strip()
+            or version.casefold() == "unknown"
+        ):
+            raise ProtocolError("Bar 310 status payload has no usable version")
+
     @pyqtSlot()
     def run(self):
         def print(*args, **kwargs):
@@ -271,16 +286,21 @@ class HuaweiBar310Worker(QRunnable):
             self.signals.status.emit("Получаю данные...")
             self.signals.progress.emit(50)
 
-            print("Вызываю handler.get_status()...")
             raw_data = handler.get_status()
-            print(f"get_status() вернул: {raw_data}")
+            self._validate_raw_status(raw_data)
 
             self.signals.status.emit("Обрабатываю данные...")
             self.signals.progress.emit(70)
 
-            print("Парсинг данных...")
             parsed_data = HuaweiBar310DataParser.parse_raw_data(raw_data)
-            print(f"Парсинг завершен: {parsed_data}")
+            if (
+                not isinstance(parsed_data, Mapping)
+                or parsed_data.get("Модель") != "Huawei CloudLink Bar 310"
+                or not isinstance(parsed_data.get("Версия ПО"), str)
+                or not parsed_data["Версия ПО"].strip()
+                or parsed_data["Версия ПО"].casefold() == "unknown"
+            ):
+                raise ParseError("Bar 310 parser returned unusable status")
 
             parsed_data['ip_address'] = self.ip_address
             parsed_data['connection_profile'] = {
@@ -290,17 +310,7 @@ class HuaweiBar310Worker(QRunnable):
             }
 
             self.signals.progress.emit(90)
-            print("Отправка результата...")
             self.signals.result.emit(redact_data(parsed_data, _worker_secrets(self)))
-
-            print("Отключение...")
-            try:
-                handler.disconnect()
-            except Exception:
-                pass
-            handler = None
-            self.handler = None
-            self.signals.disconnected.emit()
 
         except AuthenticationError as e:
             print(f"[BAR310] Ошибка аутентификации: {redact_exception(e, _worker_secrets(self))}")
@@ -314,6 +324,7 @@ class HuaweiBar310Worker(QRunnable):
                     handler.disconnect()
                 except Exception:
                     pass
+                self.signals.disconnected.emit()
             self.handler = None
             self.signals.finished.emit()
 

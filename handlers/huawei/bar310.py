@@ -9,6 +9,7 @@ import json
 import time
 import urllib3
 from datetime import datetime
+from collections.abc import Mapping
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from core.base_handler import BaseHuaweiCodecHandler
@@ -449,222 +450,193 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         return self._parse_call_records(result.get("data", {}))
 
 
-    def get_status(self) -> Dict[str, Any]:
-        """Получение полного статуса устройства"""
-        status = {}
-        
-        try:
-            print("📊 Начинаю сбор статуса для Huawei CloudLink Bar 310...")
-            
-            # Список базовых команд, которые точно работают
-            base_commands = ['get_version', 'get_mac', 'get_audio_status', 'get_line_state', 'get_camera_status']
-            
-            # Сначала выполняем базовые команды
-            for cmd in base_commands:
-                if cmd in self.command_map:
-                    print(f"\n  Запрос {cmd} ({self.command_map[cmd]})...")
-                    result = self.send_command(cmd)
-                    
-                    if result:
-                        if result.get('success') == 1:
-                            data = result.get('data', {})
-                            if isinstance(data, dict):
-                                # Сохраняем все полученные данные в status
-                                for key, value in data.items():
-                                    status[f"{cmd}_{key}"] = value
-                                print(f"  вњ… {cmd} выполнен успешно")
-                                
-                                # Для get_version сразу извлекаем основные поля
-                                if cmd == 'get_version':
-                                    status['model'] = data.get('model', 'Huawei CloudLink Bar 310')
-                                    status['version'] = data.get('softVersion', 'Unknown')
-                                    status['serial_number'] = data.get('lisence', 'N/A')
-                                    status['mic_version'] = data.get('micVersion', 'N/A')
-                                    print(f"    Модель: {status['model']}")
-                                    print(f"    Серийный номер: {status['serial_number']}")
-                                    print(f"    Версия: {status['version']}")
-                                
-                                # Для get_mac извлекаем MAC адрес
-                                elif cmd == 'get_mac':
-                                    status['mac_address'] = (data.get('system_wanMAC_addr') or 
-                                                            data.get('system_lanMAC_addr') or 'N/A')
-                                    print(f"    MAC адрес: {status['mac_address']}")
-                                
-                                # Для get_audio_status извлекаем аудио параметры
-                                elif cmd == 'get_audio_status':
-                                    status['mic_mute'] = 'On' if data.get('MicSwitch', 0) == 0 else 'Off'
-                                    status['speaker_mute'] = 'On' if data.get('SpeakerSwitch', 0) == 1 else 'Off'
-                                    status['speaker_volume'] = data.get('speakerValue', 0)
-                                    print(f"    Микрофон: {status['mic_mute']}, Динамик: {status['speaker_mute']}, Громкость: {status['speaker_volume']}")
-                                
-                                # Для get_line_state извлекаем время работы и SIP информацию
-                                elif cmd == 'get_line_state':
-                                    # Время работы
-                                    run_day = int(data.get('runDay', 0))
-                                    run_hour = int(data.get('runHour', 0))
-                                    run_min = int(data.get('runMin', 0))
-                                    
-                                    uptime_parts = []
-                                    if run_day > 0:
-                                        uptime_parts.append(f"{run_day} д")
-                                    if run_hour > 0:
-                                        uptime_parts.append(f"{run_hour} ч")
-                                    if run_min > 0:
-                                        uptime_parts.append(f"{run_min} мин")
-                                    
-                                    status['uptime'] = ' '.join(uptime_parts) if uptime_parts else '0 мин'
-                                    
-                                    # SIP информация
-                                    status['sip_server'] = data.get('sipAddr', 'N/A')
-                                    status['sip_number'] = data.get('sipNumber', '')
-                                    
-                                    # SIP статус из sipStatusTxStr
-                                    sip_status_str = data.get('sipStatusTxStr', '')
-                                    status['sip_status'] = 'On' if sip_status_str == 'SIP_STATE_OK' else 'Off'
-                                    
-                                    print(f"    Время работы: {status['uptime']}")
-                                    print(f"    SIP статус: {status['sip_status']}")
-                                    print(f"    SIP сервер: {status['sip_server']}")
-                                    print(f"    SIP номер: {status['sip_number']}")
-                                    
-                                elif cmd == 'get_call_status':
-                                    state = data.get('state', {})
-                                    if isinstance(state, dict):
-                                        # Статус звонка
-                                        call_state = state.get('callstate', 0)
-                                        call_status_map = {
-                                            0: 'No Call',
-                                            1: 'Calling',
-                                            2: 'Disconnected',
-                                            3: 'Connected'
-                                        }
-                                        status['call_status'] = call_status_map.get(call_state, 'Unknown')
-                                        
-                                        # SIP статус из поля sip
-                                        sip_value = state.get('sip', 0)
-                                        if 'sip_status' not in status:
-                                            status['sip_status'] = 'On' if sip_value == 1 else 'Off'
-                                        
-                                        print(f"      micValue из статуса звонка: {state.get('micValue', 0)}")
-                                        
-                                        print(f"      Статус звонка: {status['call_status']}")    
-                                elif cmd == 'get_camera_status':
-                                    local_source = data.get('localInMainSource', 0)
-                                    # 255 - подключена, 0 - не подключена
-                                    status['camera_status'] = 'On' if local_source == 255 else 'Off'
-                                    print(f"    Статус камеры: {'Подключена' if local_source == 255 else 'Не подключена'} (localInMainSource={local_source})")
-                        else:
-                            error_data = result.get('error', {})
-                            if isinstance(error_data, dict):
-                                error_text = self._get_error_text(error_data)
-                            else:
-                                error_text = str(error_data)
-                            print(f"  ! {cmd} вернул ошибку: {error_text}")
-                    else:
-                        print(f"  ✗ {cmd} - нет ответа")
-            
-            # Затем тестируем ВСЕ остальные команды из command_map
-            print("\n📋 Тестирование всех доступных команд:")
-            for cmd_name, cmd_endpoint in self.command_map.items():
-                # Пропускаем уже выполненные базовые команды
-                if cmd_name in base_commands:
-                    continue
-                    
-                print(f"\n  Тест: {cmd_name} -> {cmd_endpoint}")
-                result = self.send_command(cmd_name)
-                
-                if result:
-                    if result.get('success') == 1:
-                        print(f"    вњ… Успешно (success=1)")
-                        # Сохраняем данные из успешных ответов
-                        data = result.get('data', {})
-                        if isinstance(data, dict):
-                            for key, value in data.items():
-                                status[f"{cmd_name}_{key}"] = value
-                            
-                            # СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ get_call_status
-                            if cmd_name == 'get_call_status':
-                                state = data.get('state', {})
-                                if isinstance(state, dict):
-                                    # Статус звонка
-                                    call_state = state.get('callstate', 0)
-                                    call_status_map = {
-                                        0: 'No Call',
-                                        1: 'Calling',
-                                        2: 'Disconnected',
-                                        3: 'Connected'
-                                    }
-                                    status['call_status'] = call_status_map.get(call_state, 'Unknown')
-                                    
-                                    # SIP статус из поля sip
-                                    sip_value = state.get('sip', 0)
-                                    # Не перезаписываем sip_status, если он уже есть из get_line_state
-                                    if 'sip_status' not in status:
-                                        status['sip_status'] = 'On' if sip_value == 1 else 'Off'
-                                    print(f"      Статус звонка: {status['call_status']}")
-                    else:
-                        error_data = result.get('error', {})
-                        if isinstance(error_data, dict):
-                            error_text = self._get_error_text(error_data)
-                        else:
-                            error_text = str(error_data)
-                        print(f"    ! Ошибка: {error_text}")
-                else:
-                    print(f"    ✗ Нет ответа")
+    @staticmethod
+    def _optional_data(response: Any, endpoint: str) -> Mapping:
+        if not isinstance(response, Mapping):
+            raise ProtocolError(f"Bar 310 {endpoint} response is not an object")
+        if response.get("success") != 1:
+            raise CommandError(f"Bar 310 {endpoint} response was unsuccessful")
+        data = response.get("data")
+        if not isinstance(data, Mapping):
+            raise ProtocolError(f"Bar 310 {endpoint} data is not an object")
+        return data
 
-            print("\n  Запрос статуса микрофонов HD-AI...")
-            status['mic_volume'] = 'Микрофон не подключён'
-            status['mic_connection_status'] = 'Микрофон не подключён'
-            hd_ai_mics = self._get_hd_ai_microphones()
-            if hd_ai_mics:
-                first_hd_ai_mic = hd_ai_mics[0]
-                plug_status = first_hd_ai_mic.get('plugStatus')
-                if str(plug_status) == '0':
-                    status['mic_volume'] = 'Микрофон не подключён'
-                    status['mic_connection_status'] = 'Микрофон не подключён'
-                else:
-                    status['mic_volume'] = first_hd_ai_mic.get('gainVolume', 0)
-                    status['mic_connection_status'] = 'Подключён'
-                print(
-                    f"    HD-AI микрофон: plugStatus={plug_status}, "
-                    f"gainVolume={first_hd_ai_mic.get('gainVolume')}, "
-                    f"GUI value={status['mic_volume']}, "
-                    f"GUI status={status['mic_connection_status']}"
-                )
-            
-            # Формируем итоговый статус
-            final_status = {
-                'model': status.get('model', 'Huawei CloudLink Bar 310'),
-                'version': status.get('version', 'Unknown'),
-                'serial_number': status.get('serial_number', 'N/A'),
-                'mac_address': status.get('mac_address', 'N/A'),
-                'mic_version': status.get('mic_version', 'N/A'),
-                'mic_mute': status.get('mic_mute', 'Off'),
-                'mic_connection_status': status.get('mic_connection_status'),
-                'mic_volume': status.get('mic_volume', 0),
-                'speaker_mute': status.get('speaker_mute', 'Off'),
-                'speaker_volume': status.get('speaker_volume', 0),
-                'call_status': status.get('call_status', 'No Call'),
-                'sip_status': status.get('sip_status', 'Off'),
-                'sip_server': status.get('sip_server', 'N/A'),
-                'sip_number': status.get('sip_number', ''),
-                'presentation': status.get('presentation', 'Stop'),
-                'sleep_mode': status.get('sleep_mode', 'Off'),
-                'uptime': status.get('uptime', 'N/A'),
-                'camera_status': status.get('camera_status', 'Off'),
-            }
-            
-            print(f"\n📊 Сбор статуса завершен. Протестировано команд: {len(self.command_map)}")
-            print(f"📊 Получено полей в статусе: {len(final_status)}")
-            print(f"📊 Время работы: {final_status['uptime']}")
-            
-            return final_status
-            
-        except Exception as e:
-            print(f"✗ Ошибка получения статуса: {e}")
-            import traceback
-            traceback.print_exc()
-            return {}
+    @staticmethod
+    def _normalize_presentation(value: Any) -> str:
+        values = {"auxOpen": "Start", "auxClose": "Stop"}
+        if value not in values:
+            raise ProtocolError("Bar 310 presentation state is unsupported")
+        return values[value]
+
+    @staticmethod
+    def _normalize_sleep_mode(value: Any) -> str:
+        values = {"sleep": "On", "unsleep": "Off"}
+        if value not in values:
+            raise ProtocolError("Bar 310 sleep state is unsupported")
+        return values[value]
+
+    @staticmethod
+    def _nonempty_value(data: Mapping, key: str):
+        value = data.get(key)
+        if isinstance(value, str):
+            return value if value.strip() else None
+        return value if value is not None else None
+
+    def _collect_optional(self, command: str, collector, status: Dict[str, Any]) -> None:
+        try:
+            observed = collector()
+        except (CommandError, ProtocolError) as error:
+            self._log_command(
+                f"[optional] {command} unavailable: {type(error).__name__}"
+            )
+            return
+        status.update(observed)
+
+    def _collect_mac(self) -> Dict[str, Any]:
+        data = self._optional_data(self.send_command("get_mac"), "get_mac")
+        for key in ("system_wanMAC_addr", "system_lanMAC_addr"):
+            value = self._nonempty_value(data, key)
+            if value is not None:
+                return {"mac_address": value}
+        return {}
+
+    def _collect_audio(self) -> Dict[str, Any]:
+        data = self._optional_data(
+            self.send_command("get_audio_status"), "get_audio_status"
+        )
+        observed = {}
+        if data.get("MicSwitch") in (0, 1):
+            observed["mic_mute"] = "On" if data["MicSwitch"] == 0 else "Off"
+        if data.get("SpeakerSwitch") in (0, 1):
+            observed["speaker_mute"] = "On" if data["SpeakerSwitch"] == 1 else "Off"
+        if "speakerValue" in data and data["speakerValue"] is not None:
+            observed["speaker_volume"] = data["speakerValue"]
+        return observed
+
+    def _collect_line_state(self) -> Dict[str, Any]:
+        data = self._optional_data(self.send_command("get_line_state"), "get_line_state")
+        observed = {}
+        try:
+            durations = [int(data[key]) for key in ("runDay", "runHour", "runMin")]
+        except (KeyError, TypeError, ValueError):
+            durations = None
+        if durations is not None and all(value >= 0 for value in durations):
+            labels = ("д", "ч", "мин")
+            parts = [f"{value} {label}" for value, label in zip(durations, labels) if value]
+            observed["uptime"] = " ".join(parts) if parts else "0 мин"
+        for source, target in (("sipAddr", "sip_server"), ("sipNumber", "sip_number")):
+            value = self._nonempty_value(data, source)
+            if value is not None:
+                observed[target] = value
+        sip_values = {"SIP_STATE_OK": "On", "EMPTY": "Off"}
+        if data.get("sipStatusTxStr") in sip_values:
+            observed["sip_status"] = sip_values[data["sipStatusTxStr"]]
+        return observed
+
+    def _collect_call_status(self) -> Dict[str, Any]:
+        data = self._optional_data(self.send_command("get_call_status"), "get_call_status")
+        state = data.get("state")
+        if not isinstance(state, Mapping):
+            raise ProtocolError("Bar 310 call state is not an object")
+        observed = {}
+        call_states = {0: "No Call", 1: "Calling", 2: "Disconnected", 3: "Connected"}
+        if state.get("callstate") in call_states:
+            observed["call_status"] = call_states[state["callstate"]]
+        sip_values = {1: "On", 0: "Off"}
+        if state.get("sip") in sip_values:
+            observed["sip_status"] = sip_values[state["sip"]]
+        return observed
+
+    def _collect_presentation(self) -> Dict[str, Any]:
+        data = self._optional_data(
+            self.send_command("get_presentation"), "get_presentation"
+        )
+        return {"presentation": self._normalize_presentation(data.get("isSendAux"))}
+
+    def _collect_sleep_mode(self) -> Dict[str, Any]:
+        data = self._optional_data(self.send_command("get_sleep_mode"), "get_sleep_mode")
+        return {"sleep_mode": self._normalize_sleep_mode(data.get("isSystemSleep"))}
+
+    def _collect_camera_status(self) -> Dict[str, Any]:
+        data = self._optional_data(
+            self.send_command("get_camera_status"), "get_camera_status"
+        )
+        source = data.get("localInMainSource")
+        if source == 255:
+            return {"camera_status": "On"}
+        if source == 0:
+            return {"camera_status": "Off"}
+        raise ProtocolError("Bar 310 camera source is unsupported")
+
+    def _collect_hd_ai_microphones(self) -> Dict[str, Any]:
+        data = self._optional_data(
+            self._make_request("v1/mediacontrol/mic/devices", method="GET"),
+            "HD-AI microphone status",
+        )
+        devices = data.get("deviceList")
+        if not isinstance(devices, list):
+            raise ProtocolError("Bar 310 microphone device list is not a list")
+        microphone = next(
+            (
+                item for item in devices
+                if isinstance(item, Mapping) and item.get("groupName") == "HD-AI"
+            ),
+            None,
+        )
+        if microphone is None:
+            return {"mic_connection_status": "Микрофон не подключён"}
+        plug_status = str(microphone.get("plugStatus"))
+        if plug_status == "0":
+            return {"mic_connection_status": "Микрофон не подключён"}
+        if plug_status != "1":
+            raise ProtocolError("Bar 310 microphone plug status is unsupported")
+        if "gainVolume" not in microphone or microphone["gainVolume"] is None:
+            raise ProtocolError("Bar 310 connected microphone has no gain")
+        return {
+            "mic_connection_status": "Подключён",
+            "mic_volume": microphone["gainVolume"],
+        }
+
+    def get_status(self) -> Dict[str, Any]:
+        """Collect the reviewed, read-only CloudLink Bar 310 status plan."""
+        response = self.send_command("get_version")
+        if not isinstance(response, Mapping):
+            raise ProtocolError("Bar 310 version response is not an object")
+        if response.get("success") != 1:
+            raise CommandError("Bar 310 version response was unsuccessful")
+        data = response.get("data")
+        if not isinstance(data, Mapping):
+            raise ProtocolError("Bar 310 version data is not an object")
+        if "softVersion" not in data or not isinstance(data["softVersion"], str):
+            raise ProtocolError("Bar 310 version evidence is missing or invalid")
+        version = data["softVersion"].strip()
+        if not version or version.casefold() == "unknown":
+            raise ProtocolError("Bar 310 version evidence is unusable")
+
+        status = {"model": "Huawei CloudLink Bar 310", "version": version}
+        for source, target in (("lisence", "serial_number"), ("micVersion", "mic_version")):
+            value = self._nonempty_value(data, source)
+            if value is not None:
+                status[target] = value
+
+        self._collect_optional("get_mac", self._collect_mac, status)
+        self._collect_optional("get_audio_status", self._collect_audio, status)
+        self._collect_optional("get_line_state", self._collect_line_state, status)
+
+        call_status = {}
+        self._collect_optional("get_call_status", self._collect_call_status, call_status)
+        if "call_status" in call_status:
+            status["call_status"] = call_status["call_status"]
+        if "sip_status" not in status and "sip_status" in call_status:
+            status["sip_status"] = call_status["sip_status"]
+
+        self._collect_optional("get_presentation", self._collect_presentation, status)
+        self._collect_optional("get_sleep_mode", self._collect_sleep_mode, status)
+        self._collect_optional("get_camera_status", self._collect_camera_status, status)
+        self._collect_optional(
+            "HD-AI microphone status", self._collect_hd_ai_microphones, status
+        )
+        return status
   
     # Реализация абстрактных методов
     def get_device_info(self) -> Dict[str, str]:
@@ -747,32 +719,17 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def get_presentation_status(self) -> str:
         """Получить статус презентации"""
-        result = self.send_command('get_presentation')
-        if not result or result.get('success') != 1:
-            raise CommandError("Bar 310 presentation state is unavailable")
-
-        data = result.get('data', {})
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except json.JSONDecodeError as error:
-                raise ProtocolError("Bar 310 presentation state is malformed") from error
-
-        if not isinstance(data, dict):
-            raise ProtocolError("Bar 310 presentation state is not an object")
-
-        return 'Start' if data.get('isSendAux') == 'auxOpen' else 'Stop'
+        data = self._optional_data(
+            self.send_command('get_presentation'), 'get_presentation'
+        )
+        return self._normalize_presentation(data.get('isSendAux'))
     
     def get_sleep_mode(self) -> str:
         """Получить режим сна"""
-        result = self.send_command('get_sleep_mode')
-        if result and result.get('success') == 1:
-            data = result.get('data', {})
-            if isinstance(data, dict):
-                is_sleep = data.get('isSystemSleep', 'unsleep')
-                return 'On' if is_sleep == 'sleep' else 'Off'
-            raise ProtocolError("Bar 310 sleep state is not an object")
-        raise CommandError("Bar 310 sleep state is unavailable")
+        data = self._optional_data(
+            self.send_command('get_sleep_mode'), 'get_sleep_mode'
+        )
+        return self._normalize_sleep_mode(data.get('isSystemSleep'))
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
@@ -945,4 +902,3 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
         value = data.get('sipserv_addr')
         return str(value) if value is not None else None
-

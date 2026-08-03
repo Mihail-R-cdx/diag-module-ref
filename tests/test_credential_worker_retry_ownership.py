@@ -260,7 +260,10 @@ class Bar310CredentialRetryOwnershipTests(unittest.TestCase):
                 return True
 
             def get_status(self):
-                return {"status": "ok"}
+                return {
+                    "model": "Huawei CloudLink Bar 310",
+                    "version": "synthetic-version",
+                }
 
             def disconnect(self):
                 pass
@@ -269,7 +272,10 @@ class Bar310CredentialRetryOwnershipTests(unittest.TestCase):
         results, errors, _terminal, finished = collect_outcomes(worker)
         with patch("core.workers.codec_polling.CloudLinkBar310Handler", SuccessfulHandler), patch(
             "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data",
-            side_effect=lambda data: dict(data),
+            return_value={
+                "Модель": "Huawei CloudLink Bar 310",
+                "Версия ПО": "synthetic-version",
+            },
         ), contextlib.redirect_stdout(io.StringIO()):
             worker.run()
 
