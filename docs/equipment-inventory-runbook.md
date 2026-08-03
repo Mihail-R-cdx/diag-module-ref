@@ -572,6 +572,150 @@ The inventory layer preserves multiplicity and does not classify it as
 Do not use implicit first-match selection such as `records[0]` or `codecs[0]`.
 Interpretation of zero/one/many belongs to application/composition code.
 
+## Standalone inventory converter GUI
+
+The standalone operator converter is launched separately from the diagnostic
+application:
+
+```powershell
+<repository-supported-python> .\tools\inventory_converter_gui.py
+```
+
+It owns its own `QApplication` and converter window. The normal diagnostic
+entry point `main.py` and `gui/main_window.py` do not import, launch, navigate
+to, or depend on converter GUI paths, reports, workers, or state. Importer and
+runtime inventory modules remain UI-independent and must not import PyQt5.
+
+The converter exposes exactly three path controls:
+
+```text
+primary equipment workbook (.xlsx)
+network connection workbook (.xlsx)
+output JSON file (.json)
+```
+
+Operation path requirements are:
+
+```text
+Primary Test -> primary workbook
+Network Test -> network workbook
+Check all    -> primary workbook + network workbook
+Convert      -> primary workbook + network workbook + output JSON
+```
+
+`Primary Test` and `Network Test` are read-only source preflights. They reuse
+the importer reader, layout/header discovery, normalization, model recognition,
+network-source normalization, and issue classification. They do not create or
+replace JSON and they do not become authority for later conversion.
+
+`Check all` rereads the current primary and network workbook bytes, performs
+approved MAC-only reconciliation, builds a schema-v3 candidate in memory,
+validates it through the runtime loader, and publishes nothing. It intentionally
+does not require an output path.
+
+`Convert` is the explicit two-source schema-v3 GUI workflow. It always rereads
+the current source bytes and repeats full validation; it does not trust cached
+test results. CLI and direct API callers may still use the supported one-source
+mode, which publishes schema v2 when no network source is configured.
+
+Per-source GUI states are presentation-only:
+
+```text
+NOT_TESTED
+RUNNING
+PASSED
+PASSED_WITH_WARNINGS
+FAILED
+STALE
+```
+
+Only completed operation reports have terminal statuses:
+
+```text
+SUCCEEDED
+SUCCEEDED_WITH_WARNINGS
+FAILED
+```
+
+The GUI maps terminal report statuses to completed source states as
+`PASSED`, `PASSED_WITH_WARNINGS`, and `FAILED`. Editing a source path resets
+that source to `NOT_TESTED`. After a source test, the GUI stores a safe
+fingerprint containing resolved path, file size, and last-modified time. Before
+showing an old result as current, before `Check all`, and before `Convert`, a
+fingerprint mismatch changes the state to `STALE`. There is no background file
+watcher and no full-workbook hash.
+
+All workbook I/O, validation, reconciliation, candidate validation,
+serialization, publication-precondition checking, and publication run outside
+the GUI thread through a serialized worker lifecycle. Only one operation runs
+at a time. During an operation, path edits, browse buttons, tests, `Check all`,
+`Convert`, and conflicting report actions are disabled. Progress is
+indeterminate because there is no measured percentage contract. Closing the
+window while work is running is blocked; the GUI must not terminate a worker or
+interrupt atomic publication.
+
+Before GUI conversion starts, the GUI captures the normalized output path and
+confirmed output state. Existing output requires explicit replacement
+confirmation. Absent output is confirmed as absent. The GUI then delegates
+publication to the importer and must not delete, truncate, pre-create, rename,
+or write JSON itself. Immediately before atomic replacement, the importer
+rejects publication with fatal `OUTPUT_CHANGED_SINCE_CONFIRMATION` when the
+output appeared, disappeared, changed size, changed mtime, changed available
+file identity, or no longer matches the confirmed normalized path. Rejection
+sets `published = false`, uses stage `PUBLICATION`, source role `OUTPUT`, and
+leaves current output bytes untouched.
+
+All converter operations serialize the same closed report shape. Existing
+conversion report keys remain present, and the additive root keys are:
+
+```text
+operation
+status
+stage_reached
+schema_version
+source_files
+output_path
+published
+data_quality_issue_count
+consistency_issue_count
+```
+
+Issue objects contain:
+
+```text
+class
+code
+sheet
+row
+record_id
+description
+stage
+source_file_role
+source_column
+related_row
+details
+```
+
+`details` is a flat JSON object with scalar values or arrays of scalars. It
+must not contain full source rows, workbook fragments, canonical record dumps,
+credentials, secrets, or unnecessary evidence. The GUI summary shows operation,
+terminal status, publication state, output path, stage, schema version, source
+row counts, record count, snapshot ID, network counters, and issue counts. The
+issue table shows fatal issues first, supports presentation-only filtering by
+issue class, and displays exact `details` for the selected issue. `Save report`
+exports the complete unfiltered UTF-8 JSON report with exactly one trailing
+newline after both success and failure.
+
+The network workbook contract remains exact: only worksheet `Устройства` is
+current evidence. Worksheet `Изменения` and column `Корректная запись` are
+ignored completely; they do not filter rows, create or suppress issues, join
+records, affect ambiguity, enter canonical JSON, or affect snapshot identity.
+
+Production workbooks, the generated deployment snapshot
+`equipment_inventory.local.json`, exported converter reports, local path
+preferences, and temporary outputs are operational data and must not be
+committed to Git.
+
 ## Inventory-driven diagnostic dispatch
 
 The permanent top-panel model selector is not part of runtime authority.

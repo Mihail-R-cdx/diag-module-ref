@@ -12,6 +12,7 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 import xml.etree.ElementTree as ET
@@ -44,6 +45,39 @@ NS = {
 
 class WorkbookReadError(Exception):
     """Raised when an XLSX package cannot be read as importer workbook input."""
+
+
+class ConverterOperation(str, Enum):
+    PRIMARY_SOURCE_PREFLIGHT = "PRIMARY_SOURCE_PREFLIGHT"
+    NETWORK_SOURCE_PREFLIGHT = "NETWORK_SOURCE_PREFLIGHT"
+    COMBINED_PREFLIGHT = "COMBINED_PREFLIGHT"
+    CONVERSION = "CONVERSION"
+
+
+class ConverterStatus(str, Enum):
+    SUCCEEDED = "SUCCEEDED"
+    SUCCEEDED_WITH_WARNINGS = "SUCCEEDED_WITH_WARNINGS"
+    FAILED = "FAILED"
+
+
+class ConverterStage(str, Enum):
+    CONFIGURATION = "CONFIGURATION"
+    SOURCE_PREFLIGHT = "SOURCE_PREFLIGHT"
+    WORKBOOK_READ = "WORKBOOK_READ"
+    LAYOUT_DISCOVERY = "LAYOUT_DISCOVERY"
+    ROW_MAPPING = "ROW_MAPPING"
+    SOURCE_VALIDATION = "SOURCE_VALIDATION"
+    CROSS_SOURCE_RECONCILIATION = "CROSS_SOURCE_RECONCILIATION"
+    CANDIDATE_VALIDATION = "CANDIDATE_VALIDATION"
+    PUBLICATION = "PUBLICATION"
+    COMPLETE = "COMPLETE"
+    INTERNAL = "INTERNAL"
+
+
+class SourceFileRole(str, Enum):
+    PRIMARY = "PRIMARY"
+    NETWORK = "NETWORK"
+    OUTPUT = "OUTPUT"
 
 SOURCE_COLUMNS = {
     "record_id": "SmartRoomID",
@@ -121,6 +155,11 @@ class ImportIssue:
     row: int | None = None
     record_id: str | None = None
     description: str = ""
+    stage: str | None = None
+    source_file_role: str | None = None
+    source_column: str | None = None
+    related_row: int | None = None
+    details: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -130,6 +169,11 @@ class ImportIssue:
             "row": self.row,
             "record_id": self.record_id,
             "description": self.description,
+            "stage": self.stage or ConverterStage.SOURCE_VALIDATION.value,
+            "source_file_role": self.source_file_role,
+            "source_column": self.source_column,
+            "related_row": self.related_row,
+            "details": _flat_json_details(self.details),
         }
 
 
@@ -143,13 +187,18 @@ class WorksheetLayout:
 @dataclass(frozen=True)
 class ImportResult:
     published: bool
-    output_path: Path
+    output_path: Path | None
     worksheet: str | None
     header_row: int | None
     source_row_count: int
     record_count: int
     snapshot_id: str | None
     issues: tuple[ImportIssue, ...]
+    operation: str = ConverterOperation.CONVERSION.value
+    stage_reached: str = ConverterStage.COMPLETE.value
+    schema_version: int | None = None
+    primary_source_path: Path | None = None
+    network_source_path: Path | None = None
     network_worksheet: str | None = None
     network_header_row: int | None = None
     network_source_row_count: int | None = None
@@ -168,10 +217,34 @@ class ImportResult:
     def non_fatal_issues(self) -> tuple[ImportIssue, ...]:
         return tuple(issue for issue in self.issues if issue.issue_class != "fatal")
 
+    @property
+    def data_quality_issues(self) -> tuple[ImportIssue, ...]:
+        return tuple(issue for issue in self.issues if issue.issue_class == "data_quality")
+
+    @property
+    def consistency_issues(self) -> tuple[ImportIssue, ...]:
+        return tuple(issue for issue in self.issues if issue.issue_class == "consistency")
+
+    @property
+    def status(self) -> str:
+        if self.fatal_issues:
+            return ConverterStatus.FAILED.value
+        if self.non_fatal_issues:
+            return ConverterStatus.SUCCEEDED_WITH_WARNINGS.value
+        return ConverterStatus.SUCCEEDED.value
+
     def to_report(self) -> dict[str, Any]:
         return {
+            "operation": self.operation,
+            "status": self.status,
+            "stage_reached": self.stage_reached,
+            "schema_version": self.schema_version,
+            "source_files": {
+                "primary": str(self.primary_source_path) if self.primary_source_path is not None else None,
+                "network": str(self.network_source_path) if self.network_source_path is not None else None,
+            },
             "published": self.published,
-            "output_path": str(self.output_path),
+            "output_path": str(self.output_path) if self.output_path is not None else None,
             "worksheet": self.worksheet,
             "header_row": self.header_row,
             "source_row_count": self.source_row_count,
@@ -188,6 +261,8 @@ class ImportResult:
             "unmatched_network_mac_count": self.unmatched_network_mac_count,
             "fatal_issue_count": len(self.fatal_issues),
             "non_fatal_issue_count": len(self.non_fatal_issues),
+            "data_quality_issue_count": len(self.data_quality_issues),
+            "consistency_issue_count": len(self.consistency_issues),
             "issues": [issue.to_dict() for issue in self.issues],
         }
 
@@ -204,6 +279,21 @@ class ConverterPaths:
 
 
 @dataclass(frozen=True)
+class OutputFileState:
+    path: Path
+    exists: bool
+    size: int | None = None
+    mtime_ns: int | None = None
+    file_identity: tuple[int, int] | None = None
+
+
+@dataclass(frozen=True)
+class PublicationPrecondition:
+    output_path: Path
+    confirmed_state: OutputFileState
+
+
+@dataclass(frozen=True)
 class NetworkEnrichment:
     records: tuple[EquipmentRecord, ...]
     issues: tuple[ImportIssue, ...]
@@ -215,45 +305,255 @@ class NetworkEnrichment:
     unmatched_network_mac_count: int
 
 
+def capture_output_precondition(output_path: str | Path) -> PublicationPrecondition:
+    resolved = _resolve_path(output_path)
+    return PublicationPrecondition(output_path=resolved, confirmed_state=_capture_output_state(resolved))
+
+
 def import_equipment_inventory(
     source_path: str | Path,
     *,
     network_source_path: str | Path | None = None,
     output_path: str | Path | None = None,
     generated_at: str | None = None,
+    publication_precondition: PublicationPrecondition | None = None,
 ) -> ImportResult:
-    source = _resolve_path(source_path)
     network_source = _configured_network_source(network_source_path)
     output = _resolve_path(output_path) if output_path is not None else _resolve_path(default_snapshot_path())
     generated = generated_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return _run_inventory_operation(
+        operation=ConverterOperation.CONVERSION.value,
+        source=_resolve_path(source_path),
+        network_source=network_source,
+        output=output,
+        generated_at=generated,
+        publish=True,
+        publication_precondition=publication_precondition,
+    )
 
+
+def preflight_primary_source(source_path: str | Path) -> ImportResult:
+    return _run_inventory_operation(
+        operation=ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value,
+        source=_resolve_path(source_path),
+        network_source=None,
+        output=None,
+        generated_at=None,
+        publish=False,
+        publication_precondition=None,
+        validate_candidate=False,
+    )
+
+
+def preflight_network_source(network_source_path: str | Path) -> ImportResult:
+    network_source = _resolve_path(network_source_path)
     issues: list[ImportIssue] = []
     try:
-        workbook = _read_workbook(source)
+        workbook = _read_workbook(network_source)
     except WorkbookReadError as exc:
-        return ImportResult(
+        return _make_result(
+            operation=ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value,
+            stage_reached=ConverterStage.WORKBOOK_READ.value,
             published=False,
-            output_path=output,
+            output_path=None,
+            primary_source_path=None,
+            network_source_path=network_source,
             worksheet=None,
             header_row=None,
             source_row_count=0,
             record_count=0,
             snapshot_id=None,
-            issues=(ImportIssue("fatal", "WORKBOOK_UNREADABLE", description=f"Workbook could not be read: {type(exc).__name__}"),),
+            issues=(
+                ImportIssue(
+                    "fatal",
+                    "NETWORK_WORKBOOK_UNREADABLE",
+                    description=f"Network workbook could not be read: {type(exc).__name__}",
+                    stage=ConverterStage.WORKBOOK_READ.value,
+                    source_file_role=SourceFileRole.NETWORK.value,
+                ),
+            ),
+        )
+
+    network_layout = _select_network_layout(workbook, issues)
+    issues = list(_with_issue_defaults(issues, ConverterStage.LAYOUT_DISCOVERY.value, SourceFileRole.NETWORK.value))
+    if network_layout is None:
+        return _make_result(
+            operation=ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value,
+            stage_reached=ConverterStage.LAYOUT_DISCOVERY.value,
+            published=False,
+            output_path=None,
+            primary_source_path=None,
+            network_source_path=network_source,
+            worksheet=None,
+            header_row=None,
+            source_row_count=0,
+            record_count=0,
+            snapshot_id=None,
+            issues=tuple(issues),
+        )
+
+    network_rows = workbook["rows_by_sheet"][network_layout.worksheet]
+    network_source_rows = [row for row in network_rows if row[0] > network_layout.header_row]
+    enrichment = _apply_network_enrichment((), network_layout, network_source_rows)
+    network_issues = tuple(issue for issue in enrichment.issues if issue.code != "NETWORK_MAC_NOT_IN_INVENTORY")
+    issues.extend(_with_issue_defaults(network_issues, ConverterStage.SOURCE_VALIDATION.value, SourceFileRole.NETWORK.value))
+    return _make_result(
+        operation=ConverterOperation.NETWORK_SOURCE_PREFLIGHT.value,
+        stage_reached=ConverterStage.COMPLETE.value,
+        published=False,
+        output_path=None,
+        primary_source_path=None,
+        network_source_path=network_source,
+        worksheet=None,
+        header_row=None,
+        source_row_count=0,
+        record_count=0,
+        snapshot_id=None,
+        issues=tuple(issues),
+        network_worksheet=network_layout.worksheet,
+        network_header_row=network_layout.header_row,
+        network_source_row_count=len(network_source_rows),
+        distinct_network_mac_count=enrichment.distinct_network_mac_count,
+        enriched_record_count=0,
+        empty_connection_row_count=enrichment.empty_connection_row_count,
+        duplicate_connection_count=enrichment.duplicate_connection_count,
+        ambiguity_count=enrichment.ambiguity_count,
+        unmatched_network_mac_count=0,
+    )
+
+
+def preflight_combined_sources(
+    source_path: str | Path,
+    network_source_path: str | Path,
+) -> ImportResult:
+    return _run_inventory_operation(
+        operation=ConverterOperation.COMBINED_PREFLIGHT.value,
+        source=_resolve_path(source_path),
+        network_source=_resolve_path(network_source_path),
+        output=None,
+        generated_at=None,
+        publish=False,
+        publication_precondition=None,
+        validate_candidate=True,
+    )
+
+
+def _run_inventory_operation(
+    *,
+    operation: str,
+    source: Path,
+    network_source: Path | None,
+    output: Path | None,
+    generated_at: str | None,
+    publish: bool,
+    publication_precondition: PublicationPrecondition | None,
+    validate_candidate: bool = True,
+) -> ImportResult:
+    issues: list[ImportIssue] = []
+    if publish and output is not None and (output == source or output == network_source):
+        return _make_result(
+            operation=operation,
+            stage_reached=ConverterStage.CONFIGURATION.value,
+            published=False,
+            output_path=output,
+            primary_source_path=source,
+            network_source_path=network_source,
+            worksheet=None,
+            header_row=None,
+            source_row_count=0,
+            record_count=0,
+            snapshot_id=None,
+            issues=(
+                ImportIssue(
+                    "fatal",
+                    "OUTPUT_PATH_CONFLICTS_WITH_SOURCE",
+                    description="Output path must not match either source workbook path.",
+                    stage=ConverterStage.CONFIGURATION.value,
+                    source_file_role=SourceFileRole.OUTPUT.value,
+                ),
+            ),
+        )
+    try:
+        workbook = _read_workbook(source)
+    except WorkbookReadError as exc:
+        return _make_result(
+            operation=operation,
+            stage_reached=ConverterStage.WORKBOOK_READ.value,
+            published=False,
+            output_path=output,
+            primary_source_path=source,
+            network_source_path=network_source,
+            worksheet=None,
+            header_row=None,
+            source_row_count=0,
+            record_count=0,
+            snapshot_id=None,
+            issues=(
+                ImportIssue(
+                    "fatal",
+                    "WORKBOOK_UNREADABLE",
+                    description=f"Workbook could not be read: {type(exc).__name__}",
+                    stage=ConverterStage.WORKBOOK_READ.value,
+                    source_file_role=SourceFileRole.PRIMARY.value,
+                ),
+            ),
         )
 
     layout = _select_layout(workbook, issues)
+    issues = list(_with_issue_defaults(issues, ConverterStage.LAYOUT_DISCOVERY.value, SourceFileRole.PRIMARY.value))
     if layout is None:
-        return ImportResult(False, output, None, None, 0, 0, None, tuple(issues))
+        return _make_result(
+            operation=operation,
+            stage_reached=ConverterStage.LAYOUT_DISCOVERY.value,
+            published=False,
+            output_path=output,
+            primary_source_path=source,
+            network_source_path=network_source,
+            worksheet=None,
+            header_row=None,
+            source_row_count=0,
+            record_count=0,
+            snapshot_id=None,
+            issues=tuple(issues),
+        )
 
     rows = workbook["rows_by_sheet"][layout.worksheet]
     source_rows = [row for row in rows if row[0] > layout.header_row]
     records, row_issues = _build_records(layout, source_rows)
-    issues.extend(row_issues)
-    issues.extend(_detect_cross_row_issues(records, source_rows, layout))
+    issues.extend(_with_issue_defaults(row_issues, ConverterStage.ROW_MAPPING.value, SourceFileRole.PRIMARY.value))
+    issues.extend(_with_issue_defaults(_detect_cross_row_issues(records, source_rows, layout), ConverterStage.SOURCE_VALIDATION.value, SourceFileRole.PRIMARY.value))
 
     if any(issue.issue_class == "fatal" for issue in issues):
-        return ImportResult(False, output, layout.worksheet, layout.header_row, len(source_rows), 0, None, tuple(issues))
+        return _make_result(
+            operation=operation,
+            stage_reached=ConverterStage.SOURCE_VALIDATION.value,
+            published=False,
+            output_path=output,
+            primary_source_path=source,
+            network_source_path=network_source,
+            worksheet=layout.worksheet,
+            header_row=layout.header_row,
+            source_row_count=len(source_rows),
+            record_count=0,
+            snapshot_id=None,
+            issues=tuple(issues),
+        )
+
+    if operation == ConverterOperation.PRIMARY_SOURCE_PREFLIGHT.value and network_source is None:
+        return _make_result(
+            operation=operation,
+            stage_reached=ConverterStage.COMPLETE.value,
+            published=False,
+            output_path=None,
+            primary_source_path=source,
+            network_source_path=None,
+            worksheet=layout.worksheet,
+            header_row=layout.header_row,
+            source_row_count=len(source_rows),
+            record_count=len(records),
+            snapshot_id=None,
+            issues=tuple(issues),
+        )
 
     network_layout: WorksheetLayout | None = None
     network_source_rows: list[tuple[int, tuple[Any, ...]]] = []
@@ -270,16 +570,45 @@ def import_equipment_inventory(
                     "fatal",
                     "NETWORK_WORKBOOK_UNREADABLE",
                     description=f"Network workbook could not be read: {type(exc).__name__}",
+                    stage=ConverterStage.WORKBOOK_READ.value,
+                    source_file_role=SourceFileRole.NETWORK.value,
                 )
             )
-            return ImportResult(False, output, layout.worksheet, layout.header_row, len(source_rows), 0, None, tuple(issues))
+            return _make_result(
+                operation=operation,
+                stage_reached=ConverterStage.WORKBOOK_READ.value,
+                published=False,
+                output_path=output,
+                primary_source_path=source,
+                network_source_path=network_source,
+                worksheet=layout.worksheet,
+                header_row=layout.header_row,
+                source_row_count=len(source_rows),
+                record_count=0,
+                snapshot_id=None,
+                issues=tuple(issues),
+            )
         network_layout = _select_network_layout(network_workbook, issues)
+        issues = list(_with_issue_defaults(issues, ConverterStage.LAYOUT_DISCOVERY.value, SourceFileRole.NETWORK.value))
         if network_layout is None:
-            return ImportResult(False, output, layout.worksheet, layout.header_row, len(source_rows), 0, None, tuple(issues))
+            return _make_result(
+                operation=operation,
+                stage_reached=ConverterStage.LAYOUT_DISCOVERY.value,
+                published=False,
+                output_path=output,
+                primary_source_path=source,
+                network_source_path=network_source,
+                worksheet=layout.worksheet,
+                header_row=layout.header_row,
+                source_row_count=len(source_rows),
+                record_count=0,
+                snapshot_id=None,
+                issues=tuple(issues),
+            )
         network_rows = network_workbook["rows_by_sheet"][network_layout.worksheet]
         network_source_rows = [row for row in network_rows if row[0] > network_layout.header_row]
         enrichment = _apply_network_enrichment(final_records, network_layout, network_source_rows)
-        issues.extend(enrichment.issues)
+        issues.extend(_with_issue_defaults(enrichment.issues, ConverterStage.CROSS_SOURCE_RECONCILIATION.value, SourceFileRole.NETWORK.value))
         final_records = enrichment.records
 
     ordered_records = tuple(sorted(final_records, key=lambda record: record.record_id))
@@ -287,42 +616,214 @@ def import_equipment_inventory(
     document = {
         "schema_version": schema_version,
         "snapshot_id": snapshot_id,
-        "generated_at": generated,
+        "generated_at": generated_at,
         "source_row_count": len(source_rows),
         "records": [record_to_dict(record, schema_version=schema_version) for record in ordered_records],
     }
-    try:
-        inventory_from_document(document)
-    except Exception as exc:
-        issues.append(
-            ImportIssue(
-                "fatal",
-                "CANDIDATE_SNAPSHOT_INVALID",
-                description=f"Candidate canonical snapshot failed validation: {type(exc).__name__}",
+    if generated_at is None:
+        document.pop("generated_at")
+    if validate_candidate:
+        try:
+            inventory_from_document(document)
+        except Exception as exc:
+            issues.append(
+                ImportIssue(
+                    "fatal",
+                    "CANDIDATE_SNAPSHOT_INVALID",
+                    description=f"Candidate canonical snapshot failed validation: {type(exc).__name__}",
+                    stage=ConverterStage.CANDIDATE_VALIDATION.value,
+                )
             )
-        )
-        return ImportResult(False, output, layout.worksheet, layout.header_row, len(source_rows), 0, None, tuple(issues))
+            return _candidate_result(
+                operation=operation,
+                stage_reached=ConverterStage.CANDIDATE_VALIDATION.value,
+                published=False,
+                output_path=output,
+                primary_source_path=source,
+                network_source_path=network_source,
+                layout=layout,
+                source_row_count=len(source_rows),
+                ordered_records=ordered_records,
+                snapshot_id=snapshot_id,
+                issues=tuple(issues),
+                schema_version=schema_version,
+                network_layout=network_layout,
+                network_source_rows=network_source_rows,
+                enrichment=enrichment,
+            )
 
+    if not publish:
+        return _candidate_result(
+            operation=operation,
+            stage_reached=ConverterStage.COMPLETE.value,
+            published=False,
+            output_path=None,
+            primary_source_path=source,
+            network_source_path=network_source,
+            layout=layout,
+            source_row_count=len(source_rows),
+            ordered_records=ordered_records,
+            snapshot_id=snapshot_id if validate_candidate else None,
+            issues=tuple(issues),
+            schema_version=schema_version if validate_candidate else None,
+            network_layout=network_layout,
+            network_source_rows=network_source_rows,
+            enrichment=enrichment,
+        )
+
+    assert output is not None
     try:
-        _atomic_write_json(output, document)
+        _atomic_write_json(output, document, publication_precondition=publication_precondition)
+    except PublicationPreconditionError as exc:
+        issues.append(exc.issue)
+        return _candidate_result(
+            operation=operation,
+            stage_reached=ConverterStage.PUBLICATION.value,
+            published=False,
+            output_path=output,
+            primary_source_path=source,
+            network_source_path=network_source,
+            layout=layout,
+            source_row_count=len(source_rows),
+            ordered_records=ordered_records,
+            snapshot_id=snapshot_id,
+            issues=tuple(issues),
+            schema_version=schema_version,
+            network_layout=network_layout,
+            network_source_rows=network_source_rows,
+            enrichment=enrichment,
+        )
     except OSError as exc:
         issues.append(
             ImportIssue(
                 "fatal",
                 "OUTPUT_PUBLICATION_FAILED",
                 description=f"Snapshot output could not be published: {type(exc).__name__}",
+                stage=ConverterStage.PUBLICATION.value,
+                source_file_role=SourceFileRole.OUTPUT.value,
             )
         )
-        return ImportResult(False, output, layout.worksheet, layout.header_row, len(source_rows), 0, None, tuple(issues))
+        return _candidate_result(
+            operation=operation,
+            stage_reached=ConverterStage.PUBLICATION.value,
+            published=False,
+            output_path=output,
+            primary_source_path=source,
+            network_source_path=network_source,
+            layout=layout,
+            source_row_count=len(source_rows),
+            ordered_records=ordered_records,
+            snapshot_id=snapshot_id,
+            issues=tuple(issues),
+            schema_version=schema_version,
+            network_layout=network_layout,
+            network_source_rows=network_source_rows,
+            enrichment=enrichment,
+        )
+    return _candidate_result(
+        operation=operation,
+        stage_reached=ConverterStage.COMPLETE.value,
+        published=True,
+        output_path=output,
+        primary_source_path=source,
+        network_source_path=network_source,
+        layout=layout,
+        source_row_count=len(source_rows),
+        ordered_records=ordered_records,
+        snapshot_id=snapshot_id,
+        issues=tuple(issues),
+        schema_version=schema_version,
+        network_layout=network_layout,
+        network_source_rows=network_source_rows,
+        enrichment=enrichment,
+    )
+
+
+def _make_result(
+    *,
+    operation: str,
+    stage_reached: str,
+    published: bool,
+    output_path: Path | None,
+    primary_source_path: Path | None,
+    network_source_path: Path | None,
+    worksheet: str | None,
+    header_row: int | None,
+    source_row_count: int,
+    record_count: int,
+    snapshot_id: str | None,
+    issues: tuple[ImportIssue, ...],
+    schema_version: int | None = None,
+    network_worksheet: str | None = None,
+    network_header_row: int | None = None,
+    network_source_row_count: int | None = None,
+    distinct_network_mac_count: int | None = None,
+    enriched_record_count: int | None = None,
+    empty_connection_row_count: int | None = None,
+    duplicate_connection_count: int | None = None,
+    ambiguity_count: int | None = None,
+    unmatched_network_mac_count: int | None = None,
+) -> ImportResult:
+    if any(issue.issue_class == "fatal" for issue in issues) and stage_reached == ConverterStage.COMPLETE.value:
+        stage_reached = ConverterStage.INTERNAL.value
     return ImportResult(
-        True,
-        output,
-        layout.worksheet,
-        layout.header_row,
-        len(source_rows),
-        len(ordered_records),
+        published,
+        output_path,
+        worksheet,
+        header_row,
+        source_row_count,
+        record_count,
         snapshot_id,
-        tuple(issues),
+        issues,
+        operation=operation,
+        stage_reached=stage_reached,
+        schema_version=schema_version,
+        primary_source_path=primary_source_path,
+        network_source_path=network_source_path,
+        network_worksheet=network_worksheet,
+        network_header_row=network_header_row,
+        network_source_row_count=network_source_row_count,
+        distinct_network_mac_count=distinct_network_mac_count,
+        enriched_record_count=enriched_record_count,
+        empty_connection_row_count=empty_connection_row_count,
+        duplicate_connection_count=duplicate_connection_count,
+        ambiguity_count=ambiguity_count,
+        unmatched_network_mac_count=unmatched_network_mac_count,
+    )
+
+
+def _candidate_result(
+    *,
+    operation: str,
+    stage_reached: str,
+    published: bool,
+    output_path: Path | None,
+    primary_source_path: Path,
+    network_source_path: Path | None,
+    layout: WorksheetLayout,
+    source_row_count: int,
+    ordered_records: tuple[EquipmentRecord, ...],
+    snapshot_id: str | None,
+    issues: tuple[ImportIssue, ...],
+    schema_version: int | None,
+    network_layout: WorksheetLayout | None,
+    network_source_rows: list[tuple[int, tuple[Any, ...]]],
+    enrichment: NetworkEnrichment | None,
+) -> ImportResult:
+    return _make_result(
+        operation=operation,
+        stage_reached=stage_reached,
+        published=published,
+        output_path=output_path,
+        primary_source_path=primary_source_path,
+        network_source_path=network_source_path,
+        worksheet=layout.worksheet,
+        header_row=layout.header_row,
+        source_row_count=source_row_count,
+        record_count=len(ordered_records),
+        snapshot_id=snapshot_id,
+        issues=issues,
+        schema_version=schema_version,
         network_worksheet=network_layout.worksheet if network_layout is not None else None,
         network_header_row=network_layout.header_row if network_layout is not None else None,
         network_source_row_count=len(network_source_rows) if network_layout is not None else None,
@@ -333,6 +834,45 @@ def import_equipment_inventory(
         ambiguity_count=enrichment.ambiguity_count if enrichment is not None else None,
         unmatched_network_mac_count=enrichment.unmatched_network_mac_count if enrichment is not None else None,
     )
+
+
+def _with_issue_defaults(
+    issues: tuple[ImportIssue, ...] | list[ImportIssue],
+    stage: str,
+    role: str | None,
+) -> tuple[ImportIssue, ...]:
+    return tuple(
+        replace(
+            issue,
+            stage=issue.stage or stage,
+            source_file_role=issue.source_file_role or role,
+        )
+        for issue in issues
+    )
+
+
+def _flat_json_details(details: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not details:
+        return {}
+    flattened: dict[str, Any] = {}
+    for key, value in details.items():
+        text_key = str(key)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            flattened[text_key] = value
+        elif isinstance(value, (list, tuple)):
+            flattened[text_key] = [
+                item for item in value
+                if isinstance(item, (str, int, float, bool)) or item is None
+            ]
+        else:
+            flattened[text_key] = str(value)
+    return flattened
+
+
+class PublicationPreconditionError(Exception):
+    def __init__(self, issue: ImportIssue):
+        super().__init__(issue.code)
+        self.issue = issue
 
 
 def _build_records(
@@ -1005,7 +1545,12 @@ def _evaluate_diagnostic_model_rules(components: frozenset[str]) -> tuple[str, .
     return tuple(matches)
 
 
-def _atomic_write_json(output: Path, document: dict[str, Any]) -> None:
+def _atomic_write_json(
+    output: Path,
+    document: dict[str, Any],
+    *,
+    publication_precondition: PublicationPrecondition | None = None,
+) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=output.parent)
     temp_path = Path(temp_name)
@@ -1013,6 +1558,8 @@ def _atomic_write_json(output: Path, document: dict[str, Any]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(document, handle, ensure_ascii=False, sort_keys=True, indent=2)
             handle.write("\n")
+        if publication_precondition is not None:
+            _verify_publication_precondition(output, publication_precondition)
         os.replace(temp_path, output)
     except Exception:
         try:
@@ -1020,6 +1567,61 @@ def _atomic_write_json(output: Path, document: dict[str, Any]) -> None:
         except OSError:
             pass
         raise
+
+
+def _capture_output_state(output: Path) -> OutputFileState:
+    resolved = _resolve_path(output)
+    try:
+        stat = resolved.stat()
+    except FileNotFoundError:
+        return OutputFileState(path=resolved, exists=False)
+    identity = _file_identity(stat)
+    return OutputFileState(
+        path=resolved,
+        exists=True,
+        size=stat.st_size,
+        mtime_ns=stat.st_mtime_ns,
+        file_identity=identity,
+    )
+
+
+def _file_identity(stat: os.stat_result) -> tuple[int, int] | None:
+    device = getattr(stat, "st_dev", None)
+    inode = getattr(stat, "st_ino", None)
+    if device is None or inode in (None, 0):
+        return None
+    return (int(device), int(inode))
+
+
+def _verify_publication_precondition(output: Path, precondition: PublicationPrecondition) -> None:
+    resolved_output = _resolve_path(output)
+    confirmed_path = _resolve_path(precondition.output_path)
+    confirmed_state = precondition.confirmed_state
+    if resolved_output != confirmed_path or resolved_output != _resolve_path(confirmed_state.path):
+        raise PublicationPreconditionError(_publication_precondition_issue("Output path no longer matches the confirmed path."))
+
+    current = _capture_output_state(resolved_output)
+    if not confirmed_state.exists:
+        if current.exists:
+            raise PublicationPreconditionError(_publication_precondition_issue("Confirmed absent output appeared before publication."))
+        return
+
+    if not current.exists:
+        raise PublicationPreconditionError(_publication_precondition_issue("Confirmed existing output disappeared before publication."))
+    if current.size != confirmed_state.size or current.mtime_ns != confirmed_state.mtime_ns:
+        raise PublicationPreconditionError(_publication_precondition_issue("Confirmed output size or modification time changed before publication."))
+    if confirmed_state.file_identity is not None and current.file_identity != confirmed_state.file_identity:
+        raise PublicationPreconditionError(_publication_precondition_issue("Confirmed output file identity changed before publication."))
+
+
+def _publication_precondition_issue(description: str) -> ImportIssue:
+    return ImportIssue(
+        "fatal",
+        "OUTPUT_CHANGED_SINCE_CONFIRMATION",
+        description=description,
+        stage=ConverterStage.PUBLICATION.value,
+        source_file_role=SourceFileRole.OUTPUT.value,
+    )
 
 
 def _resolve_path(value: str | Path) -> Path:
@@ -1075,7 +1677,26 @@ def main(argv: list[str] | None = None) -> int:
             network_override=args.network_source,
         )
     except ConverterConfigurationError as exc:
-        print(json.dumps({"published": False, "error": str(exc)}, ensure_ascii=False, indent=2, sort_keys=True))
+        result = ImportResult(
+            published=False,
+            output_path=None,
+            worksheet=None,
+            header_row=None,
+            source_row_count=0,
+            record_count=0,
+            snapshot_id=None,
+            issues=(
+                ImportIssue(
+                    "fatal",
+                    "CONVERTER_CONFIGURATION_ERROR",
+                    description=str(exc),
+                    stage=ConverterStage.CONFIGURATION.value,
+                ),
+            ),
+            operation=ConverterOperation.CONVERSION.value,
+            stage_reached=ConverterStage.CONFIGURATION.value,
+        )
+        print(json.dumps(result.to_report(), ensure_ascii=False, indent=2, sort_keys=True))
         return 1
     SOURCE_XLSX_PATH = paths.source_xlsx_path
     OUTPUT_JSON_PATH = paths.output_json_path
