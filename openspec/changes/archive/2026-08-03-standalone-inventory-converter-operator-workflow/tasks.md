@@ -1,5 +1,21 @@
 # Tasks: Standalone inventory converter operator workflow
 
+## Archive readiness evidence: 2026-08-03
+
+- Validated remote HEAD: `4b1bbc4c027e7629b06f5ec024631541e8463c08`.
+- Independent verdict: `APPROVE`.
+- Fresh independent counts: GUI 17; importer 29; runtime regressions 127; full suite 630.
+- Strict validation: change valid; all 11 passed / 0 failed.
+- Disposable archive applicability: passed.
+- Accepted waiver: manual verification not performed; project owner explicitly accepted residual UX risk; offscreen regression coverage was independently rerun; this is not represented as a passed manual test.
+
+## Archive execution evidence: 2026-08-03
+
+- Repository-local archive command completed successfully at `openspec/changes/archive/2026-08-03-standalone-inventory-converter-operator-workflow/`.
+- Archive/root-spec review confirmed preserved proposal, design, tasks, metadata, and both delta specifications; the new `inventory-converter-operator-workflow` root capability was created and the approved `equipment-inventory-snapshot` delta was applied without requirement or scenario changes.
+- Post-archive checks: `validate --all --strict` passed 11/0; focused GUI tests passed 17; focused importer tests passed 29; runtime regressions passed 127; full offline suite passed 630; `git diff --check` passed.
+- Accepted waiver: manual verification not performed; project owner explicitly accepted residual UX risk; offscreen regression coverage was independently rerun; this is not represented as a passed manual test.
+
 ## Implementation evidence: 2026-08-02 (empty source-path follow-up)
 
 - Remote refs before the follow-up:
@@ -164,17 +180,17 @@
 
 - [x] Create a focused implementation commit and push it to the existing feature branch without amend, rebase, or force-push.
 - [x] Confirm local HEAD equals remote feature-branch HEAD and the PR remains Draft.
-- [ ] Run independent validation in a new clean detached worktree from exact `origin/<feature-branch>`.
-- [ ] Independently rerun focused tests, offscreen GUI tests, runtime regressions, full suite, both strict validations, and repository-protection checks.
-- [ ] Independently review GUI thread ownership, no duplicated importer rules, output precondition/overwrite/close safety, closed report compatibility, main-application separation, and current remote SHA.
+- [x] Run independent validation in a new clean detached worktree from exact `origin/<feature-branch>`.
+- [x] Independently rerun focused tests, offscreen GUI tests, runtime regressions, full suite, both strict validations, and repository-protection checks.
+- [x] Independently review GUI thread ownership, no duplicated importer rules, output precondition/overwrite/close safety, closed report compatibility, main-application separation, and current remote SHA.
 - [x] Perform a disposable archive-applicability check because this change adds root-spec requirements and a new root capability.
-- [ ] Obtain `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` before archive.
+- [x] Obtain `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` before archive.
 
 ## 9. Archive and merge
 
-- [ ] Archive only after an independent approving verdict using `.\openspec.cmd archive standalone-inventory-converter-operator-workflow --yes`.
-- [ ] Review the archived change and root-spec diffs, including the new `inventory-converter-operator-workflow` root capability.
-- [ ] Run post-archive `.\openspec.cmd validate --all --strict`, full offline tests, and `git diff --check`.
-- [ ] Create and push a dedicated archive commit.
+- [x] Archive only after an independent approving verdict using `.\openspec.cmd archive standalone-inventory-converter-operator-workflow --yes`.
+- [x] Review the archived change and root-spec diffs, including the new `inventory-converter-operator-workflow` root capability.
+- [x] Run post-archive `.\openspec.cmd validate --all --strict`, full offline tests, and `git diff --check`.
+- [x] Create and push a dedicated archive commit.
 - [ ] Reconfirm current `master`, remote archive HEAD, PR Draft/state/base/head, mergeability, and absence of new commits.
 - [ ] Merge only with explicit user permission; do not close the PR or delete the branch manually unless separately instructed.
