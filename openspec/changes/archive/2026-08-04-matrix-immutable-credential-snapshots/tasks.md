@@ -102,19 +102,19 @@ git diff --check
 
 ## 8. Independent validation and archive applicability
 
-- [ ] 8.1 Fetch the current remote branch, record its full SHA and subject, and create a clean detached validation worktree from `origin/agent/matrix-immutable-credential-snapshots` exactly as required by `RULES.md`.
-- [ ] 8.2 Verify clean worktree status and local/remote SHA equality before tests.
-- [ ] 8.3 Independently repeat focused tests, the full offline test suite, `git diff --check`, strict change validation, and strict all validation without copying prior counts.
-- [ ] 8.4 Independently verify immutable mapping acceptance, handler construction/connect, redaction continuity, non-mapping rejection before I/O, ordinary dictionary compatibility, and no change to fallback, route, session, or successful-index policy.
-- [ ] 8.5 Verify no credential value, candidate mapping, profile identity, session secret, or private request payload appears in public output or the diff.
-- [ ] 8.6 Because this change adds root-spec requirements, perform a disposable archive-applicability check outside the feature branch using the repository-local wrapper, inspect the resulting archive/root-spec diff against the then-current root specifications, run `validate --all --strict`, and discard the worktree without publishing archive output.
-- [ ] 8.7 Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a required check fails, the validated remote HEAD changed, the validation worktree was dirty, or archive applicability is unproven.
+- [x] 8.1 Fetch the current remote branch, record its full SHA and subject, and create a clean detached validation worktree from `origin/agent/matrix-immutable-credential-snapshots` exactly as required by `RULES.md`.
+- [x] 8.2 Verify clean worktree status and local/remote SHA equality before tests.
+- [x] 8.3 Independently repeat focused tests, the full offline test suite, `git diff --check`, strict change validation, and strict all validation without copying prior counts.
+- [x] 8.4 Independently verify immutable mapping acceptance, handler construction/connect, redaction continuity, non-mapping rejection before I/O, ordinary dictionary compatibility, and no change to fallback, route, session, or successful-index policy.
+- [x] 8.5 Verify no credential value, candidate mapping, profile identity, session secret, or private request payload appears in public output or the diff.
+- [x] 8.6 Because this change adds root-spec requirements, perform a disposable archive-applicability check outside the feature branch using the repository-local wrapper, inspect the resulting archive/root-spec diff against the then-current root specifications, run `validate --all --strict`, and discard the worktree without publishing archive output.
+- [x] 8.7 Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a required check fails, the validated remote HEAD changed, the validation worktree was dirty, or archive applicability is unproven.
 
 ## 9. Archive and merge
 
-- [ ] 9.1 Archive only after independent `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` and explicit workflow authorization.
-- [ ] 9.2 Review the archive and root-spec diff to ensure only the approved added requirements are applied and existing Matrix contracts are not silently rewritten.
-- [ ] 9.3 Run post-archive `git diff --check`, full offline tests, `.\openspec.cmd validate --all --strict`, and repository-protection checks.
-- [ ] 9.4 Create and push a dedicated archive commit without rewriting history.
+- [x] 9.1 Archive only after independent `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` and explicit workflow authorization.
+- [x] 9.2 Review the archive and root-spec diff to ensure only the approved added requirements are applied and existing Matrix contracts are not silently rewritten.
+- [x] 9.3 Run post-archive `git diff --check`, full offline tests, `.\openspec.cmd validate --all --strict`, and repository-protection checks.
+- [x] 9.4 Create and push a dedicated archive commit without rewriting history.
 - [ ] 9.5 Before merge, recheck current `master`, PR state/Draft state, base/head, mergeability, remote archive HEAD, and new commits.
 - [ ] 9.6 Do not merge, close the PR, or delete the branch without direct user authorization.
