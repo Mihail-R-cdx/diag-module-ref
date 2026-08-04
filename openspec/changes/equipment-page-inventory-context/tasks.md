@@ -128,14 +128,14 @@ git diff --check
 - [ ] 10.4 Independently repeat focused tests, affected screen tests, the full offline suite, `git diff --check`, strict change validation, and strict all validation without copying prior counts.
 - [ ] 10.5 Independently inspect registry-wide row placement, unique/partial/unavailable resolution, stale suppression, device-request independence, and the real codec rebuild path.
 - [ ] 10.6 Verify no switch field becomes dispatch, credential, fallback, handler, transport, room/codec selection, control, or network-I/O authority.
-- [ ] 10.7 Because this change adds and modifies root-spec requirements, perform a disposable archive-applicability check outside the feature branch using ` .\openspec.cmd archive equipment-page-inventory-context --yes`, inspect the resulting archive/root-spec diff against then-current root specs, run ` .\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
+- [ ] 10.7 Because this change adds and modifies root-spec requirements, perform a disposable archive-applicability check outside the feature branch using `.\openspec.cmd archive equipment-page-inventory-context --yes`, inspect the resulting archive/root-spec diff against then-current root specs, run `.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
 - [ ] 10.8 Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a required check fails, the validated remote HEAD changed, the validation worktree was dirty, or archive applicability is unproven.
 
 ## 11. Archive and merge
 
 - [ ] 11.1 Archive only after independent `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` and direct workflow authorization.
 - [ ] 11.2 Review the archive/root-spec diff to ensure only the approved equipment-page display and codec rebuild contracts are applied and the remaining passive-data restrictions are preserved.
-- [ ] 11.3 Run post-archive `git diff --check`, full offline tests, ` .\openspec.cmd validate --all --strict`, and repository-protection checks.
+- [ ] 11.3 Run post-archive `git diff --check`, full offline tests, `.\openspec.cmd validate --all --strict`, and repository-protection checks.
 - [ ] 11.4 Create and push a dedicated archive commit without amend, rebase, force-push, or history rewrite.
 - [ ] 11.5 Before merge, recheck current `master`, PR state/Draft state, base/head, mergeability, remote archive HEAD, and new commits.
 - [ ] 11.6 Do not mark the PR ready, merge, close it, delete the branch, or rewrite published history without direct user authorization.
