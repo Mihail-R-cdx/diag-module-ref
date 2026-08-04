@@ -137,23 +137,36 @@ When a screen reconstructs its information-row widgets, the shell MAY re-render 
 
 ### Requirement: Codec page rebuild preserves shared inventory presentation boundaries
 
-`CodecScreen` MAY reconstruct codec-owned information and control widgets when codec model context or diagnostic lifecycle requires it. That reconstruction SHALL preserve the centralized equipment-page contracts for shell-owned room presentation and application-owned switch presentation.
+`CodecScreen` MAY reconstruct codec-owned information and control widgets when codec model context or diagnostic lifecycle requires it. The shell-owned `RoomInformationBlock` SHALL remain outside codec-owned deletion authority.
 
-After every codec parameter-display rebuild used during model change, diagnostic startup, refresh, or equivalent current-page reconstruction, the codec page SHALL contain exactly one shared `RoomInformationBlock` at the bottom of its equipment-page content. The block SHALL show the current accepted room address, VIP state, and safe room status under the existing room-context lifecycle without waiting for codec network success.
+`CodecScreen.update_parameters_display()` SHALL remove and recreate only codec-owned widgets. It SHALL NOT hide, detach, or call `deleteLater()` on the shell-owned room block during normal reconstruction. A generic remove-all-then-reattach strategy SHALL NOT satisfy this requirement.
+
+After every codec parameter-display rebuild used during model change, diagnostic startup, refresh, or equivalent current-page reconstruction, and after Qt has processed posted `QEvent.DeferredDelete` events, the codec page SHALL contain exactly one live shared `RoomInformationBlock` at the bottom of its equipment-page content. The screen's `shared_room_information_block` reference SHALL point to that exact live block.
+
+The block SHALL show the current accepted room address, VIP state, and safe room status under the existing room-context lifecycle without waiting for codec network success. A hidden, detached, deleted, or pending-deletion block SHALL NOT be accepted as the current presentation target and SHALL NOT receive later publication.
 
 The rebuild SHALL also leave exactly one `IP коммутатора` row and exactly one `Порт коммутатора` row in the codec's existing `Основная информация` card and SHALL render the current accepted switch presentation into those current row widgets.
 
-Implementation SHALL use one explicit ownership strategy: either codec rebuild preserves shell-owned children while replacing only codec-owned widgets, or a focused shell/layout hook safely reattaches one shared block and republishes current room and switch presentation immediately after rebuilding. Initial constructor attachment alone SHALL NOT be treated as sufficient lifecycle coverage.
+A focused shell recovery path MAY attach a replacement block only when the previous block is genuinely missing or already deleted. Recovery SHALL clear stale references and SHALL NOT be the normal repair mechanism for codec reconstruction.
 
-Repeated rebuilds SHALL NOT leave visible, hidden, pending-deletion, or otherwise live duplicate room blocks or switch rows. Codec request start, success, failure, and completion SHALL remain independent from the room and switch inventory publication authorities.
+Repeated rebuilds SHALL NOT leave visible, hidden, detached, pending-deletion, or deleted duplicate room blocks or switch rows. Codec request start, success, failure, and completion SHALL remain independent from room and switch inventory publication authority.
 
-#### Scenario: Real codec refresh rebuild keeps room context
+#### Scenario: Real codec refresh preserves the shell-owned block
 
-- **GIVEN** a current codec context has resolved room address and VIP state
+- **GIVEN** a current codec context has one live shell-owned room block with resolved address and VIP state
 - **WHEN** normal diagnostic startup calls the codec parameter-display rebuild
-- **THEN** exactly one shared room block remains attached at the bottom of the codec page
+- **THEN** codec reconstruction does not schedule that room block for deletion
+- **AND** the same live block remains attached at the bottom
+- **AND** no codec network success is required to keep it visible
+
+#### Scenario: Deferred deletion cannot hide the defect
+
+- **GIVEN** the real codec rebuild path has completed
+- **WHEN** posted `QEvent.DeferredDelete` events and the Qt event loop are processed
+- **THEN** exactly one live shared room block remains
+- **AND** `shared_room_information_block` points to that block
 - **AND** it shows the current address and VIP state
-- **AND** no codec network success is required to restore it
+- **AND** no stale or pending-deletion block is accepted as current
 
 #### Scenario: Real codec refresh rebuild keeps switch context
 
@@ -165,14 +178,14 @@ Repeated rebuilds SHALL NOT leave visible, hidden, pending-deletion, or otherwis
 
 #### Scenario: Repeated codec rebuild does not duplicate inventory widgets
 
-- **WHEN** codec parameter display is rebuilt multiple times for current or changing codec contexts
+- **WHEN** codec parameter display is rebuilt multiple times and deferred deletions are processed after each rebuild
 - **THEN** the live codec page contains exactly one shared room block
 - **AND** it contains exactly one `IP коммутатора` row and one `Порт коммутатора` row
-- **AND** deleted or hidden stale widgets cannot receive a later publication
+- **AND** stale or deleted widgets cannot receive later publication
 
 #### Scenario: Codec failure leaves inventory context visible
 
-- **GIVEN** current room and switch presentation is visible after codec rebuild
+- **GIVEN** current room and switch presentation is visible after codec rebuild and deferred-deletion processing
 - **WHEN** the codec diagnostic request fails
 - **THEN** current room address, VIP state, switch IP, and switch port remain independently visible
 - **AND** the codec request error does not clear or replace them
