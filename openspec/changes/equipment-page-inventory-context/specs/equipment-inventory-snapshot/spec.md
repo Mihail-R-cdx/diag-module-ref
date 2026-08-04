@@ -1,8 +1,13 @@
 # equipment-inventory-snapshot Delta
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: Schema-v3 switch fields are passive runtime data in this change`
+- TO: `### Requirement: Schema-v3 switch fields are non-authoritative runtime inventory metadata`
+
 ## MODIFIED Requirements
 
-### Requirement: Schema-v3 switch fields are passive runtime data in this change
+### Requirement: Schema-v3 switch fields are non-authoritative runtime inventory metadata
 
 The runtime `EquipmentRecord` SHALL expose nullable `switch_ip_address` and `switch_port` for schema-v3 records and null-adapted values for older records.
 
@@ -18,7 +23,7 @@ This capability SHALL NOT add an index or public query by switch IP or switch po
 
 The application/composition layer MAY read `switch_ip_address` and `switch_port` from the one unambiguous record returned through the existing current-device IP lookup solely to create non-blocking equipment-page presentation. It SHALL pass only safe scalar presentation values to registered equipment screens. Screens SHALL NOT receive or query the complete inventory, interpret lookup multiplicity, reconcile source evidence, or use switch fields as device-observation data.
 
-Diagnostic model dispatch, credential configuration or fallback, handler acquisition, request retry, successful credential memory, room-context aggregation, PDU-room-codec enrichment, related-codec selection, device controllers, workers, handlers, parsers, transports, protocol behavior, device control, and device or switch network I/O SHALL ignore both switch fields. Switch values SHALL NOT change lookup membership or ordering, select between ambiguous records, authorize a diagnostic lifecycle, classify a device request, or become a precondition for existing diagnostics.
+The switch fields remain non-authoritative runtime inventory metadata. Diagnostic model dispatch, credential configuration or fallback, handler acquisition, request retry, successful credential memory, room-context aggregation, PDU-room-codec enrichment, related-codec selection, device controllers, workers, handlers, parsers, transports, protocol behavior, device control, and device or switch network I/O SHALL ignore both switch fields. Switch values SHALL NOT change lookup membership or ordering, select between ambiguous records, authorize a diagnostic lifecycle, classify a device request, or become a precondition for existing diagnostics.
 
 A unique record's two switch fields SHALL remain independent for presentation. A non-null canonical field MAY be displayed while the other field is null. Null fields, null-adapted schema-v1/schema-v2 fields, unavailable inventory, invalid current device IP, zero matching records, or multiple matching records SHALL produce unavailable display values without changing the validity or availability of existing device diagnostics.
 
