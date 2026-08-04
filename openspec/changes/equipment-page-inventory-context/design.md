@@ -2,23 +2,18 @@
 
 ## Context
 
-The equipment inventory already has two distinct runtime responsibilities:
-
-```text
-canonical device identity and diagnostic routing evidence
-room identity, room display, and room VIP context
-```
-
-Schema v3 additionally stores the passive network-connection fields:
+The equipment inventory already owns canonical device identity, diagnostic routing evidence, room identity, room display, and room VIP context. Schema v3 additionally stores two nullable network-connection fields:
 
 ```text
 switch_ip_address
 switch_port
 ```
 
-They are produced offline by the approved network-workbook reconciliation, validated by the runtime loader, and exposed on immutable `EquipmentRecord` values. Existing indexes remain keyed only by device IP and room identity.
+They are produced offline by the approved MAC-only reconciliation, validated by the runtime loader, and exposed on immutable `EquipmentRecord` values. Existing indexes remain keyed only by device IP and room identity.
 
-The GUI currently has four registered equipment-page kinds:
+The current root requirement is named `Schema-v3 switch fields are passive runtime data in this change`. That name no longer describes the intended future contract because this change permits one controlled runtime consumer: application-owned, display-only GUI presentation. The requirement therefore must be renamed to `Schema-v3 switch fields are non-authoritative runtime inventory metadata`; the full updated contract is supplied under the new name in `MODIFIED Requirements`.
+
+The GUI has four registered equipment-page kinds:
 
 ```text
 codec
@@ -27,7 +22,7 @@ pdu
 audio_dsp
 ```
 
-Each screen already owns an existing information card:
+Each screen already owns an information card:
 
 ```text
 codec      -> Основная информация
@@ -36,41 +31,59 @@ pdu        -> Информация об устройстве
 audio_dsp  -> Информация об устройстве
 ```
 
-The switch connection belongs in those existing cards. A separate switch card would make one item of device identity context appear structurally different from MAC, firmware, model, IP, protocol, and other device-information fields and would require page-specific placement rules outside the current screen composition.
+The switch connection belongs in those existing cards. It is inventory context, not device-observed status.
 
-The approved non-PDU room contract is already centralized. `VCSDiagnosticApp` attaches one shared `RoomInformationBlock` to every registered non-PDU screen and publishes room address/VIP state from immutable inventory independently of device network success.
+The approved non-PDU room contract is application-owned. `VCSDiagnosticApp` attaches one shared `RoomInformationBlock` to registered non-PDU pages and publishes address/VIP state independently of device network success.
 
-The codec screen has a lifecycle conflict with that shell-owned widget. `CodecScreen.update_parameters_display()` removes all widgets from `param_layout`, then creates only its information and control cards. Because the shared room block is inserted into the same layout after initial screen construction, the next codec rebuild hides and schedules it for deletion. The normal diagnostic refresh calls the rebuild after selecting the codec screen and does not reattach the room block. The resulting presentation violates the existing registry-wide room contract even though focused tests prove only the initial attachment path.
+### Confirmed codec lifecycle defect
+
+The normal codec diagnostic path already attempts to restore room presentation after rebuilding:
+
+```text
+CodecScreen.update_parameters_display()
+-> target_screen.clear_data()
+-> _publish_current_equipment_room_context("request_started")
+```
+
+The failure occurs earlier at the widget ownership boundary:
+
+```text
+CodecScreen.update_parameters_display()
+-> removes every item from param_layout
+-> hide()
+-> deleteLater()
+```
+
+This schedules the shell-owned room block for `QEvent.DeferredDelete`. The subsequent publication calls `_ensure_shared_room_block()`, but the pending-deletion block still has a parent until Qt processes deferred deletion. The current parent-based liveness check therefore accepts the stale object as current and republishes into it. On the next event-loop turn Qt deletes that object, leaving the codec page without a room block.
+
+The defect is not an absent publication call. It is deletion of a shell-owned widget plus a false liveness decision during the interval between `deleteLater()` and `DeferredDelete` processing.
 
 ## Goals
 
 1. Show canonical switch IP and switch port in the existing information card of every registered equipment page.
-2. Keep inventory presentation independent of device request success, credentials, transport, handlers, workers, and controllers.
+2. Keep switch presentation independent of device request success, credentials, transports, handlers, workers, controllers, and controls.
 3. Preserve exact zero/one/many inventory lookup semantics and fail closed on ambiguity.
 4. Preserve useful unique partial connection data without inventing missing values.
 5. Keep equipment screens rendering-only and free of inventory lookup authority.
-6. Preserve or restore exactly one shared codec room block through every codec rebuild.
-7. Bind both inventory presentations to current model, normalized IP, inventory snapshot, page context, and application generation so stale publications cannot restore old values.
-8. Cover every registered page and the real codec refresh/rebuild path with regression tests.
+6. Preserve exactly one live shell-owned codec room block through every codec rebuild.
+7. Prevent any widget scheduled for deferred deletion from being accepted as current presentation state.
+8. Bind inventory presentation to current model, normalized IP, inventory snapshot, page context, and application generation so stale publications cannot restore old values.
+9. Exercise the real codec diagnostic-start lifecycle and flush deferred-deletion events before final assertions.
 
 ## Non-goals
 
-- Do not change either source workbook contract.
-- Do not change MAC-only network reconciliation or ambiguity rules.
-- Do not change canonical schema v1, v2, or v3 field shapes or snapshot identity.
+- Do not change either workbook contract.
+- Do not change MAC-only reconciliation, ambiguity rules, schema shapes, loader validation, snapshot identity, or inventory indexes.
 - Do not add a switch-IP or switch-port inventory index or public query.
-- Do not connect to a switch, validate switch reachability, obtain switch credentials, inspect link state, or perform switch management.
-- Do not infer a device's switch connection from its current runtime MAC, device response, room, model, row order, or another source.
-- Do not put inventory lookup, multiplicity interpretation, stale-result authority, or lifecycle generation inside equipment screens.
+- Do not connect to a switch, validate reachability, obtain switch credentials, inspect link state, or perform switch management.
+- Do not infer switch connection from runtime MAC, device response, room, model, row order, or another source.
+- Do not put inventory lookup, multiplicity interpretation, stale-result authority, or lifecycle generation inside screens.
 - Do not add switch fields to handler, worker, controller, parser, or transport result payloads.
-- Do not change diagnostic dispatch, credentials, fallback, request retry, related-codec selection, room aggregation, PDU control, Matrix routing, or audio polling.
-- Do not redesign the shared room presentation or PDU's dedicated room-and-codec section.
-- Do not modify operational workbooks or `equipment_inventory.local.json` in the repository.
-- Do not use or update Graphify artifacts.
+- Do not change diagnostic dispatch, credentials, fallback, retries, related-codec selection, room aggregation, PDU control, Matrix routing, or audio polling.
+- Do not redesign the shared room presentation or PDU dedicated room-and-codec section.
+- Do not modify operational workbooks, `equipment_inventory.local.json`, root specs before archive, archived changes, or Graphify artifacts.
 
 ## Authority and ownership
-
-The ownership model shall be:
 
 ```text
 offline importer
@@ -78,112 +91,80 @@ offline importer
   publishes canonical nullable switch fields
 
 EquipmentInventory
-  owns immutable canonical records and existing lookup semantics
+  owns immutable records and existing lookup semantics
 
 application/composition layer
   owns current model/IP/snapshot/page generations
-  resolves one current record through existing device-IP lookup
-  converts canonical fields into non-secret display values
+  resolves one record through existing device-IP lookup
+  converts canonical fields into safe scalar presentation
   rejects stale publication
 
 registered equipment screen
-  owns only the placement and rendering of two rows
+  owns placement and rendering of two rows only
   does not query inventory or decide multiplicity
+
+VCSDiagnosticApp / equipment-page composition
+  owns the shared RoomInformationBlock
+
+CodecScreen
+  owns codec information/control cards only
+  must not delete shell-owned layout children
 ```
 
-The switch connection presentation is not a device-observation result. The shell must not wait for a device worker/controller to succeed before publishing it and must not clear a valid current presentation merely because a device request fails.
+The switch connection is not a device-observation result. The application must not wait for a worker/controller result before publishing it and must not clear valid current values merely because a device request fails.
 
-The shared codec room block remains shell-owned. The codec screen may rebuild codec-owned cards, but that rebuild must either preserve shell-owned layout children or invoke a focused shell/layout boundary that restores exactly one current shared block after rebuilding. The screen must not become the room resolver or room-publication authority.
+## Inventory switch resolution
 
-## Inventory switch connection resolution
-
-For a valid normalized current device IP, the application shall use the existing `EquipmentInventory.find_by_ip()` lookup.
-
-The outcome is:
+For a valid normalized current device IP, the application shall call existing `EquipmentInventory.find_by_ip()`.
 
 ```text
-inventory unavailable
-    -> switch IP = —
-    -> switch port = —
-
-invalid or absent current IP
-    -> switch IP = —
-    -> switch port = —
-
-zero matching records
-    -> switch IP = —
-    -> switch port = —
-
-multiple matching records
-    -> switch IP = —
-    -> switch port = —
-
-one matching record
-    -> display switch_ip_address independently
-    -> display switch_port independently
-    -> null field becomes —
+inventory unavailable       -> — / —
+invalid or absent IP        -> — / —
+zero matching records       -> — / —
+multiple matching records   -> — / —
+one matching record         -> display each field independently
+null field                  -> —
 ```
 
-The application shall not narrow multiple records by current selected model, `device_kind`, MAC, room, or any presentation state. Existing diagnostic model resolution may have its own exact contract, but it does not authorize a different ambiguity rule for inventory display.
+The application shall not narrow multiple records by selected model, `device_kind`, MAC, room, completeness, row order, or presentation state.
 
-Schema-v1 and schema-v2 records are already adapted by the loader to null switch fields. Their display therefore naturally follows the same one-record/null-value rule and does not require source-version branching in screens.
+Schema-v1 and schema-v2 records are already adapted to null switch fields. Screens require no source-version branching.
 
-`switch_port` remains opaque display text. The GUI must not parse, normalize again, abbreviate by vendor grammar, split chassis/slot/port components, or infer link state.
+`switch_port` remains opaque text. The GUI must not parse vendor grammar, split chassis/slot/interface components, normalize it again, or infer link state.
 
 ## Presentation model
 
-Implementation should use one focused immutable or value-like presentation result, or an equivalent explicit scalar callback boundary, with at least:
+Implementation should use one focused immutable/value-like result, or an equivalent scalar boundary, containing at least:
 
 ```text
 switch_ip_address: str | None
 switch_port: str | None
 ```
 
-It may also carry a safe internal resolution status needed for tests and lifecycle diagnostics, provided that status does not expose workbook rows or become a device failure category.
+A safe internal resolution status may be carried for tests and lifecycle diagnostics, but it must not expose workbook rows or become a device failure category.
 
-Screens shall receive only safe scalar presentation values. They shall render null as `—` and shall not receive the complete inventory, an `EquipmentRecord`, source workbook evidence, import issues, or mutable canonical state.
+Screens receive only safe scalar values. They do not receive the inventory, `EquipmentRecord`, source evidence, import issues, or mutable canonical state.
 
-No modal warning is required for missing switch data. The existing room block may continue to show its own safe inventory/room message under its approved contract, but the new switch rows do not add a second modal or convert the screen to error state.
+Missing values are non-blocking and render as `—`. No modal warning is introduced.
 
-## Registry-wide placement contract
+## Registry-wide placement
 
-Every `EquipmentPageRegistration` shall be covered, including the dedicated PDU page. Each registered screen must expose exactly one row labelled:
+Every `EquipmentPageRegistration`, including PDU, must expose exactly one row labelled `IP коммутатора` and exactly one row labelled `Порт коммутатора`.
 
-```text
-IP коммутатора
-```
-
-and exactly one row labelled:
+Both rows must belong to the existing information card:
 
 ```text
-Порт коммутатора
+CodecScreen    -> Основная информация
+MatrixScreen   -> Информация об устройстве
+PDUScreen      -> Информация об устройстве
+AudioDSPScreen -> Информация об устройстве
 ```
 
-Both rows must be children of that screen's existing information card, not the shared room block, PDU related-room card, controls card, routing table, outlet table, or a newly introduced standalone card.
-
-The expected placement is:
-
-```text
-CodecScreen
-  existing Основная информация card
-
-MatrixScreen
-  existing Информация об устройстве card
-
-PDUScreen
-  existing Информация об устройстве card
-
-AudioDSPScreen
-  existing Информация об устройстве card
-```
-
-The registry remains the completeness authority. Tests must enumerate registrations rather than maintain an independent hand-written list that could omit a future supported page.
-
-The specific row order inside each existing card may respect that screen's current layout, but the two fields should remain adjacent and visually identifiable as one connection pair. Page-specific layout differences must not change their labels, source, null behavior, or lifecycle.
+They must not be placed in the shared room block, PDU related-room section, controls, routing/outlet tables, or a new standalone card. The rows remain adjacent. Registry enumeration is the completeness authority for tests.
 
 ## Application-owned publication lifecycle
 
-The switch presentation shall use an application-owned binding equivalent to:
+The switch presentation shall use a binding equivalent to:
 
 ```text
 (
@@ -195,82 +176,86 @@ The switch presentation shall use an application-owned binding equivalent to:
 )
 ```
 
-A credential-context revision is not required as source authority because switch fields are not credential-derived. If implementation reuses a broader existing immutable equipment context containing a credential revision, that must not make credentials semantically authoritative for the switch values.
+The shell invalidates prior presentation when model, IP, page, snapshot identity/availability, shutdown, or relevant screen destruction changes.
 
-The shell shall invalidate prior switch presentation when any of these change:
+Device refresh, reachability progress, credentials, handler acquisition, worker/controller result, request error/completion, interactive actions, and device controls are not publication authorities.
 
-- accepted diagnostic model;
-- normalized IP input;
-- registered page context;
-- loaded inventory snapshot identity or inventory availability;
-- application shutdown or screen destruction where relevant.
+A screen rebuild may require re-rendering the already current values into replacement row widgets. That is view reconstruction, not a new inventory lookup authority.
 
-The new current presentation may be resolved synchronously from immutable inventory. If publication is queued or asynchronous, acceptance must confirm the complete current binding and generation before rendering.
+## Codec room-block ownership contract
 
-Device refresh start, reachability progress, handler acquisition, worker/controller result, request error, request completion, interactive codec action, PDU mutation, Matrix route, and audio polling are not publication authorities. They must neither overwrite current inventory values with device payload data nor restore stale values.
+The implementation shall use one explicit ownership model:
 
-A device screen rebuild may require the shell to re-render the already current presentation into newly created row widgets. That is a view replacement, not a new inventory authority. Re-rendering must use the current binding and must not accept an older record or stale callback.
+> `CodecScreen.update_parameters_display()` removes and recreates only codec-owned widgets. It SHALL preserve the shell-owned `RoomInformationBlock` and SHALL NOT call `hide()` or `deleteLater()` on it.
 
-## Codec room block rebuild contract
+A generic "remove everything and reattach later" implementation is not approved because the existing failure demonstrates that a widget between `deleteLater()` and `DeferredDelete` can still have a parent and be mistaken for live state.
 
-The codec rebuild defect must be corrected at the ownership boundary rather than hidden by a test-only attachment.
+The codec rebuild boundary must therefore distinguish codec-owned cards/stretch items from shell-owned layout children before removal. After every rebuild used by model selection or diagnostic refresh:
 
-After every `CodecScreen.update_parameters_display()` execution that can occur during model change or diagnostic refresh:
+- exactly one live `RoomInformationBlock` is attached;
+- it is the last widget in the codec content layout, after codec-owned cards;
+- the screen's `shared_room_information_block` reference points to that exact live object;
+- its address, VIP state, and safe status match the current application-owned room binding;
+- no hidden, detached, pending-deletion, or deleted duplicate remains accepted as current;
+- repeated rebuilds do not multiply blocks;
+- subsequent publications target only the current live block;
+- room presentation remains independent of codec worker success or failure.
 
-- exactly one shared `RoomInformationBlock` must be attached to the codec page;
-- it must remain at the bottom after codec-owned information and control cards;
-- its address, VIP state, and safe status must match the current application-owned room binding;
-- the rebuild must not leave a hidden or pending-deletion duplicate;
-- repeated rebuilds must not multiply blocks;
-- the block must remain independent from codec worker success or failure.
+`_ensure_shared_room_block()` may still recover from a genuinely missing or already deleted block, but it must not be the normal repair mechanism for codec rebuilds and must not accept a stale/pending-deletion object as current.
 
-Two implementation patterns are acceptable:
+The same post-rebuild integration point may re-render switch values into recreated codec information rows. Room and switch values may share a lifecycle trigger while remaining separate presentation contracts.
 
-1. make codec rebuild remove/recreate only codec-owned widgets while preserving shell-owned children; or
-2. let codec rebuild replace its content, then call a focused shell/layout hook that safely reattaches one block and republishes current room presentation.
+## Device data clearing
 
-The implementation must choose one explicit ownership model and test it. It must not rely on the initial constructor attachment remaining alive accidentally.
+Existing `clear_data()` methods may clear device-observed fields while a request loads. Inventory-backed rows must either be excluded from generic device-data clearing or immediately re-rendered from the current binding during the same synchronous rebuild/clear lifecycle.
 
-The same post-rebuild integration point may republish the current switch connection values into the codec's recreated information rows. Room and switch presentation can share a lifecycle trigger while remaining distinct presentation models and contracts.
+The final event-loop-visible page must show current inventory values without waiting for network success. Inventory-owned labels should have an explicit ownership marker or focused render path so generic `data_field` clearing cannot permanently erase them.
 
-## Interaction with device data clearing
+## Deferred-delete regression contract
 
-Existing `clear_data()` methods may reset device-observed fields while a request is loading. They must not interpret inventory rows as device-observed data.
+Every regression test that exercises codec reconstruction shall process Qt deferred deletion before final assertions:
 
-The implementation shall ensure one of these equivalent outcomes:
+```python
+QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+QApplication.processEvents()
+```
 
-- inventory-backed rows are excluded from generic device-data clearing; or
-- the shell immediately re-renders current inventory values after a screen rebuild/clear under the same current binding.
+This flush occurs after each rebuild under test, including repeated rebuilds.
 
-A transient `—` during synchronous widget reconstruction is acceptable only if no event-loop-visible stale or incorrect context is published. The final current page after rebuild/clear must show current inventory values without requiring device network success.
+After the flush, tests shall verify:
 
-The shared room block already marks its value labels as non-device data. The new switch rows should have an equally explicit ownership marker or focused render path so future generic `findChildren(... data_field ...)` clearing does not silently erase them.
+1. the pre-rebuild shell-owned block was not scheduled for deletion and remains live, or—only for a genuine missing/deleted recovery case—the stale block is deleted and no longer referenced;
+2. exactly one live `RoomInformationBlock` exists under the codec content widget;
+3. that live block is the last widget in the layout;
+4. `shared_room_information_block` points to that exact object;
+5. its address and VIP values match the current binding;
+6. later publication updates only that live object;
+7. a stale/deleted object cannot receive or display a subsequent publication;
+8. exactly one switch-row pair remains after reconstruction.
+
+A test that asserts only before processing `DeferredDelete` is insufficient evidence.
 
 ## Security and privacy
 
-Switch IP and switch port are operational inventory metadata but are not credentials. They may appear on the intended local equipment page.
+Switch IP and port are operational inventory metadata, not credentials, and may appear on the intended local equipment page. Data minimization still applies:
 
-The change must still preserve data minimization:
-
-- do not log or display complete inventory records;
-- do not expose workbook paths, source rows, reconciliation evidence, or unrelated device records;
-- do not add switch values to public errors unless a focused debug contract already permits the exact displayed values;
-- do not include credentials, sessions, cookies, tokens, or handler objects in the presentation model;
+- do not log/display complete inventory records;
+- do not expose workbook paths, source rows, reconciliation evidence, or unrelated records;
+- do not add switch values to public errors without an existing focused debug contract;
+- do not include credentials, sessions, tokens, cookies, or handler objects in presentation values;
 - do not infer or expose switch management capability.
 
-Credential redaction and device secret-isolation contracts remain unchanged.
+Credential redaction and secret-isolation contracts remain unchanged.
 
 ## Compatibility
 
-Valid schema-v1 and schema-v2 snapshots remain supported. Their adapted null switch fields display as `—`.
+Valid schema-v1/v2 snapshots remain supported and display `—` through existing null adaptation. Schema-v3 identity, validation, ordering, and indexes remain unchanged.
 
-Valid schema-v3 snapshots keep the same identity, validation, ordering, and existing indexes. This change reads fields already present on the selected record and does not alter publication or deterministic digest behavior.
+Diagnostics remain usable when inventory is unavailable or unresolved. Missing switch presentation does not trigger model fallback, disable controls, or change device request state.
 
-Existing equipment diagnostics remain usable when inventory is unavailable or unresolved. Missing switch presentation is non-blocking and must not open fallback model selection, disable controls, or change successful device request state.
+The PDU related-room/codec section remains unchanged while the PDU information card independently displays the PDU record's switch metadata.
 
-The PDU related-room/codec section remains unchanged. It may show room and related codec data while the PDU information card independently shows the PDU record's connected switch fields.
-
-## Expected implementation boundaries
+## Expected implementation scope
 
 Expected production files:
 
@@ -283,17 +268,11 @@ gui/screens/pdu_screen.py
 gui/screens/audio_dsp_screen.py
 ```
 
-One focused pure resolver or presentation-model module may be added under `core/` or `gui/` if it prevents lifecycle logic from being duplicated. Any such module must remain UI-independent if placed under `core/` and must not become a new inventory authority.
+One focused pure resolver/presentation module may be added under `core/` or `gui/` when justified. A module under `core/` must remain UI-independent and must not become a new authority.
 
-Expected focused tests:
+Expected focused tests include `tests/test_equipment_room_context_gui.py` and one directly related switch-presentation GUI module.
 
-```text
-tests/test_equipment_room_context_gui.py
-```
-
-and either a new focused equipment-inventory presentation GUI test module or an existing directly related GUI test module selected during implementation.
-
-Out of scope files and artifacts include:
+Out of scope:
 
 ```text
 tools/import_equipment_inventory.py
@@ -312,62 +291,31 @@ graphify-out/**
 
 ### Registry and placement
 
-Enumerate every current equipment-page registration and prove:
-
-- each screen contains exactly one `IP коммутатора` row;
-- each screen contains exactly one `Порт коммутатора` row;
-- both rows belong to the existing device-information card;
-- PDU remains included despite its dedicated room placement;
-- no separate switch card is introduced.
+Enumerate every current registration and prove both rows exist exactly once in the existing information card, including PDU, with no standalone card.
 
 ### Value resolution
 
-Use synthetic immutable inventories to prove:
-
-- one schema-v3 record with both fields displays both exact values;
-- one record with only switch IP displays that IP and `—` for port;
-- one record with only port displays `—` for switch IP and exact opaque port text;
-- one record with both null displays two `—` values;
-- schema-v1/v2 adapted records display two `—` values;
-- unavailable inventory, invalid IP, no record, and multiple records display two `—` values;
-- multiple records are not narrowed by selected model or another field.
+Using synthetic immutable inventories, prove full values, IP-only, port-only, both-null, schema-v1/v2 adaptation, unavailable inventory, invalid IP, zero match, and multiple matches. Prove ambiguity is not narrowed.
 
 ### Lifecycle and stale protection
 
-Prove:
-
-- accepted model/IP context publishes values without device network I/O;
-- changing IP clears/replaces old values immediately;
-- replacing the inventory snapshot republishes from the new snapshot;
-- an old publication cannot restore values after model/IP/page/snapshot change;
-- device request error does not clear current switch values;
-- device result payload cannot overwrite the inventory values;
-- repeated screen activation does not duplicate rows.
+Prove publication without network I/O, immediate replacement on model/IP/page/snapshot change, rejection of stale publications, persistence through device request errors, protection from device payload overwrite, and no duplicate rows.
 
 ### Codec regression
 
-Exercise the real codec path that calls `update_parameters_display()` during diagnostic startup and prove:
-
-- exactly one room block exists afterward;
-- it is the bottom shared block;
-- current address and VIP remain visible;
-- current switch rows exist and display current inventory values;
-- repeated rebuilds keep exactly one block and one row pair;
-- codec worker failure does not remove room or switch presentation.
-
-The test must not rely only on initial window construction or `_accept_test_diagnostic_model()` without the rebuild step.
+Exercise the real diagnostic-start path that calls `update_parameters_display()`. After every rebuild, flush `DeferredDelete` and verify the complete ownership/liveness assertions above. Repeat rebuilds and include codec request failure.
 
 ### Regression protection
 
-Run existing inventory loader/importer, room-context GUI, PDU enrichment, diagnostic dispatch, Matrix, codec, PDU, and audio-DSP tests. No real workbook, device, credential file, or network access is required.
+Run focused room/switch GUI tests, affected codec/Matrix/PDU/audio-DSP tests, the full offline suite, `git diff --check`, strict change validation, and strict all validation.
 
 ## Validation and rollout
 
-1. Review and approve this architecture-only change.
-2. Implement only the approved display and rebuild contracts with focused regression coverage.
-3. Run focused GUI/inventory tests, the full offline Python suite, `git diff --check`, strict change validation, and strict all validation.
-4. Publish focused implementation commits without rewriting history and keep the PR Draft.
+1. Publish this corrected architecture and keep the PR Draft.
+2. On the exact new remote architecture HEAD, run `git diff --check`, `.\openspec.cmd validate equipment-page-inventory-context --strict`, and `.\openspec.cmd validate --all --strict`, recording versions and exit codes.
+3. Repeat independent architecture review; implementation starts only after `APPROVE`.
+4. Implement only the approved ownership and presentation contracts with regression coverage.
 5. Independently validate the exact remote implementation HEAD in a clean detached worktree.
-6. Perform a disposable archive-applicability check because the change adds and modifies root-spec requirements.
-7. Archive only after independent approval, inspect the archive/root-spec delta, repeat post-archive checks, and publish a dedicated archive commit.
+6. Because the change uses `RENAMED Requirements` and `MODIFIED Requirements`, perform a disposable archive-applicability check outside the feature branch before `READY FOR ARCHIVE`.
+7. Archive only after independent approval, inspect the archive/root-spec diff, repeat post-archive checks, and publish a dedicated archive commit.
 8. Merge only after direct user authorization and a fresh check of current remote archive HEAD, PR state, and current `master`.
