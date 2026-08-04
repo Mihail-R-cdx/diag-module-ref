@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import itertools
 import threading
@@ -110,10 +111,14 @@ class MatrixController(QObject):
         self,
         *,
         context_provider: Callable[[], tuple[str, str]],
-        credential_candidates_provider: Callable[[str, str], Iterable[dict]],
-        credential_index_provider: Callable[[str, str, Iterable[dict]], int],
+        credential_candidates_provider: Callable[
+            [str, str], Iterable[Mapping[str, object]]
+        ],
+        credential_index_provider: Callable[
+            [str, str, Iterable[Mapping[str, object]]], int
+        ],
         credential_advance_provider: Callable[
-            [str, str, Iterable[dict], int, int], Optional[int]
+            [str, str, Iterable[Mapping[str, object]], int, int], Optional[int]
         ],
         credential_revision_provider: Callable[[], int],
         thread_pool: Optional[QThreadPool] = None,
@@ -369,9 +374,12 @@ class MatrixController(QObject):
                 handler.log_callback = original_log_callback
             self._signals.result.emit(context, {"keepalive": True})
 
+    def _is_credential_mapping(self, candidate) -> bool:
+        return isinstance(candidate, Mapping)
+
     def _candidate_secrets(self, context: MatrixOperationContext):
         candidate = self._candidate_for_context(context)
-        if not isinstance(candidate, dict):
+        if not self._is_credential_mapping(candidate):
             return ()
         return tuple(value for value in candidate.values() if value)
 
@@ -402,7 +410,7 @@ class MatrixController(QObject):
 
     def _acquire_session(self, context: MatrixOperationContext, secrets):
         candidate = self._candidate_for_context(context)
-        if not isinstance(candidate, dict):
+        if not self._is_credential_mapping(candidate):
             raise RuntimeError("No credentials for Extron IN1804")
         identity = self._session_identity_for_context(context)
         with self._session_lock:
