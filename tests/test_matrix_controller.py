@@ -1243,7 +1243,7 @@ class MatrixControllerTests(unittest.TestCase):
                 return self.connected
 
             def get_full_status(self):
-                raise RuntimeError("handler rejected synth-secret-pass")
+                raise RuntimeError("handler rejected synth-secret-user with synth-secret-pass")
 
             def disconnect(self):
                 self.connected = False
@@ -1288,7 +1288,7 @@ class MatrixControllerTests(unittest.TestCase):
                 return self.connected
 
             def get_full_status(self):
-                self.log_callback("auth password synth-term-pass")
+                self.log_callback("auth user synth-term-user password synth-term-pass")
                 return "In0 All\r\n"
 
             def disconnect(self):
