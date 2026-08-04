@@ -485,9 +485,6 @@ class VCSDiagnosticApp(QMainWindow):
             lambda _text: self._publish_current_equipment_room_context("ip_changed")
         )
         self.ip_entry.textChanged.connect(
-            lambda _text: self._publish_current_equipment_switch_context("ip_changed")
-        )
-        self.ip_entry.textChanged.connect(
             lambda _text: self._supersede_model_actions("ip_changed")
         )
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
@@ -529,6 +526,7 @@ class VCSDiagnosticApp(QMainWindow):
         return group_box
 
     def _supersede_model_actions(self, reason="context_changed"):
+        self._invalidate_equipment_switch_context(reason)
         self._diagnostic_action_generation += 1
         self._credential_action_generation += 1
         self._invalidate_reachability_context(reason)
@@ -1308,6 +1306,20 @@ class VCSDiagnosticApp(QMainWindow):
             screen_key,
         )
 
+    def _invalidate_equipment_switch_context(self, reason="context_changed"):
+        previous_binding = self.__dict__.get("_equipment_switch_context_binding")
+        self._equipment_switch_context_generation += 1
+        self._equipment_switch_context_binding = None
+        if previous_binding is None:
+            return
+        screen = getattr(self, "screens", {}).get(previous_binding[3])
+        if screen is None or not hasattr(screen, "set_switch_connection"):
+            return
+        screen.set_switch_connection(
+            switch_ip_address=None,
+            switch_port=None,
+        )
+
     def _publish_current_equipment_switch_context(self, reason="context_changed", force=False):
         binding = self._current_equipment_switch_binding()
         if binding is None:
@@ -1321,6 +1333,18 @@ class VCSDiagnosticApp(QMainWindow):
             and binding == self.__dict__.get("_equipment_switch_context_binding")
         ):
             return
+        stored = self.__dict__.get("_equipment_switch_context_binding")
+        if stored is not None and stored[3] != binding[3]:
+            prev_screen = getattr(self, "screens", {}).get(stored[3])
+            if (
+                prev_screen is not None
+                and prev_screen is not screen
+                and hasattr(prev_screen, "set_switch_connection")
+            ):
+                prev_screen.set_switch_connection(
+                    switch_ip_address=None,
+                    switch_port=None,
+                )
         self._equipment_switch_context_generation += 1
         generation = self._equipment_switch_context_generation
         self._equipment_switch_context_binding = binding
@@ -1349,6 +1373,8 @@ class VCSDiagnosticApp(QMainWindow):
         if generation != self.__dict__.get("_equipment_switch_context_generation"):
             return False
         if binding != self.__dict__.get("_equipment_switch_context_binding"):
+            return False
+        if binding != self._current_equipment_switch_binding():
             return False
         screen = getattr(self, "screens", {}).get(binding[3])
         if screen is None or not hasattr(screen, "set_switch_connection"):
