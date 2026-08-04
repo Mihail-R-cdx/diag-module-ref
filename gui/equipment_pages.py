@@ -14,6 +14,55 @@ from .components import ParameterRow, SectionCard
 
 PDU_DEVICE_NAMES = frozenset({"Aten PE8208AV", "Extron IPL T PCS4i"})
 
+# Stable labels used on every registered equipment page. The network-connection
+# workbook uses the same "IP коммутатора" / "Порт" wording; these are the
+# display-only canonical labels for the existing device-information cards.
+SWITCH_IP_LABEL = "IP коммутатора"
+SWITCH_PORT_LABEL = "Порт коммутатора"
+
+
+def apply_switch_connection_row_values(
+    ip_row: ParameterRow,
+    port_row: ParameterRow,
+    *,
+    switch_ip_address: str | None,
+    switch_port: str | None,
+) -> None:
+    """Render safe scalar switch presentation into the two switch rows.
+
+    Each field is independent: a non-null canonical field is shown exactly
+    while a null/absent field renders as an unavailable "—".
+    """
+    ip_value = str(switch_ip_address) if switch_ip_address is not None else "—"
+    port_value = str(switch_port) if switch_port is not None else "—"
+    ip_row.set_value(ip_value)
+    port_row.set_value(port_value)
+    ip_row.set_state("normal" if switch_ip_address is not None else "inactive")
+    port_row.set_state("normal" if switch_port is not None else "inactive")
+
+
+def attach_switch_connection_rows(
+    card,
+    parent,
+):
+    """Attach the two switch-presentation rows to the information card.
+
+    The rows are inventory-context presentation, not device-observed status,
+    so they carry an explicit ownership marker and are excluded from generic
+    device-data clearing. The screen renders only safe scalar values; it never
+    queries the inventory or decides lookup multiplicity.
+    """
+    ip_row = ParameterRow(SWITCH_IP_LABEL, "-", parent)
+    port_row = ParameterRow(SWITCH_PORT_LABEL, "-", parent)
+    for row in (ip_row, port_row):
+        row.setProperty("inventoryContextBoundary", True)
+        row.value_display.setProperty("inventoryContextBoundary", True)
+        row.value_display.setProperty("data_field", False)
+        row.set_value("-")
+        row.set_state("inactive")
+        card.add_widget(row)
+    return (ip_row, port_row)
+
 
 @dataclass(frozen=True)
 class EquipmentPageRegistration:

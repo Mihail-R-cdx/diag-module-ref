@@ -21,6 +21,10 @@ from ..components import (
     SemanticButton,
     StatusIndicator,
 )
+from ..equipment_pages import (
+    apply_switch_connection_row_values,
+    attach_switch_connection_rows,
+)
 from ..theme import SPACING
 from .base_screen import BaseScreen
 
@@ -109,7 +113,19 @@ class PDUScreen(BaseScreen):
             self.info_rows[field] = row
             self.info_labels[field] = row.value_display
             self.info_group.add_widget(row)
+        self.switch_ip_row, self.switch_port_row = attach_switch_connection_rows(
+            self.info_group, self
+        )
         parent_layout.addWidget(self.info_group)
+
+    def set_switch_connection(self, switch_ip_address=None, switch_port=None):
+        """Render safe scalar switch presentation into the current switch rows."""
+        apply_switch_connection_row_values(
+            self.switch_ip_row,
+            self.switch_port_row,
+            switch_ip_address=switch_ip_address,
+            switch_port=switch_port,
+        )
 
     def create_related_room_codec_panel(self, parent_layout):
         self.related_group = SectionCard(

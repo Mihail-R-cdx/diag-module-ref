@@ -15,6 +15,10 @@ from PyQt5.QtWidgets import (
 )
 
 from ..components import EmptyState, ParameterRow, SectionCard
+from ..equipment_pages import (
+    apply_switch_connection_row_values,
+    attach_switch_connection_rows,
+)
 from ..theme import COLORS, SPACING
 from .base_screen import BaseScreen
 
@@ -51,6 +55,9 @@ class AudioDSPScreen(BaseScreen):
         self.ip_value.setProperty("data_field", True)
         self.info_group.add_widget(self.model_row)
         self.info_group.add_widget(self.ip_row)
+        self.switch_ip_row, self.switch_port_row = attach_switch_connection_rows(
+            self.info_group, self
+        )
         self.content_layout.addWidget(self.info_group)
 
         self.sources_container = QWidget(self.container)
@@ -65,6 +72,17 @@ class AudioDSPScreen(BaseScreen):
         self.scroll_area.setWidget(self.container)
         layout.addWidget(self.scroll_area)
         self.source_cards = []
+
+    def set_switch_connection(self, switch_ip_address=None, switch_port=None):
+        """Render safe scalar switch presentation into the current switch rows."""
+        if not hasattr(self, "switch_ip_row") or not hasattr(self, "switch_port_row"):
+            return
+        apply_switch_connection_row_values(
+            self.switch_ip_row,
+            self.switch_port_row,
+            switch_ip_address=switch_ip_address,
+            switch_port=switch_port,
+        )
 
     def clear_data(self):
         self.model_row.set_value("—")

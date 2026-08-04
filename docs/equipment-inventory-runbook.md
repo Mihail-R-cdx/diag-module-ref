@@ -1000,6 +1000,41 @@ restore the room block. Inventory failure is displayed as safe inline room
 context and must not open automatic modal connection errors or change device
 diagnostic authority.
 
+## Equipment-page switch connection presentation
+
+Every registered equipment page (codec, matrix, PDU, audio DSP) shows the two
+display-only switch rows `IP коммутатора` and `Порт коммутатора` inside its
+existing device-information card. These rows are application-owned inventory
+metadata and are strictly separate from device-observed diagnostics. Schema-v3
+`switch_ip_address` / `switch_port` are **non-authoritative runtime inventory
+metadata**: they are resolved only from the current immutable
+`EquipmentInventory` by the exact canonical equipment IP using the existing
+zero/one/many `find_by_ip()` semantics.
+
+Resolution rules:
+
+- null inventory, invalid IP, zero matches, and multiple matches all render as
+  neutral unavailable values without a modal error and without changing
+  diagnostic authority;
+- a unique partial candidate keeps its available field independently
+  (switch-IP-only or switch-port-only);
+- multiple records are never narrowed by selected model, `device_kind`, MAC,
+  room, completeness, row order, or presentation state;
+- no switch network I/O, switch reachability, or switch link-state query is
+  ever performed;
+- switch fields never become dispatch, credential, fallback, handler,
+  transport, room/codec selection, PDU control, or payload authority.
+
+Publication is application-owned and tied to a binding of exact model,
+normalized IP, inventory snapshot identity, and registered page context. A new
+generation invalidates prior presentation on model, IP, page, or inventory
+snapshot/availability change; stale publication cannot restore old values.
+Publication is independent of reachability, credentials, and worker/controller
+results, and device result payloads cannot overwrite canonical switch values.
+
+Screens are rendering-only: they never receive inventory, never query records,
+never interpret multiplicity, and never decide stale-result acceptance.
+
 ## Data and secret protection
 
 Do not commit or expose:
