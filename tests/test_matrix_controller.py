@@ -1,6 +1,7 @@
 import os
 import threading
 import unittest
+from types import MappingProxyType
 from unittest.mock import patch
 
 
@@ -957,6 +958,358 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertEqual(["synthetic-user", ("set", 1, 3, "synthetic-user")], Handler.attempts)
         self.assertEqual(1, len(route_errors))
 
+    def test_immutable_candidate_for_context_returns_assigned_mapping_unchanged(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                MappingProxyType(
+                    {"username": "synth-immutable-user", "password": "synth-immutable-pass"}
+                ),
+                MappingProxyType(
+                    {"username": "synth-immutable-user-2", "password": "synth-immutable-pass-2"}
+                ),
+            ]
+        )
+        context = controller._make_context(
+            operation_kind="full_refresh",
+            ip_address="192.0.2.10",
+            candidate_index=1,
+            state_changing=False,
+        )
+        controller._submit(context, state["candidates"])
+
+        candidate = controller._candidate_for_context(context)
+
+        self.assertIsInstance(candidate, MappingProxyType)
+        self.assertEqual("synth-immutable-user-2", candidate.get("username", ""))
+        self.assertEqual("synth-immutable-pass-2", candidate.get("password", ""))
+        # Candidate must not be mutated or converted into shared mutable state.
+        self.assertIsInstance(candidate, MappingProxyType)
+        self.assertEqual(
+            {"username": "synth-immutable-user-2", "password": "synth-immutable-pass-2"},
+            dict(candidate),
+        )
+
+    def test_immutable_candidate_secrets_include_username_and_password(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                MappingProxyType(
+                    {"username": "synth-immutable-user", "password": "synth-immutable-pass"}
+                )
+            ]
+        )
+        context = controller._make_context(
+            operation_kind="full_refresh",
+            ip_address="192.0.2.10",
+            candidate_index=0,
+            state_changing=False,
+        )
+        controller._submit(context, state["candidates"])
+
+        secrets = controller._candidate_secrets(context)
+
+        self.assertIn("synth-immutable-user", secrets)
+        self.assertIn("synth-immutable-pass", secrets)
+
+    def test_immutable_candidate_acquires_session_and_connects(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                MappingProxyType(
+                    {"username": "synth-immutable-user", "password": "synth-immutable-pass"}
+                )
+            ]
+        )
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        constructed = []
+        connected = []
+
+        class Handler:
+            def __init__(self, **kwargs):
+                constructed.append((kwargs["username"], kwargs["password"]))
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                connected.append(True)
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(context, state["candidates"])
+            handler = controller._acquire_session(context, ())
+
+        self.assertEqual([("synth-immutable-user", "synth-immutable-pass")], constructed)
+        self.assertEqual([True], connected)
+        self.assertIsNotNone(handler)
+
+    def test_mutable_dict_candidate_remains_supported(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                {"username": "synth-dict-user", "password": "synth-dict-pass"}
+            ]
+        )
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        constructed = []
+
+        class Handler:
+            def __init__(self, **kwargs):
+                constructed.append((kwargs["username"], kwargs["password"]))
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            dict_context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(dict_context, state["candidates"])
+            candidate = controller._candidate_for_context(dict_context)
+
+            self.assertEqual("synth-dict-user", candidate.get("username", ""))
+            secrets = controller._candidate_secrets(dict_context)
+            self.assertIn("synth-dict-user", secrets)
+            self.assertIn("synth-dict-pass", secrets)
+            controller._acquire_session(dict_context, ())
+
+        self.assertEqual([("synth-dict-user", "synth-dict-pass")], constructed)
+
+    def test_non_mapping_candidate_is_rejected_before_handler_construction(self):
+        controller, state, pool = self.make_controller(
+            candidates=[object()]
+        )
+        advance_calls = []
+        controller._credential_advance_provider = (
+            lambda *_args: advance_calls.append(_args) or None
+        )
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler") as handler_factory:
+            context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(context, state["candidates"])
+            with self.assertRaises(RuntimeError) as captured:
+                controller._acquire_session(context, ())
+
+        handler_factory.assert_not_called()
+        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertEqual([], advance_calls)
+
+    def test_absent_candidate_index_is_rejected_before_handler_and_io(self):
+        controller, state, pool = self.make_controller()
+        advance_calls = []
+        controller._credential_advance_provider = (
+            lambda *_args: advance_calls.append(_args) or None
+        )
+        # Empty request-scoped snapshot: no assigned candidate exists.
+        state["candidates"] = ()
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler") as handler_factory:
+            context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(context, state["candidates"])
+            with self.assertRaises(RuntimeError) as captured:
+                controller._acquire_session(context, ())
+
+        handler_factory.assert_not_called()
+        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertEqual([], advance_calls)
+
+    def test_none_candidate_index_is_rejected_before_handler_and_io(self):
+        controller, _state, _pool = self.make_controller()
+        advance_calls = []
+        controller._credential_advance_provider = (
+            lambda *_args: advance_calls.append(_args) or None
+        )
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler") as handler_factory:
+            context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=None,
+                state_changing=False,
+            )
+            with self.assertRaises(RuntimeError) as captured:
+                controller._acquire_session(context, ())
+
+        handler_factory.assert_not_called()
+        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertEqual([], advance_calls)
+
+    def test_out_of_range_candidate_index_is_rejected_before_handler_and_io(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                {"username": "synth-dict-user", "password": "synth-dict-pass"}
+            ]
+        )
+        advance_calls = []
+        controller._credential_advance_provider = (
+            lambda *_args: advance_calls.append(_args) or None
+        )
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler") as handler_factory:
+            context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=5,
+                state_changing=False,
+            )
+            controller._submit(context, state["candidates"])
+            with self.assertRaises(RuntimeError) as captured:
+                controller._acquire_session(context, ())
+
+        handler_factory.assert_not_called()
+        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertEqual([], advance_calls)
+
+    def test_immutable_and_mutable_candidates_produce_equivalent_redaction_secrets(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                MappingProxyType({"username": "synth-k", "password": "synth-v"}),
+                {"username": "synth-k", "password": "synth-v"},
+            ]
+        )
+        immutable_context = controller._make_context(
+            operation_kind="full_refresh",
+            ip_address="192.0.2.10",
+            candidate_index=0,
+            state_changing=False,
+        )
+        mutable_context = controller._make_context(
+            operation_kind="full_refresh",
+            ip_address="192.0.2.10",
+            candidate_index=1,
+            state_changing=False,
+        )
+        controller._submit(immutable_context, state["candidates"])
+
+        immutable_secrets = set(controller._candidate_secrets(immutable_context))
+        mutable_secrets = set(controller._candidate_secrets(mutable_context))
+
+        self.assertEqual({"synth-k", "synth-v"}, immutable_secrets)
+        self.assertEqual(immutable_secrets, mutable_secrets)
+
+    def test_immutable_candidate_values_are_redacted_from_public_error(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                MappingProxyType(
+                    {"username": "synth-secret-user", "password": "synth-secret-pass"}
+                )
+            ]
+        )
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        errors = []
+        controller.errorAccepted.connect(lambda *args: errors.append(args))
+
+        class FailingHandler:
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_full_status(self):
+                raise RuntimeError("handler rejected synth-secret-user with synth-secret-pass")
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", FailingHandler):
+            context = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(context, state["candidates"])
+            controller._run_background_operation(context)
+
+        self.assertEqual(1, len(errors))
+        error_payload = str(errors[0])
+        self.assertNotIn("synth-secret-pass", error_payload)
+        self.assertNotIn("synth-secret-user", error_payload)
+
+    def test_immutable_candidate_terminal_output_is_redacted(self):
+        controller, state, pool = self.make_controller(
+            candidates=[
+                MappingProxyType(
+                    {"username": "synth-term-user", "password": "synth-term-pass"}
+                )
+            ]
+        )
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        terminal = []
+        controller.terminalAccepted.connect(lambda *args: terminal.append(args))
+
+        class EmittingHandler:
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_full_status(self):
+                self.log_callback("auth user synth-term-user password synth-term-pass")
+                return "In0 All\r\n"
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", EmittingHandler):
+            with patch("gui.matrix_controller.ExtronIN1804DataParser") as parser:
+                parser.return_value.parse.return_value = {"model": "IN1804"}
+                context = controller._make_context(
+                    operation_kind="full_refresh",
+                    ip_address="192.0.2.10",
+                    candidate_index=0,
+                    state_changing=False,
+                )
+                controller._submit(context, state["candidates"])
+                controller._run_background_operation(context)
+
+        self.assertEqual(1, len(terminal))
+        term_payload = str(terminal[0])
+        self.assertNotIn("synth-term-pass", term_payload)
+        self.assertNotIn("synth-term-user", term_payload)
 
 if __name__ == "__main__":
     unittest.main()

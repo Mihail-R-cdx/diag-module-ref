@@ -1,6 +1,6 @@
 import unittest
 import hashlib
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 from PyQt5.QtWidgets import QMessageBox
@@ -1114,6 +1114,103 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             window.__dict__.get("_credential_attempt_plans", {}),
         )
         window.set_current_credential_index.assert_not_called()
+
+    def test_matrix_full_refresh_accepts_frozen_immutable_candidate_snapshot(self):
+        """Production-path integration for the real MappingProxyType snapshot shape.
+
+        This exercises the production snapshot creation boundary
+        (VCSDiagnosticApp._freeze_credential_candidates), Matrix full-refresh
+        submission, MatrixController assigned-candidate lookup, and
+        ExtronIN1804Handler construction/connect. It must not require a real
+        device, a real credential file, or a secret value in test output.
+        """
+        from gui.matrix_controller import MatrixController
+
+        resolved = [
+            {"username": "synth-integration-user-0", "password": "synth-integration-pass-0"},
+            {"username": "synth-integration-user-1", "password": "synth-integration-pass-1"},
+        ]
+
+        class CapturingPool:
+            def __init__(self):
+                self.runnable = None
+
+            def start(self, runnable):
+                self.runnable = runnable
+
+        pool = CapturingPool()
+        ip_address = "192.0.2.80"
+        revision = 1
+        controller = MatrixController(
+            context_provider=lambda: ("Extron IN1804", ip_address),
+            credential_candidates_provider=lambda _m, _ip: frozen,
+            credential_index_provider=lambda _m, _ip, _c: 1,
+            credential_advance_provider=lambda _m, _ip, cands, cur, _op: (
+                cur + 1 if cur + 1 < len(tuple(cands or ())) else None
+            ),
+            credential_revision_provider=lambda: revision,
+            thread_pool=pool,
+        )
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+
+        window = self.make_window()
+        window.validate_ip_address = Mock(return_value=True)
+        window.current_device_name = lambda: "Extron IN1804"
+        window.show_progress_dialog = Mock()
+        window.show_matrix_terminal = Mock()
+        window.matrix_controller = controller
+
+        frozen = window._freeze_credential_candidates(resolved)
+        self.assertTrue(frozen)
+        self.assertTrue(all(isinstance(c, MappingProxyType) for c in frozen))
+
+        constructed = []
+        connected = []
+
+        class FakeHandler:
+            def __init__(self, **kwargs):
+                constructed.append((kwargs["username"], kwargs["password"]))
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                connected.append(True)
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_full_status(self):
+                return "In1 All\r\n"
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", FakeHandler):
+            with patch("gui.matrix_controller.ExtronIN1804DataParser") as parser:
+                parser.return_value.parse.return_value = {"model": "IN1804"}
+                VCSDiagnosticApp.refresh_extron_in1804(
+                    window,
+                    ip_address,
+                    creds_list=frozen,
+                    current_idx=1,
+                )
+                self.assertIsNotNone(pool.runnable)
+                pool.runnable.run()
+
+        # The controller accepted the immutable snapshot and used the assigned
+        # candidate's scalar inputs to construct and connect the handler.
+        self.assertEqual(
+            [("synth-integration-user-1", "synth-integration-pass-1")],
+            constructed,
+        )
+        self.assertEqual([True], connected)
+        self.assertIsInstance(frozen[1], MappingProxyType)
+        self.assertEqual(
+            ("synth-integration-user-1", "synth-integration-pass-1"),
+            (frozen[1].get("username", ""), frozen[1].get("password", "")),
+        )
 
 
 if __name__ == "__main__":
