@@ -35,6 +35,12 @@ from core.interactive_session import (
     OperationSemantic,
 )
 from .base_screen import BaseScreen
+from ..equipment_pages import (
+    SWITCH_IP_LABEL,
+    SWITCH_PORT_LABEL,
+    apply_switch_connection_row_values,
+    attach_switch_connection_rows,
+)
 
 
 def _parent_device_name(parent):
@@ -395,13 +401,13 @@ class CodecScreen(BaseScreen):
 
 
     def update_parameters_display(self):
-        """Перестраивает карточки, сохраняя публичные ссылки на controls."""
-        while self.param_layout.count():
-            child = self.param_layout.takeAt(0)
-            if child.widget():
-                child.widget().hide()
-                child.widget().deleteLater()
+        """Перестраивает карточки, сохраняя публичные ссылки на controls.
 
+        Only codec-owned cards and spacer items are removed/re-created. The
+        shell-owned shared room block is preserved in place and is never
+        hidden, detached, or scheduled for deletion.
+        """
+        self._remove_codec_owned_widgets()
         self._reset_param_widget_refs()
 
         firmware_params = [
@@ -446,6 +452,11 @@ class CodecScreen(BaseScreen):
         self.info_left_column = self._create_param_column(primary_params)
         self.info_right_column = self._create_param_column(secondary_params)
         self.info_card.add_widget(self.info_columns_widget)
+        self.switch_ip_row, self.switch_port_row = attach_switch_connection_rows(
+            self.info_card, self.param_widget
+        )
+        self.parameter_rows[SWITCH_IP_LABEL] = self.switch_ip_row
+        self.parameter_rows[SWITCH_PORT_LABEL] = self.switch_port_row
 
         self.controls_card = SectionCard("Параметры и управление", "⚙", self.param_widget)
         self.create_param_block(
@@ -457,8 +468,64 @@ class CodecScreen(BaseScreen):
         self.param_layout.addWidget(self.info_card)
         self.param_layout.addWidget(self.controls_card)
         self.param_layout.addStretch(1)
+        self._relocate_room_block_last()
         self._apply_responsive_layout()
 
+
+    def _relocate_room_block_last(self):
+        """Re-insert the shell room block after codec-owned cards.
+
+        The shell block is preserved (never hidden/deleted), but after a rebuild
+        it may sit at the front of the layout. We move it to just before the
+        trailing stretch so it remains the last widget over codec-owned cards.
+        """
+        room_block = getattr(self, "shared_room_information_block", None)
+        if room_block is None:
+            return
+        layout = self.param_layout
+        index = layout.indexOf(room_block)
+        if index < 0:
+            return
+        layout.takeAt(index)
+        if layout.count() > 0 and layout.itemAt(layout.count() - 1).spacerItem() is not None:
+            layout.insertWidget(layout.count() - 1, room_block)
+        else:
+            layout.addWidget(room_block)
+
+    def _remove_codec_owned_widgets(self):
+        """Remove codec-owned cards/spacers but preserve the shell room block.
+
+        The shared room block is shell-owned and is never hidden, detached, or
+        scheduled for deletion. A widget in the interval between ``deleteLater()``
+        and ``QEvent.DeferredDelete`` processing would still report a parent and
+        could be mistaken for live state; this method therefore never schedules
+        the room block for deletion at all.
+        """
+        room_block = getattr(self, "shared_room_information_block", None)
+        index = 0
+        while index < self.param_layout.count():
+            item = self.param_layout.itemAt(index)
+            widget = item.widget()
+            if widget is not None and widget is room_block:
+                index += 1
+                continue
+            self.param_layout.takeAt(index)
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
+
+    def set_switch_connection(self, switch_ip_address=None, switch_port=None):
+        """Render safe scalar switch presentation into the current switch rows."""
+        ip_row = getattr(self, "switch_ip_row", None)
+        port_row = getattr(self, "switch_port_row", None)
+        if ip_row is None or port_row is None:
+            return
+        apply_switch_connection_row_values(
+            ip_row,
+            port_row,
+            switch_ip_address=switch_ip_address,
+            switch_port=switch_port,
+        )
 
     def _create_param_column(self, params):
         column = QWidget(self.info_columns_widget)

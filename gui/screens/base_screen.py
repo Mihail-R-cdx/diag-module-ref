@@ -51,12 +51,14 @@ class BaseScreen(QWidget):
 
 
 def _inside_room_context_boundary(widget):
-    parent = widget.parent()
-    while parent is not None:
-        if parent.property("roomContextBoundary") is True:
+    candidate = widget
+    while candidate is not None:
+        if candidate.property("roomContextBoundary") is True:
             return True
-        next_parent = getattr(parent, "parent", None)
+        if candidate.property("inventoryContextBoundary") is True:
+            return True
+        next_parent = getattr(candidate, "parent", None)
         if not callable(next_parent):
             return False
-        parent = next_parent()
+        candidate = next_parent()
     return False

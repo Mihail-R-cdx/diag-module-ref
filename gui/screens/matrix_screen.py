@@ -11,6 +11,10 @@ from PyQt5.QtWidgets import (
 )
 
 from ..components import ParameterRow, SectionCard
+from ..equipment_pages import (
+    apply_switch_connection_row_values,
+    attach_switch_connection_rows,
+)
 from ..theme import COLORS, SPACING
 from .base_screen import BaseScreen
 
@@ -118,7 +122,17 @@ class MatrixScreen(BaseScreen):
         for row in self.info_rows.values():
             row.value_display.setProperty("data_field", True)
             card.add_widget(row)
+        self.switch_ip_row, self.switch_port_row = attach_switch_connection_rows(card, self)
         return card
+
+    def set_switch_connection(self, switch_ip_address=None, switch_port=None):
+        """Render safe scalar switch presentation into the current switch rows."""
+        apply_switch_connection_row_values(
+            self.switch_ip_row,
+            self.switch_port_row,
+            switch_ip_address=switch_ip_address,
+            switch_port=switch_port,
+        )
 
     def clear_data(self):
         """Reset displayed values without losing the selected route."""

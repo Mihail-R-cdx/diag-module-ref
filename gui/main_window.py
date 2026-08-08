@@ -42,6 +42,7 @@ from core.equipment_inventory import (
     normalize_ip_address,
 )
 from core.room_context import RoomContextResolver, RoomResolutionStatus
+from core.switch_connection_context import SwitchConnectionResolver
 from core.worker import (
     HuaweiTE40Worker,
     HuaweiBar310Worker,
@@ -270,6 +271,9 @@ class VCSDiagnosticApp(QMainWindow):
         self._equipment_room_context_generation = 0
         self._equipment_room_context_binding = None
         self._equipment_room_credential_context_revision = 0
+        self.switch_connection_resolver = SwitchConnectionResolver()
+        self._equipment_switch_context_generation = 0
+        self._equipment_switch_context_binding = None
         self.progress_dialog = None
         self.ui_state = UIState.IDLE
         self._request_serial = 0
@@ -522,6 +526,7 @@ class VCSDiagnosticApp(QMainWindow):
         return group_box
 
     def _supersede_model_actions(self, reason="context_changed"):
+        self._invalidate_equipment_switch_context(reason)
         self._diagnostic_action_generation += 1
         self._credential_action_generation += 1
         self._invalidate_reachability_context(reason)
@@ -1032,6 +1037,7 @@ class VCSDiagnosticApp(QMainWindow):
         if not self._is_dmp_device(entry.diagnostic_model):
             self._invalidate_dmp_context()
         self._publish_current_equipment_room_context("model_context_accepted", force=True)
+        self._publish_current_equipment_switch_context("model_context_accepted", force=True)
         return context
 
     def _accept_test_diagnostic_model(self, diagnostic_model):
@@ -1109,10 +1115,17 @@ class VCSDiagnosticApp(QMainWindow):
             return None
         block = getattr(screen, "shared_room_information_block", None)
         try:
-            parent = block.parent() if block is not None else None
+            live = block is not None and block.parent() is not None and not block.isHidden()
         except RuntimeError:
-            parent = None
-        if block is None or parent is None:
+            # The underlying C++ object was already deleted.
+            live = False
+        if not live:
+            if block is not None:
+                try:
+                    block.deleteLater()
+                except RuntimeError:
+                    pass
+                setattr(screen, "shared_room_information_block", None)
             block = attach_shared_room_block(screen, registration)
             if block is not None:
                 self.room_information_blocks[screen_key] = block
@@ -1139,6 +1152,9 @@ class VCSDiagnosticApp(QMainWindow):
                 self.matrix_controller.invalidate_context()
             if "dmp_polling_controller" in self.__dict__:
                 self._dmp_controller().invalidate_context()
+            self._equipment_switch_context_generation += 1
+            self._equipment_switch_context_binding = None
+            self._publish_current_equipment_switch_context(reason, force=True)
 
     def set_equipment_inventory(self, inventory, *, reason="inventory_replaced"):
         self.replace_equipment_inventory_state(
@@ -1270,6 +1286,104 @@ class VCSDiagnosticApp(QMainWindow):
             RoomResolutionStatus.AMBIGUOUS_PDU_IP: "В базе найдено несколько устройств с этим IP-адресом.",
             RoomResolutionStatus.ROOM_UNRESOLVED: "Для устройства не указано помещение.",
         }.get(status, "Контекст комнаты недоступен.")
+
+    def _current_equipment_switch_binding(self):
+        if not hasattr(self, "ip_entry"):
+            return None
+        device_name = self.current_device_name()
+        if not device_name:
+            return None
+        screen_key = screen_key_for_model(device_name) or self.device_to_screen.get(device_name)
+        if screen_key is None:
+            return None
+        if registrations_by_screen().get(screen_key) is None:
+            return None
+        normalized_ip = normalize_ip_address(self.ip_entry.text().strip())
+        return (
+            device_name,
+            normalized_ip,
+            self._equipment_inventory_snapshot_context(),
+            screen_key,
+        )
+
+    def _invalidate_equipment_switch_context(self, reason="context_changed"):
+        previous_binding = self.__dict__.get("_equipment_switch_context_binding")
+        self._equipment_switch_context_generation += 1
+        self._equipment_switch_context_binding = None
+        if previous_binding is None:
+            return
+        screen = getattr(self, "screens", {}).get(previous_binding[3])
+        if screen is None or not hasattr(screen, "set_switch_connection"):
+            return
+        screen.set_switch_connection(
+            switch_ip_address=None,
+            switch_port=None,
+        )
+
+    def _publish_current_equipment_switch_context(self, reason="context_changed", force=False):
+        binding = self._current_equipment_switch_binding()
+        if binding is None:
+            return
+        screen_key = binding[3]
+        screen = getattr(self, "screens", {}).get(screen_key)
+        if screen is None or not hasattr(screen, "set_switch_connection"):
+            return
+        if (
+            not force
+            and binding == self.__dict__.get("_equipment_switch_context_binding")
+        ):
+            return
+        stored = self.__dict__.get("_equipment_switch_context_binding")
+        if stored is not None and stored[3] != binding[3]:
+            prev_screen = getattr(self, "screens", {}).get(stored[3])
+            if (
+                prev_screen is not None
+                and prev_screen is not screen
+                and hasattr(prev_screen, "set_switch_connection")
+            ):
+                prev_screen.set_switch_connection(
+                    switch_ip_address=None,
+                    switch_port=None,
+                )
+        self._equipment_switch_context_generation += 1
+        generation = self._equipment_switch_context_generation
+        self._equipment_switch_context_binding = binding
+        device_name, normalized_ip, _snapshot_id, _page_context = binding
+        result = self.switch_connection_resolver.resolve_switch_connection(
+            self.equipment_inventory,
+            normalized_ip,
+        )
+        self._accept_equipment_switch_publication(
+            generation,
+            binding,
+            result,
+            reason=reason,
+            device_name=device_name,
+        )
+
+    def _accept_equipment_switch_publication(
+        self,
+        generation,
+        binding,
+        result,
+        *,
+        reason,
+        device_name,
+    ):
+        if generation != self.__dict__.get("_equipment_switch_context_generation"):
+            return False
+        if binding != self.__dict__.get("_equipment_switch_context_binding"):
+            return False
+        if binding != self._current_equipment_switch_binding():
+            return False
+        screen = getattr(self, "screens", {}).get(binding[3])
+        if screen is None or not hasattr(screen, "set_switch_connection"):
+            return False
+        screen.set_switch_connection(
+            switch_ip_address=result.switch_ip_address,
+            switch_port=result.switch_port,
+        )
+        return True
 
     def _dmp_controller(self):
         controller = self.__dict__.get("dmp_polling_controller")
@@ -1713,6 +1827,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.refresh_btn.setText("Обновить данные")
         self.set_ui_state(UIState.IDLE, "Данные ещё не запрашивались")
         self._publish_current_equipment_room_context("model_changed")
+        self._publish_current_equipment_switch_context("model_changed", force=True)
         return True
         
     def eventFilter(self, obj, event):
@@ -2235,6 +2350,7 @@ class VCSDiagnosticApp(QMainWindow):
         if hasattr(target_screen, "set_ui_state"):
             target_screen.set_ui_state(UIState.LOADING, "Загрузка данных…")
         self._publish_current_equipment_room_context("request_started")
+        self._publish_current_equipment_switch_context("request_started", force=True)
 
         if device_name == "Huawei TE40":
             self.refresh_huawei_te40(ip_address, credential_snapshot=credential_snapshot)
