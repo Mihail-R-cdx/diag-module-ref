@@ -125,20 +125,20 @@ git diff --check
 
 ## 11. Independent validation and archive applicability
 
-- [ ] 11.1 Fetch current remote branch and `master`, record full SHAs/subjects and PR state, and inspect new commits.
-- [ ] 11.2 Create a clean detached worktree from `origin/agent/equipment-page-inventory-context` as required by `RULES.md`.
-- [ ] 11.3 Verify clean status and local/remote SHA equality before tests.
-- [ ] 11.4 Independently repeat focused tests, affected screen tests, full suite, `git diff --check`, strict change validation, and strict all validation without copying prior counts.
-- [ ] 11.5 Independently inspect registry placement, resolution, stale suppression, request independence, and the real codec rebuild after `DeferredDelete` processing.
-- [ ] 11.6 Verify no switch field becomes dispatch, credential, fallback, handler, transport, room/codec selection, control, or network-I/O authority.
-- [ ] 11.7 Because this change uses `RENAMED Requirements` and `MODIFIED Requirements`, perform a disposable archive-applicability check outside the feature branch using `.\openspec.cmd archive equipment-page-inventory-context --yes`; inspect archive/root-spec diff against then-current root specs, run `.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
-- [ ] 11.8 Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a check fails, remote HEAD changes, the worktree is dirty, or archive applicability is unproven.
+- [x] 11.1 Fetch current remote branch and `master`, record full SHAs/subjects and PR state, and inspect new commits.
+- [x] 11.2 Create a clean detached worktree from `origin/agent/equipment-page-inventory-context` as required by `RULES.md`.
+- [x] 11.3 Verify clean status and local/remote SHA equality before tests.
+- [x] 11.4 Independently repeat focused tests, affected screen tests, full suite, `git diff --check`, strict change validation, and strict all validation without copying prior counts.
+- [x] 11.5 Independently inspect registry placement, resolution, stale suppression, request independence, and the real codec rebuild after `DeferredDelete` processing.
+- [x] 11.6 Verify no switch field becomes dispatch, credential, fallback, handler, transport, room/codec selection, control, or network-I/O authority.
+- [x] 11.7 Because this change uses `RENAMED Requirements` and `MODIFIED Requirements`, perform a disposable archive-applicability check outside the feature branch using `.\openspec.cmd archive equipment-page-inventory-context --yes`; inspect archive/root-spec diff against then-current root specs, run `.\openspec.cmd validate --all --strict`, and discard the worktree without publishing archive output.
+- [x] 11.8 Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, a check fails, remote HEAD changes, the worktree is dirty, or archive applicability is unproven.
 
 ## 12. Archive and merge
 
-- [ ] 12.1 Archive only after independent `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` and direct workflow authorization.
-- [ ] 12.2 Review the archive/root-spec diff to confirm the requirement rename, display-only switch contract, and codec ownership contract are applied exactly.
-- [ ] 12.3 Run post-archive `git diff --check`, full offline tests, `.\openspec.cmd validate --all --strict`, and repository-protection checks.
+- [x] 12.1 Archive only after independent `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` and direct workflow authorization.
+- [x] 12.2 Review the archive/root-spec diff to confirm the requirement rename, display-only switch contract, and codec ownership contract are applied exactly.
+- [x] 12.3 Run post-archive `git diff --check`, full offline tests, `.\openspec.cmd validate --all --strict`, and repository-protection checks.
 - [ ] 12.4 Create and push a dedicated archive commit without amend, rebase, force-push, or history rewrite.
 - [ ] 12.5 Before merge, recheck current `master`, PR state/Draft, base/head, mergeability, remote archive HEAD, and new commits.
 - [ ] 12.6 Do not mark ready, merge, close, delete the branch, or rewrite history without direct user authorization.
