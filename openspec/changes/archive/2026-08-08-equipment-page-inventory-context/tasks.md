@@ -139,6 +139,6 @@ git diff --check
 - [x] 12.1 Archive only after independent `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES` and direct workflow authorization.
 - [x] 12.2 Review the archive/root-spec diff to confirm the requirement rename, display-only switch contract, and codec ownership contract are applied exactly.
 - [x] 12.3 Run post-archive `git diff --check`, full offline tests, `.\openspec.cmd validate --all --strict`, and repository-protection checks.
-- [ ] 12.4 Create and push a dedicated archive commit without amend, rebase, force-push, or history rewrite.
+- [x] 12.4 Create and push a dedicated archive commit without amend, rebase, force-push, or history rewrite.
 - [ ] 12.5 Before merge, recheck current `master`, PR state/Draft, base/head, mergeability, remote archive HEAD, and new commits.
 - [ ] 12.6 Do not mark ready, merge, close, delete the branch, or rewrite history without direct user authorization.
