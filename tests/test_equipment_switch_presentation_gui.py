@@ -184,6 +184,14 @@ class EquipmentSwitchPresentationGUITests(unittest.TestCase):
                     self.assertTrue(registration.shared_room_block)
                     self.assertIsNotNone(screen.shared_room_information_block)
 
+    def test_initial_unavailable_switch_rows_use_the_canonical_em_dash(self):
+        window = self.build_window(inventory())
+        for registration in EQUIPMENT_PAGE_REGISTRY:
+            with self.subTest(screen=registration.screen_key):
+                screen = window.screens[registration.screen_key]
+                self.assertEqual("—", screen.switch_ip_row.value_display.text())
+                self.assertEqual("—", screen.switch_port_row.value_display.text())
+
     def test_pdu_registration_keeps_dedicated_room_placement(self):
         registration = registrations_by_screen()["pdu"]
         self.assertFalse(registration.shared_room_block)

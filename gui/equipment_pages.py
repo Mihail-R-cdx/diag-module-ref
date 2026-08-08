@@ -52,13 +52,13 @@ def attach_switch_connection_rows(
     device-data clearing. The screen renders only safe scalar values; it never
     queries the inventory or decides lookup multiplicity.
     """
-    ip_row = ParameterRow(SWITCH_IP_LABEL, "-", parent)
-    port_row = ParameterRow(SWITCH_PORT_LABEL, "-", parent)
+    ip_row = ParameterRow(SWITCH_IP_LABEL, "—", parent)
+    port_row = ParameterRow(SWITCH_PORT_LABEL, "—", parent)
     for row in (ip_row, port_row):
         row.setProperty("inventoryContextBoundary", True)
         row.value_display.setProperty("inventoryContextBoundary", True)
         row.value_display.setProperty("data_field", False)
-        row.set_value("-")
+        row.set_value("—")
         row.set_state("inactive")
         card.add_widget(row)
     return (ip_row, port_row)

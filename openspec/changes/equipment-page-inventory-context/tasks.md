@@ -2,10 +2,10 @@
 
 ## 1. Confirm current authority and implementation context
 
-- [ ] 1.1 Before implementation, read current `RULES.md` and then `docs/equipment-inventory-runbook.md`.
-- [ ] 1.2 Read the approved root specifications `equipment-inventory-snapshot` and `diagnostic-application-shell`, including the renamed switch-metadata requirement and the shared non-PDU room-presentation contract.
+- [x] 1.1 Before implementation, read current `RULES.md` and then `docs/equipment-inventory-runbook.md`.
+- [x] 1.2 Read the approved root specifications `equipment-inventory-snapshot` and `diagnostic-application-shell`, including the renamed switch-metadata requirement and the shared non-PDU room-presentation contract.
 - [ ] 1.3 Read current `core/equipment_inventory.py`, `core/room_context.py`, `gui/equipment_pages.py`, `gui/main_window.py`, all four registered equipment screens, and focused inventory/room GUI tests.
-- [ ] 1.4 Fetch current `origin/master` and `origin/agent/equipment-page-inventory-context`, record both full SHAs and subjects, confirm PR base/head/Draft/mergeability, and inspect commits added after the approved architecture HEAD.
+- [x] 1.4 Fetch current `origin/master` and `origin/agent/equipment-page-inventory-context`, record both full SHAs and subjects, confirm PR base/head/Draft/mergeability, and inspect commits added after the approved architecture HEAD.
 - [ ] 1.5 Confirm the implementation branch still contains the approved architecture and no newer root-spec or page-registry change conflicts with it.
 
 ## 2. Preserve the renamed inventory contract
@@ -92,20 +92,20 @@ QApplication.processEvents()
 
 ## 9. Implementation validation
 
-- [ ] 9.1 Run focused room-context GUI tests:
+- [x] 9.1 Run focused room-context GUI tests:
 
 ```powershell
 python -m unittest tests.test_equipment_room_context_gui
 ```
 
-- [ ] 9.2 Run the focused switch-presentation GUI module and directly affected codec/Matrix/PDU/audio-DSP test modules; record exact commands and counts.
-- [ ] 9.3 Run the full offline suite:
+- [x] 9.2 Run the focused switch-presentation GUI module and directly affected codec/Matrix/PDU/audio-DSP test modules; record exact commands and counts.
+- [x] 9.3 Run the full offline suite:
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-- [ ] 9.4 Run:
+- [x] 9.4 Run:
 
 ```powershell
 git diff --check
@@ -113,7 +113,7 @@ git diff --check
 .\openspec.cmd validate --all --strict
 ```
 
-- [ ] 9.5 Record repository-supported Python, Node, npm, and pinned OpenSpec versions, dependency restoration, exact commands, exit codes, and test counts.
+- [x] 9.5 Record repository-supported Python, Node, npm, and pinned OpenSpec versions, dependency restoration, exact commands, exit codes, and test counts.
 
 ## 10. Publish implementation for independent validation
 
