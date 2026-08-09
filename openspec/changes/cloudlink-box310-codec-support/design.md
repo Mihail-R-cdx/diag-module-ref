@@ -9,7 +9,7 @@ inventory/application model: CloudLink Bar 310
 handler/display model:        Huawei CloudLink Bar 310
 ```
 
-Application composition resolves only canonical `diagnostic_model` values. `CloudLink Bar 310` is present in the importer registry, application dispatch registry, codec page registry, codec transport-profile policy, interactive handler factory, related-codec adapter, and model-specific application branches. The existing Bar polling path then constructs `CloudLinkBar310Handler`; the handler, worker, and parser currently require the exact handler/display identity `Huawei CloudLink Bar 310`.
+Application composition resolves only canonical `diagnostic_model` values. `CloudLink Bar 310` is present in the importer registry, application dispatch registry, codec page registry, codec transport-profile policy, interactive handler factory, related-codec resolver/adapter, and model-specific application branches. The existing Bar polling path then constructs `CloudLinkBar310Handler`; the handler, worker, and parser currently require the exact handler/display identity `Huawei CloudLink Bar 310`.
 
 `CloudLink Box 310` is a distinct supported product identity but uses the same management protocol and supported operations as Bar 310. The architecture must therefore add a second exact model identity while keeping one protocol implementation.
 
@@ -129,7 +129,7 @@ Exact-model branches that exist only to select Bar protocol capability SHALL acc
 - ordinary codec refresh and credential-attempt restart;
 - codec transport-profile ordering;
 - interactive-session handler acquisition and supported Bar interactive operations;
-- PDU related-codec status support and Bar call/presentation normalization;
+- PDU room resolver related-codec support, related-codec status support, and Bar call/presentation normalization;
 - the existing SIP-server action where Bar 310 is already supported.
 
 These are closed family gates, not aliases. Prefer one shared constant/helper for the approved Bar/Box family where it reduces duplicated exact-name conditionals. Do not broaden unrelated Huawei, Polycom, TE20, or TE40 behavior.
@@ -151,9 +151,11 @@ Successful credential index and saved connection profile remain keyed by the exa
 
 ## Decision 7: Related-codec enrichment treats Box as the same protocol family but preserves Box identity
 
+The pure room resolver's closed supported-related-codec set SHALL include exact `CloudLink Box 310`, so a unique video-codec record with that canonical model may resolve normally. This is an exact support entry; the resolver SHALL NOT infer Box support from `device_kind`, `source_model`, or similarity to Bar 310.
+
 When room resolution returns exact `codec_diagnostic_model = CloudLink Box 310`, the enrichment controller SHALL keep that exact model in its context, resolve Box credentials, order the same HTTPS:443 profile, acquire the shared Bar protocol handler with Box identity, and use the same call/presentation command semantics as Bar 310.
 
-Accepted presentation continues to report `codec_diagnostic_model = CloudLink Box 310`. No enrichment component may replace it with Bar 310 merely because the protocol implementation is shared.
+Accepted presentation continues to report `codec_diagnostic_model = CloudLink Box 310`. No resolver, enrichment component, or status adapter may replace it with Bar 310 merely because the protocol implementation is shared.
 
 ## Decision 8: Regression boundary
 
@@ -167,7 +169,7 @@ Synthetic tests SHALL prove at least:
 6. Bar polling still validates/displays `Huawei CloudLink Bar 310`;
 7. identity mismatch is rejected rather than silently rewritten;
 8. Box uses the existing HTTPS:443 profile policy;
-9. interactive handler acquisition and related-codec status use the shared Bar handler/commands for Box;
+9. room resolution, interactive handler acquisition, and related-codec status use the shared Bar protocol capability for Box while preserving exact Box identity;
 10. Box and Bar credential/success/profile contexts remain distinct;
 11. existing Bar status-polling regression suite still passes;
 12. no production inventory, credential file, or Graphify artifact is introduced.
