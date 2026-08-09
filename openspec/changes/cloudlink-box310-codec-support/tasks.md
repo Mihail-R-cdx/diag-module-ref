@@ -23,6 +23,7 @@
 
 ## 4. Reuse the Bar protocol with distinct Box identity
 
+- [ ] Treat the two `MODIFIED Requirements` in the lifecycle delta as normative replacements for the current Bar-only core/parser-worker identity contracts; do not implement Box only against the parallel added family requirement.
 - [ ] Introduce one focused closed Bar/Box identity mapping or equivalent exact helper:
 
 ```text
@@ -115,4 +116,5 @@ git diff --name-only origin/master...HEAD
 - [ ] Re-run focused tests, full offline tests, both strict OpenSpec validations, and `git diff --check` without copying prior counts.
 - [ ] Review implementation against this approved architecture and the current root specs; do not fix findings in the independent validation session.
 - [ ] Because this change contains `MODIFIED Requirements`, perform a disposable archive-applicability check against the current root specs before `READY FOR ARCHIVE`; do not perform that check on the primary feature worktree.
+- [ ] During the disposable archive-applicability review, confirm the two existing Bar-only lifecycle requirements are replaced by the parameterized trusted-identity versions and no contradictory Bar-only exact-success clauses remain in the resulting root spec.
 - [ ] Issue `READY FOR ARCHIVE` only when the current remote HEAD is cleanly validated with no CRITICAL, HIGH, or MEDIUM findings and the archive delta is applicable.
