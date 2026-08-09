@@ -136,6 +136,10 @@ Exact-model branches that exist only to select Bar protocol capability SHALL acc
 
 These are closed family gates, not aliases. Prefer one shared constant/helper for the approved Bar/Box family where it reduces duplicated exact-name conditionals. Do not broaden unrelated Huawei, Polycom, TE20, or TE40 behavior.
 
+The `device-diagnostics-and-control` delta SHALL modify the existing root requirements `Supported production device diagnostics`, `Device-specific diagnostic transports`, `Model-specific interactive codec session paths`, and `Related-codec status reuses supported codec protocol boundaries`. Those four capability requirements SHALL explicitly include exact `CloudLink Box 310` wherever the reviewed Bar protocol capability is shared, while preserving `CloudLink Bar 310` as its own exact application identity. The delta SHALL NOT convert these closed capability lists into fuzzy families or aliases.
+
+The generic `Limited device control` requirement remains unchanged because it already defines supported SIP-server actions by actual handler capability rather than by a Bar-only model list. Box 310 SIP support remains governed by the shared-family lifecycle contract and the existing state-changing operation policy; it SHALL NOT be moved into the interactive controller merely to satisfy capability-spec synchronization.
+
 ## Decision 6: Credentials and saved success remain exact-model scoped
 
 Protocol equivalence does not imply credential equivalence.
@@ -173,8 +177,9 @@ Synthetic tests SHALL prove at least:
 8. Box uses the existing HTTPS:443 profile policy;
 9. room resolution, interactive handler acquisition, and related-codec status use the shared Bar protocol capability for Box while preserving exact Box identity;
 10. Box and Bar credential/success/profile contexts remain distinct;
-11. existing Bar status-polling regression suite still passes;
-12. no production inventory, credential file, or Graphify artifact is introduced.
+11. the existing Bar-supported SIP-server action is available to exact Box 310 through the shared handler semantics without model aliasing or unsafe replay;
+12. existing Bar status-polling regression suite still passes;
+13. no production inventory, credential file, or Graphify artifact is introduced.
 
 ## Implementation shape
 
