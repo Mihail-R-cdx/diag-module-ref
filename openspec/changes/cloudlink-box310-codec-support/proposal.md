@@ -15,7 +15,7 @@ The current architecture intentionally uses closed exact registries. The equipme
 - Reuse the existing `CloudLinkBar310Handler` protocol implementation and Bar 310 command semantics instead of cloning the handler or command map.
 - Preserve distinct product identity: Bar 310 displays/validates as `Huawei CloudLink Bar 310`; Box 310 displays/validates as `Huawei CloudLink Box 310`.
 - Bind the expected handler/parser identity from the already assigned exact application model. The handler, worker, parser, interactive session, related-codec status path, and existing supported codec actions must not infer or switch the product model from response text or failures.
-- Extend all currently supported Bar 310 codec operations that depend on exact model routing, including ordinary refresh, supported interactive operations, related-codec read-only enrichment, and the existing SIP-server action, to Box 310 through the shared protocol implementation.
+- Extend all currently supported Bar 310 codec operations that depend on exact model routing, including ordinary refresh, supported interactive operations, related-codec room resolution/read-only enrichment, and the existing SIP-server action, to Box 310 through the shared protocol implementation.
 - Keep credential selection, successful credential-index memory, and connection-profile memory model-bound. Supporting the same protocol does not authorize implicit credential sharing or fallback between Bar 310 and Box 310.
 - Keep existing Bar 310 behavior unchanged.
 
@@ -35,6 +35,7 @@ Expected implementation areas:
 - `gui/equipment_pages.py`
 - `gui/main_window.py`
 - `core/codec_connection_profiles.py`
+- `core/room_context.py`
 - `core/interactive_session.py`
 - `core/related_codec_status.py`
 - `core/workers/codec_polling.py`
