@@ -16,6 +16,7 @@ The current architecture intentionally uses closed exact registries. The equipme
 - Preserve distinct product identity: Bar 310 displays/validates as `Huawei CloudLink Bar 310`; Box 310 displays/validates as `Huawei CloudLink Box 310`.
 - Bind the expected handler/parser identity from the already assigned exact application model. The handler, worker, parser, interactive session, related-codec status path, and existing supported codec actions must not infer or switch the product model from response text or failures.
 - Extend all currently supported Bar 310 codec operations that depend on exact model routing, including ordinary refresh, supported interactive operations, related-codec room resolution/read-only enrichment, and the existing SIP-server action, to Box 310 through the shared protocol implementation.
+- Reconcile the closed production-diagnostic, transport, interactive-session, and related-codec capability contracts so `device-diagnostics-and-control` explicitly recognizes Box 310 wherever the approved Bar protocol capability is shared.
 - Keep credential selection, successful credential-index memory, and connection-profile memory model-bound. Supporting the same protocol does not authorize implicit credential sharing or fallback between Bar 310 and Box 310.
 - Keep existing Bar 310 behavior unchanged.
 
@@ -26,6 +27,7 @@ Affected specifications:
 - `equipment-inventory-snapshot`
 - `diagnostic-application-shell`
 - `request-lifecycle-and-recovery`
+- `device-diagnostics-and-control`
 
 Expected implementation areas:
 
