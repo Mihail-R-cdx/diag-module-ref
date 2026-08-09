@@ -2,8 +2,9 @@
 
 ## 1. Confirm implementation baseline
 
-- [ ] Read current `RULES.md` first, then `docs/equipment-inventory-runbook.md`, this approved change, and the affected root specs before modifying code or tests.
+- [ ] Read current `RULES.md` first, then `docs/equipment-inventory-runbook.md`, this approved change, and the affected root specs including `device-diagnostics-and-control` before modifying code or tests.
 - [ ] Fetch GitHub and record exact `origin/master`, remote feature-branch HEAD, PR state/Draft/base/head when a PR exists, and any commits newer than the approved architecture HEAD before implementation.
+- [ ] Confirm the current published architecture HEAD passes repository-local strict OpenSpec validation and `git diff --check` before production implementation begins; an environment failure is not a passing validation result.
 - [ ] Confirm the implementation diff is limited to the Box 310 model-support surface, synthetic tests, runbook updates, and implementation evidence required by this change.
 - [ ] Do not modify production inventory data, credential files, validation evidence from another session, or Graphify output.
 
@@ -39,6 +40,7 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 
 ## 5. Extend all existing Bar capability gates to the closed Bar/Box family
 
+- [ ] Treat the four `MODIFIED Requirements` in the `device-diagnostics-and-control` delta as normative replacements for the current Bar-only production-diagnostic, transport, interactive-session, and related-codec capability contracts.
 - [ ] Make codec connection-profile ordering return the existing HTTPS:443 Bar profile for Box 310.
 - [ ] Add exact `CloudLink Box 310` to the pure room resolver's supported related-codec model set so PDU room resolution can return Box without model inference.
 - [ ] Make interactive-session handler acquisition support Box 310 through `CloudLinkBar310Handler` while preserving the exact Box context model.
@@ -60,7 +62,7 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 - [ ] Add/extend focused Bar 310 polling tests proving Box uses the shared handler semantics but validates/renders `Huawei CloudLink Box 310`, Bar still renders `Huawei CloudLink Bar 310`, and mismatched expected identity is rejected.
 - [ ] Add/extend connection-profile and interactive-session tests proving Box uses HTTPS:443 and `CloudLinkBar310Handler` without becoming Bar application identity.
 - [ ] Add/extend room-context and related-codec enrichment/status tests proving a room codec with exact `CloudLink Box 310` resolves and can be queried with the existing Bar call/presentation semantics.
-- [ ] Add/extend SIP action coverage if the existing Bar SIP action has focused tests.
+- [ ] Add/extend focused SIP action coverage proving exact Box 310 uses the existing Bar-supported handler semantics while preserving exact Box operation context, state-changing recovery policy, and credential/profile isolation.
 - [ ] Prove Bar and Box credential indexes/profile persistence remain distinct exact-model keys.
 
 ## 8. Validate implementation
@@ -78,7 +80,7 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 <python> -m unittest tests.test_inventory_credential_configuration -v
 ```
 
-- [ ] Run focused Bar/Box protocol, room-context, interactive, and related-codec tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected room-context/interactive/related-codec suites.
+- [ ] Run focused Bar/Box protocol, room-context, interactive, related-codec, and SIP-action tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected room-context/interactive/related-codec/SIP suites.
 - [ ] Run the canonical full offline test suite and record exact passed/failed counts:
 
 ```powershell
@@ -116,5 +118,5 @@ git diff --name-only origin/master...HEAD
 - [ ] Re-run focused tests, full offline tests, both strict OpenSpec validations, and `git diff --check` without copying prior counts.
 - [ ] Review implementation against this approved architecture and the current root specs; do not fix findings in the independent validation session.
 - [ ] Because this change contains `MODIFIED Requirements`, perform a disposable archive-applicability check against the current root specs before `READY FOR ARCHIVE`; do not perform that check on the primary feature worktree.
-- [ ] During the disposable archive-applicability review, confirm the two existing Bar-only lifecycle requirements are replaced by the parameterized trusted-identity versions and no contradictory Bar-only exact-success clauses remain in the resulting root spec.
+- [ ] During the disposable archive-applicability review, confirm the two existing Bar-only lifecycle requirements and the four Bar-only `device-diagnostics-and-control` capability requirements are replaced by the parameterized Bar/Box versions, with no contradictory Bar-only exact-success or closed capability-list clauses remaining in the resulting root specs.
 - [ ] Issue `READY FOR ARCHIVE` only when the current remote HEAD is cleanly validated with no CRITICAL, HIGH, or MEDIUM findings and the archive delta is applicable.
