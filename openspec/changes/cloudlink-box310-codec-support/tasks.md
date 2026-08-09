@@ -39,6 +39,7 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 ## 5. Extend all existing Bar capability gates to the closed Bar/Box family
 
 - [ ] Make codec connection-profile ordering return the existing HTTPS:443 Bar profile for Box 310.
+- [ ] Add exact `CloudLink Box 310` to the pure room resolver's supported related-codec model set so PDU room resolution can return Box without model inference.
 - [ ] Make interactive-session handler acquisition support Box 310 through `CloudLinkBar310Handler` while preserving the exact Box context model.
 - [ ] Extend related-codec status support so Box 310 uses the same Bar call/presentation commands and normalization and remains reported as Box 310.
 - [ ] Extend the existing Bar-supported SIP-server action to Box 310 through the same handler semantics.
@@ -57,7 +58,7 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 - [ ] Extend `tests/test_inventory_diagnostic_dispatch.py` and registry-integrity coverage so exact Box 310 resolves to `codec` and `cloudlink_bar_310`, while unknown models still fail closed.
 - [ ] Add/extend focused Bar 310 polling tests proving Box uses the shared handler semantics but validates/renders `Huawei CloudLink Box 310`, Bar still renders `Huawei CloudLink Bar 310`, and mismatched expected identity is rejected.
 - [ ] Add/extend connection-profile and interactive-session tests proving Box uses HTTPS:443 and `CloudLinkBar310Handler` without becoming Bar application identity.
-- [ ] Add/extend related-codec enrichment/status tests proving a room codec with exact `CloudLink Box 310` can be queried with the existing Bar call/presentation semantics.
+- [ ] Add/extend room-context and related-codec enrichment/status tests proving a room codec with exact `CloudLink Box 310` resolves and can be queried with the existing Bar call/presentation semantics.
 - [ ] Add/extend SIP action coverage if the existing Bar SIP action has focused tests.
 - [ ] Prove Bar and Box credential indexes/profile persistence remain distinct exact-model keys.
 
@@ -76,7 +77,7 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 <python> -m unittest tests.test_inventory_credential_configuration -v
 ```
 
-- [ ] Run focused Bar/Box protocol, interactive, and related-codec tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected interactive/related-codec suites.
+- [ ] Run focused Bar/Box protocol, room-context, interactive, and related-codec tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected room-context/interactive/related-codec suites.
 - [ ] Run the canonical full offline test suite and record exact passed/failed counts:
 
 ```powershell
