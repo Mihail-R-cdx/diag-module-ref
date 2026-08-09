@@ -120,6 +120,8 @@ assigned CloudLink Box 310
 
 The handler SHALL continue to manufacture the canonical handler/display model from trusted assigned context rather than copy a free-form response label. The worker and parser SHALL validate against the expected identity for that operation, not merely accept either family member. A mismatched identity is a protocol/parser contract failure; it does not trigger model switching.
 
+The lifecycle delta SHALL modify the existing root requirements `CloudLink Bar 310 required core evidence is exact` and `CloudLink Bar 310 parser and worker success require exact usable canonical status`. Those requirements SHALL no longer hard-code Bar identity as the only successful identity; they SHALL parameterize exact success by the trusted expected identity derived from the assigned Bar or Box application model. The new family requirement is complementary and SHALL NOT exist as a contradictory parallel contract.
+
 All existing Bar polling decisions remain shared and unchanged: required version gate, explicit optional status plan, endpoint ownership/precedence, optional endpoint isolation, typed terminal failures, presentation/sleep normalization, zero preservation, cleanup, and redaction.
 
 ## Decision 5: Every existing Bar model gate that represents protocol capability becomes a Bar/Box family gate
