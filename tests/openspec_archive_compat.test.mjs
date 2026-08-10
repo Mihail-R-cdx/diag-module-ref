@@ -77,6 +77,19 @@ test('does not rewrite unrelated files or archived change artifacts', () => {
   assert.equal(readFileSync(path.join(directory, 'unrelated.md'), 'utf8'), 'unrelated\n\n');
 });
 
+test('excludes deleted root specs from normalization targets', () => {
+  const directory = makeRepo();
+  const removed = path.join(directory, 'openspec/specs/old-capability/spec.md');
+  mkdirSync(path.dirname(removed), { recursive: true });
+  writeFileSync(removed, 'old\n');
+  execFileSync('git', ['add', '.'], { cwd: directory });
+  execFileSync('git', ['commit', '-qm', 'add old capability'], { cwd: directory });
+  rmSync(removed);
+  assert.equal(postflight(directory).status, 0);
+  assert.equal(run('cmd.exe', ['/d', '/c', 'if', 'exist', removed, '(exit 1)', 'else', '(exit 0)'], directory).status, 0);
+  assert.match(execFileSync('git', ['status', '--porcelain'], { cwd: directory, encoding: 'utf8' }), /D  openspec\/specs\/old-capability\/spec.md| D openspec\/specs\/old-capability\/spec.md/);
+});
+
 test('preserves a UTF-8 BOM and all semantic bytes before the terminal region', () => {
   const directory = makeRepo();
   const spec = path.join(directory, 'openspec/specs/capability/spec.md');

@@ -73,7 +73,7 @@ function postflight() {
     return;
   }
 
-  const modified = rootSpecPaths(git(['diff', '--name-only', '--', ROOT_SPECS]));
+  const modified = rootSpecPaths(git(['diff', '--name-only', '--diff-filter=ACMRT', '--', ROOT_SPECS]));
   const untracked = rootSpecPaths(git(['ls-files', '--others', '--exclude-standard', '--', ROOT_SPECS]));
   const targets = [...new Set([...modified, ...untracked])];
   const decoded = [];
