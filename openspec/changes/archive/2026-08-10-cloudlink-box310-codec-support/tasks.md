@@ -113,10 +113,10 @@ git diff --name-only origin/master...HEAD
 
 ## 10. Independent validation and archive applicability
 
-- [ ] Validate in a separate clean detached worktree created from the current remote feature-branch HEAD.
-- [ ] Confirm local detached SHA equals remote branch SHA before tests.
-- [ ] Re-run focused tests, full offline tests, both strict OpenSpec validations, and `git diff --check` without copying prior counts.
-- [ ] Review implementation against this approved architecture and the current root specs; do not fix findings in the independent validation session.
-- [ ] Because this change contains `MODIFIED Requirements`, perform a disposable archive-applicability check against the current root specs before `READY FOR ARCHIVE`; do not perform that check on the primary feature worktree.
-- [ ] During the disposable archive-applicability review, confirm the two existing Bar-only lifecycle requirements and the four Bar-only `device-diagnostics-and-control` capability requirements are replaced by the parameterized Bar/Box versions, with no contradictory Bar-only exact-success or closed capability-list clauses remaining in the resulting root specs.
-- [ ] Issue `READY FOR ARCHIVE` only when the current remote HEAD is cleanly validated with no CRITICAL, HIGH, or MEDIUM findings and the archive delta is applicable.
+- [x] Validate in a separate clean detached worktree created from the current remote feature-branch HEAD.
+- [x] Confirm local detached SHA equals remote branch SHA before tests.
+- [x] Re-run focused tests, full offline tests, both strict OpenSpec validations, and `git diff --check` without copying prior counts.
+- [x] Review implementation against this approved architecture and the current root specs; do not fix findings in the independent validation session.
+- [x] Because this change contains `MODIFIED Requirements`, perform a disposable archive-applicability check against the current root specs before `READY FOR ARCHIVE`; do not perform that check on the primary feature worktree.
+- [x] During the disposable archive-applicability review, confirm the two existing Bar-only lifecycle requirements and the four Bar-only `device-diagnostics-and-control` capability requirements are replaced by the parameterized Bar/Box versions, with no contradictory Bar-only exact-success or closed capability-list clauses remaining in the resulting root specs.
+- [x] Issue `READY FOR ARCHIVE` only when the current remote HEAD is cleanly validated with no CRITICAL, HIGH, or MEDIUM findings and the archive delta is applicable.

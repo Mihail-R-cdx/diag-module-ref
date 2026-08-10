@@ -425,7 +425,8 @@ The closed dispatch registry SHALL be exactly:
 | --- | --- | --- |
 | `Huawei TE20` | `codec` | Huawei TE20 refresh path |
 | `Huawei TE40` | `codec` | Huawei TE40 refresh path |
-| `CloudLink Bar 310` | `codec` | CloudLink Bar 310 refresh path |
+| `CloudLink Bar 310` | `codec` | shared CloudLink Bar/Box 310 lifecycle `cloudlink_bar_310` |
+| `CloudLink Box 310` | `codec` | shared CloudLink Bar/Box 310 lifecycle `cloudlink_bar_310` |
 | `Polycom RPG 310` | `codec` | Polycom RPG 310 refresh path |
 | `Extron IN1804` | `matrix` | `MatrixController` refresh path |
 | `Aten PE8208AV` | `pdu` | `PDUController` with exact Aten model context |
@@ -433,7 +434,7 @@ The closed dispatch registry SHALL be exactly:
 | `Biamp Tesira Forte CI` | `audio_dsp` | existing Biamp polling path |
 | `Extron DMP 64 Plus` | `audio_dsp` | `DMPPollingController` refresh path |
 
-Each exact model SHALL have one and only one registry entry. Unknown models SHALL have no default route. Diagnostic fallback choices, credential-configuration fallback choices, page registration, and lifecycle routing SHALL derive from or be integrity-checked against this same closed registry.
+Each exact model SHALL have one and only one registry entry. Multiple exact models MAY share one explicitly reviewed lifecycle route while retaining distinct application model identity. Unknown models SHALL have no default route. Diagnostic fallback choices, credential-configuration fallback choices, page registration, and lifecycle routing SHALL derive from or be integrity-checked against this same closed registry.
 
 The registry SHALL contain no credentials, credential candidate lists, successful indexes, handler/session/transport instances, cookies/tokens, or mutable worker state.
 
@@ -460,6 +461,15 @@ The registry SHALL contain no credentials, credential candidate lists, successfu
 - **AND** its `diagnostic_model` is exactly `Huawei TE40`
 - **WHEN** diagnostic inventory dispatch is accepted
 - **THEN** the application assigns the `codec` screen and Huawei TE40 refresh path
+
+#### Scenario: Unique CloudLink Box 310 record selects shared Bar/Box diagnostics
+
+- **GIVEN** exactly one inventory record matches the current IP
+- **AND** its `diagnostic_model` is exactly `CloudLink Box 310`
+- **WHEN** diagnostic inventory dispatch is accepted
+- **THEN** the application assigns the `codec` screen and lifecycle route `cloudlink_bar_310`
+- **AND** the accepted application model remains exactly `CloudLink Box 310`
+- **AND** the application does not rewrite the request model to `CloudLink Bar 310`
 
 #### Scenario: Unique IN1804 record selects Matrix diagnostics
 

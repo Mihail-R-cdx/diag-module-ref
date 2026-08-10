@@ -946,6 +946,7 @@ The same closed reviewed registry SHALL be evaluated independently against each 
 | `Huawei TE20` | `te` and `20` |
 | `Huawei TE40` | `te` and `40` |
 | `CloudLink Bar 310` | `cloudlink`, `bar`, and `310` |
+| `CloudLink Box 310` | `cloudlink`, `box`, and `310` |
 | `Polycom RPG 310` | (`rpg` and `310`) or (`realpresence`, `group`, and `310`) |
 | `Extron IN1804` | `in` and `1804` |
 | `Aten PE8208AV` | `pe` and `8208` |
@@ -976,6 +977,12 @@ The same closed reviewed registry SHALL be evaluated independently against each 
 
 - **WHEN** either normalized approved evidence field is `LTE 40`, `TE200`, `TE401`, `IN18040`, `PE82080`, or `DMP640`
 - **THEN** no reviewed rule matches that field merely because a shorter key appears as a substring
+
+#### Scenario: CloudLink Box 310 evidence is recognized
+
+- **WHEN** either normalized approved evidence field contains exact components `cloudlink`, `box`, and `310`
+- **THEN** the `CloudLink Box 310` rule matches that field
+- **AND** the `CloudLink Bar 310` rule does not match merely because both products share `cloudlink` and `310`
 
 #### Scenario: Unsupported model remains unmapped
 

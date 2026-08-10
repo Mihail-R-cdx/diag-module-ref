@@ -5,16 +5,28 @@ TBD - created by archiving change bootstrap-openspec-baseline. Update Purpose af
 ## Requirements
 ### Requirement: Supported production device diagnostics
 The application SHALL provide production GUI diagnostic paths for Huawei TE20,
-Huawei TE40, CloudLink Bar 310, Polycom RPG 310, Extron IN1804, Aten
-PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI, and Extron DMP 64 Plus
-only where those devices are connected to the main-window dispatch. Each
-diagnostic path SHALL obtain device data through its worker/handler path and
+Huawei TE40, CloudLink Bar 310, CloudLink Box 310, Polycom RPG 310, Extron
+IN1804, Aten PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI, and Extron
+DMP 64 Plus only where those devices are connected to the main-window dispatch.
+Each diagnostic path SHALL obtain device data through its worker/handler path and
 present parser-normalized or handler-normalized data on the corresponding
 screen.
+
+CloudLink Bar 310 and CloudLink Box 310 SHALL remain two distinct exact
+application models even though both dispatch through the reviewed shared
+`cloudlink_bar_310` lifecycle. Supporting Box 310 SHALL NOT rewrite its accepted
+application identity to Bar 310.
 
 #### Scenario: Codec diagnostic refresh
 - **WHEN** an operator refreshes a supported codec with a successful device response
 - **THEN** the codec screen receives normalized diagnostic data including the target IP and available device status values
+
+#### Scenario: CloudLink Box 310 diagnostic refresh
+- **GIVEN** the selected exact application model is `CloudLink Box 310`
+- **WHEN** its production diagnostic refresh succeeds through the shared Bar/Box lifecycle
+- **THEN** the codec screen receives normalized Box 310 diagnostic data
+- **AND** the accepted application model remains exactly `CloudLink Box 310`
+- **AND** the operation is not represented as `CloudLink Bar 310`
 
 #### Scenario: Matrix or PDU diagnostic refresh
 - **WHEN** an operator refreshes Extron IN1804, Aten PE8208AV, or Extron IPL T PCS4i successfully
@@ -32,16 +44,28 @@ screen.
 ### Requirement: Device-specific diagnostic transports
 The diagnostic paths SHALL preserve their current protocol boundaries: TE20
 uses its HTTP profile and optionally a ready HTTPS stack; TE40 attempts HTTPS
-and falls back to HTTP; Bar 310 uses its Huawei web/API session; Polycom uses
-HTTPS status with SSH enrichment; Extron IN1804 uses its handler transport
-sequence; Aten uses its HTTPS API path; and Extron IPL T PCS4i uses Telnet for
-authoritative outlet status/control plus required HTTP outlet-name enrichment.
-A protocol fallback or enrichment failure SHALL be observable in the
-worker/handler outcome and SHALL not be represented as a different device.
+and falls back to HTTP; CloudLink Bar 310 and CloudLink Box 310 use the same
+existing Huawei web/API session implementation and approved HTTPS:443 profile;
+Polycom uses HTTPS status with SSH enrichment; Extron IN1804 uses its handler
+transport sequence; Aten uses its HTTPS API path; and Extron IPL T PCS4i uses
+Telnet for authoritative outlet status/control plus required HTTP outlet-name
+enrichment. A protocol fallback or enrichment failure SHALL be observable in
+the worker/handler outcome and SHALL not be represented as a different device.
+
+For the closed Bar/Box 310 protocol family, transport equivalence SHALL NOT
+collapse exact application identity, authorize credential sharing, or authorize
+retrying one family member as the other.
 
 #### Scenario: TE40 HTTPS fallback
 - **WHEN** TE40 HTTPS diagnostic connection fails and its HTTP fallback succeeds
 - **THEN** the worker returns the HTTP connection profile with the parsed diagnostic data
+
+#### Scenario: CloudLink Box 310 uses the shared Bar transport boundary
+- **GIVEN** the exact application model is `CloudLink Box 310`
+- **WHEN** the diagnostic path acquires its supported transport
+- **THEN** it uses the same existing Huawei web/API session implementation and HTTPS:443 profile as Bar 310
+- **AND** the transport path remains bound to exact `CloudLink Box 310` operation context
+- **AND** transport or authentication failure does not switch the model to `CloudLink Bar 310`
 
 #### Scenario: Polycom enrichment is unavailable
 - **WHEN** Polycom HTTPS status succeeds but SSH enrichment fails
@@ -100,9 +124,15 @@ exposed to the operator as an individual or bulk operation.
 ### Requirement: Model-specific interactive codec session paths
 The shared interactive controller SHALL preserve the supported transports,
 session artifacts, and operation boundaries of Huawei TE20, Huawei TE40,
-CloudLink Bar 310, and Polycom RPG 310. A model SHALL use only its supported
-interactive functions, and functions on a separate worker path SHALL remain
-separate unless explicitly listed.
+CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. A model SHALL use
+only its supported interactive functions, and functions on a separate worker
+path SHALL remain separate unless explicitly listed.
+
+CloudLink Bar 310 and CloudLink Box 310 SHALL use the same reviewed
+`CloudLinkBar310Handler` protocol implementation for supported interactive
+operations while retaining their exact assigned application model in interactive
+context. Shared protocol capability SHALL NOT authorize Bar/Box model aliasing,
+credential sharing, or model switching during recovery.
 
 #### Scenario: Huawei TE20 interactive session
 - **WHEN** TE20 performs live audio, sleep/Wake, volume, mute, presentation, or call-log work
@@ -118,6 +148,13 @@ separate unless explicitly listed.
 - **WHEN** Bar 310 performs sleep-related presentation preparation, volume, mute/gain, presentation, or call-log work
 - **THEN** it uses HTTPS:443 with one credential and one Basic-auth session, cookie, and CSRF context
 - **AND** call-log reads use the recovered token through the required `X-Access-Token` header
+
+#### Scenario: CloudLink Box 310 interactive session
+- **GIVEN** the interactive context model is exactly `CloudLink Box 310`
+- **WHEN** Box 310 performs an operation supported by the existing Bar 310 interactive capability
+- **THEN** it uses HTTPS:443 through the same `CloudLinkBar310Handler` session semantics
+- **AND** the interactive context remains exactly `CloudLink Box 310`
+- **AND** recovery does not retry or relabel the operation as `CloudLink Bar 310`
 
 #### Scenario: Polycom interactive controls
 - **WHEN** Polycom performs volume, mute, or presentation work
@@ -760,10 +797,16 @@ otherwise valid PDU control capabilities.
 ### Requirement: Related-codec status reuses supported codec protocol boundaries
 
 Automatic related-codec status SHALL use the existing supported handler and transport
-boundaries for Huawei TE20, Huawei TE40, CloudLink Bar 310, and Polycom RPG 310. It SHALL
-reuse existing status methods and parser normalization where available and SHALL NOT invent
-a protocol from `source_model`, a manufacturer substring, or an unsupported inventory
-record.
+boundaries for Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and
+Polycom RPG 310. It SHALL reuse existing status methods and parser normalization where
+available and SHALL NOT invent a protocol from `source_model`, a manufacturer substring,
+or an unsupported inventory record.
+
+For exact `CloudLink Box 310`, the related-codec path SHALL reuse the existing Bar 310
+call/presentation command semantics and HTTPS:443 protocol boundary while keeping exact
+Box application identity, Box credential selection, and Box successful connection memory.
+Protocol equivalence SHALL NOT authorize implicit Bar credential/profile reuse or model
+switching.
 
 The focused related-codec adapter SHALL expose only normalized call and presentation status
 to PDU presentation. Complete raw status and model-specific session artifacts SHALL remain
@@ -774,6 +817,15 @@ inside the handler/session/adapter boundary.
 - **WHEN** the inventory resolves an exact supported Huawei codec model/IP
 - **THEN** automatic status uses that model's existing supported handler and saved-first transport order
 - **AND** normalized call and presentation status are derived through the existing parser or an equivalent focused adapter
+
+#### Scenario: CloudLink Box 310 related codec is resolved
+
+- **GIVEN** inventory resolution returns exact `codec_diagnostic_model = CloudLink Box 310`
+- **WHEN** automatic related-codec status is requested
+- **THEN** it uses the shared Bar protocol handler and existing Bar call/presentation semantics over HTTPS:443
+- **AND** credentials and saved connection state are resolved for exact `CloudLink Box 310` and codec IP
+- **AND** accepted presentation remains exactly `CloudLink Box 310`
+- **AND** the operation is not retried or relabeled as `CloudLink Bar 310`
 
 #### Scenario: Polycom related codec is resolved
 
