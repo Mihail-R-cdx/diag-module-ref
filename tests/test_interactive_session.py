@@ -257,6 +257,44 @@ class InteractiveSessionControllerTests(unittest.TestCase):
             [call for call in calls if call[0] == "connect"],
         )
 
+    def test_box_context_acquires_shared_handler_for_read_only_operation_without_aliasing(self):
+        captured = []
+
+        class FakeBoxHandler:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+                return True
+
+            def disconnect(self):
+                self.connected = False
+
+            def is_connected(self):
+                return self.connected
+
+            def read(self):
+                return "box-status"
+
+        controller = InteractiveSessionController()
+        results, errors, _ = self.collect(controller)
+        with patch("handlers.huawei.bar310.CloudLinkBar310Handler", FakeBoxHandler):
+            controller.activate_context(
+                "CloudLink Box 310", "192.0.2.20", ({"username": "u", "password": "p"},)
+            )
+            controller.submit(InteractiveOperation(kind="read", method="read", semantic=OperationSemantic.READ_ONLY))
+            controller.wait_until_idle(2)
+            self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertEqual("CloudLink Box 310", results[0]["model"])
+        self.assertEqual("box-status", results[0]["value"])
+        self.assertEqual("Huawei CloudLink Box 310", captured[0]["expected_identity"])
+        self.assertEqual(443, captured[0]["port"])
+
     def test_confirmed_login_authentication_advances_monotonically(self):
         behavior = {
             ("connect", 443, "one"): AuthenticationError("confirmed"),

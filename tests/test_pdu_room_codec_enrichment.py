@@ -191,6 +191,17 @@ class RoomContextResolverTests(unittest.TestCase):
         self.assertEqual("ROOM-1", resolved.context.room_id)
         self.assertEqual("192.0.2.20", resolved.context.codec_ip_address)
 
+    def test_box_codec_resolves_by_room_with_exact_application_identity(self):
+        resolved = self.resolve(
+            [
+                record("PDU-BOX", ip_address="192.0.2.10", room_id="ROOM-BOX", device_kind="other", diagnostic_model="Aten PE8208AV"),
+                record("CODEC-BOX", ip_address="192.0.2.20", room_id="ROOM-BOX", device_kind="video_codec", diagnostic_model="CloudLink Box 310"),
+            ]
+        )
+        self.assertEqual(RoomResolutionStatus.RESOLVED, resolved.status)
+        self.assertEqual("CloudLink Box 310", resolved.context.codec_diagnostic_model)
+        self.assertEqual("192.0.2.20", resolved.context.codec_ip_address)
+
     def test_conflicting_room_names_continue_by_room_id_without_selecting_name(self):
         result = self.resolve(
             [
@@ -716,6 +727,38 @@ class EnrichmentControllerTests(unittest.TestCase):
         self.assertNotEqual(self.presentations[1]["generation"], self.presentations[-2]["generation"])
         self.assertEqual("VIP_TRUE", self.presentations[-1]["room_vip_status"])
         self.assertEqual("ДА", self.presentations[-1]["room_vip_label"])
+
+    def test_box_room_context_reaches_exact_credentials_and_shared_status_operation(self):
+        session = DummySession()
+        self.presentations = []
+        credential_calls, profile_calls = [], []
+        box_inventory = inventory(
+            [
+                record("PDU-BOX", ip_address="192.0.2.10", room_id="ROOM-BOX", device_kind="other", diagnostic_model="Aten PE8208AV"),
+                record("CODEC-BOX", ip_address="192.0.2.20", room_id="ROOM-BOX", device_kind="video_codec", diagnostic_model="CloudLink Box 310"),
+            ]
+        )
+        controller = PDURoomCodecEnrichmentController(
+            inventory_provider=lambda: box_inventory,
+            credential_candidates_provider=lambda model, ip: credential_calls.append((model, ip)) or ({"username": "u", "password": "p"},),
+            credential_index_provider=lambda model, ip, candidates: 0,
+            credential_revision_provider=lambda: 1,
+            connection_profile_provider=lambda model, ip: profile_calls.append((model, ip)) or {"port": 443, "use_ssl": True},
+            success_persistence=lambda *_args: None,
+            presentation_callback=lambda presentation: self.presentations.append(presentation),
+            session_controller=session,
+        )
+        controller.accept_pdu_refresh(self.accepted_context())
+
+        activated_args, activated_kwargs = session.activate_calls[-1]
+        self.assertEqual(("CloudLink Box 310", "192.0.2.20"), activated_args[:2])
+        self.assertEqual([("CloudLink Box 310", "192.0.2.20")], credential_calls)
+        self.assertEqual([("CloudLink Box 310", "192.0.2.20")], profile_calls)
+        self.assertEqual({"port": 443, "use_ssl": True}, activated_kwargs["saved_profile"])
+        operation, _generation = session.submits[-1]
+        self.assertEqual("read_status", operation.method)
+        self.assertEqual(("CloudLink Box 310",), operation.args)
+        self.assertEqual("CloudLink Box 310", self.presentations[-1]["codec_diagnostic_model"])
 
     def test_supersession_clears_presentation_before_replacement_success(self):
         session = DummySession()

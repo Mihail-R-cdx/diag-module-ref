@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from core.credentials import AUTH_USERNAME_PASSWORD, Credential
 from core.factory import ProtocolFactory
-from core.exceptions import AuthenticationError
+from core.exceptions import AuthenticationError, CommandOutcomeUnknownError
 from handlers.aten.pdu import AtenPDUHandler
 from handlers.biamp.tesira_forte_ci import BiampTesiraForteCIHandler
 from handlers.extron.in1804 import ExtronIN1804Handler
@@ -284,6 +284,48 @@ class CredentialPropagationTests(unittest.TestCase):
             worker._create_handler()
         self.assertEqual("CloudLink Box 310", worker.device_name)
         self.assertEqual("Huawei CloudLink Box 310", captured[0]["expected_identity"])
+
+    def test_box_sip_worker_run_preserves_identity_and_never_blindly_replays(self):
+        calls, results, errors = [], [], []
+
+        class FakeSipHandler:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def connect(self):
+                calls.append("connect")
+                return True
+
+            def set_sip_server(self, server):
+                calls.append(("set_sip_server", server))
+                return True
+
+            def verify_sip_server(self):
+                calls.append("verify_sip_server")
+                return "sip.example.test"
+
+            def disconnect(self):
+                calls.append("disconnect")
+
+        worker = CodecSipFixWorker("CloudLink Box 310", "192.0.2.10", 443, "user", "pass", "sip.example.test")
+        worker.signals.result.connect(results.append)
+        with patch("core.workers.codec_actions.CloudLinkBar310Handler", FakeSipHandler):
+            worker.run()
+        self.assertEqual(1, len([call for call in calls if isinstance(call, tuple) and call[0] == "set_sip_server"]))
+        self.assertEqual("CloudLink Box 310", results[0]["device_name"])
+        self.assertTrue(results[0]["success"])
+
+        class UnknownSipHandler(FakeSipHandler):
+            def set_sip_server(self, server):
+                calls.append(("unknown_set_sip_server", server))
+                raise CommandOutcomeUnknownError("synthetic unknown outcome")
+
+        failed_worker = CodecSipFixWorker("CloudLink Box 310", "192.0.2.10", 443, "user", "pass", "sip.example.test")
+        failed_worker.signals.error.connect(errors.append)
+        with patch("core.workers.codec_actions.CloudLinkBar310Handler", UnknownSipHandler):
+            failed_worker.run()
+        self.assertEqual(1, len([call for call in calls if isinstance(call, tuple) and call[0] == "unknown_set_sip_server"]))
+        self.assertEqual("set_sip_server_error", errors[0][0])
 
     def test_te40_worker_error_and_sip_precondition_do_not_publish_credentials(self):
         secret = "synthetic-te40-password"

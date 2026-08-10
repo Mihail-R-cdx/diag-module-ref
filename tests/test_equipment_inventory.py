@@ -718,6 +718,54 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
                 else:
                     self.assertEqual({case["expected_issue"]}, model_issues)
 
+    def test_cloudlink_box_310_recognition_preserves_field_boundaries_and_bar_distinction(self):
+        cases = (
+            ("BOX-MODEL-HUAWEI", "Huawei CloudLink Box 310", "Synthetic", "CloudLink Box 310", None),
+            ("BOX-MODEL-SEPARATORS", "CloudLink-Box-310", "Synthetic", "CloudLink Box 310", None),
+            ("BOX-NAME-COMPACT", None, "cloudlink_box310", "CloudLink Box 310", None),
+            ("BOX-NAME-CASE", None, "CLOUDLINK BOX 310", "CloudLink Box 310", None),
+            ("BOX-MISSING-CLOUDLINK", "Box 310", "Synthetic", None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("BOX-MISSING-BOX", "CloudLink 310", "Synthetic", None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("BOX-MISSING-310", "CloudLink Box", "Synthetic", None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("BOX-WRONG-VERSION", "CloudLink Box 610", "Synthetic", None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("BAR-EXACT", "CloudLink Bar 310", "Synthetic", "CloudLink Bar 310", None),
+            ("BOX-EXACT", "CloudLink Box 310", "Synthetic", "CloudLink Box 310", None),
+            ("BAR-BOX-CONFLICT", "CloudLink Bar 310", "CloudLink Box 310", None, "AMBIGUOUS_DIAGNOSTIC_MODEL"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(
+                source,
+                [
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-{index}",
+                        room_name=f"Room {index}",
+                        model=model,
+                        source_model=source_model,
+                        source_type="Video Conference",
+                        ip=f"192.0.2.{150 + index}",
+                        mac=f"00:11:22:33:88:{index:02x}",
+                        serial=f"BOX-{index}",
+                        controller=None,
+                    )
+                    for index, (record_id, model, source_model, _expected, _issue) in enumerate(cases, start=1)
+                ],
+            )
+            result = import_equipment_inventory(source, output_path=output)
+            imported = load_equipment_inventory(output)
+
+        by_id = {item.record_id: item for item in imported.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        for record_id, _model, _source_model, expected, issue in cases:
+            with self.subTest(record_id=record_id):
+                self.assertEqual(expected, by_id[record_id].diagnostic_model)
+                model_issues = codes_by_record.get(record_id, set()) & {
+                    "UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"
+                }
+                self.assertEqual(set() if issue is None else {issue}, model_issues)
+
     def test_name_evidence_recognizes_every_closed_registry_model(self):
         cases = [
             ("RID-NAME-01", "Huawei TE20", "Huawei TE20", "Video Conference"),

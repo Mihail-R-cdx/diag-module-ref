@@ -2,11 +2,11 @@
 
 ## 1. Confirm implementation baseline
 
-- [ ] Read current `RULES.md` first, then `docs/equipment-inventory-runbook.md`, this approved change, and the affected root specs including `device-diagnostics-and-control` before modifying code or tests.
-- [ ] Fetch GitHub and record exact `origin/master`, remote feature-branch HEAD, PR state/Draft/base/head when a PR exists, and any commits newer than the approved architecture HEAD before implementation.
+- [x] Read current `RULES.md` first, then `docs/equipment-inventory-runbook.md`, this approved change, and the affected root specs including `device-diagnostics-and-control` before modifying code or tests.
+- [x] Fetch GitHub and record exact `origin/master`, remote feature-branch HEAD, PR state/Draft/base/head when a PR exists, and any commits newer than the approved architecture HEAD before implementation.
 - [ ] Confirm the current published architecture HEAD passes repository-local strict OpenSpec validation and `git diff --check` before production implementation begins; an environment failure is not a passing validation result.
-- [ ] Confirm the implementation diff is limited to the Box 310 model-support surface, synthetic tests, runbook updates, and implementation evidence required by this change.
-- [ ] Do not modify production inventory data, credential files, validation evidence from another session, or Graphify output.
+- [x] Confirm the implementation diff is limited to the Box 310 model-support surface, synthetic tests, runbook updates, and implementation evidence required by this change.
+- [x] Do not modify production inventory data, credential files, validation evidence from another session, or Graphify output.
 
 ## 2. Extend deterministic inventory recognition
 
@@ -24,8 +24,8 @@
 
 ## 4. Reuse the Bar protocol with distinct Box identity
 
-- [ ] Treat the two `MODIFIED Requirements` in the lifecycle delta as normative replacements for the current Bar-only core/parser-worker identity contracts; do not implement Box only against the parallel added family requirement.
-- [ ] Introduce one focused closed Bar/Box identity mapping or equivalent exact helper:
+- [x] Treat the two `MODIFIED Requirements` in the lifecycle delta as normative replacements for the current Bar-only core/parser-worker identity contracts; do not implement Box only against the parallel added family requirement.
+- [x] Introduce one focused closed Bar/Box identity mapping or equivalent exact helper:
 
 ```text
 CloudLink Bar 310 -> Huawei CloudLink Bar 310
@@ -36,51 +36,51 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 - [x] Pass the already assigned expected handler/display identity into the shared Bar protocol path so `get_status()` publishes the correct exact product identity.
 - [x] Make `HuaweiBar310Worker` validate the expected identity for its assigned model rather than hard-code Bar-only identity.
 - [x] Make `HuaweiBar310DataParser` validate and render the expected Bar or Box identity without accepting an unexpected family member or guessing from response text.
-- [ ] Preserve every existing Bar status-polling endpoint, precedence, optional-failure, typed-failure, cleanup, redaction, and success-gating contract unchanged.
+- [x] Preserve every existing Bar status-polling endpoint, precedence, optional-failure, typed-failure, cleanup, redaction, and success-gating contract unchanged.
 
 ## 5. Extend all existing Bar capability gates to the closed Bar/Box family
 
-- [ ] Treat the four `MODIFIED Requirements` in the `device-diagnostics-and-control` delta as normative replacements for the current Bar-only production-diagnostic, transport, interactive-session, and related-codec capability contracts.
-- [ ] Make codec connection-profile ordering return the existing HTTPS:443 Bar profile for Box 310.
-- [ ] Add exact `CloudLink Box 310` to the pure room resolver's supported related-codec model set so PDU room resolution can return Box without model inference.
-- [ ] Make interactive-session handler acquisition support Box 310 through `CloudLinkBar310Handler` while preserving the exact Box context model.
-- [ ] Extend related-codec status support so Box 310 uses the same Bar call/presentation commands and normalization and remains reported as Box 310.
-- [ ] Extend the existing Bar-supported SIP-server action to Box 310 through the same handler semantics.
-- [ ] Review all exact `CloudLink Bar 310` model gates in current source/tests and change only gates that express shared Bar protocol capability; leave Bar-specific identity assertions intact where identity itself is the contract.
+- [x] Treat the four `MODIFIED Requirements` in the `device-diagnostics-and-control` delta as normative replacements for the current Bar-only production-diagnostic, transport, interactive-session, and related-codec capability contracts.
+- [x] Make codec connection-profile ordering return the existing HTTPS:443 Bar profile for Box 310.
+- [x] Add exact `CloudLink Box 310` to the pure room resolver's supported related-codec model set so PDU room resolution can return Box without model inference.
+- [x] Make interactive-session handler acquisition support Box 310 through `CloudLinkBar310Handler` while preserving the exact Box context model.
+- [x] Extend related-codec status support so Box 310 uses the same Bar call/presentation commands and normalization and remains reported as Box 310.
+- [x] Extend the existing Bar-supported SIP-server action to Box 310 through the same handler semantics.
+- [x] Review all exact `CloudLink Bar 310` model gates in current source/tests and change only gates that express shared Bar protocol capability; leave Bar-specific identity assertions intact where identity itself is the contract.
 
 ## 6. Preserve credential and recovery boundaries
 
-- [ ] Resolve credentials for exact `CloudLink Box 310`; do not silently read or copy `CloudLink Bar 310` credential candidates.
-- [ ] Keep successful credential index and saved connection profile keyed by exact model/IP so Bar and Box success evidence remain independent.
-- [ ] Preserve application-owned credential fallback; handler, worker, parser, and interactive controller must not switch Bar/Box model after authentication, transport, protocol, parser, timeout, or ambiguous-result failure.
-- [ ] Preserve stale-operation rejection before handler acquisition/I/O and all existing read-only/state-changing recovery restrictions.
+- [x] Resolve credentials for exact `CloudLink Box 310`; do not silently read or copy `CloudLink Bar 310` credential candidates.
+- [x] Keep successful credential index and saved connection profile keyed by exact model/IP so Bar and Box success evidence remain independent.
+- [x] Preserve application-owned credential fallback; handler, worker, parser, and interactive controller must not switch Bar/Box model after authentication, transport, protocol, parser, timeout, or ambiguous-result failure.
+- [x] Preserve stale-operation rejection before handler acquisition/I/O and all existing read-only/state-changing recovery restrictions.
 
 ## 7. Add focused regression coverage
 
-- [ ] Extend `tests/test_equipment_inventory.py` with synthetic Box 310 positive forms from both approved evidence fields, separator/case/compact variants, boundary negatives, and Bar/Box distinction.
-- [ ] Extend `tests/test_inventory_diagnostic_dispatch.py` and registry-integrity coverage so exact Box 310 resolves to `codec` and `cloudlink_bar_310`, while unknown models still fail closed.
-- [ ] Add/extend focused Bar 310 polling tests proving Box uses the shared handler semantics but validates/renders `Huawei CloudLink Box 310`, Bar still renders `Huawei CloudLink Bar 310`, and mismatched expected identity is rejected.
-- [ ] Add/extend connection-profile and interactive-session tests proving Box uses HTTPS:443 and `CloudLinkBar310Handler` without becoming Bar application identity.
-- [ ] Add/extend room-context and related-codec enrichment/status tests proving a room codec with exact `CloudLink Box 310` resolves and can be queried with the existing Bar call/presentation semantics.
-- [ ] Add/extend focused SIP action coverage proving exact Box 310 uses the existing Bar-supported handler semantics while preserving exact Box operation context, state-changing recovery policy, and credential/profile isolation.
-- [ ] Prove Bar and Box credential indexes/profile persistence remain distinct exact-model keys.
+- [x] Extend `tests/test_equipment_inventory.py` with synthetic Box 310 positive forms from both approved evidence fields, separator/case/compact variants, boundary negatives, and Bar/Box distinction.
+- [x] Extend `tests/test_inventory_diagnostic_dispatch.py` and registry-integrity coverage so exact Box 310 resolves to `codec` and `cloudlink_bar_310`, while unknown models still fail closed.
+- [x] Add/extend focused Bar 310 polling tests proving Box uses the shared handler semantics but validates/renders `Huawei CloudLink Box 310`, Bar still renders `Huawei CloudLink Bar 310`, and mismatched expected identity is rejected.
+- [x] Add/extend connection-profile and interactive-session tests proving Box uses HTTPS:443 and `CloudLinkBar310Handler` without becoming Bar application identity.
+- [x] Add/extend room-context and related-codec enrichment/status tests proving a room codec with exact `CloudLink Box 310` resolves and can be queried with the existing Bar call/presentation semantics.
+- [x] Add/extend focused SIP action coverage proving exact Box 310 uses the existing Bar-supported handler semantics while preserving exact Box operation context, state-changing recovery policy, and credential/profile isolation.
+- [x] Prove Bar and Box credential indexes/profile persistence remain distinct exact-model keys.
 
 ## 8. Validate implementation
 
-- [ ] Run focused inventory recognition tests:
+- [x] Run focused inventory recognition tests:
 
 ```powershell
 <python> -m unittest tests.test_equipment_inventory -v
 ```
 
-- [ ] Run focused diagnostic dispatch and credential-configuration tests:
+- [x] Run focused diagnostic dispatch and credential-configuration tests:
 
 ```powershell
 <python> -m unittest tests.test_inventory_diagnostic_dispatch -v
 <python> -m unittest tests.test_inventory_credential_configuration -v
 ```
 
-- [ ] Run focused Bar/Box protocol, room-context, interactive, related-codec, and SIP-action tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected room-context/interactive/related-codec/SIP suites.
+- [x] Run focused Bar/Box protocol, room-context, interactive, related-codec, and SIP-action tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected room-context/interactive/related-codec/SIP suites.
 - [x] Run the canonical full offline test suite and record exact passed/failed counts:
 
 ```powershell
@@ -103,7 +103,7 @@ git diff --stat origin/master...HEAD
 git diff --name-only origin/master...HEAD
 ```
 
-- [ ] Review the final diff for production inventory, credential material, Graphify output, unrelated refactors, or duplicated Bar/Box protocol implementation.
+- [x] Review the final diff for production inventory, credential material, Graphify output, unrelated refactors, or duplicated Bar/Box protocol implementation.
 
 ## 9. Publish for independent validation
 
