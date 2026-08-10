@@ -9,7 +9,28 @@ if not exist "%LOCAL_OPENSPEC%" goto :missing_dependency
 pushd "%SCRIPT_DIR%" >nul
 if errorlevel 1 goto :repository_unavailable
 
+if /I "%~1"=="archive" goto :archive
+
 call "%LOCAL_OPENSPEC%" %*
+set "EXIT_CODE=%ERRORLEVEL%"
+popd
+exit /b %EXIT_CODE%
+
+:archive
+node "%SCRIPT_DIR%tools\openspec_archive_compat.mjs" preflight
+if errorlevel 1 (
+  popd
+  exit /b 1
+)
+
+call "%LOCAL_OPENSPEC%" %*
+set "EXIT_CODE=%ERRORLEVEL%"
+if not "%EXIT_CODE%"=="0" (
+  popd
+  exit /b %EXIT_CODE%
+)
+
+node "%SCRIPT_DIR%tools\openspec_archive_compat.mjs" postflight
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 exit /b %EXIT_CODE%

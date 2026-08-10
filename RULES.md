@@ -166,6 +166,16 @@ the OpenSpec version comes from `package.json` and its lock file. Agents MUST
 NOT use `npx` with an `@latest` version. An archive requires explicit
 `APPROVE` first.
 
+For `./openspec.cmd archive <change> --yes`, the tracked wrapper performs a
+repository-local compatibility check around the unchanged pinned upstream
+archive command. It refuses to begin if `openspec/specs/` already has tracked,
+staged, or untracked work; after a successful upstream archive it normalizes
+only archive-generated root-spec terminal blank lines and fails closed on
+staged root output. The compatibility layer never changes the Git index or
+installed dependencies. Post-archive `git diff --check` remains mandatory;
+the wrapper also runs it (and its cached counterpart) before reporting archive
+success.
+
 ### Node environment
 
 Validation MUST use the repository-supported Node version. The current
