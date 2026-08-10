@@ -10,6 +10,8 @@
 - [ ] Add a tracked Node standard-library helper under `tools/` for archive preflight, archive-generated root-spec discovery, minimal EOF normalization, and post-normalization whitespace checking.
 - [ ] Make preflight fail before upstream archive if `openspec/specs/` contains pre-existing tracked, staged, or untracked changes.
 - [ ] After successful upstream archive, identify only changed/new existing `openspec/specs/**/spec.md` files as normalization targets.
+- [ ] Fail closed before normalization if successful upstream archive leaves any staged change under `openspec/specs/`; do not modify the staged file or Git index.
+- [ ] Fail closed without rewriting bytes when a selected root spec is empty or contains only whitespace.
 - [ ] Normalize only terminal empty/whitespace-only lines, leave non-empty-line trailing whitespace untouched, ensure exactly one terminal line terminator, and preserve observable LF/CRLF style.
 - [ ] Keep normalization idempotent and never modify files outside the selected archive-generated root-spec set.
 
@@ -18,7 +20,8 @@
 - [ ] Update `openspec.cmd` so only a first positional `archive` command receives preflight/postprocessing behavior.
 - [ ] Preserve original arguments, output, and upstream exit codes for non-archive commands.
 - [ ] Do not run normalization after a failed upstream archive.
-- [ ] After successful archive normalization, run `git diff --check` and return non-zero if any whitespace defect remains.
+- [ ] After successful archive normalization, run repository-wide `git diff --check` and `git diff --cached --check`, returning non-zero if either reports a whitespace defect.
+- [ ] Validate every selected new untracked root spec against an empty baseline using a portable Git-compatible whitespace check without staging the real file or mutating the index.
 - [ ] Preserve the pinned repository-local OpenSpec executable as semantic archive authority; do not patch `node_modules` or add an npm dependency.
 
 ## 4. Regression coverage
@@ -28,7 +31,11 @@
 - [ ] Cover changed/new root-spec scoping and prove unrelated root specs, archived change files, and non-root Markdown remain unchanged.
 - [ ] Cover dirty-root-spec preflight and prove upstream archive is not invoked.
 - [ ] Cover upstream archive failure and prove postprocessing is not invoked.
-- [ ] Cover successful archive orchestration followed by clean `git diff --check`.
+- [ ] Cover a fake upstream that stages a root spec: wrapper fails before normalization, the staged file and index remain unchanged, and no focused test mutates the real index.
+- [ ] Cover empty selected root spec failure with bytes unchanged.
+- [ ] Cover whitespace-only selected root spec failure with bytes unchanged.
+- [ ] Cover new untracked root spec standalone whitespace validation: trailing whitespace fails without normalization removing it, while a clean new root spec passes, remains untracked, and leaves the index unchanged.
+- [ ] Cover successful archive orchestration followed by clean `git diff --check`, `git diff --cached --check`, and standalone new-untracked-root validation.
 - [ ] Cover non-archive passthrough and upstream exit-code preservation.
 - [ ] Perform a disposable integration check against the real pinned OpenSpec reproducer and prove the formerly failing terminal-root-spec archive now passes `git diff --check`.
 

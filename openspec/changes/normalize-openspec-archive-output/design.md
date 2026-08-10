@@ -39,8 +39,13 @@ For a first positional command of `archive`, the wrapper performs:
 ```text
 root-spec preflight
 -> pinned upstream archive
--> if upstream succeeds: normalize archive-generated root specs
+-> if upstream succeeds: fail closed if it staged any root-spec change
+-> discover archive-generated root specs
+-> fail closed for an empty/whitespace-only selected spec
+-> minimally normalize eligible root specs
 -> git diff --check
+-> git diff --cached --check
+-> standalone whitespace validation for each selected new untracked root spec
 -> final wrapper exit code
 ```
 
@@ -48,9 +53,11 @@ The preflight fails before upstream archive if any path under `openspec/specs/` 
 
 If upstream archive returns non-zero, the wrapper returns that failure and does not run normalization. It does not hide or repair partial upstream changes.
 
+After a successful upstream archive and before discovery or normalization, the helper checks for staged changes under `openspec/specs/`. Any such change is unexpected upstream behavior: the wrapper fails non-zero, performs no EOF normalization, and leaves both the staged file and Git index untouched for diagnosis. The compatibility layer never stages, unstages, invokes `git add` or `git reset`, or otherwise mutates the index.
+
 ### 3. Derive the normalization set from Git after successful archive
 
-Because root specs are clean at preflight, files reported after archive as changed relative to `HEAD` or newly untracked under `openspec/specs/` are archive-generated. The helper filters this set to existing files matching `openspec/specs/**/spec.md`.
+Because root specs are clean at preflight and staged root output is rejected, files reported after archive as working-tree changes relative to `HEAD` or as newly untracked under `openspec/specs/` are archive-generated. The helper filters this set to existing files matching `openspec/specs/**/spec.md`.
 
 Deleted paths are not rewritten. Files outside the root-spec tree and files under `openspec/changes/archive/` are never normalization targets.
 
@@ -64,11 +71,13 @@ The helper operates on UTF-8 file bytes/text without reformatting Markdown. For 
 - ensures exactly one terminal line terminator;
 - preserves the file's terminal line-ending convention (`LF` or `CRLF`) when one is observable, defaulting to `LF` only when no line ending exists.
 
+Before any rewrite, the helper verifies that the selected file contains at least one non-whitespace character. An empty or whitespace-only selected file is anomalous archive output, not an EOF-formatting case: the wrapper fails non-zero, does not rewrite that file, and leaves its bytes visible for diagnosis.
+
 Running the helper repeatedly on already-normalized output is a no-op.
 
 ### 5. Whitespace validation remains authoritative
 
-After normalization, the archive wrapper runs repository `git diff --check`. A remaining whitespace defect causes a non-zero wrapper result. The compatibility layer therefore fixes only the known archive serialization defect; it does not convert whitespace failures into success.
+After normalization, the archive wrapper runs repository-wide `git diff --check` and `git diff --cached --check`; either failure causes a non-zero wrapper result. The latter checks staged whitespace anywhere in the repository, without treating staged root-spec output as supported. Each selected new untracked root spec also receives a standalone, portable Git-compatible whitespace check against an empty baseline. That check covers the complete untracked file, detects standard whitespace defects including trailing whitespace, does not stage the real file or mutate the index, and causes a non-zero wrapper result on a finding. The implementation may select a portable no-index/empty-baseline invocation, but must not use a platform-specific hardcoded null path.
 
 Normal repository archive workflow still repeats `git diff --check`, strict validation, full tests, and archive/root-spec review as required by `RULES.md`.
 
@@ -76,7 +85,7 @@ Normal repository archive workflow still repeats `git diff --check`, strict vali
 
 The helper is implemented as a tracked `.mjs` utility under `tools/` and uses only Node and Git already required by the OpenSpec workflow. No new npm dependency is added and the package pin remains unchanged.
 
-`openspec.cmd` owns orchestration; the helper owns preflight/scope discovery/EOF normalization/post-check behavior. This avoids editing third-party installation output and survives `npm ci`.
+`openspec.cmd` owns orchestration; the helper owns preflight/scope discovery/EOF normalization/post-check behavior. The helper does not alter the Git index. This avoids editing third-party installation output and survives `npm ci`.
 
 ### 7. Regression coverage includes wrapper orchestration
 
@@ -91,14 +100,19 @@ Focused Node tests use temporary Git repositories and a fake repository-local Op
 - unrelated/non-root files unchanged;
 - dirty root-spec preflight prevents upstream archive execution;
 - failed upstream archive does not trigger normalization;
-- successful archive normalizes only changed/new root specs and then passes `git diff --check`;
+- staged root-spec output fails closed before normalization and leaves the index unchanged;
+- empty and whitespace-only selected root specs fail closed with bytes unchanged;
+- successful archive normalizes only changed/new root specs and then passes both repository-wide whitespace checks;
+- a new untracked root spec is checked without staging; trailing whitespace fails while a clean untracked root spec passes and remains untracked;
 - non-archive commands remain passthrough and preserve the upstream exit code.
 
 A disposable real-OpenSpec reproduction/validation is also required during implementation/independent validation to prove the original terminal-requirement EOF case is fixed with the pinned dependency.
 
 ## Risks / Trade-offs
 
-- **A postprocessor could hide unrelated defects.** Limit it to terminal blank-line excess on archive-generated root specs, then run `git diff --check` so other defects remain visible.
+- **A postprocessor could hide unrelated defects.** Limit it to terminal blank-line excess on archive-generated root specs, then run both repository-wide diff checks and a standalone check for new untracked root specs so other defects remain visible.
+- **Upstream could unexpectedly stage root output.** Fail closed before normalization and leave the index untouched rather than trying to reconcile staged and working-tree representations.
+- **An archive could create a semantically empty root spec.** Fail closed without rewriting its bytes; that is invalid output, not compatible EOF formatting.
 - **Pre-existing root-spec edits could be normalized accidentally.** Fail before archive when the root-spec tree is dirty.
 - **A future upstream version may fix the bug.** The normalizer is idempotent, so correct upstream output remains unchanged; dependency upgrades remain a separate reviewed change.
 - **Batch argument routing can diverge from the CLI.** Only the repository-approved form with `archive` as the first command token receives compatibility behavior; all other commands retain passthrough semantics.
