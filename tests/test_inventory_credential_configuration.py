@@ -80,6 +80,16 @@ class DeviceModelFallbackDialogTests(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
 class CredentialConfigurationFlowTests(unittest.TestCase):
+    def test_bar_and_box_connection_profiles_are_isolated_at_same_ip(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window.device_connection_profiles = {}
+        VCSDiagnosticApp.set_device_connection_profile(window, "CloudLink Bar 310", {"port": 443}, "192.0.2.10")
+        self.assertIsNone(VCSDiagnosticApp.get_device_connection_profile(window, "CloudLink Box 310", "192.0.2.10"))
+        VCSDiagnosticApp.set_device_connection_profile(window, "CloudLink Box 310", {"port": 443, "label": "box"}, "192.0.2.10")
+        self.assertEqual({"port": 443}, VCSDiagnosticApp.get_device_connection_profile(window, "CloudLink Bar 310", "192.0.2.10"))
+        self.assertEqual({"port": 443, "label": "box"}, VCSDiagnosticApp.get_device_connection_profile(window, "CloudLink Box 310", "192.0.2.10"))
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

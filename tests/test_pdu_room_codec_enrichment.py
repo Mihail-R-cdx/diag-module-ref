@@ -366,6 +366,9 @@ class RelatedCodecStatusAdapterTests(unittest.TestCase):
                 3,
                 "auxOpen",
             ),
+            "CloudLink Box 310": (
+                "get_presentation", "Connected", "Start", 3, "auxOpen",
+            ),
         }
         for model, (presentation_command, call_text, presentation_text, callstate, aux_state) in cases.items():
             with self.subTest(model=model):

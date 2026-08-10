@@ -3,6 +3,7 @@
 from PyQt5.QtCore import QRunnable, pyqtSlot
 
 from core.exceptions import AuthenticationError
+from core.cloudlink_310 import cloudlink_310_display_identity
 from core.redaction import redacted_callback
 from core.workers.common import WorkerSignals, _emit_error, _worker_secrets
 from handlers.huawei.bar310 import CloudLinkBar310Handler
@@ -37,11 +38,7 @@ class CodecSipFixWorker(QRunnable):
                 port=self.port,
                 username=self.username,
                 password=self.password,
-                expected_identity=(
-                    "Huawei CloudLink Box 310"
-                    if self.device_name == "CloudLink Box 310"
-                    else "Huawei CloudLink Bar 310"
-                ),
+                expected_identity=cloudlink_310_display_identity(self.device_name),
             )
         if self.device_name == "Polycom RPG 310":
             from handlers.polycom.rpg310 import PolycomRPG310Handler

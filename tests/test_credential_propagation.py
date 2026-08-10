@@ -2,7 +2,7 @@ import sys
 import unittest
 import contextlib
 import io
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from core.credentials import AUTH_USERNAME_PASSWORD, Credential
 from core.factory import ProtocolFactory
@@ -217,13 +217,73 @@ class CredentialPropagationTests(unittest.TestCase):
         )
         stdout = io.StringIO()
         with patch("core.workers.codec_polling.CloudLinkBar310Handler", CapturingHandler), patch(
-            "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data", side_effect=lambda data: data
+            "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data", side_effect=lambda data, *_: data
         ), contextlib.redirect_stdout(stdout):
             worker.run()
         self.assertEqual("synthetic-user", captured[0]["username"])
         self.assertEqual("synthetic-password", captured[0]["password"])
         self.assertNotIn("synthetic-user", stdout.getvalue())
         self.assertNotIn("synthetic-password", stdout.getvalue())
+
+    def test_box_worker_keeps_application_identity_separate_from_handler_identity(self):
+        captured = []
+
+        class CapturingHandler:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+                self.port = kwargs["port"]
+                self.use_ssl = True
+
+            def connect(self): return True
+            def get_status(self): return {"model": "Huawei CloudLink Box 310", "version": "V1"}
+            def disconnect(self): pass
+
+        worker = HuaweiBar310Worker("192.0.2.10", username="user", password="pass", assigned_model="CloudLink Box 310")
+        self.assertEqual("CloudLink Box 310", worker.device_name)
+        self.assertEqual("CloudLink Box 310", worker.assigned_model)
+        self.assertEqual("Huawei CloudLink Box 310", worker.expected_identity)
+        with patch("core.workers.codec_polling.CloudLinkBar310Handler", CapturingHandler):
+            worker.run()
+        self.assertEqual("Huawei CloudLink Box 310", captured[0]["expected_identity"])
+
+    def test_refresh_composition_preserves_application_and_display_identities(self):
+        for model, expected in (
+            ("CloudLink Bar 310", "Huawei CloudLink Bar 310"),
+            ("CloudLink Box 310", "Huawei CloudLink Box 310"),
+        ):
+            with self.subTest(model=model):
+                app = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+                app.huawei_settings = {"port": 443}
+                app.current_device_name = lambda: model
+                app.device_credentials = {model: [{"username": "user", "password": "pass"}]}
+                app.validate_ip_address = lambda _ip: True
+                app._snapshot_credential_candidates = lambda *_args: ()
+                app._snapshot_credential_index = lambda *_args: 0
+                app.show_progress_dialog = Mock()
+                app.show_codec_poll_terminal = Mock()
+                app._bind_worker = Mock()
+                app.on_codec_poll_terminal_log = Mock()
+                app.refresh_btn = Mock()
+                with patch("gui.main_window.QThreadPool.globalInstance") as pool:
+                    VCSDiagnosticApp.refresh_huawei_bar310(app, "192.0.2.10")
+                worker = app.current_worker
+                self.assertEqual(model, worker.device_name)
+                self.assertEqual(model, worker.assigned_model)
+                self.assertEqual(expected, worker.expected_identity)
+                pool.return_value.start.assert_called_once_with(worker)
+
+    def test_box_sip_worker_uses_shared_handler_with_box_identity(self):
+        captured = []
+
+        class CapturingHandler:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+        worker = CodecSipFixWorker("CloudLink Box 310", "192.0.2.10", 443, "user", "pass", "sip.example.test")
+        with patch("core.workers.codec_actions.CloudLinkBar310Handler", CapturingHandler):
+            worker._create_handler()
+        self.assertEqual("CloudLink Box 310", worker.device_name)
+        self.assertEqual("Huawei CloudLink Box 310", captured[0]["expected_identity"])
 
     def test_te40_worker_error_and_sip_precondition_do_not_publish_credentials(self):
         secret = "synthetic-te40-password"

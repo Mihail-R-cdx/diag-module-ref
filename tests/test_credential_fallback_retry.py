@@ -364,6 +364,16 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             ),
         )
 
+    def test_bar_and_box_credential_indexes_are_isolated_at_same_ip(self):
+        window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
+        window.current_credential_index = {}
+        VCSDiagnosticApp.set_current_credential_index(window, "CloudLink Bar 310", 2, "192.0.2.10")
+        self.assertEqual(2, VCSDiagnosticApp.get_current_credential_index(window, "CloudLink Bar 310", "192.0.2.10"))
+        self.assertEqual(0, VCSDiagnosticApp.get_current_credential_index(window, "CloudLink Box 310", "192.0.2.10"))
+        VCSDiagnosticApp.set_current_credential_index(window, "CloudLink Box 310", 1, "192.0.2.10")
+        self.assertEqual(2, VCSDiagnosticApp.get_current_credential_index(window, "CloudLink Bar 310", "192.0.2.10"))
+        self.assertEqual(1, VCSDiagnosticApp.get_current_credential_index(window, "CloudLink Box 310", "192.0.2.10"))
+
     def test_invalid_saved_index_starts_at_zero(self):
         window = VCSDiagnosticApp.__new__(VCSDiagnosticApp)
         window.current_credential_index = {"Huawei TE40|192.0.2.10": 7}

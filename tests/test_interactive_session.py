@@ -15,9 +15,19 @@ from core.interactive_session import (
     InteractiveSessionController,
     OperationSemantic,
 )
+from core.interactive_session import _default_handler_factory
 from handlers.huawei.te20 import HuaweiTE20Handler
 from handlers.huawei.te40 import HuaweiTE40Handler
 from handlers.polycom.rpg310 import PolycomRPG310Handler
+
+
+class CloudLinkBoxInteractiveFactoryTests(unittest.TestCase):
+    def test_box_context_uses_shared_handler_with_box_identity(self):
+        handler = _default_handler_factory(
+            "CloudLink Box 310",
+            {"ip_address": "192.0.2.10", "username": "user", "password": "pass"},
+        )
+        self.assertEqual("Huawei CloudLink Box 310", handler.device_model)
 
 
 class OfflineHuaweiMuteMixin:

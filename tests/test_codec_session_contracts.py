@@ -28,6 +28,9 @@ class CredentialAttemptPlanTests(unittest.TestCase):
 
 
 class CodecProfileOrderingTests(unittest.TestCase):
+    def test_box_uses_https_443_without_aliasing_application_model(self):
+        profiles = order_codec_profiles("CloudLink Box 310")
+        self.assertEqual([(443, True)], [(item["port"], item["use_ssl"]) for item in profiles])
     def test_supported_saved_te20_https_profile_is_first_and_deduplicated(self):
         profiles = order_codec_profiles(
             "Huawei TE20",

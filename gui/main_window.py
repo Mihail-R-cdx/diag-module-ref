@@ -2637,7 +2637,6 @@ class VCSDiagnosticApp(QMainWindow):
             
             # Сохраняем информацию для повторных попыток
             self.current_worker.current_idx = current_idx
-            self.current_worker.device_name = device_name
             self.current_worker.credential_snapshot_identity = (
                 credential_snapshot.identity if credential_snapshot is not None else None
             )
