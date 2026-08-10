@@ -107,9 +107,9 @@ git diff --name-only origin/master...HEAD
 
 ## 9. Publish for independent validation
 
-- [ ] Create focused implementation commit(s) only after the required tests/checks pass.
-- [ ] Push the feature branch and report local HEAD, remote HEAD, base SHA, exact test counts, strict-validation results, and changed-file list.
-- [ ] Do not self-approve the implementation and do not archive the change in the implementation session.
+- [x] Create focused implementation commit(s) only after the required tests/checks pass.
+- [x] Push the feature branch and report local HEAD, remote HEAD, base SHA, exact test counts, strict-validation results, and changed-file list.
+- [x] Do not self-approve the implementation and do not archive the change in the implementation session.
 
 ## 10. Independent validation and archive applicability
 
