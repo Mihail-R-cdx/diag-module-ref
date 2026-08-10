@@ -1,8 +1,8 @@
 ## 1. Baseline and reproduction
 
-- [ ] Read `RULES.md` and confirm the current remote `master`, feature-branch HEAD, PR state, and pinned OpenSpec version before implementation.
-- [ ] Confirm the implementation branch is based on the approved change base and contains no unrelated changes.
-- [ ] Reproduce the terminal-root-requirement archive EOF defect with the pinned repository-local OpenSpec in a disposable clean worktree or temporary repository and record the exact `git diff --check` failure.
+- [x] Read `RULES.md` and confirm the current remote `master`, feature-branch HEAD, PR state, and pinned OpenSpec version before implementation.
+- [x] Confirm the implementation branch is based on the approved change base and contains no unrelated changes.
+- [x] Reproduce the terminal-root-requirement archive EOF defect with the pinned repository-local OpenSpec in a disposable clean worktree or temporary repository and record the exact `git diff --check` failure.
 - [ ] Confirm changing delta-file EOF alone does not remove the generated root-spec defect, so implementation targets repository-local tooling rather than feature deltas.
 
 ## 2. Archive compatibility helper
@@ -28,29 +28,29 @@
 
 - [x] Add focused Node tests using temporary Git repositories/fake local OpenSpec execution for wrapper/helper behavior.
 - [x] Cover no terminal newline, one terminal newline, multiple blank lines, whitespace-only blank lines, internal blank-line preservation, LF, and CRLF.
-- [ ] Cover changed/new root-spec scoping and prove unrelated root specs, archived change files, and non-root Markdown remain unchanged.
+- [x] Cover changed/new root-spec scoping and prove unrelated root specs, archived change files, and non-root Markdown remain unchanged.
 - [x] Cover dirty-root-spec preflight and prove upstream archive is not invoked.
 - [x] Cover upstream archive failure and prove postprocessing is not invoked.
 - [x] Cover a fake upstream that stages a root spec: wrapper fails before normalization, the staged file and index remain unchanged, and no focused test mutates the real index.
 - [x] Cover empty selected root spec failure with bytes unchanged.
 - [x] Cover whitespace-only selected root spec failure with bytes unchanged.
 - [x] Cover new untracked root spec standalone whitespace validation: trailing whitespace fails without normalization removing it, while a clean new root spec passes, remains untracked, and leaves the index unchanged.
-- [ ] Cover successful archive orchestration followed by clean `git diff --check`, `git diff --cached --check`, and standalone new-untracked-root validation.
-- [ ] Cover non-archive passthrough and upstream exit-code preservation.
-- [ ] Perform a disposable integration check against the real pinned OpenSpec reproducer and prove the formerly failing terminal-root-spec archive now passes `git diff --check`.
+- [x] Cover successful archive orchestration followed by clean `git diff --check`, `git diff --cached --check`, and standalone new-untracked-root validation.
+- [x] Cover non-archive passthrough and upstream exit-code preservation.
+- [x] Perform a disposable integration check against the real pinned OpenSpec reproducer and prove the formerly failing terminal-root-spec archive now passes `git diff --check`.
 
 ## 5. Workflow documentation
 
-- [ ] Update `RULES.md` to describe the archive compatibility layer, dirty-root-spec preflight, unchanged pinned dependency authority, and the fact that post-archive `git diff --check` remains mandatory.
-- [ ] Do not weaken independent validation, archive, post-archive, or merge requirements.
+- [x] Update `RULES.md` to describe the archive compatibility layer, dirty-root-spec preflight, unchanged pinned dependency authority, and the fact that post-archive `git diff --check` remains mandatory.
+- [x] Do not weaken independent validation, archive, post-archive, or merge requirements.
 
 ## 6. Implementation validation and publication
 
-- [ ] Run the focused Node tooling tests and record exact counts/results.
-- [ ] Run the full offline Python suite without copying prior counts.
-- [ ] Run `./openspec.cmd validate normalize-openspec-archive-output --strict` and `./openspec.cmd validate --all --strict` using only the repository-local wrapper.
-- [ ] Run `git diff --check` and review the complete implementation diff for unrelated files, package-pin changes, `node_modules`, credentials, inventory, or Graphify artifacts.
-- [ ] Create a focused implementation commit and push `agent/normalize-openspec-archive-output`; confirm local/remote SHA equality.
+- [x] Run the focused Node tooling tests and record exact counts/results.
+- [x] Run the full offline Python suite without copying prior counts.
+- [x] Run `./openspec.cmd validate normalize-openspec-archive-output --strict` and `./openspec.cmd validate --all --strict` using only the repository-local wrapper.
+- [x] Run `git diff --check` and review the complete implementation diff for unrelated files, package-pin changes, `node_modules`, credentials, inventory, or Graphify artifacts.
+- [x] Create a focused implementation commit and push `agent/normalize-openspec-archive-output`; confirm local/remote SHA equality.
 
 ## 7. Independent validation
 
