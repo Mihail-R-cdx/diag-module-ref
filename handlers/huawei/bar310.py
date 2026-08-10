@@ -32,11 +32,12 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
-                 use_ssl: bool = True, verify_ssl: bool = False):
+                 use_ssl: bool = True, verify_ssl: bool = False,
+                 expected_identity: str = 'Huawei CloudLink Bar 310'):
         print(f"=== CloudLinkBar310Handler.__init__ для {ip_address} ===")
         print("[INIT] Credentials загружены (значения скрыты)")
         super().__init__(ip_address, port, username, password, use_ssl, verify_ssl)
-        self.device_model = 'Huawei CloudLink Bar 310'
+        self.device_model = expected_identity
         self.base_url = f"https://{ip_address}:{port}"
         self.username = username
         self.password = password
@@ -613,7 +614,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         if not version or version.casefold() == "unknown":
             raise ProtocolError("Bar 310 version evidence is unusable")
 
-        status = {"model": "Huawei CloudLink Bar 310", "version": version}
+        status = {"model": self.device_model, "version": version}
         for source, target in (("lisence", "serial_number"), ("micVersion", "mic_version")):
             value = self._nonempty_value(data, source)
             if value is not None:
@@ -643,7 +644,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         """Получить информацию об устройстве"""
         status = self.get_status()
         return {
-            'model': status.get('model', 'Huawei CloudLink Bar 310'),
+            'model': status.get('model', self.device_model),
             'serial': status.get('serial_number', 'N/A'),
             'version': status.get('version', 'N/A'),
             'mac': status.get('mac_address', 'N/A'),

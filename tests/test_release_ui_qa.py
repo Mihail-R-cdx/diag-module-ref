@@ -40,7 +40,8 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
 
     def test_every_selectable_device_switches_to_its_expected_screen(self):
         selectable_devices = tuple(self.window.device_to_screen)
-        self.assertEqual(9, len(selectable_devices))
+        self.assertEqual(10, len(selectable_devices))
+        self.assertEqual("codec", self.window.device_to_screen["CloudLink Box 310"])
 
         for device_name in selectable_devices:
             with self.subTest(device=device_name):

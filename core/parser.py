@@ -433,11 +433,13 @@ class HuaweiBar310DataParser:
     """Парсер данных для Huawei CloudLink Bar 310"""
     
     @staticmethod
-    def parse_raw_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_raw_data(
+        raw_data: Dict[str, Any], expected_identity: str = "Huawei CloudLink Bar 310"
+    ) -> Dict[str, Any]:
         """Convert only validated canonical Bar 310 observations for display."""
         if not isinstance(raw_data, Mapping):
             raise ParseError("Bar 310 payload is not an object")
-        if raw_data.get("model") != "Huawei CloudLink Bar 310":
+        if raw_data.get("model") != expected_identity:
             raise ParseError("Bar 310 model evidence is missing or invalid")
         version = raw_data.get("version")
         if not isinstance(version, str) or not version.strip() or version.casefold() == "unknown":
@@ -447,7 +449,7 @@ class HuaweiBar310DataParser:
             raise ParseError("Bar 310 display version is unusable")
 
         parsed = {
-            "Модель": "Huawei CloudLink Bar 310",
+            "Модель": expected_identity,
             "Версия ПО": cleaned_version,
         }
         direct_fields = {

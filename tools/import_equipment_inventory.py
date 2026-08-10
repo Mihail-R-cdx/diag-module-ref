@@ -115,6 +115,7 @@ DIAGNOSTIC_MODEL_RULES = (
     ("Huawei TE20", (frozenset({"te", "20"}),)),
     ("Huawei TE40", (frozenset({"te", "40"}),)),
     ("CloudLink Bar 310", (frozenset({"cloudlink", "bar", "310"}),)),
+    ("CloudLink Box 310", (frozenset({"cloudlink", "box", "310"}),)),
     (
         "Polycom RPG 310",
         (
@@ -138,6 +139,7 @@ EXPECTED_KIND_BY_DIAGNOSTIC_MODEL = {
     "Huawei TE20": "video_codec",
     "Huawei TE40": "video_codec",
     "CloudLink Bar 310": "video_codec",
+    "CloudLink Box 310": "video_codec",
     "Polycom RPG 310": "video_codec",
     "Extron IN1804": "other",
     "Extron IPL T PCS4i": "other",

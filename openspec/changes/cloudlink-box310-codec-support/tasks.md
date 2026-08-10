@@ -10,17 +10,17 @@
 
 ## 2. Extend deterministic inventory recognition
 
-- [ ] Add exact canonical `CloudLink Box 310` to the closed `DIAGNOSTIC_MODEL_RULES` registry with required components `cloudlink`, `box`, and `310`.
-- [ ] Add `CloudLink Box 310 -> video_codec` to importer expected-kind consistency evidence without changing authoritative `Тип модели -> device_kind` mapping.
-- [ ] Preserve independent `Модель`/`Наименование` evaluation, distinct-union ambiguity semantics, safe diagnostics, and all existing model rules unchanged.
-- [ ] Update `docs/equipment-inventory-runbook.md` so its closed registry includes Box 310 and still prohibits undeclared aliases/fuzzy matching.
+- [x] Add exact canonical `CloudLink Box 310` to the closed `DIAGNOSTIC_MODEL_RULES` registry with required components `cloudlink`, `box`, and `310`.
+- [x] Add `CloudLink Box 310 -> video_codec` to importer expected-kind consistency evidence without changing authoritative `Тип модели -> device_kind` mapping.
+- [x] Preserve independent `Модель`/`Наименование` evaluation, distinct-union ambiguity semantics, safe diagnostics, and all existing model rules unchanged.
+- [x] Update `docs/equipment-inventory-runbook.md` so its closed registry includes Box 310 and still prohibits undeclared aliases/fuzzy matching.
 
 ## 3. Extend exact application dispatch and page registration
 
-- [ ] Add exact dispatch entry `CloudLink Box 310 -> codec -> cloudlink_bar_310` while leaving the Bar 310 entry unchanged.
-- [ ] Add exact `CloudLink Box 310` to the codec equipment-page registration so registry integrity validation and fallback choices include it.
-- [ ] Preserve the exact accepted model in request/action contexts; do not rewrite Box 310 to Bar 310 as application identity.
-- [ ] Update model-specific ordinary refresh and credential-attempt restart gates so Box 310 selects the same existing Bar refresh implementation.
+- [x] Add exact dispatch entry `CloudLink Box 310 -> codec -> cloudlink_bar_310` while leaving the Bar 310 entry unchanged.
+- [x] Add exact `CloudLink Box 310` to the codec equipment-page registration so registry integrity validation and fallback choices include it.
+- [x] Preserve the exact accepted model in request/action contexts; do not rewrite Box 310 to Bar 310 as application identity.
+- [x] Update model-specific ordinary refresh and credential-attempt restart gates so Box 310 selects the same existing Bar refresh implementation.
 
 ## 4. Reuse the Bar protocol with distinct Box identity
 
@@ -32,10 +32,10 @@ CloudLink Bar 310 -> Huawei CloudLink Bar 310
 CloudLink Box 310 -> Huawei CloudLink Box 310
 ```
 
-- [ ] Reuse `CloudLinkBar310Handler`; do not create a duplicate Box handler or duplicate command map/polling plan.
-- [ ] Pass the already assigned expected handler/display identity into the shared Bar protocol path so `get_status()` publishes the correct exact product identity.
-- [ ] Make `HuaweiBar310Worker` validate the expected identity for its assigned model rather than hard-code Bar-only identity.
-- [ ] Make `HuaweiBar310DataParser` validate and render the expected Bar or Box identity without accepting an unexpected family member or guessing from response text.
+- [x] Reuse `CloudLinkBar310Handler`; do not create a duplicate Box handler or duplicate command map/polling plan.
+- [x] Pass the already assigned expected handler/display identity into the shared Bar protocol path so `get_status()` publishes the correct exact product identity.
+- [x] Make `HuaweiBar310Worker` validate the expected identity for its assigned model rather than hard-code Bar-only identity.
+- [x] Make `HuaweiBar310DataParser` validate and render the expected Bar or Box identity without accepting an unexpected family member or guessing from response text.
 - [ ] Preserve every existing Bar status-polling endpoint, precedence, optional-failure, typed-failure, cleanup, redaction, and success-gating contract unchanged.
 
 ## 5. Extend all existing Bar capability gates to the closed Bar/Box family
@@ -81,20 +81,20 @@ CloudLink Box 310 -> Huawei CloudLink Box 310
 ```
 
 - [ ] Run focused Bar/Box protocol, room-context, interactive, related-codec, and SIP-action tests using the actual current test module names after confirming them from the repository. At minimum include the existing Bar 310 status-polling suite and affected room-context/interactive/related-codec/SIP suites.
-- [ ] Run the canonical full offline test suite and record exact passed/failed counts:
+- [x] Run the canonical full offline test suite and record exact passed/failed counts:
 
 ```powershell
 <python> -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-- [ ] Run repository-local OpenSpec validation only:
+- [x] Run repository-local OpenSpec validation only:
 
 ```powershell
 .\openspec.cmd validate cloudlink-box310-codec-support --strict
 .\openspec.cmd validate --all --strict
 ```
 
-- [ ] Run repository protection checks:
+- [x] Run repository protection checks:
 
 ```powershell
 git diff --check

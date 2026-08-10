@@ -64,6 +64,7 @@ DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
     DiagnosticDispatchEntry("Huawei TE20", "codec", "huawei_te20"),
     DiagnosticDispatchEntry("Huawei TE40", "codec", "huawei_te40"),
     DiagnosticDispatchEntry("CloudLink Bar 310", "codec", "cloudlink_bar_310"),
+    DiagnosticDispatchEntry("CloudLink Box 310", "codec", "cloudlink_bar_310"),
     DiagnosticDispatchEntry("Polycom RPG 310", "codec", "polycom_rpg_310"),
     DiagnosticDispatchEntry("Extron IN1804", "matrix", "matrix_controller"),
     DiagnosticDispatchEntry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av"),

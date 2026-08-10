@@ -224,7 +224,7 @@ class HuaweiBar310Worker(QRunnable):
 
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
-                 creds_list: list = None):
+                 creds_list: list = None, assigned_model: str = "CloudLink Bar 310"):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -235,13 +235,18 @@ class HuaweiBar310Worker(QRunnable):
         self.handler = None
         self.creds_list = creds_list if creds_list is not None else []
         self.current_idx = 0
-        self.device_name = "Huawei CloudLink Bar 310"
+        self.assigned_model = assigned_model
+        self.device_name = (
+            "Huawei CloudLink Box 310"
+            if assigned_model == "CloudLink Box 310"
+            else "Huawei CloudLink Bar 310"
+        )
 
     @staticmethod
-    def _validate_raw_status(raw_data):
+    def _validate_raw_status(raw_data, expected_identity="Huawei CloudLink Bar 310"):
         if not isinstance(raw_data, Mapping):
             raise ProtocolError("Bar 310 status payload is not an object")
-        if raw_data.get("model") != "Huawei CloudLink Bar 310":
+        if raw_data.get("model") != expected_identity:
             raise ProtocolError("Bar 310 status payload has no valid model")
         version = raw_data.get("version")
         if (
@@ -272,7 +277,8 @@ class HuaweiBar310Worker(QRunnable):
                 ip_address=self.ip_address,
                 port=self.port,
                 username=self.username,
-                password=self.password
+                password=self.password,
+                expected_identity=self.device_name,
             )
             self.handler = handler
             handler.command_logger = redacted_callback(
@@ -287,15 +293,19 @@ class HuaweiBar310Worker(QRunnable):
             self.signals.progress.emit(50)
 
             raw_data = handler.get_status()
-            self._validate_raw_status(raw_data)
+            self._validate_raw_status(raw_data, self.device_name)
 
             self.signals.status.emit("Обрабатываю данные...")
             self.signals.progress.emit(70)
 
-            parsed_data = HuaweiBar310DataParser.parse_raw_data(raw_data)
+            parsed_data = (
+                HuaweiBar310DataParser.parse_raw_data(raw_data)
+                if self.device_name == "Huawei CloudLink Bar 310"
+                else HuaweiBar310DataParser.parse_raw_data(raw_data, self.device_name)
+            )
             if (
                 not isinstance(parsed_data, Mapping)
-                or parsed_data.get("Модель") != "Huawei CloudLink Bar 310"
+                or parsed_data.get("Модель") != self.device_name
                 or not isinstance(parsed_data.get("Версия ПО"), str)
                 or not parsed_data["Версия ПО"].strip()
                 or parsed_data["Версия ПО"].casefold() == "unknown"

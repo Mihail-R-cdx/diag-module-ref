@@ -231,6 +231,9 @@ Huawei TE40
 CloudLink Bar 310
   required: cloudlink + bar + 310
 
+CloudLink Box 310
+  required: cloudlink + box + 310
+
 Polycom RPG 310
   alternative 1: rpg + 310
   alternative 2: realpresence + group + 310
@@ -730,6 +733,7 @@ names recognized by the importer:
 Huawei TE20
 Huawei TE40
 CloudLink Bar 310
+CloudLink Box 310
 Polycom RPG 310
 Extron IN1804
 Aten PE8208AV
@@ -889,6 +893,7 @@ values only:
 Huawei TE20
 Huawei TE40
 CloudLink Bar 310
+CloudLink Box 310
 Polycom RPG 310
 ```
 

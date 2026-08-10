@@ -81,6 +81,7 @@ EQUIPMENT_PAGE_REGISTRY = (
             "Huawei TE20",
             "Huawei TE40",
             "CloudLink Bar 310",
+            "CloudLink Box 310",
             "Polycom RPG 310",
         ),
         shared_room_block=True,

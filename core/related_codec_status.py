@@ -24,12 +24,14 @@ _HUAWEI_CALL_COMMANDS = {
     "Huawei TE20": "get_call_status",
     "Huawei TE40": "get_call_status",
     "CloudLink Bar 310": "get_call_status",
+    "CloudLink Box 310": "get_call_status",
 }
 
 _HUAWEI_PRESENTATION_COMMANDS = {
     "Huawei TE20": "get_presentation_local",
     "Huawei TE40": "get_presentation",
     "CloudLink Bar 310": "get_presentation",
+    "CloudLink Box 310": "get_presentation",
 }
 
 _CALL_STATUS_MAPS = {
@@ -48,6 +50,9 @@ _CALL_STATUS_MAPS = {
         1: "Calling",
         2: "Disconnected",
         3: "Connected",
+    },
+    "CloudLink Box 310": {
+        0: "No Call", 1: "Calling", 2: "Disconnected", 3: "Connected",
     },
 }
 
@@ -82,6 +87,7 @@ class RelatedCodecStatusAdapter:
             "Huawei TE20",
             "Huawei TE40",
             "CloudLink Bar 310",
+            "CloudLink Box 310",
             "Polycom RPG 310",
         }
     )

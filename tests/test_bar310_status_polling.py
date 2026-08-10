@@ -203,6 +203,16 @@ class Bar310StatusPollingTests(unittest.TestCase):
         self.assertEqual(hd_ai["Статус микрофона"], "Подключён")
         self.assertEqual(hd_ai["Громкость микрофона"], "0")
 
+    def test_box_identity_uses_shared_handler_and_rejects_bar_identity(self):
+        handler, _ = handler_with_responses({"get_version": {"success": 1, "data": {"softVersion": "V1"}}})
+        handler.device_model = "Huawei CloudLink Box 310"
+        status = handler.get_status()
+        self.assertEqual(status["model"], "Huawei CloudLink Box 310")
+        parsed = HuaweiBar310DataParser.parse_raw_data(status, "Huawei CloudLink Box 310")
+        self.assertEqual(parsed["Модель"], "Huawei CloudLink Box 310")
+        with self.assertRaises(ParseError):
+            HuaweiBar310DataParser.parse_raw_data(status, "Huawei CloudLink Bar 310")
+
     def test_worker_rejects_unusable_raw_status_as_protocol_error(self):
         self._assert_worker_outcome({}, expect_result=False)
         self._assert_worker_outcome([], expect_result=False)

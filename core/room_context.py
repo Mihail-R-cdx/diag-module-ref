@@ -13,6 +13,7 @@ SUPPORTED_RELATED_CODEC_MODELS = frozenset(
         "Huawei TE20",
         "Huawei TE40",
         "CloudLink Bar 310",
+        "CloudLink Box 310",
         "Polycom RPG 310",
     }
 )

@@ -31,12 +31,17 @@ class CodecSipFixWorker(QRunnable):
                 username=self.username,
                 password=self.password,
             )
-        if self.device_name == "CloudLink Bar 310":
+        if self.device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
             return CloudLinkBar310Handler(
                 ip_address=self.ip_address,
                 port=self.port,
                 username=self.username,
                 password=self.password,
+                expected_identity=(
+                    "Huawei CloudLink Box 310"
+                    if self.device_name == "CloudLink Box 310"
+                    else "Huawei CloudLink Bar 310"
+                ),
             )
         if self.device_name == "Polycom RPG 310":
             from handlers.polycom.rpg310 import PolycomRPG310Handler

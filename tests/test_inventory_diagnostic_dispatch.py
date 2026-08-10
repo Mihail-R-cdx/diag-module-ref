@@ -60,6 +60,7 @@ class DispatchRegistryTests(unittest.TestCase):
             "Huawei TE20",
             "Huawei TE40",
             "CloudLink Bar 310",
+            "CloudLink Box 310",
             "Polycom RPG 310",
             "Extron IN1804",
             "Aten PE8208AV",

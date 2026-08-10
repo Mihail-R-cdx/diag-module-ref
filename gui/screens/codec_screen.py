@@ -796,7 +796,7 @@ class CodecScreen(BaseScreen):
         device_name = _parent_device_name(self.parent) or ""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
 
-        if device_name not in {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "Polycom RPG 310"}:
+        if device_name not in {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"}:
             self.call_log_window.status_label.setText("Получение журнала звонков для этого устройства будет добавлено позже.")
             return
 
@@ -1307,6 +1307,7 @@ class CodecScreen(BaseScreen):
             "Huawei TE20",
             "Huawei TE40",
             "CloudLink Bar 310",
+            "CloudLink Box 310",
         }:
             self._submit_interactive(
                 InteractiveOperation(
@@ -1725,12 +1726,14 @@ class CodecScreen(BaseScreen):
                 "Huawei TE20": (0, 21),
                 "Huawei TE40": (0, 21),
                 "CloudLink Bar 310": (0, 15),
+                "CloudLink Box 310": (0, 15),
                 "Polycom RPG 310": (0, 100),
             },
             "microphone": {
                 "Huawei TE20": (0, 21),
                 "Huawei TE40": (0, 21),
                 "CloudLink Bar 310": (0, 15),
+                "CloudLink Box 310": (0, 15),
                 "Polycom RPG 310": (-20, 30),
             },
         }

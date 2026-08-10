@@ -2084,6 +2084,7 @@ class VCSDiagnosticApp(QMainWindow):
             "Huawei TE20": "link.ru",
             "Huawei TE40": "link.ru",
             "CloudLink Bar 310": "link.ru",  # Добавлено новое устройство
+            "CloudLink Box 310": "link.ru",
             "CloudLink Box 300": "link.ru",
             "Polycom RPG 310": "link.ru",
             "Extron IN1804": "link.ru"
@@ -2354,7 +2355,7 @@ class VCSDiagnosticApp(QMainWindow):
 
         if device_name == "Huawei TE40":
             self.refresh_huawei_te40(ip_address, credential_snapshot=credential_snapshot)
-        elif device_name == "CloudLink Bar 310":
+        elif device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
             self.refresh_huawei_bar310(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Huawei TE20":
             self.refresh_huawei_te20(ip_address, credential_snapshot=credential_snapshot)
@@ -2630,7 +2631,8 @@ class VCSDiagnosticApp(QMainWindow):
                 ip_address=ip_address,
                 port=self.huawei_settings.get('port', 443),
                 **creds,
-                creds_list=creds_list
+                creds_list=creds_list,
+                assigned_model=device_name,
             )
             
             # Сохраняем информацию для повторных попыток
@@ -3384,7 +3386,7 @@ class VCSDiagnosticApp(QMainWindow):
                             creds_list=creds_list,
                             current_idx=next_idx,
                         )
-                    elif device_name == "CloudLink Bar 310":
+                    elif device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
                         self.refresh_huawei_bar310(
                             worker.ip_address,
                             creds_list=creds_list,
@@ -4032,8 +4034,8 @@ class VCSDiagnosticApp(QMainWindow):
 
         if device_name == "Huawei TE40":
             self.fix_sip_huawei_te40(ip_address)
-        elif device_name == "CloudLink Bar 310":
-            self.fix_sip_huawei_bar310(ip_address)
+        elif device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
+            self.fix_sip_huawei_bar310(ip_address, device_name)
         elif device_name == "Huawei TE20":
             QMessageBox.information(self, "Информация", "Поддержка TE-20 будет добавлена позже")
         elif device_name == "Polycom RPG 310":
@@ -4049,7 +4051,7 @@ class VCSDiagnosticApp(QMainWindow):
         """Подготовить параметры подключения для SIP fix."""
         if device_name == "Huawei TE40":
             port = self.huawei_settings.get('port', 443)
-        elif device_name == "CloudLink Bar 310":
+        elif device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
             port = self.huawei_settings.get('port', 443)
         elif device_name == "Polycom RPG 310":
             port = 22
@@ -4124,9 +4126,11 @@ class VCSDiagnosticApp(QMainWindow):
                 "Не удалось установить SIP сервер. Проверьте настройки подключения.",
             )
 
-    def fix_sip_huawei_bar310(self, ip_address: str):
+    def fix_sip_huawei_bar310(
+        self, ip_address: str, device_name: str = "CloudLink Bar 310"
+    ):
         """Исправление SIP регистрации для CloudLink Bar 310."""
-        self._start_sip_fix("CloudLink Bar 310", ip_address)
+        self._start_sip_fix(device_name, ip_address)
 
     def fix_sip_polycom_rpg310(self, ip_address: str):
         """Исправление SIP регистрации для Polycom RPG 310."""

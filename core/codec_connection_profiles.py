@@ -11,6 +11,7 @@ from utils.te20_stack import inspect_te20_https_stack
 TE20 = "Huawei TE20"
 TE40 = "Huawei TE40"
 BAR310 = "CloudLink Bar 310"
+BOX310 = "CloudLink Box 310"
 POLYCOM = "Polycom RPG 310"
 
 
@@ -33,7 +34,7 @@ def supported_codec_profiles(
             {"port": 443, "use_ssl": True, "label": "HTTPS:443"},
             {"port": 80, "use_ssl": False, "label": "HTTP:80"},
         )
-    if model == BAR310:
+    if model in {BAR310, BOX310}:
         return ({"port": 443, "use_ssl": True, "label": "HTTPS:443"},)
     if model == POLYCOM:
         return ({"port": 443, "use_ssl": True, "label": "HTTPS:443"},)

@@ -521,10 +521,13 @@ def _default_handler_factory(model: str, kwargs: Mapping[str, Any]) -> Any:
         from handlers.huawei.te40 import HuaweiTE40Handler
 
         return HuaweiTE40Handler(**dict(kwargs))
-    if model == "CloudLink Bar 310":
+    if model in {"CloudLink Bar 310", "CloudLink Box 310"}:
         from handlers.huawei.bar310 import CloudLinkBar310Handler
+        from core.cloudlink_310 import cloudlink_310_display_identity
 
-        return CloudLinkBar310Handler(**dict(kwargs))
+        return CloudLinkBar310Handler(
+            **dict(kwargs), expected_identity=cloudlink_310_display_identity(model)
+        )
     if model == "Polycom RPG 310":
         from handlers.polycom.rpg310 import PolycomRPG310Handler
 
