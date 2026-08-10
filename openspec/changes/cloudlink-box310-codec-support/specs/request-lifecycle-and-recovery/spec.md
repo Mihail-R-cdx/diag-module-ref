@@ -39,7 +39,7 @@ The model string SHALL NOT be copied from a free-form device response or changed
 
 An unsuccessful required core response SHALL raise `CommandError`. Missing/non-Mapping core data, a missing `softVersion`, `None`, a non-string value, an empty or whitespace-only string, or a case-insensitive `Unknown` value SHALL raise `ProtocolError`. No result mapping SHALL be returned as success for those outcomes.
 
-#### Scenario: Bar 310 required core response is successful
+#### Scenario: Required core response is successful
 
 - **GIVEN** the already assigned application model is exactly `CloudLink Bar 310`
 - **WHEN** `get_version.data["softVersion"]` is a non-empty string after `strip()` and is not `Unknown`
@@ -146,7 +146,7 @@ The application/composition layer SHALL remain the authority for stale-result ac
 - **AND** worker error category is `protocol_error`
 - **AND** no result signal is emitted
 
-#### Scenario: Bar required core and some optional reads succeed
+#### Scenario: Required core and some optional reads succeed
 
 - **GIVEN** the operation is bound to exact `CloudLink Bar 310`
 - **AND** the exact required version response succeeded
