@@ -81,18 +81,20 @@ function postflight() {
     for (const target of targets) {
       const info = statSync(target);
       if (!info.isFile()) throw new Error(`${target} is not a regular file`);
-      const text = utf8.decode(readFileSync(target));
+      const bytes = readFileSync(target);
+      const bom = bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]));
+      const text = utf8.decode(bom ? bytes.subarray(3) : bytes);
       if (!/\S/.test(text)) throw new Error(`${target} is empty or whitespace-only`);
-      decoded.push({ target, text });
+      decoded.push({ target, text, bom });
     }
   } catch (error) {
     fail(String(error.message || error));
     return;
   }
 
-  for (const { target, text } of decoded) {
+  for (const { target, text, bom } of decoded) {
     const normalized = normalizeEof(text);
-    if (normalized !== text) writeFileSync(target, normalized, 'utf8');
+    if (normalized !== text) writeFileSync(target, bom ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(normalized, 'utf8')]) : normalized, 'utf8');
   }
 
   try {

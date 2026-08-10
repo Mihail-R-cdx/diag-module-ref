@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { afterEach } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const helper = path.join(repoRoot, 'tools', 'openspec_archive_compat.mjs');
 const wrapper = path.join(repoRoot, 'openspec.cmd');
+const temporaryRepos = new Set();
+
+afterEach(() => {
+  for (const directory of temporaryRepos) rmSync(directory, { recursive: true, force: true });
+  temporaryRepos.clear();
+});
 
 function run(command, args, cwd, options = {}) {
   return spawnSync(command, args, { cwd, encoding: 'utf8', ...options });
@@ -16,6 +22,7 @@ function run(command, args, cwd, options = {}) {
 
 function makeRepo() {
   const directory = mkdtempSync(path.join(tmpdir(), 'openspec-archive-compat-'));
+  temporaryRepos.add(directory);
   execFileSync('git', ['init', '-q'], { cwd: directory });
   execFileSync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: directory });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: directory });
@@ -70,6 +77,18 @@ test('does not rewrite unrelated files or archived change artifacts', () => {
   assert.equal(readFileSync(path.join(directory, 'unrelated.md'), 'utf8'), 'unrelated\n\n');
 });
 
+test('preserves a UTF-8 BOM and all semantic bytes before the terminal region', () => {
+  const directory = makeRepo();
+  const spec = path.join(directory, 'openspec/specs/capability/spec.md');
+  const prefix = Buffer.from('\ufeff# Кириллица\n\nСмысл сохраняется   ', 'utf8');
+  writeFileSync(spec, Buffer.concat([prefix, Buffer.from('\n\n', 'utf8')]));
+  assert.equal(postflight(directory).status, 1);
+  const output = readFileSync(spec);
+  assert.deepEqual(output.subarray(0, 3), Buffer.from([0xef, 0xbb, 0xbf]));
+  assert.deepEqual(output.subarray(3, output.length - 1), prefix.subarray(3));
+  assert.equal(output.at(-1), 10);
+});
+
 test('preflight rejects dirty tracked, staged, and untracked root paths', () => {
   for (const mode of ['modified', 'staged', 'untracked']) {
     const directory = makeRepo();
@@ -119,14 +138,31 @@ test('clean new untracked root spec passes, remains untracked, and bad whitespac
 test('wrapper preserves non-archive arguments, output, and upstream exit code', () => {
   const directory = makeRepo();
   mkdirSync(path.join(directory, 'node_modules/.bin'), { recursive: true });
+  mkdirSync(path.join(directory, 'tools'), { recursive: true });
   cpSync(wrapper, path.join(directory, 'openspec.cmd'));
   cpSync(helper, path.join(directory, 'tools/openspec_archive_compat.mjs'));
-  mkdirSync(path.join(directory, 'tools'), { recursive: true });
   writeFileSync(path.join(directory, 'node_modules/.bin/openspec.cmd'), '@echo off\necho OUT:%*\necho ERR:%* 1>&2\nexit /b 7\n');
   const result = run('cmd.exe', ['/d', '/c', 'openspec.cmd', 'validate', 'quoted value'], directory);
   assert.equal(result.status, 7);
   assert.match(result.stdout, /OUT:validate "quoted value"/);
   assert.match(result.stderr, /ERR:validate "quoted value"/);
+});
+
+test('wrapper archive runs preflight, preserves upstream output and args, then normalizes successful output', () => {
+  const directory = makeRepo();
+  const spec = path.join(directory, 'openspec/specs/capability/spec.md');
+  mkdirSync(path.join(directory, 'node_modules/.bin'), { recursive: true });
+  mkdirSync(path.join(directory, 'tools'), { recursive: true });
+  cpSync(wrapper, path.join(directory, 'openspec.cmd'));
+  cpSync(helper, path.join(directory, 'tools/openspec_archive_compat.mjs'));
+  writeFileSync(path.join(directory, 'node_modules/.bin/openspec.cmd'), '@echo off\necho UP:%*\necho UPERR:%* 1>&2\n> upstream_args.txt echo %*\n> openspec\\specs\\capability\\spec.md echo normalized target\n>> openspec\\specs\\capability\\spec.md echo.\nexit /b 0\n');
+  const result = run('cmd.exe', ['/d', '/c', 'openspec.cmd', 'archive', 'synthetic', '--yes'], directory);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /UP:archive synthetic --yes/);
+  assert.match(result.stderr, /UPERR:archive synthetic --yes/);
+  assert.equal(readFileSync(spec, 'utf8'), 'normalized target\r\n');
+  assert.equal(readFileSync(path.join(directory, 'unrelated.md'), 'utf8'), 'unchanged\n');
+  assert.equal(execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: directory, encoding: 'utf8' }), '');
 });
 
 test('failed upstream archive is not postprocessed', () => {
