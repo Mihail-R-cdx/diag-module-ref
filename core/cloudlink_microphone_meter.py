@@ -16,6 +16,7 @@ class CloudLinkMicrophoneMeter(QObject):
     """Owns one optional one-second polling lifecycle and never persists login state."""
 
     sample = pyqtSignal(dict)
+    terminal = pyqtSignal(dict)
 
     def __init__(self, parent: QObject | None = None, *, session: InteractiveSessionController | None = None):
         super().__init__(parent)
@@ -85,13 +86,22 @@ class CloudLinkMicrophoneMeter(QObject):
             terminal = payload.get("category") in {
                 "authentication_error", "session_invalid", "connection_error",
             }
-            self._finish_cycle({"available": False, "raw_level": None, "fraction": None}, terminal=terminal)
+            self._finish_cycle(
+                {"available": False, "raw_level": None, "fraction": None},
+                terminal=terminal,
+                terminal_category=payload.get("category"),
+            )
 
     def _on_dropped(self, payload: dict) -> None:
         if self._matches(payload):
             self._in_flight = False
 
-    def _finish_cycle(self, value: dict, terminal: bool = False) -> None:
+    def _finish_cycle(
+        self,
+        value: dict,
+        terminal: bool = False,
+        terminal_category: str | None = None,
+    ) -> None:
         self._in_flight = False
         if not self._active:
             return
@@ -103,5 +113,11 @@ class CloudLinkMicrophoneMeter(QObject):
         self.sample.emit(presentation)
         if terminal:
             self._active = False
+            # The meter does not own shared PDU or codec-page sessions.  Its
+            # composition owner must therefore receive the typed exhausted
+            # outcome and schedule cleanup on the session-owning lane.
+            terminal_outcome = dict(presentation)
+            terminal_outcome["category"] = terminal_category
+            self.terminal.emit(terminal_outcome)
             return
         self._timer.start(1000)

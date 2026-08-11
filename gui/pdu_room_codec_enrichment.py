@@ -153,6 +153,7 @@ class PDURoomCodecEnrichmentController(QObject):
         self._shutdown = False
         self._meter = CloudLinkMicrophoneMeter(self, session=self._session)
         self._meter.sample.connect(self._on_meter_sample)
+        self._meter.terminal.connect(self._on_meter_terminal)
         self._session.signals.result.connect(self._on_session_result)
         self._session.signals.error.connect(self._on_session_error)
         self._session.signals.dropped.connect(self._on_session_dropped)
@@ -527,6 +528,25 @@ class PDURoomCodecEnrichmentController(QObject):
                "microphone_raw_level": sample.get("raw_level") if available else None,
                "microphone_fraction": sample.get("fraction") if available else None}
         ))
+
+    def _on_meter_terminal(self, outcome: dict[str, Any]) -> None:
+        """Close the retained dedicated lane after typed meter recovery fails."""
+        current = getattr(self, "_last_presentation", None)
+        if current is None or not self._is_current(current.generation, current.operation_id):
+            return
+        if (
+            outcome.get("_meter_generation") != self._current_session_generation
+            or outcome.get("_meter_token") != current.operation_id
+        ):
+            return
+        # Keep the accepted related-codec status and PDU result intact; only
+        # optional telemetry is unavailable.  _terminate_session_context()
+        # schedules handler cleanup on the dedicated session lane.
+        self._publish(EnrichmentPresentation(
+            **{**current.__dict__, "microphone_available": False,
+               "microphone_raw_level": None, "microphone_fraction": None}
+        ))
+        self._terminate_session_context()
 
 
 def _safe_inventory_message(error: EquipmentInventoryLoadError | None) -> str:

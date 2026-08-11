@@ -84,6 +84,48 @@ class CloudLinkMeterCompositionTests(unittest.TestCase):
         self.assertFalse(self.window.cloudlink_microphone_meter._active)
         self.assertGreaterEqual(self.window.cloudlink_meter_session.invalidations, 2)
 
+    def test_model_and_ip_supersession_stop_meter_before_late_callback(self):
+        class Screen:
+            def __init__(self): self.samples = []
+            def apply_microphone_meter_presentation(self, sample): self.samples.append(sample)
+
+        screen = Screen()
+        self.window.screens["codec"] = screen
+        with patch("gui.main_window.InteractiveSessionController", _Session):
+            self.window._start_cloudlink_microphone_meter_for_accepted_codec(self._accept())
+        session = self.window.cloudlink_meter_session
+        generation = self.window.cloudlink_microphone_meter._generation
+
+        # This is the production composition boundary invoked by both the IP
+        # text-change signal and model selection path.
+        self.window._supersede_model_actions("ip_changed")
+        self.assertFalse(self.window.cloudlink_microphone_meter._active)
+        self.assertGreater(session.generation, generation)
+        session.signals.result.emit({"kind": "cloudlink_microphone_meter", "generation": generation,
+                                     "client_token": 1, "value": {"available": True, "raw_level": 9, "fraction": .45}})
+        self.assertEqual([], screen.samples)
+
+        self.window._start_cloudlink_microphone_meter_for_accepted_codec(self._accept(request_id=2))
+        self.window._supersede_model_actions("model_changed")
+        self.assertFalse(self.window.cloudlink_microphone_meter._active)
+
+    def test_terminal_meter_failure_invalidates_codec_session_without_erasing_status(self):
+        class Screen:
+            def __init__(self): self.samples = []
+            def apply_microphone_meter_presentation(self, sample): self.samples.append(sample)
+
+        screen = Screen()
+        self.window.screens["codec"] = screen
+        with patch("gui.main_window.InteractiveSessionController", _Session):
+            self.window._start_cloudlink_microphone_meter_for_accepted_codec(self._accept())
+        session = self.window.cloudlink_meter_session
+        generation = self.window.cloudlink_microphone_meter._generation
+        session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": generation,
+                                    "client_token": 1, "category": "session_invalid"})
+        self.assertFalse(self.window.cloudlink_microphone_meter._active)
+        self.assertGreaterEqual(session.invalidations, 2)
+        self.assertEqual([False], [sample["available"] for sample in screen.samples])
+
     def test_composition_rejects_stale_meter_presentation_and_accepts_current_one(self):
         class Screen:
             def __init__(self): self.samples = []
@@ -132,6 +174,9 @@ class CodecScreenMeterRenderingTests(unittest.TestCase):
                 self.screen.apply_microphone_meter_presentation({"available": True, "raw_level": 0, "fraction": 0.0})
                 self.assertEqual("available", first.property("meterState"))
                 self.assertEqual(0, first.value())
+                self.screen.apply_microphone_meter_presentation({"available": False, "raw_level": None, "fraction": None})
+                self.assertEqual("unavailable", first.property("meterState"))
+                self.assertEqual(0, first.value())
                 self._rebuild(model)
                 self.assertIsNot(first, self.screen.microphone_meter_bar)
                 self.assertEqual(1, list(self.screen.parameter_rows).count("Уровень микрофонов"))
@@ -145,3 +190,11 @@ class CodecScreenMeterRenderingTests(unittest.TestCase):
         self.screen.apply_microphone_meter_presentation({"available": True, "fraction": 1.0})
         self.assertIsNone(self.screen.microphone_meter_bar)
         self.assertIsNotNone(old)
+
+    def test_theme_defines_distinct_available_and_unavailable_meter_selectors(self):
+        from gui.theme import build_stylesheet
+        stylesheet = build_stylesheet()
+        self.assertIn('QProgressBar[meterState="available"]', stylesheet)
+        self.assertIn('QProgressBar[meterState="available"]::chunk', stylesheet)
+        self.assertIn('QProgressBar[meterState="unavailable"]', stylesheet)
+        self.assertIn('QProgressBar[meterState="unavailable"]::chunk', stylesheet)

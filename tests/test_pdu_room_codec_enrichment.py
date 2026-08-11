@@ -821,6 +821,28 @@ class EnrichmentControllerTests(unittest.TestCase):
         self.assertEqual(0, self.presentations[-1]["microphone_raw_level"])
         self.assertEqual(1, len(self.persisted))
 
+    def test_cloudlink_terminal_meter_failure_cleans_shared_session_but_preserves_success(self):
+        session = DummySession()
+        controller = self.build_controller(self.resolved_cloudlink_inventory(), session=session)
+        controller.accept_pdu_refresh(self.accepted_context())
+        token = session.submits[-1][0].client_token
+        generation = session.submits[-1][1]
+        session.signals.result.emit({"client_token": token, "value": RelatedCodecStatus(
+            "Connected", "Start", call_authoritative=True, presentation_authoritative=True)})
+        meter_submits = len(session.submits)
+
+        session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": generation,
+                                    "client_token": token, "category": "session_invalid"})
+        self.assertEqual("SUCCESS", self.presentations[-1]["codec_diagnostic_status"])
+        self.assertEqual("Connected", self.presentations[-1]["call_status"])
+        self.assertEqual("Start", self.presentations[-1]["presentation_status"])
+        self.assertFalse(self.presentations[-1]["microphone_available"])
+        self.assertIsNone(self.presentations[-1]["microphone_raw_level"])
+        self.assertFalse(controller._meter._active)
+        self.assertIsNone(controller._current_session_generation)
+        self.assertEqual(2, session.invalidate_calls)
+        self.assertEqual(meter_submits, len(session.submits))
+
     def test_cloudlink_supersession_stops_meter_and_drops_late_sample(self):
         session = DummySession()
         controller = self.build_controller(self.resolved_cloudlink_inventory(), session=session)
@@ -1121,6 +1143,32 @@ class PDUIntegrationScreenTests(unittest.TestCase):
             screen.related_message.text(),
         )
         self.assertTrue(screen.outlets)
+
+    def test_pdu_meter_distinguishes_available_zero_from_unavailable(self):
+        from gui.screens.pdu_screen import PDUScreen
+
+        screen = PDUScreen()
+        payload = {
+            "resolution_status": "RESOLVED",
+            "codec_diagnostic_status": "SUCCESS",
+            "codec_diagnostic_model": "CloudLink Bar 310",
+            "microphone_available": True,
+            "microphone_raw_level": 0,
+            "microphone_fraction": 0.0,
+        }
+        screen.set_related_room_codec(payload)
+        meter = screen.microphone_meter_bar
+        self.assertFalse(screen.related_rows["microphone_level"].isHidden())
+        self.assertFalse(meter.isTextVisible())
+        self.assertEqual(0, meter.value())
+        self.assertEqual("available", meter.property("meterState"))
+
+        payload["microphone_available"] = False
+        payload["microphone_raw_level"] = None
+        payload["microphone_fraction"] = None
+        screen.set_related_room_codec(payload)
+        self.assertEqual(0, meter.value())
+        self.assertEqual("unavailable", meter.property("meterState"))
 
     def test_pdu_screen_renders_terminal_resolution_messages_inline(self):
         from gui.screens.pdu_screen import PDUScreen

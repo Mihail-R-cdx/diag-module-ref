@@ -167,8 +167,9 @@ class CloudLinkMeterLifecycleTests(unittest.TestCase):
             def submit(self, operation, *, generation):
                 self.submits.append((operation, generation)); return len(self.submits)
 
-        session = Session(); meter = CloudLinkMicrophoneMeter(session=session); samples = []
+        session = Session(); meter = CloudLinkMicrophoneMeter(session=session); samples = []; terminals = []
         meter.sample.connect(samples.append)
+        meter.terminal.connect(terminals.append)
         meter.start("CloudLink Bar 310", "192.0.2.10", (), generation=7, token=3)
         session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": 7, "client_token": 3, "category": "protocol_error"})
         QTest.qWait(1050)
@@ -177,6 +178,8 @@ class CloudLinkMeterLifecycleTests(unittest.TestCase):
         session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": 7, "client_token": 3, "category": "authentication_error"})
         QTest.qWait(1050)
         self.assertEqual(2, len(session.submits))
+        self.assertEqual(["authentication_error"], [outcome["category"] for outcome in terminals])
+        self.assertFalse(meter._active)
 
     def test_sample_local_failure_allows_later_success_without_persistence(self):
         from core.cloudlink_microphone_meter import CloudLinkMicrophoneMeter

@@ -533,6 +533,11 @@ class VCSDiagnosticApp(QMainWindow):
         return group_box
 
     def _supersede_model_actions(self, reason="context_changed"):
+        # Model/IP replacement is also the authoritative boundary for the
+        # application-owned CloudLink meter.  Do this before a replacement
+        # diagnostic can be started so queued meter work loses its session
+        # generation before handler acquisition or I/O.
+        VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
         self._invalidate_equipment_switch_context(reason)
         self._diagnostic_action_generation += 1
         self._credential_action_generation += 1
@@ -1709,6 +1714,7 @@ class VCSDiagnosticApp(QMainWindow):
         session = InteractiveSessionController(self)
         meter = CloudLinkMicrophoneMeter(self, session=session)
         meter.sample.connect(self._render_cloudlink_microphone_meter)
+        meter.terminal.connect(self._terminate_cloudlink_microphone_meter_session)
         self.cloudlink_meter_session = session
         self.cloudlink_microphone_meter = meter
         return meter
@@ -1758,6 +1764,19 @@ class VCSDiagnosticApp(QMainWindow):
             and sample.get("_meter_generation") == session.generation
         ):
             screen.apply_microphone_meter_presentation(sample)
+
+    def _terminate_cloudlink_microphone_meter_session(self, outcome):
+        """Release an exhausted optional-meter session without altering codec success."""
+        request = self.__dict__.get("_active_request") or {}
+        session = self.__dict__.get("cloudlink_meter_session")
+        if (
+            request.get("device") in SUPPORTED_CLOUDLINK_METER_MODELS
+            and isinstance(outcome, Mapping)
+            and outcome.get("_meter_token") == request.get("id")
+            and session is not None
+            and outcome.get("_meter_generation") == session.generation
+        ):
+            VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
 
     def _next_pdu_operation_id(self):
         return self._pdu_controller().next_operation_id()
