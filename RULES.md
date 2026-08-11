@@ -288,7 +288,12 @@ When an independent validation report is produced, it MUST record:
 An older report is an assertion, not evidence. The validator MUST rerun required
 commands and MUST NOT copy prior test counts. A tracked validation artifact is
 permitted only when the user explicitly requests it and is not part of the
-default workflow.
+default workflow. If that exceptional artifact changes the published feature
+HEAD after successful independent validation, the new HEAD is not independently
+validated and MUST be independently revalidated before archive. `READY FOR
+ARCHIVE` applies only to the current published feature HEAD that received the
+permitting independent verdict. Prefer not to change a validated feature HEAD
+solely to publish evidence unless that revalidation is planned.
 
 ### Validation verdicts
 
@@ -302,11 +307,12 @@ Archive is permitted only after `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES`.
 Validation sessions MUST NOT fix their own findings; implementation and
 validation MUST be separate sessions.
 
-When a change modifies existing root specs, including `MODIFIED Requirements`,
-`RENAMED Requirements`, `REMOVED Requirements`, or an equivalent root-spec
-change, independent validation MUST perform the disposable archive-applicability
-check. This check is inside the independent-validation phase, not a separate
-workflow phase or mandatory new session.
+When a change changes the root-spec set, including by creating or modifying a
+root spec, or uses `MODIFIED Requirements`, `RENAMED Requirements`, or
+`REMOVED Requirements`, independent validation MUST perform the disposable
+archive-applicability check in its clean detached validation worktree. This
+check is inside the independent-validation phase, not a separate workflow phase
+or mandatory new session.
 
 ### Implementation sessions
 
