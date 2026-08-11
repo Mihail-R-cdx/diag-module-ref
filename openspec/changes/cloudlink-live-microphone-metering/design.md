@@ -92,6 +92,10 @@ Bar 310 live sampling uses exactly:
 GET /v1/mediacontrol/mic/current-volume
 ```
 
+The approved protocol assumption for this change is that, after the normal `CloudLinkBar310Handler` connection succeeds, this endpoint returns HTTP `200` with a valid `curMicVouumeList` through the same established HTTP-Basic-backed `requests.Session` and existing CloudLink session context. No `X-Access-Token` or other meter-specific access token is required.
+
+The implementation SHALL therefore reuse that established session and SHALL NOT add, acquire, persist, refresh, infer, or transmit an `X-Access-Token` solely for live metering. Existing `acCSRFToken` handling remains action.cgi session material; the meter introduces no new authentication authority. If the Bar meter endpoint is rejected with a structured authentication/session failure, existing typed failure and bounded recovery rules apply. The implementation SHALL NOT react by inventing a token-discovery or alternate-login flow; such a protocol change requires a separately reviewed OpenSpec change.
+
 The response must be successful under the established CloudLink request contract. After the existing double-JSON decoding boundary, `data["curMicVouumeList"]` must be a list.
 
 Every Mapping element in that list is eligible regardless of `deviceId`. A valid element contributes `curVolume` only when it is numeric and non-negative. The canonical raw level is the maximum valid `curVolume` from the complete list.
@@ -251,6 +255,8 @@ PDU supersession clears/hides the old meter at the same boundary that clears the
 
 Regression coverage must use synthetic payloads and fake handlers/sessions only. Tests must cover:
 
+- Bar established-session sampling without `X-Access-Token` or any new meter-specific login/token flow;
+- Bar structured endpoint rejection preserving typed failure semantics without token discovery;
 - Bar max over all list entries including `deviceId == 18`;
 - Bar malformed/empty/no-valid-sample cases;
 - Box exact included field set and exact exclusion of non-microphone audio fields;
