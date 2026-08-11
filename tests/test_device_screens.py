@@ -212,6 +212,7 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         self.assertNotIn("room_id", screen.related_rows)
         self.assertEqual(
             {
+                "microphone_level",
                 "room_vip",
                 "codec_diagnostic_status",
                 "room_name",

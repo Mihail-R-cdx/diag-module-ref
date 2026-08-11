@@ -10,6 +10,7 @@ import time
 import urllib3
 from datetime import datetime
 from collections.abc import Mapping
+from numbers import Real
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from core.base_handler import BaseHuaweiCodecHandler
@@ -25,6 +26,32 @@ from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 
 # Отключаем предупреждения о самоподписанных сертификатах
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+MICROPHONE_DISPLAY_CEILING = 20.0
+BOX_MICROPHONE_FIELDS = (
+    "mic1ValueIndex", "mic2ValueIndex", "mic3ValueIndex", "mic4ValueIndex",
+    "micArray1_01ValIdx", "micArray1_02ValIdx", "micArray1_03ValIdx",
+    "micArray2_01ValIdx", "micArray2_02ValIdx", "micArray2_03ValIdx",
+    "micArray3_01ValIdx", "micArray3_02ValIdx", "micArray3_03ValIdx",
+)
+
+def unavailable_microphone_sample() -> Dict[str, Any]:
+    return {"available": False, "raw_level": None, "fraction": None}
+
+def normalize_microphone_sample(values) -> Dict[str, Any]:
+    valid = [value for value in values if isinstance(value, Real) and not isinstance(value, bool) and value >= 0]
+    if not valid:
+        return unavailable_microphone_sample()
+    raw = max(valid)
+    return {"available": True, "raw_level": raw, "fraction": min(float(raw) / MICROPHONE_DISPLAY_CEILING, 1.0)}
+
+def normalize_cloudlink_bar_microphone_sample(data) -> Dict[str, Any]:
+    if not isinstance(data, Mapping) or not isinstance(data.get("curMicVouumeList"), list):
+        return unavailable_microphone_sample()
+    return normalize_microphone_sample(entry.get("curVolume") for entry in data["curMicVouumeList"] if isinstance(entry, Mapping))
+
+def normalize_cloudlink_box_microphone_sample(data) -> Dict[str, Any]:
+    return normalize_microphone_sample(data.get(field) for field in BOX_MICROPHONE_FIELDS) if isinstance(data, Mapping) else unavailable_microphone_sample()
 
 
 class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
@@ -318,6 +345,25 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         if result is None:
             raise ProtocolError("CloudLink Bar 310 returned no response")
         return result
+
+    def get_live_microphone_sample(self) -> Dict[str, Any]:
+        """Return the closed, model-specific live microphone observation.
+
+        This deliberately stays outside ``get_status``: a missing telemetry
+        observation is not a diagnostic-status failure.
+        """
+        if not self.is_connected():
+            raise ConnectionError("CloudLink Bar 310 session is not connected")
+        if self.device_model == "Huawei CloudLink Box 310":
+            response = self.send_command("action.cgi?ActionID=WEB_GetCurrentAudioParam")
+            return normalize_cloudlink_box_microphone_sample(response.get("data"))
+        response = self._make_request(
+            "v1/mediacontrol/mic/current-volume", method="GET"
+        )
+        if not isinstance(response, Mapping) or response.get("success") != 1:
+            return unavailable_microphone_sample()
+        return normalize_cloudlink_bar_microphone_sample(response.get("data"))
+
 
     def _get_mic_devices_data(self) -> Dict[str, Any]:
         result = self._make_request('v1/mediacontrol/mic/devices', method='GET')

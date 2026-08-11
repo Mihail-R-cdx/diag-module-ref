@@ -44,22 +44,22 @@ git diff --check
 
 ## 3. Implement canonical level and presentation normalization
 
-- [ ] Represent available raw levels independently from unavailable state.
-- [ ] Preserve observed raw `0` as valid silence.
-- [ ] Normalize display fraction using fixed ceiling `20`, with `0 -> 0%`, `20 -> 100%`, and values above `20` display-clamped to 100% while preserving the raw observation.
-- [ ] Do not manufacture dB/dBFS/percentage text or a physical-unit calibration.
-- [ ] Keep the normalization pure and reusable by both presentation consumers.
+- [x] Represent available raw levels independently from unavailable state.
+- [x] Preserve observed raw `0` as valid silence.
+- [x] Normalize display fraction using fixed ceiling `20`, with `0 -> 0%`, `20 -> 100%`, and values above `20` display-clamped to 100% while preserving the raw observation.
+- [x] Do not manufacture dB/dBFS/percentage text or a physical-unit calibration.
+- [x] Keep the normalization pure and reusable by both presentation consumers.
 
 ## 4. Implement codec-page live meter lifecycle
 
-- [ ] Add a focused CloudLink-specific application/composition lifecycle boundary for the current codec meter; do not create a generic multi-device polling manager.
+- [x] Add a focused CloudLink-specific application/composition lifecycle boundary for the current codec meter; do not create a generic multi-device polling manager.
 - [ ] Capture immutable exact model/IP, meter generation/operation identity, and relevant credential-context identity before background work.
 - [ ] Start metering only for exact accepted current `CloudLink Bar 310` or `CloudLink Box 310` context after normal diagnostic context acceptance.
-- [ ] Poll at one-second cadence with at most one sample request in flight and no overlap when a sample is slow.
+- [x] Poll at one-second cadence with at most one sample request in flight and no overlap when a sample is slow.
 - [ ] Keep handler/session acquisition, sample I/O, bounded recovery, and cleanup outside the Qt GUI thread.
 - [ ] Invalidate immediately on model/IP change, page/diagnostic-context replacement, repeat refresh, relevant credential-context change, explicit reset/deactivation, and shutdown.
 - [ ] Reject queued stale work before handler acquisition and first network I/O where separable and reject stale result/error/completion callbacks before UI or memory publication.
-- [ ] Ensure meter success is not successful credential-index/profile evidence.
+- [x] Ensure meter success is not successful credential-index/profile evidence.
 
 ## 5. Isolate optional sample failures while preserving typed terminal failures
 
@@ -73,10 +73,10 @@ git diff --check
 
 ## 6. Render the codec-page microphone meter
 
-- [ ] Add exactly one `Уровень микрофонов` row to `Параметры и управление` for supported CloudLink models.
-- [ ] Place it exactly after `Статус микрофона` and before `Журнал звонков`.
-- [ ] Render a horizontal meter with no numeric overlay and the same available/unavailable visual semantics as the existing DMP meter.
-- [ ] Hide the row for unsupported codec models.
+- [x] Add exactly one `Уровень микрофонов` row to `Параметры и управление` for supported CloudLink models.
+- [x] Place it exactly after `Статус микрофона` and before `Журнал звонков`.
+- [x] Render a horizontal meter with no numeric overlay and the same available/unavailable visual semantics as the existing DMP meter.
+- [x] Hide the row for unsupported codec models.
 - [ ] Make codec-owned widget rebuilds preserve exactly one current meter row, remove stale widget references safely, and prevent prior-context callbacks from updating rebuilt current widgets.
 
 ## 7. Extend PDU enrichment with a long-lived CloudLink meter child lifecycle
@@ -84,20 +84,20 @@ git diff --check
 - [ ] Preserve `PDURoomCodecEnrichmentController` as owner of exact PDU/enrichment/room/related-codec identity and the dedicated related-codec serialized session lane.
 - [ ] For exact resolved Bar 310 or Box 310, perform the existing initial normalized call/presentation status read first and publish existing codec diagnostic `SUCCESS` normally.
 - [ ] After initial status success, retain the same current dedicated related-codec session context for serialized one-second microphone samples rather than opening a second simultaneous PDU-related CloudLink session solely for metering.
-- [ ] Keep live-meter availability independent from `codec_diagnostic_status`, call status, presentation status, accepted PDU data, and PDU controls.
-- [ ] For unsupported related-codec models, preserve existing one-shot status success and terminal session cleanup with no meter loop.
+- [x] Keep live-meter availability independent from `codec_diagnostic_status`, call status, presentation status, accepted PDU data, and PDU controls.
+- [x] For unsupported related-codec models, preserve existing one-shot status success and terminal session cleanup with no meter loop.
 - [ ] Bind every PDU sample to exact enrichment generation, accepted PDU refresh identity, inventory-derived resolution, codec model/IP, and codec credential-context revision.
 - [ ] On repeat refresh, PDU/model/IP/credential/inventory supersession, explicit invalidation, or shutdown, invalidate the old meter immediately and clean its session on the owning background lane.
 - [ ] Ensure stale meter callbacks cannot restore old PDU presentation or mutate credential/profile memory.
 
 ## 8. Render the PDU meter above VIP
 
-- [ ] Add exactly one `Уровень микрофонов` meter row to `Комната и связанный кодек` only when the current resolved related codec is exact Bar 310 or Box 310.
-- [ ] Make it the top overall row of the block.
-- [ ] Keep `VIP` immediately below it as the first room-context row and preserve existing VIP value semantics and prominent `VIP: ДА` treatment.
-- [ ] Hide the meter before supported related-codec resolution and for unsupported related codecs without changing existing row semantics/order below it.
-- [ ] Clear/hide the old meter at the same PDU enrichment supersession boundary that resets existing related-codec presentation.
-- [ ] Keep the PDU screen rendering-only; it must not query inventory, choose codec models, select credentials, or perform network I/O.
+- [x] Add exactly one `Уровень микрофонов` meter row to `Комната и связанный кодек` only when the current resolved related codec is exact Bar 310 or Box 310.
+- [x] Make it the top overall row of the block.
+- [x] Keep `VIP` immediately below it as the first room-context row and preserve existing VIP value semantics and prominent `VIP: ДА` treatment.
+- [x] Hide the meter before supported related-codec resolution and for unsupported related codecs without changing existing row semantics/order below it.
+- [x] Clear/hide the old meter at the same PDU enrichment supersession boundary that resets existing related-codec presentation.
+- [x] Keep the PDU screen rendering-only; it must not query inventory, choose codec models, select credentials, or perform network I/O.
 
 ## 9. Add focused synthetic regression coverage
 
@@ -120,20 +120,20 @@ git diff --check
 ## 10. Validate implementation and publish for independent validation
 
 - [ ] Run focused meter/PDU/GUI tests using the repository-supported Python interpreter and record exact counts. At minimum include the new meter tests plus existing PDU room-codec enrichment and device-screen regression modules affected by the implementation.
-- [ ] Run the canonical full offline test suite:
+- [x] Run the canonical full offline test suite:
 
 ```powershell
 <python> -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-- [ ] Run repository-local strict OpenSpec validation only:
+- [x] Run repository-local strict OpenSpec validation only:
 
 ```powershell
 .\openspec.cmd validate cloudlink-live-microphone-metering --strict
 .\openspec.cmd validate --all --strict
 ```
 
-- [ ] Run repository protection checks:
+- [x] Run repository protection checks:
 
 ```powershell
 git diff --check
