@@ -35,7 +35,7 @@ from core.interactive_session import (
     InteractiveSessionController,
     OperationSemantic,
 )
-from core.cloudlink_microphone_meter import CloudLinkMicrophoneMeter, SUPPORTED_CLOUDLINK_METER_MODELS
+from core.cloudlink_microphone_meter import SUPPORTED_CLOUDLINK_METER_MODELS
 from .base_screen import BaseScreen
 from ..equipment_pages import (
     SWITCH_IP_LABEL,
@@ -124,9 +124,7 @@ class CodecScreen(BaseScreen):
         self._presentation_enable_timers = {}
         self._interactive_callback_serial = 0
         self._interactive_callbacks = {}
-        self.microphone_meter = None
         self.microphone_meter_bar = None
-        self._microphone_meter_context = None
         super().__init__(parent)
         self.interactive_controller = InteractiveSessionController(self)
         self.interactive_controller.signals.result.connect(self._on_interactive_result)
@@ -273,14 +271,10 @@ class CodecScreen(BaseScreen):
 
     def _on_interactive_identity_changed(self, *_args):
         self.stop_te20_monitor_audio_polling()
-        if self.microphone_meter is not None:
-            self.microphone_meter.stop()
         self.interactive_controller.invalidate_context()
 
     def shutdown_interactive_controller(self):
         self.stop_te20_monitor_audio_polling()
-        if self.microphone_meter is not None:
-            self.microphone_meter.shutdown()
         for timer_name in (
             "volume_refresh_timer",
             "presentation_refresh_timer",
@@ -317,30 +311,7 @@ class CodecScreen(BaseScreen):
     def _uses_cloudlink_microphone_meter(self):
         return bool(self.parent and _parent_device_name(self.parent) in SUPPORTED_CLOUDLINK_METER_MODELS)
 
-    def _start_cloudlink_microphone_meter(self):
-        if not self._uses_cloudlink_microphone_meter() or not self.parent:
-            if self.microphone_meter is not None:
-                self.microphone_meter.stop()
-            self._microphone_meter_context = None
-            return
-        model = _parent_device_name(self.parent)
-        ip_address = self.parent.ip_entry.text().strip()
-        candidates = self.parent.device_credentials.get(model, ())
-        if not ip_address or not candidates:
-            return
-        index = self.parent.get_valid_current_credential_index(model, candidates, ip_address) if hasattr(self.parent, "get_valid_current_credential_index") else 0
-        profile = self.parent.get_device_connection_profile(model, ip_address) if hasattr(self.parent, "get_device_connection_profile") else None
-        # Keep only an opaque in-process revision marker; never retain credentials in meter state.
-        context = (model, ip_address, index, id(candidates))
-        if context == self._microphone_meter_context:
-            return
-        self._microphone_meter_context = context
-        if self.microphone_meter is None:
-            self.microphone_meter = CloudLinkMicrophoneMeter(self)
-            self.microphone_meter.sample.connect(self._apply_microphone_meter_sample)
-        self.microphone_meter.start(model, ip_address, candidates, index, profile, token=0)
-
-    def _apply_microphone_meter_sample(self, sample):
+    def apply_microphone_meter_presentation(self, sample):
         meter = self.microphone_meter_bar
         if self._is_deleted_widget(meter):
             return
@@ -364,6 +335,7 @@ class CodecScreen(BaseScreen):
         return str(mute_state)
 
     def _reset_param_widget_refs(self):
+        self.microphone_meter_bar = None
         self.param_widgets = []
         self.presentation_buttons = {}
         self.sip_fix_buttons = []
@@ -998,7 +970,6 @@ class CodecScreen(BaseScreen):
 
         display_data = self._convert_parser_data_to_gui(data)
         self._sync_te20_monitor_audio_polling()
-        self._start_cloudlink_microphone_meter()
         
         # Для отладки
         print("Данные из парсера:", data)

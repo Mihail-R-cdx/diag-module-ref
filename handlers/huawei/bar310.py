@@ -356,6 +356,8 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ConnectionError("CloudLink Bar 310 session is not connected")
         if self.device_model == "Huawei CloudLink Box 310":
             response = self.send_command("action.cgi?ActionID=WEB_GetCurrentAudioParam")
+            if not isinstance(response, Mapping) or response.get("success") != 1:
+                return unavailable_microphone_sample()
             return normalize_cloudlink_box_microphone_sample(response.get("data"))
         response = self._make_request(
             "v1/mediacontrol/mic/current-volume", method="GET"

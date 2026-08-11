@@ -28,19 +28,19 @@ git diff --check
 
 ## 2. Implement pure model-specific microphone sample extraction
 
-- [ ] Add a focused CloudLink microphone sample normalization boundary shared by codec-page and PDU consumers; do not duplicate raw protocol parsing in both GUI paths.
-- [ ] For Bar 310, send exact `GET /v1/mediacontrol/mic/current-volume` only after the normal CloudLink handler session is established and reuse that same HTTP-Basic-backed `requests.Session` / current CloudLink session context.
-- [ ] Do not add, acquire, persist, refresh, infer, or transmit `X-Access-Token` or another meter-specific token/login flow; existing `acCSRFToken` handling remains action.cgi session material and is not a new meter credential.
-- [ ] Preserve typed authentication/session failure and existing bounded recovery if the Bar meter endpoint rejects the established session; do not react by token discovery, alternate login, or handler-owned credential fallback.
-- [ ] Require decoded `curMicVouumeList` to be a list and calculate the maximum non-negative numeric `curVolume` across every valid Mapping entry regardless of `deviceId`.
-- [ ] Prove `deviceId == 18` is included and no fixed `0..17` range, preferred device, or list-position authority exists.
-- [ ] Treat empty/malformed/no-valid-Bar observations as unavailable rather than zero.
-- [ ] For Box 310, send exact `WEB_GetCurrentAudioParam` through the established authenticated CloudLink session/CSRF request boundary.
-- [ ] Calculate the maximum only from the exact approved `mic1ValueIndex`..`mic4ValueIndex` and nine `micArray*_0*ValIdx` fields.
-- [ ] Explicitly exclude TRS, RCA, HDMI, Bluetooth, UAC, `m220w_porwer_hint`, arbitrary substring-matched keys, and unreviewed audio fields.
-- [ ] Treat missing/malformed/no-valid-Box microphone observations as unavailable rather than zero.
-- [ ] If real-device implementation requires an additional non-mutating Box meter setup handshake, keep it inside the model-specific session, prove its necessity/safety with focused coverage, and do not use its response as meter-value authority or authentication authority.
-- [ ] Do not add live sampling to ordinary CloudLink `get_status()`.
+- [x] Add a focused CloudLink microphone sample normalization boundary shared by codec-page and PDU consumers; do not duplicate raw protocol parsing in both GUI paths.
+- [x] For Bar 310, send exact `GET /v1/mediacontrol/mic/current-volume` only after the normal CloudLink handler session is established and reuse that same HTTP-Basic-backed `requests.Session` / current CloudLink session context.
+- [x] Do not add, acquire, persist, refresh, infer, or transmit `X-Access-Token` or another meter-specific token/login flow; existing `acCSRFToken` handling remains action.cgi session material and is not a new meter credential.
+- [x] Preserve typed authentication/session failure and existing bounded recovery if the Bar meter endpoint rejects the established session; do not react by token discovery, alternate login, or handler-owned credential fallback.
+- [x] Require decoded `curMicVouumeList` to be a list and calculate the maximum non-negative numeric `curVolume` across every valid Mapping entry regardless of `deviceId`.
+- [x] Prove `deviceId == 18` is included and no fixed `0..17` range, preferred device, or list-position authority exists.
+- [x] Treat empty/malformed/no-valid-Bar observations as unavailable rather than zero.
+- [x] For Box 310, send exact `WEB_GetCurrentAudioParam` through the established authenticated CloudLink session/CSRF request boundary.
+- [x] Calculate the maximum only from the exact approved `mic1ValueIndex`..`mic4ValueIndex` and nine `micArray*_0*ValIdx` fields.
+- [x] Explicitly exclude TRS, RCA, HDMI, Bluetooth, UAC, `m220w_porwer_hint`, arbitrary substring-matched keys, and unreviewed audio fields.
+- [x] Treat missing/malformed/no-valid-Box microphone observations as unavailable rather than zero.
+- [x] If real-device implementation requires an additional non-mutating Box meter setup handshake, keep it inside the model-specific session, prove its necessity/safety with focused coverage, and do not use its response as meter-value authority or authentication authority.
+- [x] Do not add live sampling to ordinary CloudLink `get_status()`.
 
 ## 3. Implement canonical level and presentation normalization
 
@@ -53,23 +53,23 @@ git diff --check
 ## 4. Implement codec-page live meter lifecycle
 
 - [x] Add a focused CloudLink-specific application/composition lifecycle boundary for the current codec meter; do not create a generic multi-device polling manager.
-- [ ] Capture immutable exact model/IP, meter generation/operation identity, and relevant credential-context identity before background work.
-- [ ] Start metering only for exact accepted current `CloudLink Bar 310` or `CloudLink Box 310` context after normal diagnostic context acceptance.
+- [x] Capture immutable exact model/IP, meter generation/operation identity, and relevant credential-context identity before background work.
+- [x] Start metering only for exact accepted current `CloudLink Bar 310` or `CloudLink Box 310` context after normal diagnostic context acceptance.
 - [x] Poll at one-second cadence with at most one sample request in flight and no overlap when a sample is slow.
-- [ ] Keep handler/session acquisition, sample I/O, bounded recovery, and cleanup outside the Qt GUI thread.
-- [ ] Invalidate immediately on model/IP change, page/diagnostic-context replacement, repeat refresh, relevant credential-context change, explicit reset/deactivation, and shutdown.
-- [ ] Reject queued stale work before handler acquisition and first network I/O where separable and reject stale result/error/completion callbacks before UI or memory publication.
+- [x] Keep handler/session acquisition, sample I/O, bounded recovery, and cleanup outside the Qt GUI thread.
+- [x] Invalidate immediately on model/IP change, page/diagnostic-context replacement, repeat refresh, relevant credential-context change, explicit reset/deactivation, and shutdown.
+- [x] Reject queued stale work before handler acquisition and first network I/O where separable and reject stale result/error/completion callbacks before UI or memory publication.
 - [x] Ensure meter success is not successful credential-index/profile evidence.
 
 ## 5. Isolate optional sample failures while preserving typed terminal failures
 
-- [ ] Map endpoint-local unsuccessful/malformed sample outcomes to meter-unavailable for that cycle and permit the next scheduled read on an otherwise usable current session.
-- [ ] Preserve structured authentication, established-session invalidation, and transport/session failures for existing bounded read-only recovery.
-- [ ] Do not create an unbounded one-second login/reconnect loop after terminal session failure.
-- [ ] After bounded recovery is exhausted, keep the meter unavailable until a new authoritative diagnostic context starts.
-- [ ] Ensure any meter failure leaves accepted ordinary codec status unchanged and opens no automatic modal error solely for optional telemetry.
-- [ ] Ensure no string heuristic such as `auth`, `401`, or `403` advances credentials and no meter outcome persists credential/profile memory.
-- [ ] Redact credentials, CSRF/session material, cookies, tokens, IP captures, and sensitive response data from public meter logs/errors.
+- [x] Map endpoint-local unsuccessful/malformed sample outcomes to meter-unavailable for that cycle and permit the next scheduled read on an otherwise usable current session.
+- [x] Preserve structured authentication, established-session invalidation, and transport/session failures for existing bounded read-only recovery.
+- [x] Do not create an unbounded one-second login/reconnect loop after terminal session failure.
+- [x] After bounded recovery is exhausted, keep the meter unavailable until a new authoritative diagnostic context starts.
+- [x] Ensure any meter failure leaves accepted ordinary codec status unchanged and opens no automatic modal error solely for optional telemetry.
+- [x] Ensure no string heuristic such as `auth`, `401`, or `403` advances credentials and no meter outcome persists credential/profile memory.
+- [x] Redact credentials, CSRF/session material, cookies, tokens, IP captures, and sensitive response data from public meter logs/errors.
 
 ## 6. Render the codec-page microphone meter
 
@@ -77,18 +77,18 @@ git diff --check
 - [x] Place it exactly after `Статус микрофона` and before `Журнал звонков`.
 - [x] Render a horizontal meter with no numeric overlay and the same available/unavailable visual semantics as the existing DMP meter.
 - [x] Hide the row for unsupported codec models.
-- [ ] Make codec-owned widget rebuilds preserve exactly one current meter row, remove stale widget references safely, and prevent prior-context callbacks from updating rebuilt current widgets.
+- [x] Make codec-owned widget rebuilds preserve exactly one current meter row, remove stale widget references safely, and prevent prior-context callbacks from updating rebuilt current widgets.
 
 ## 7. Extend PDU enrichment with a long-lived CloudLink meter child lifecycle
 
-- [ ] Preserve `PDURoomCodecEnrichmentController` as owner of exact PDU/enrichment/room/related-codec identity and the dedicated related-codec serialized session lane.
-- [ ] For exact resolved Bar 310 or Box 310, perform the existing initial normalized call/presentation status read first and publish existing codec diagnostic `SUCCESS` normally.
-- [ ] After initial status success, retain the same current dedicated related-codec session context for serialized one-second microphone samples rather than opening a second simultaneous PDU-related CloudLink session solely for metering.
+- [x] Preserve `PDURoomCodecEnrichmentController` as owner of exact PDU/enrichment/room/related-codec identity and the dedicated related-codec serialized session lane.
+- [x] For exact resolved Bar 310 or Box 310, perform the existing initial normalized call/presentation status read first and publish existing codec diagnostic `SUCCESS` normally.
+- [x] After initial status success, retain the same current dedicated related-codec session context for serialized one-second microphone samples rather than opening a second simultaneous PDU-related CloudLink session solely for metering.
 - [x] Keep live-meter availability independent from `codec_diagnostic_status`, call status, presentation status, accepted PDU data, and PDU controls.
 - [x] For unsupported related-codec models, preserve existing one-shot status success and terminal session cleanup with no meter loop.
-- [ ] Bind every PDU sample to exact enrichment generation, accepted PDU refresh identity, inventory-derived resolution, codec model/IP, and codec credential-context revision.
-- [ ] On repeat refresh, PDU/model/IP/credential/inventory supersession, explicit invalidation, or shutdown, invalidate the old meter immediately and clean its session on the owning background lane.
-- [ ] Ensure stale meter callbacks cannot restore old PDU presentation or mutate credential/profile memory.
+- [x] Bind every PDU sample to exact enrichment generation, accepted PDU refresh identity, inventory-derived resolution, codec model/IP, and codec credential-context revision.
+- [x] On repeat refresh, PDU/model/IP/credential/inventory supersession, explicit invalidation, or shutdown, invalidate the old meter immediately and clean its session on the owning background lane.
+- [x] Ensure stale meter callbacks cannot restore old PDU presentation or mutate credential/profile memory.
 
 ## 8. Render the PDU meter above VIP
 
@@ -101,25 +101,25 @@ git diff --check
 
 ## 9. Add focused synthetic regression coverage
 
-- [ ] Add focused tests proving Bar sampling reuses the established session without `X-Access-Token` or another meter-specific token/login path.
-- [ ] Add a Bar rejection test proving structured authentication/session failure remains typed and does not trigger token discovery or alternate login.
-- [ ] Add focused tests for Bar maximum calculation across all entries, including a case where `deviceId == 18` owns the maximum.
-- [ ] Cover Bar empty list, malformed list, invalid `curVolume`, mixed valid/invalid entries, and observed zero.
-- [ ] Add focused tests for every Box approved microphone field and prove larger TRS/RCA/HDMI/Bluetooth/UAC values are excluded.
-- [ ] Cover Box missing fields, mixed valid/invalid fields, no valid microphone field, and observed zero.
-- [ ] Cover normalization at raw `0`, an intermediate value, `20`, and above `20`, plus unavailable state.
-- [ ] Cover one-second scheduling and prove no overlapping sample requests when one read runs long.
-- [ ] Cover stale cancellation before handler acquisition/I/O and stale callback suppression after context replacement.
-- [ ] Cover endpoint-local sample failure followed by a later sample and bounded terminal session failure without unbounded reconnect or credential-memory mutation.
-- [ ] Cover codec-page row exact order, supported/unsupported visibility, progress rendering, unavailable rendering, and rebuild/no-duplicate behavior.
-- [ ] Extend PDU enrichment tests for status-success-then-meter continuation on the same dedicated lane, unsupported-codec one-shot cleanup, meter sample isolation, supersession, credential/inventory invalidation, and shutdown cleanup.
-- [ ] Cover PDU row exact order: meter first overall, VIP immediately second/first room-context row, followed by existing block content.
-- [ ] Cover accepted PDU success and existing call/presentation values remaining unchanged when the meter is unavailable.
-- [ ] Use synthetic IPs/payloads and fake handlers/sessions only; do not add the supplied HAR files, real endpoint hosts, credentials, tokens, cookies, or production inventory to tests.
+- [x] Add focused tests proving Bar sampling reuses the established session without `X-Access-Token` or another meter-specific token/login path.
+- [x] Add a Bar rejection test proving structured authentication/session failure remains typed and does not trigger token discovery or alternate login.
+- [x] Add focused tests for Bar maximum calculation across all entries, including a case where `deviceId == 18` owns the maximum.
+- [x] Cover Bar empty list, malformed list, invalid `curVolume`, mixed valid/invalid entries, and observed zero.
+- [x] Add focused tests for every Box approved microphone field and prove larger TRS/RCA/HDMI/Bluetooth/UAC values are excluded.
+- [x] Cover Box missing fields, mixed valid/invalid fields, no valid microphone field, and observed zero.
+- [x] Cover normalization at raw `0`, an intermediate value, `20`, and above `20`, plus unavailable state.
+- [x] Cover one-second scheduling and prove no overlapping sample requests when one read runs long.
+- [x] Cover stale cancellation before handler acquisition/I/O and stale callback suppression after context replacement.
+- [x] Cover endpoint-local sample failure followed by a later sample and bounded terminal session failure without unbounded reconnect or credential-memory mutation.
+- [x] Cover codec-page row exact order, supported/unsupported visibility, progress rendering, unavailable rendering, and rebuild/no-duplicate behavior.
+- [x] Extend PDU enrichment tests for status-success-then-meter continuation on the same dedicated lane, unsupported-codec one-shot cleanup, meter sample isolation, supersession, credential/inventory invalidation, and shutdown cleanup.
+- [x] Cover PDU row exact order: meter first overall, VIP immediately second/first room-context row, followed by existing block content.
+- [x] Cover accepted PDU success and existing call/presentation values remaining unchanged when the meter is unavailable.
+- [x] Use synthetic IPs/payloads and fake handlers/sessions only; do not add the supplied HAR files, real endpoint hosts, credentials, tokens, cookies, or production inventory to tests.
 
 ## 10. Validate implementation and publish for independent validation
 
-- [ ] Run focused meter/PDU/GUI tests using the repository-supported Python interpreter and record exact counts. At minimum include the new meter tests plus existing PDU room-codec enrichment and device-screen regression modules affected by the implementation.
+- [x] Run focused meter/PDU/GUI tests using the repository-supported Python interpreter and record exact counts. At minimum include the new meter tests plus existing PDU room-codec enrichment and device-screen regression modules affected by the implementation.
 - [x] Run the canonical full offline test suite:
 
 ```powershell
@@ -143,7 +143,7 @@ git diff --stat origin/master...HEAD
 git diff --name-only origin/master...HEAD
 ```
 
-- [ ] Review that no root spec, archive, validation-report-only artifact, HAR capture, credential/local inventory, generated log, temporary environment, or Graphify output changed during implementation.
+- [x] Review that no root spec, archive, validation-report-only artifact, HAR capture, credential/local inventory, generated log, temporary environment, or Graphify output changed during implementation.
 - [ ] Create focused implementation commit(s), push `agent/cloudlink-live-microphone-metering`, and verify local HEAD equals the remote branch HEAD without amend, rebase, force-push, or history rewrite.
 - [ ] Keep the PR Draft and do not issue the independent final `APPROVE` from the implementation session.
 

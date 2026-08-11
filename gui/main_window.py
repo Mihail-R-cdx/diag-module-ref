@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHB
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent, QObject, QRunnable
 from PyQt5.QtGui import QColor
 from dataclasses import dataclass
+from collections.abc import Mapping
 import datetime
 import os
 import random
@@ -75,6 +76,8 @@ from core.credentials import (
     resolve_request_credentials,
 )
 from core.exceptions import CredentialConfigurationError
+from core.cloudlink_microphone_meter import CloudLinkMicrophoneMeter, SUPPORTED_CLOUDLINK_METER_MODELS
+from core.interactive_session import InteractiveSessionController
 from core.exceptions import (
     CredentialFileMissingError,
     CredentialProfileNotFoundError,
@@ -318,6 +321,10 @@ class VCSDiagnosticApp(QMainWindow):
             presentation_callback=self._render_pdu_room_codec_enrichment,
             parent=self,
         )
+        # Created only for an accepted supported CloudLink context.  This
+        # avoids allocating a background session lane for every other device.
+        self.cloudlink_meter_session = None
+        self.cloudlink_microphone_meter = None
         self.dmp_polling_controller = DMPPollingController(
             shell=self,
             screen_provider=lambda: getattr(self, "screens", {}).get("audio_dsp"),
@@ -1514,6 +1521,15 @@ class VCSDiagnosticApp(QMainWindow):
         ):
             self._dmp_controller().invalidate_credential_context()
 
+        if (
+            device_name in SUPPORTED_CLOUDLINK_METER_MODELS
+            and self._active_request_matches_model_ip(device_name, normalized_ip)
+        ):
+            # Credential stores are mutable, so object identity is not a
+            # revision authority.  Invalidate the active immutable snapshot
+            # immediately when its composition credential context changes.
+            VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
+
         if self._is_pdu_device(device_name):
             self._discard_obsolete_pdu_credential_attempt_plans(device_name, normalized_ip)
             if self._active_request_matches_model_ip(device_name, normalized_ip):
@@ -1655,6 +1671,7 @@ class VCSDiagnosticApp(QMainWindow):
         request["credential_index"] = credential_index
 
     def _begin_request(self, device_name, ip_address, screen):
+        VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
         self._request_serial += 1
         self._active_request = {
             "id": self._request_serial,
@@ -1676,6 +1693,71 @@ class VCSDiagnosticApp(QMainWindow):
             screen,
         )
         return self._active_request
+
+    def _stop_cloudlink_microphone_meter(self):
+        meter = self.__dict__.get("cloudlink_microphone_meter")
+        if meter is not None:
+            meter.stop()
+        session = self.__dict__.get("cloudlink_meter_session")
+        if session is not None:
+            session.invalidate_context()
+
+    def _ensure_cloudlink_microphone_meter(self):
+        meter = self.__dict__.get("cloudlink_microphone_meter")
+        if meter is not None:
+            return meter
+        session = InteractiveSessionController(self)
+        meter = CloudLinkMicrophoneMeter(self, session=session)
+        meter.sample.connect(self._render_cloudlink_microphone_meter)
+        self.cloudlink_meter_session = session
+        self.cloudlink_microphone_meter = meter
+        return meter
+
+    def _start_cloudlink_microphone_meter_for_accepted_codec(self, worker):
+        request = self.__dict__.get("_active_request") or {}
+        model = getattr(worker, "device_name", None)
+        ip_address = getattr(worker, "ip_address", None) or request.get("ip")
+        if (
+            model not in SUPPORTED_CLOUDLINK_METER_MODELS
+            or request.get("device") != model
+            or request.get("ip") != ip_address
+            or request.get("screen") is not self.screens.get("codec")
+        ):
+            return
+        # Snapshot candidates at the composition boundary.  The request id is
+        # the explicit diagnostic-refresh generation, including same-IP/model
+        # refreshes; it is never inferred from widget state or list identity.
+        candidates = tuple(dict(candidate) for candidate in self.device_credentials.get(model, ()))
+        if not candidates:
+            return
+        start_index = self.get_valid_current_credential_index(model, candidates, ip_address)
+        profile = self.get_device_connection_profile(model, ip_address)
+        meter = self._ensure_cloudlink_microphone_meter()
+        # An accepted diagnostic refresh is a replacement boundary even when
+        # every acquisition identity field is unchanged.
+        VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
+        generation = self.cloudlink_meter_session.activate_context(
+            model, ip_address, candidates, start_index, profile
+        )
+        meter.start(
+            model, ip_address, candidates, start_index, profile,
+            generation=generation, token=request.get("id"),
+        )
+
+    def _render_cloudlink_microphone_meter(self, sample):
+        request = self.__dict__.get("_active_request") or {}
+        screen = self.screens.get("codec")
+        session = self.__dict__.get("cloudlink_meter_session")
+        if (
+            request.get("device") in SUPPORTED_CLOUDLINK_METER_MODELS
+            and request.get("screen") is screen
+            and screen is not None
+            and isinstance(sample, Mapping)
+            and sample.get("_meter_token") == request.get("id")
+            and session is not None
+            and sample.get("_meter_generation") == session.generation
+        ):
+            screen.apply_microphone_meter_presentation(sample)
 
     def _next_pdu_operation_id(self):
         return self._pdu_controller().next_operation_id()
@@ -3225,6 +3307,8 @@ class VCSDiagnosticApp(QMainWindow):
             current_screen = self.screens.get(self.current_screen_type)
         if current_screen:
             current_screen.update_data(data)
+        if not partial_update and worker:
+            VCSDiagnosticApp._start_cloudlink_microphone_meter_for_accepted_codec(self, worker)
         
         from PyQt5.QtCore import QDateTime
         self.last_update_time = QDateTime.currentDateTime()
@@ -4268,6 +4352,10 @@ class VCSDiagnosticApp(QMainWindow):
 
     def closeEvent(self, event):
         self._supersede_model_actions("shutdown")
+        self._stop_cloudlink_microphone_meter()
+        session = self.__dict__.get("cloudlink_meter_session")
+        if session is not None:
+            session.shutdown(wait=False)
         controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
         if controller is not None:
             controller.shutdown()

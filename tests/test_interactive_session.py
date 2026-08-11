@@ -257,6 +257,42 @@ class InteractiveSessionControllerTests(unittest.TestCase):
             [call for call in calls if call[0] == "connect"],
         )
 
+    def test_stale_after_factory_never_connects(self):
+        calls = []
+        controller = None
+
+        class Handler:
+            def connect(self):
+                calls.append("connect")
+                return True
+
+            def disconnect(self):
+                calls.append("disconnect")
+
+            def is_connected(self):
+                return False
+
+            def read(self):
+                calls.append("read")
+                return "unexpected"
+
+        def factory(_model, _kwargs):
+            calls.append("factory")
+            controller.invalidate_context()
+            return Handler()
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        _results, _errors, dropped = self.collect(controller)
+        controller.activate_context("Huawei TE40", "192.0.2.10", ({"username": "u", "password": "p"},))
+        controller.submit(InteractiveOperation(kind="read", method="read"))
+        controller.wait_until_idle(2)
+        self.drain()
+        self.assertEqual("factory", calls[0])
+        self.assertNotIn("connect", calls)
+        self.assertNotIn("read", calls)
+        self.assertEqual(1, len(dropped))
+        controller.shutdown()
+
     def test_box_context_acquires_shared_handler_for_read_only_operation_without_aliasing(self):
         captured = []
 

@@ -79,8 +79,13 @@ class CloudLinkMicrophoneMeter(QObject):
 
     def _on_error(self, payload: dict) -> None:
         if self._matches(payload):
-            # A typed terminal failure stops this context; a new diagnostic context may restart it.
-            self._finish_cycle({"available": False, "raw_level": None, "fraction": None}, terminal=True)
+            # Protocol/command failures are sample-local: the established
+            # session remains usable and the next cadence may sample again.
+            # Only typed session/auth/transport exhaustion is terminal.
+            terminal = payload.get("category") in {
+                "authentication_error", "session_invalid", "connection_error",
+            }
+            self._finish_cycle({"available": False, "raw_level": None, "fraction": None}, terminal=terminal)
 
     def _on_dropped(self, payload: dict) -> None:
         if self._matches(payload):
@@ -90,7 +95,12 @@ class CloudLinkMicrophoneMeter(QObject):
         self._in_flight = False
         if not self._active:
             return
-        self.sample.emit(dict(value))
+        presentation = dict(value)
+        # Consumers use this opaque lifecycle identity to reject a queued
+        # callback after their authoritative context has been replaced.
+        presentation["_meter_generation"] = self._generation
+        presentation["_meter_token"] = self._token
+        self.sample.emit(presentation)
         if terminal:
             self._active = False
             return

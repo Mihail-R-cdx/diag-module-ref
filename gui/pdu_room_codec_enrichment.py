@@ -516,6 +516,11 @@ class PDURoomCodecEnrichmentController(QObject):
         current = getattr(self, "_last_presentation", None)
         if current is None or not self._is_current(current.generation, current.operation_id):
             return
+        if (
+            sample.get("_meter_generation") != self._current_session_generation
+            or sample.get("_meter_token") != current.operation_id
+        ):
+            return
         available = bool(sample.get("available"))
         self._publish(EnrichmentPresentation(
             **{**current.__dict__, "microphone_available": available,
