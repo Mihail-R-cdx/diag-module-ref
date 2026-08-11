@@ -144,7 +144,7 @@ git diff --name-only origin/master...HEAD
 ```
 
 - [x] Review that no root spec, archive, validation-report-only artifact, HAR capture, credential/local inventory, generated log, temporary environment, or Graphify output changed during implementation.
-- [ ] Create focused implementation commit(s), push `agent/cloudlink-live-microphone-metering`, and verify local HEAD equals the remote branch HEAD without amend, rebase, force-push, or history rewrite.
+- [x] Create focused implementation commit(s), push `agent/cloudlink-live-microphone-metering`, and verify local HEAD equals the remote branch HEAD without amend, rebase, force-push, or history rewrite.
 - [ ] Keep the PR Draft and do not issue the independent final `APPROVE` from the implementation session.
 
 ## 11. Independent validation and disposable archive applicability
