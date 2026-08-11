@@ -90,13 +90,59 @@ Notes:
 
 ## Validation and repository workflow
 
+`RULES.md` is the highest authority for this repository workflow. Approved
+OpenSpec artifacts are the authority for implementation. Checks and readiness
+statuses are gates within workflow phases: a gate is not a separate workflow
+phase and does not by itself require a new Codex session.
+
+A Codex session SHOULD complete the entire workflow phase assigned to it unless
+it encounters a real blocking finding, a remote-state change, a failed mandatory
+check, or an explicit user stop condition. Checks, evidence synchronization,
+readiness markers, and bookkeeping belonging to that phase SHOULD be completed
+in that same session rather than delegated to new sessions.
+
+The workflow has four phases:
+
+1. **OpenSpec / Design.** Create the OpenSpec change and its proposal, design,
+   specs, and tasks; perform architecture review; resolve architecture findings;
+   and obtain the final architectural `APPROVE`. `READY FOR REVIEW`, repeated
+   artifact reading, and bookkeeping are gates or work within this phase, not
+   separate phases.
+2. **Implementation.** Implement the approved architecture; add regression
+   coverage; run focused and required full tests and strict OpenSpec validation;
+   synchronize `tasks.md` and implementation evidence; run `git diff --check`
+   and `git diff --cached --check` as Git checks;
+   create a focused implementation commit; and push the feature branch.
+   Integration proof, evidence synchronization, readiness markers, and reruns
+   of implementation checks are work in this phase, not mandatory new sessions.
+   A real blocker stops implementation and is reported. An implementation
+   session MUST NOT issue the independent final `APPROVE`.
+3. **Independent validation.** A mandatory separation-of-duty handoff that
+   validates the published implementation without fixing its own findings. It
+   includes all required tests, strict OpenSpec validation, implementation review
+   against the approved architecture, Git checks, and, when applicable, the
+   disposable archive-applicability check described below.
+4. **Archive + completion.** After a permitting independent verdict, archive;
+   review the archive/root-spec diff; run strict all-artifact validation, full
+   required offline tests, `git diff --check`, and `git diff --cached --check`;
+   make and push a dedicated archive commit; confirm the current remote archive
+   HEAD; and merge only if the user explicitly authorizes it. Archive,
+   post-archive validation, archive commit, `READY FOR MERGE`, and merge are
+   work or gates in this one completion phase, not mandatory separate sessions.
+
+Repository readiness statuses, including `APPROVE`, `CHANGES REQUIRED`,
+`READY FOR REVIEW`, `READY FOR INDEPENDENT REVALIDATION`, `READY FOR ARCHIVE`,
+and `READY FOR MERGE`, are gate/state markers, not mandatory workflow phases or
+mandatory new Codex sessions. Passing through a status does not by itself
+require a new commit, branch, validation artifact, or Codex session.
+
 ### Independent validation checkout
 
 Independent validation MUST run in a separate clean detached worktree created
-from the published remote branch revision. The validator MUST record the remote
-branch SHA before starting and verify that the validation worktree HEAD matches
-that SHA. A dirty primary worktree MUST NOT be used as validation evidence or
-as the source of validation commits.
+from the current published remote branch revision. The validator MUST record the
+remote branch SHA before starting and verify that the validation worktree HEAD
+matches that SHA. A dirty primary worktree MUST NOT be used as validation
+evidence or as the source of validation commits.
 
 ```powershell
 git fetch origin
@@ -106,8 +152,9 @@ $sha = git rev-parse $remoteRef
 git worktree add --detach ".worktrees/validation-$($sha.Substring(0, 8))" $remoteRef
 ```
 
-The worktree MUST be created from `origin/<branch>`, not a local branch.
-Validation commits MAY be created from that isolated worktree.
+The worktree MUST be created from `origin/<branch>`, not a local branch. The
+validator MUST compare its local SHA with the remote SHA and stop or explicitly
+reorient to a newer published SHA after reviewing commits if they differ.
 
 ### Git safe.directory
 
@@ -223,7 +270,13 @@ has been read again explicitly as UTF-8.
 
 ### Validation evidence
 
-Every independent validation report MUST record:
+Independent validation is report-only by default. It MUST NOT create a commit
+solely for a validation report, test counts, evidence publication, `READY FOR
+ARCHIVE`, or recording that validation occurred. In particular, successful
+independent validation MUST NOT change the feature HEAD merely to publish a
+report.
+
+When an independent validation report is produced, it MUST record:
 
 - validated remote branch and full commit SHA;
 - commit subject, clean worktree evidence, and local/remote SHA comparison;
@@ -233,8 +286,9 @@ Every independent validation report MUST record:
 - final verdict; archive/merge permission; and whether code or tests changed.
 
 An older report is an assertion, not evidence. The validator MUST rerun required
-commands and MUST NOT copy prior test counts. If SHAs differ, validation MUST
-stop or explicitly reorient to the newer published SHA after reviewing commits.
+commands and MUST NOT copy prior test counts. A tracked validation artifact is
+permitted only when the user explicitly requests it and is not part of the
+default workflow.
 
 ### Validation verdicts
 
@@ -248,17 +302,11 @@ Archive is permitted only after `APPROVE` or `APPROVE WITH NON-BLOCKING NOTES`.
 Validation sessions MUST NOT fix their own findings; implementation and
 validation MUST be separate sessions.
 
-### Validation commits
-
-A validation commit MUST contain only validation evidence, normally the
-change-specific `verification-report.md`. Production code, tests, specs,
-proposal, design, and tasks MUST NOT change during independent validation.
-
-The commit MUST originate in a clean isolated worktree. Before committing, run
-`git status`, `git diff`, and `git diff --check`. After pushing, compare the
-local SHA with the remote branch SHA. Force-push MUST NOT be used. If a
-post-push fetch times out, confirmed SHA equality MUST NOT be claimed without
-other evidence.
+When a change modifies existing root specs, including `MODIFIED Requirements`,
+`RENAMED Requirements`, `REMOVED Requirements`, or an equivalent root-spec
+change, independent validation MUST perform the disposable archive-applicability
+check. This check is inside the independent-validation phase, not a separate
+workflow phase or mandatory new session.
 
 ### Implementation sessions
 
@@ -268,18 +316,21 @@ scope, add regression coverage, run targeted and full tests, run strict
 OpenSpec validation, update implementation evidence, and commit and push before
 requesting new independent validation. They MUST NOT issue the final `APPROVE`.
 
-### Archive sessions
+### Archive + completion
 
 An OpenSpec change MAY be archived only after a published independent verdict
 permits it. Archive MUST be followed by strict validation of all OpenSpec
-artifacts, the full offline test suite, `git diff --check`, review of the
-archive and root-spec diff, and a dedicated archive commit and push.
+artifacts, the full offline test suite, `git diff --check`,
+`git diff --cached --check`, review of the archive and root-spec diff, and a
+dedicated archive commit and push.
 
 After the archive checks pass and the dedicated archive commit is pushed, the
-same session MAY merge the feature branch. A separate archived-branch review or
-separate merge session is NOT required unless the user or repository policy
-explicitly requests one. Before merging, the session MUST confirm that the
-remote feature-branch HEAD still matches the reviewed archive commit.
+same session MAY merge the feature branch only with explicit user authorization.
+Before merging, it MUST reconfirm that the remote feature-branch HEAD still
+matches the reviewed archive commit and that `master` is current; if remote
+state changed, it MUST review the new commits first. Force-push MUST NOT be
+used. A separate archived-branch review or separate merge session is not
+required unless the user or repository policy explicitly requests one.
 
 ### Temporary artifacts
 
