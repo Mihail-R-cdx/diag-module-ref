@@ -19,6 +19,10 @@ For `CloudLink Bar 310`, the live sample source SHALL be exactly:
 GET /v1/mediacontrol/mic/current-volume
 ```
 
+The Bar request SHALL run only after the existing CloudLink handler connection has established the normal HTTP-Basic-backed `requests.Session` and current CloudLink session context. The approved protocol contract for this change is that this established session can obtain HTTP `200` with a valid `curMicVouumeList` without `X-Access-Token`. The implementation SHALL NOT add, acquire, persist, refresh, infer, or transmit an `X-Access-Token` or another meter-specific access token. Existing `acCSRFToken` behavior remains action.cgi session material and does not become a new meter credential.
+
+A structured authentication or established-session rejection from the Bar meter endpoint SHALL remain a typed failure under the existing bounded recovery policy. Such rejection SHALL NOT authorize token discovery, an alternate login flow, handler-owned credential fallback, or another authentication mechanism. Any future requirement for such a mechanism requires a separately reviewed OpenSpec change.
+
 After the existing response decoding boundary, `data["curMicVouumeList"]` SHALL be a list. Every Mapping entry in the complete list SHALL be eligible regardless of `deviceId`. Every non-negative numeric `curVolume` SHALL contribute an observation, and the raw microphone level SHALL be the maximum valid `curVolume` across all entries. The implementation SHALL NOT exclude `deviceId == 18`, assume a fixed device-ID range, select one preferred device, or use list position as channel authority.
 
 For `CloudLink Box 310`, the live sample source SHALL be exactly:
@@ -48,6 +52,20 @@ micArray3_03ValIdx
 Each present non-negative numeric value SHALL contribute an observation and the raw microphone level SHALL be the maximum valid value. The implementation SHALL NOT scan arbitrary field names or include TRS, RCA, HDMI, Bluetooth, UAC, `m220w_porwer_hint`, or another unreviewed non-microphone audio field.
 
 An empty Bar list, a Bar list with no valid `curVolume`, or a Box payload with no valid value from the closed microphone set SHALL be an unavailable sample and SHALL NOT be represented as numeric zero.
+
+#### Scenario: Bar established session needs no meter-specific token
+
+- **GIVEN** the normal Bar 310 handler connection has established its current authenticated session
+- **WHEN** live metering requests `GET /v1/mediacontrol/mic/current-volume`
+- **THEN** the request reuses the established session
+- **AND** no `X-Access-Token` or other meter-specific access token is acquired or transmitted
+- **AND** successful HTTP `200` response decoding proceeds through the existing response boundary
+
+#### Scenario: Bar meter endpoint rejects the established session
+
+- **WHEN** the Bar meter endpoint returns a structured authentication or established-session rejection
+- **THEN** the existing typed failure and bounded recovery policy remains authoritative
+- **AND** the implementation does not begin token discovery, an alternate login flow, or handler-owned credential fallback
 
 #### Scenario: Bar sample includes device ID 18
 
