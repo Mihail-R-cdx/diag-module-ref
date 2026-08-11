@@ -5,6 +5,7 @@
 - [x] Create this change from exact `master` base `3197b3326be2cdf7387cf45d0360a18ec5b12ce3` on branch `agent/cloudlink-live-microphone-metering`.
 - [x] Keep architecture publication limited to active OpenSpec artifacts; do not change production code, tests, root specs, archived changes, validation evidence, operational inventory, HAR captures, credentials, or Graphify artifacts.
 - [x] Read current `RULES.md`, `docs/equipment-inventory-runbook.md`, current `pdu-room-codec-enrichment` root spec, current CloudLink handler/worker/screen paths, DMP meter lifecycle/presentation reference, and current PDU enrichment implementation before writing architecture.
+- [x] Record the approved Bar 310 protocol assumption that the normal established CloudLink session obtains HTTP `200` with valid `curMicVouumeList` from `GET /v1/mediacontrol/mic/current-volume` without `X-Access-Token`; this change introduces no meter-specific token/login authority.
 - [ ] Run repository-local architecture checks on the exact published remote architecture HEAD:
 
 ```powershell
@@ -28,7 +29,9 @@ git diff --check
 ## 2. Implement pure model-specific microphone sample extraction
 
 - [ ] Add a focused CloudLink microphone sample normalization boundary shared by codec-page and PDU consumers; do not duplicate raw protocol parsing in both GUI paths.
-- [ ] For Bar 310, send exact `GET /v1/mediacontrol/mic/current-volume` through the established authenticated CloudLink session.
+- [ ] For Bar 310, send exact `GET /v1/mediacontrol/mic/current-volume` only after the normal CloudLink handler session is established and reuse that same HTTP-Basic-backed `requests.Session` / current CloudLink session context.
+- [ ] Do not add, acquire, persist, refresh, infer, or transmit `X-Access-Token` or another meter-specific token/login flow; existing `acCSRFToken` handling remains action.cgi session material and is not a new meter credential.
+- [ ] Preserve typed authentication/session failure and existing bounded recovery if the Bar meter endpoint rejects the established session; do not react by token discovery, alternate login, or handler-owned credential fallback.
 - [ ] Require decoded `curMicVouumeList` to be a list and calculate the maximum non-negative numeric `curVolume` across every valid Mapping entry regardless of `deviceId`.
 - [ ] Prove `deviceId == 18` is included and no fixed `0..17` range, preferred device, or list-position authority exists.
 - [ ] Treat empty/malformed/no-valid-Bar observations as unavailable rather than zero.
@@ -98,6 +101,8 @@ git diff --check
 
 ## 9. Add focused synthetic regression coverage
 
+- [ ] Add focused tests proving Bar sampling reuses the established session without `X-Access-Token` or another meter-specific token/login path.
+- [ ] Add a Bar rejection test proving structured authentication/session failure remains typed and does not trigger token discovery or alternate login.
 - [ ] Add focused tests for Bar maximum calculation across all entries, including a case where `deviceId == 18` owns the maximum.
 - [ ] Cover Bar empty list, malformed list, invalid `curVolume`, mixed valid/invalid entries, and observed zero.
 - [ ] Add focused tests for every Box approved microphone field and prove larger TRS/RCA/HDMI/Bluetooth/UAC values are excluded.
