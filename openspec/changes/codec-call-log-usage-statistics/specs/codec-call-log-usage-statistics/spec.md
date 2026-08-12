@@ -193,6 +193,24 @@ period_start = 00:00:00 on reference_now.date - (N - 1) calendar days
 
 The current calendar date is included and is not prorated.
 
+#### Scenario: Reliable codec-local time defines normal calendar periods
+
+- **GIVEN** a reliable read-only codec-local current time is available
+- **WHEN** call-log statistics are calculated
+- **THEN** that time is used as `reference_now`
+- **AND** it determines today and the normal 30-day and 90-day boundaries
+- **AND** call timestamps and boundaries remain on the same coherent calendar basis
+- **AND** computer-local time does not replace the available codec-local time
+
+#### Scenario: Codec-local time is unavailable
+
+- **GIVEN** codec-local current time cannot be obtained reliably
+- **WHEN** call-log statistics are calculated
+- **THEN** computer-local current time is used as `reference_now`
+- **AND** a clear non-modal system-time fallback warning is displayed
+- **AND** the fallback is not silent
+- **AND** codec-local and computer-local calendar bases are not mixed
+
 ### Requirement: Usage duration counts only completed-record overlap with the calculation interval
 
 For each completed record with valid start time and valid non-negative duration, the application SHALL derive the call interval and add only its temporal intersection with the calculation interval.
@@ -235,6 +253,23 @@ The numerator SHALL not be clipped to a notional working-day clock range. Calls 
 If the current date is Monday-Friday, it SHALL contribute the full eight hours regardless of current clock time. When a capped/degraded interval starts partway through a weekday, that touched first date SHALL also contribute the full eight hours.
 
 Usage hours SHALL display with one decimal place. Utilization SHALL display as a whole percent and SHALL NOT be clamped to 100%. If an interval touches zero Monday-Friday dates, the application SHALL avoid division by zero, retain calculated duration, and mark percentage unavailable with an explanatory warning.
+
+#### Scenario: Degraded interval begins partway through a weekday
+
+- **GIVEN** a capped or degraded calculation interval begins at 15:00 on Monday
+- **WHEN** usage is calculated
+- **THEN** numerator arithmetic begins at the exact 15:00 timestamp
+- **AND** that touched Monday contributes the full eight hours to the denominator
+
+#### Scenario: Calculation interval touches no weekdays
+
+- **GIVEN** a calculation interval touches only Saturday and Sunday
+- **WHEN** usage is calculated
+- **THEN** working capacity is zero hours
+- **AND** division by zero does not occur
+- **AND** calculated usage duration is retained
+- **AND** utilization percentage is displayed as unavailable
+- **AND** the user receives an explanatory warning
 
 ### Requirement: Clean empty history and partial retrieval outcomes remain usable
 
@@ -281,6 +316,23 @@ All handler acquisition, device-time reads, history requests, pagination, bounde
 
 Credential selection/fallback SHALL remain application/composition-owned. Call-log strings, HTTP-status text, participant names, or GUI warnings SHALL NOT become credential-fallback signals. Secrets SHALL remain redacted.
 
+#### Scenario: Huawei-family call history remains on the shared interactive path
+
+- **GIVEN** call history is requested for `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, or `CloudLink Box 310`
+- **WHEN** acquisition needs history work or bounded invalid-session recovery
+- **THEN** the existing shared interactive-session/controller path remains the owner
+- **AND** reconnect and replay remain bounded to one reconnect and one replay
+- **AND** the handler does not start its own credential fallback
+- **AND** credential selection and fallback remain application/composition-owned
+
+#### Scenario: Polycom call history remains on its dedicated worker path
+
+- **GIVEN** call history is requested for `Polycom RPG 310`
+- **WHEN** acquisition is performed
+- **THEN** the existing short-lived dedicated Polycom call-log worker/session remains the owner
+- **AND** the operation is not routed through the Huawei/shared interactive controller
+- **AND** only normalized history and statistics are shared across the model boundaries
+
 ### Requirement: Real-device validation proves protocol facts while offline tests prove bounded edge cases
 
 Implementation and independent validation SHALL use read-only live device access, when the relevant physical device is available, to confirm observable protocol facts such as request success, record shape/order, pagination/end/no-progress, timestamp encoding, codec-local time acquisition, and any claimed normal full-coverage invariant.
@@ -290,3 +342,13 @@ Live validation SHALL NOT require 100 calls, 90-day history, an active call, a m
 Deterministic automated regression coverage SHALL use synthetic histories and fake handlers/sessions to prove the 100-record ceiling, `30 + 47`, single `18`, exact partial-first-weekday behavior, hidden long boundary-crossing records for normal coverage, source no-progress, active/malformed/overlapping records, empty history, time fallback, lifecycle ownership, stale suppression, partial failure, and GUI behavior.
 
 Production IP addresses, credentials, tokens, cookies, raw device captures, or sensitive response bodies SHALL NOT be committed as fixtures or validation artifacts.
+
+#### Scenario: A live device has only a small recent journal
+
+- **GIVEN** read-only live validation accesses a device with only a small or recent journal
+- **WHEN** the observed protocol behavior is recorded
+- **THEN** validation may prove request success, response and record shape, ordering, pagination or cursor or offset behavior, clean end-of-journal, repeated-page or no-progress behavior, timestamp and duration encoding, and codec-local time retrieval
+- **AND** it may prove the normal full-coverage invariant only when that invariant is actually observable and established
+- **AND** it does not require the device to contain 100 calls, 90 days of history, an active call, malformed duration, or other synthetic edge cases
+- **AND** those bounded edge cases are proved with deterministic synthetic histories, fake handlers, or fake sessions
+- **AND** live validation remains read-only and does not place calls, delete history, change device time, configuration, credentials, or validation state
