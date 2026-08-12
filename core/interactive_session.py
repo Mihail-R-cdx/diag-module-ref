@@ -428,6 +428,12 @@ class InteractiveSessionController(QObject):
                     kwargs["use_ssl"] = bool(profile.get("use_ssl"))
                 handler = self._handler_factory(context.model, kwargs)
                 try:
+                    # Handler construction is deliberately separable from the
+                    # first network operation for CloudLink.  A replacement
+                    # may win in that gap, so never connect a stale handler.
+                    if not self._context_is_current(context.generation, context):
+                        _disconnect(handler)
+                        raise ConnectionError("Interactive codec context was superseded.")
                     if not handler.connect():
                         raise ConnectionError(
                             f"{profile.get('label', 'codec transport')} did not connect"

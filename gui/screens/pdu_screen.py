@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QProgressBar,
     QWidget,
 )
 
@@ -134,6 +135,7 @@ class PDUScreen(BaseScreen):
         self.related_group.setProperty("density", "compact")
         self.related_rows = {}
         fields = (
+            ("microphone_level", "Уровень микрофонов"),
             ("room_vip", "VIP"),
             ("codec_diagnostic_status", "Статус кодека"),
             ("room_name", "Название комнаты"),
@@ -146,6 +148,14 @@ class PDUScreen(BaseScreen):
             row = ParameterRow(title, "—", self.related_group, compact=True)
             row.value_display.setProperty("data_field", True)
             self.related_rows[field] = row
+            if field == "microphone_level":
+                row.value_display.setVisible(False)
+                meter = QProgressBar(row)
+                meter.setRange(0, 100)
+                meter.setTextVisible(False)
+                meter.setProperty("meterState", "unavailable")
+                row.add_action(meter)
+                self.microphone_meter_bar = meter
             self.related_group.add_widget(row)
         self.related_message = QLabel("", self.related_group)
         self.related_message.setWordWrap(True)
@@ -317,6 +327,9 @@ class PDUScreen(BaseScreen):
         for row in self.related_rows.values():
             row.set_value("—")
             row.set_state("inactive")
+        meter_row = self.related_rows.get("microphone_level")
+        if meter_row is not None:
+            meter_row.setVisible(False)
         if hasattr(self, "related_message"):
             self.related_message.setText("")
 
@@ -336,6 +349,7 @@ class PDUScreen(BaseScreen):
             state = "warning"
 
         values = {
+            "microphone_level": payload.get("microphone_fraction"),
             "room_vip": payload.get("room_vip_label"),
             "codec_diagnostic_status": payload.get("codec_diagnostic_status"),
             "room_name": payload.get("room_name"),
@@ -345,6 +359,16 @@ class PDUScreen(BaseScreen):
             "presentation_status": payload.get("presentation_status"),
         }
         for field, row in self.related_rows.items():
+            if field == "microphone_level":
+                supported = payload.get("codec_diagnostic_model") in {"CloudLink Bar 310", "CloudLink Box 310"}
+                row.setVisible(supported)
+                meter = getattr(self, "microphone_meter_bar", None)
+                if meter is not None:
+                    available = supported and bool(payload.get("microphone_available"))
+                    meter.setValue(round(float(payload.get("microphone_fraction") or 0.0) * 100) if available else 0)
+                    meter.setProperty("meterState", "available" if available else "unavailable")
+                    meter.style().unpolish(meter); meter.style().polish(meter)
+                continue
             value = values.get(field)
             row.set_value("—" if value in (None, "", (), []) else str(value))
             row_state = state

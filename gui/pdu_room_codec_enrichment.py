@@ -17,6 +17,7 @@ from core.interactive_session import (
     OperationSemantic,
 )
 from core.related_codec_status import RelatedCodecStatusAdapter
+from core.cloudlink_microphone_meter import CloudLinkMicrophoneMeter, SUPPORTED_CLOUDLINK_METER_MODELS
 from core.room_context import (
     RoomContext,
     RoomContextResolver,
@@ -70,6 +71,9 @@ class EnrichmentPresentation:
     codec_ip_address: str | None = None
     call_status: str | None = None
     presentation_status: str | None = None
+    microphone_available: bool = False
+    microphone_raw_level: float | int | None = None
+    microphone_fraction: float | None = None
     warnings: tuple[str, ...] = ()
     safe_message: str | None = None
     pending: bool = False
@@ -94,6 +98,9 @@ class EnrichmentPresentation:
             "codec_ip_address": self.codec_ip_address,
             "call_status": self.call_status,
             "presentation_status": self.presentation_status,
+            "microphone_available": self.microphone_available,
+            "microphone_raw_level": self.microphone_raw_level,
+            "microphone_fraction": self.microphone_fraction,
             "warnings": self.warnings,
             "safe_message": self.safe_message,
             "pending": self.pending,
@@ -144,6 +151,9 @@ class PDURoomCodecEnrichmentController(QObject):
         self._current_operation_id: int | None = None
         self._current_session_generation: int | None = None
         self._shutdown = False
+        self._meter = CloudLinkMicrophoneMeter(self, session=self._session)
+        self._meter.sample.connect(self._on_meter_sample)
+        self._meter.terminal.connect(self._on_meter_terminal)
         self._session.signals.result.connect(self._on_session_result)
         self._session.signals.error.connect(self._on_session_error)
         self._session.signals.dropped.connect(self._on_session_dropped)
@@ -163,6 +173,7 @@ class PDURoomCodecEnrichmentController(QObject):
         self._current_operation_id = operation_id
         self._current_session_generation = None
         self._session.invalidate_context()
+        self._meter.stop()
         self._publish(
             EnrichmentPresentation(
                 generation=generation,
@@ -272,6 +283,7 @@ class PDURoomCodecEnrichmentController(QObject):
         self._current_operation_id = operation_id
         self._current_session_generation = None
         self._session.invalidate_context()
+        self._meter.stop()
         self._publish(
             EnrichmentPresentation(
                 generation=generation,
@@ -295,6 +307,7 @@ class PDURoomCodecEnrichmentController(QObject):
         self._current_operation_id = None
         self._current_session_generation = None
         self._session.invalidate_context()
+        self._meter.stop()
         self._session.shutdown(wait=False)
 
     def _handler_factory(self, model: str, kwargs: Mapping[str, Any]) -> Any:
@@ -309,6 +322,8 @@ class PDURoomCodecEnrichmentController(QObject):
         return handler
 
     def _on_session_result(self, payload: dict[str, Any]) -> None:
+        if payload.get("kind") == "cloudlink_microphone_meter":
+            return
         operation_id = payload.get("client_token")
         generation = self._generation
         if not self._is_current(generation, operation_id):
@@ -340,9 +355,18 @@ class PDURoomCodecEnrichmentController(QObject):
                 profile if isinstance(profile, Mapping) else None,
             )
         self._publish(presentation)
-        self._terminate_session_context()
+        if presentation.codec_diagnostic_model in SUPPORTED_CLOUDLINK_METER_MODELS:
+            self._meter.start(
+                presentation.codec_diagnostic_model,
+                presentation.codec_ip_address or payload.get("ip_address"),
+                (), generation=self._current_session_generation, token=operation_id,
+            )
+        else:
+            self._terminate_session_context()
 
     def _on_session_error(self, payload: dict[str, Any]) -> None:
+        if payload.get("kind") == "cloudlink_microphone_meter":
+            return
         operation_id = payload.get("client_token")
         generation = self._generation
         if not self._is_current(generation, operation_id):
@@ -462,6 +486,9 @@ class PDURoomCodecEnrichmentController(QObject):
             codec_ip_address=current.codec_ip_address,
             call_status=fields.get("call_status"),
             presentation_status=fields.get("presentation_status"),
+            microphone_available=current.microphone_available,
+            microphone_raw_level=current.microphone_raw_level,
+            microphone_fraction=current.microphone_fraction,
             warnings=current.warnings,
             safe_message=current.safe_message,
         )
@@ -480,10 +507,46 @@ class PDURoomCodecEnrichmentController(QObject):
         )
 
     def _terminate_session_context(self) -> None:
+        self._meter.stop()
         if self._current_session_generation is None:
             return
         self._current_session_generation = None
         self._session.invalidate_context()
+
+    def _on_meter_sample(self, sample: dict[str, Any]) -> None:
+        current = getattr(self, "_last_presentation", None)
+        if current is None or not self._is_current(current.generation, current.operation_id):
+            return
+        if (
+            sample.get("_meter_generation") != self._current_session_generation
+            or sample.get("_meter_token") != current.operation_id
+        ):
+            return
+        available = bool(sample.get("available"))
+        self._publish(EnrichmentPresentation(
+            **{**current.__dict__, "microphone_available": available,
+               "microphone_raw_level": sample.get("raw_level") if available else None,
+               "microphone_fraction": sample.get("fraction") if available else None}
+        ))
+
+    def _on_meter_terminal(self, outcome: dict[str, Any]) -> None:
+        """Close the retained dedicated lane after typed meter recovery fails."""
+        current = getattr(self, "_last_presentation", None)
+        if current is None or not self._is_current(current.generation, current.operation_id):
+            return
+        if (
+            outcome.get("_meter_generation") != self._current_session_generation
+            or outcome.get("_meter_token") != current.operation_id
+        ):
+            return
+        # Keep the accepted related-codec status and PDU result intact; only
+        # optional telemetry is unavailable.  _terminate_session_context()
+        # schedules handler cleanup on the dedicated session lane.
+        self._publish(EnrichmentPresentation(
+            **{**current.__dict__, "microphone_available": False,
+               "microphone_raw_level": None, "microphone_fraction": None}
+        ))
+        self._terminate_session_context()
 
 
 def _safe_inventory_message(error: EquipmentInventoryLoadError | None) -> str:

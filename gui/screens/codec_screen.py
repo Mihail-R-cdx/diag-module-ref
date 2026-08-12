@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QProgressDialog,
     QSizePolicy,
     QApplication,
+    QProgressBar,
 )
 from PyQt5.QtCore import Qt, QTimer, QEventLoop, QThreadPool, QPoint
 try:
@@ -34,6 +35,7 @@ from core.interactive_session import (
     InteractiveSessionController,
     OperationSemantic,
 )
+from core.cloudlink_microphone_meter import SUPPORTED_CLOUDLINK_METER_MODELS
 from .base_screen import BaseScreen
 from ..equipment_pages import (
     SWITCH_IP_LABEL,
@@ -92,6 +94,7 @@ class CodecScreen(BaseScreen):
     CONTROL_LABEL_WIDTH_NARROW = 240
 
     CALL_LOG_PARAM = "Журнал звонков"
+    MICROPHONE_LEVEL_PARAM = "Уровень микрофонов"
 
     TE20_SLEEP_UNAVAILABLE_FIELDS = (
         "Звук в помещении (микрофон)",
@@ -121,6 +124,7 @@ class CodecScreen(BaseScreen):
         self._presentation_enable_timers = {}
         self._interactive_callback_serial = 0
         self._interactive_callbacks = {}
+        self.microphone_meter_bar = None
         super().__init__(parent)
         self.interactive_controller = InteractiveSessionController(self)
         self.interactive_controller.signals.result.connect(self._on_interactive_result)
@@ -304,6 +308,18 @@ class CodecScreen(BaseScreen):
             and _parent_device_name(self.parent) in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}
         )
 
+    def _uses_cloudlink_microphone_meter(self):
+        return bool(self.parent and _parent_device_name(self.parent) in SUPPORTED_CLOUDLINK_METER_MODELS)
+
+    def apply_microphone_meter_presentation(self, sample):
+        meter = self.microphone_meter_bar
+        if self._is_deleted_widget(meter):
+            return
+        available = bool(sample.get("available")) if isinstance(sample, dict) else False
+        meter.setValue(round(float(sample.get("fraction") or 0.0) * 100) if available else 0)
+        meter.setProperty("meterState", "available" if available else "unavailable")
+        meter.style().unpolish(meter); meter.style().polish(meter)
+
     def _microphone_param_name(self):
         return "Mute микрофона" if self._uses_microphone_mute_control() else "Громкость микрофона"
 
@@ -319,6 +335,7 @@ class CodecScreen(BaseScreen):
         return str(mute_state)
 
     def _reset_param_widget_refs(self):
+        self.microphone_meter_bar = None
         self.param_widgets = []
         self.presentation_buttons = {}
         self.sip_fix_buttons = []
@@ -432,6 +449,8 @@ class CodecScreen(BaseScreen):
             "Статус камеры",
             "Статус микрофона",
         ]
+        if self._uses_cloudlink_microphone_meter():
+            control_params.append(self.MICROPHONE_LEVEL_PARAM)
 
         show_te20_monitor_audio_fields = self._should_show_te20_monitor_audio_fields()
         if show_te20_monitor_audio_fields:
@@ -597,6 +616,15 @@ class CodecScreen(BaseScreen):
                 call_log_btn = SemanticButton("Открыть журнал", "primary", row)
                 call_log_btn.clicked.connect(self.open_call_log_window)
                 row.add_action(call_log_btn)
+            elif param_name == self.MICROPHONE_LEVEL_PARAM:
+                value_label.setVisible(False)
+                meter = QProgressBar(row)
+                meter.setRange(0, 100)
+                meter.setTextVisible(False)
+                meter.setAccessibleName(param_name)
+                meter.setProperty("meterState", "unavailable")
+                row.add_action(meter)
+                self.microphone_meter_bar = meter
             elif param_name == "SIP регистрация":
                 value_label.setVisible(False)
                 indicator = SIPRegistrationIndicator(row)

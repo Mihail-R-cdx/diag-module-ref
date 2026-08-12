@@ -441,6 +441,20 @@ def build_stylesheet() -> str:
             background-color: {c["primary"]};
             border-radius: {r["sm"]}px;
         }}
+        QProgressBar[meterState="available"] {{
+            background-color: {c["surface_raised"]};
+            border: 1px solid {c["border"]};
+        }}
+        QProgressBar[meterState="available"]::chunk {{
+            background-color: {c["primary"]};
+        }}
+        QProgressBar[meterState="unavailable"] {{
+            background-color: {c["surface"]};
+            border: 1px dashed {c["text_muted"]};
+        }}
+        QProgressBar[meterState="unavailable"]::chunk {{
+            background-color: transparent;
+        }}
         QCheckBox, QRadioButton {{
             spacing: 8px;
             color: {c["text_primary"]};
