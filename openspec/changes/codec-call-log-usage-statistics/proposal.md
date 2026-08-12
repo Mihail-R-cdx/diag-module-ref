@@ -2,37 +2,42 @@
 
 ## Why
 
-The current codec call-log dialog is presentation-only and truncates the returned journal to ten rows. It does not provide usage history, and at least one supported protocol path also requests only ten records from the device. This makes it impossible to answer how heavily a room codec has been used over recent calendar periods.
+The current codec call-log dialog is presentation-only and truncates the returned journal to ten rows. It does not provide usage statistics, while the supported device families do not expose one uniform history-depth contract. Usage calculations therefore need a normalized machine-readable history model, bounded read-only retrieval, explicit completeness/degradation semantics, and a common GUI without collapsing the already approved Huawei and Polycom network lifecycles.
 
-The application already exposes call logs for exact models `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310`, but their transport/session ownership is intentionally not uniform: Huawei call-log reads use the shared interactive-session recovery path while Polycom call-log loading remains owned by its short-lived dedicated worker. The new capability must therefore unify normalized history, calculations, and presentation without collapsing those approved lifecycle boundaries.
+The product requirement intentionally distinguishes two different concepts:
 
-Usage calculations require machine-readable call timestamps and durations rather than the current display-only strings. Deep history retrieval must be bounded, stay read-only and off the Qt GUI thread, and must never present a mathematically complete-looking statistic unless the acquisition has an interval-safe proof that no unseen older record can still overlap the calculation boundary.
+1. **Full 30/90-day completeness.** A normal full-period statistic is authoritative only when interval-safe coverage of that lower bound is proven or the source reports clean end-of-journal.
+2. **Product-limit degradation at exactly 100 accepted records.** The application intentionally stops at the hard cap and computes a useful statistic from the accepted records starting at the exact `start_at` of the oldest accepted record, even though still-older unseen calls might exist. This is a product convention for capped available history, not a claim of mathematically complete device history.
+
+A separate technical state, `source_history_limited`, covers cases where deeper history cannot be obtained before the product cap and clean end-of-journal is not proven. That state must not silently reuse the 100-record product convention.
 
 ## What Changes
 
-- Add a common call-history snapshot and usage-calculation contract for the five existing call-log codec models.
-- Preserve literal call-log semantics: completed successful, unanswered, and failed entries remain eligible; incoming and outgoing entries are treated equally; overlapping legitimate records are summed independently rather than merged.
-- Preserve active calls in the visible chronology while excluding them from usage calculations until they become completed call-log records.
-- Retrieve history newest-first only as deeply as needed, stopping on interval-safe coverage proof, clean end-of-journal, exactly 100 accepted records, a structured source-history limitation/no-progress outcome, or typed operational failure.
-- Define interval-safe coverage explicitly: seeing a record whose `start_at` is older than a period boundary is not sufficient by itself, because an unseen still-older long-running record may overlap that boundary.
-- Permit early coverage stop only when researched protocol/query semantics prove that unseen older records cannot overlap the relevant lower bound, for example through end-time/range semantics or another documented/observed invariant. If no such invariant exists, continue until another stop condition.
-- Treat an authoritative end-of-journal as meaning there are no older calls for this feature; do not infer an undocumented retention policy.
-- Represent a source that cannot provide deeper history, does not advance pagination, repeats a page without new unique records, or otherwise cannot establish clean EoJ as a structured `source_history_limited`/`no_progress` outcome distinct from clean EoJ and transport failure.
-- Preserve already loaded recent calls on source limitation or deeper failure. A statistic may remain numeric only for an interval whose coverage is proven. Unproven target/shortened intervals are explicitly incomplete/unavailable rather than shown as complete-looking percentages.
-- Use the codec's own current local time as the calendar authority when the protocol can obtain it reliably. Fall back to the computer's local time only when codec time is unavailable, and expose that fallback as a warning in the GUI.
-- Calculate usage over calendar-date windows including today. A 30-day window is today plus the preceding 29 calendar dates; a 90-day window is today plus the preceding 89 dates.
-- Count only the temporal overlap of each completed call with the applicable calculation interval.
-- Calculate normative working capacity as `8 hours * count(Monday..Friday calendar dates touched by the interval)`. Holidays and shifted workdays are intentionally ignored, the current weekday contributes the full eight hours, and a partial first weekday in a proven degraded interval also contributes the full eight hours.
-- Permit utilization percentages above 100%; display usage hours with one decimal place and percentage as a whole number.
-- When the 100-record ceiling truncates a target period, retain the agreed actual-period degradation only when the shortened lower bound is itself interval-safe/proven. The degraded interval starts at the exact oldest accepted record timestamp, its displayed day count uses calendar dates touched, and both duration and denominator are recalculated for that exact interval.
-- If 100 records safely prove at least 30 but fewer than 90 calendar days, keep the complete 30-day row and degrade only the longer row. If a safe shortened interval is fewer than 30 days, show one degraded usage row instead of two duplicate rows. If the shortened interval is not provably complete, show the journal plus an explicit incomplete-statistics warning instead of manufacturing a percentage.
-- Keep malformed-duration records visible but exclude them from usage totals and show a partial-calculation warning.
-- A successful empty journal is valid data and produces `0.0` hours / `0%` for both full target periods.
-- Redesign the dialog with two always-visible latest-call rows using the existing four fields, usage summary rows, and an initially collapsed `Журнал звонков` section showing up to the latest 20 records total, including the two preview records.
-- Show `Загрузка журнала звонков...` during initial acquisition and `Расчёт статистики использования...` while deeper history/calculation continues.
-- Preserve current fresh-load semantics on each explicit dialog opening; expanding/collapsing the already loaded journal within that dialog must not re-query the codec.
-- Add focused offline regression coverage for period boundaries, interval-safe coverage proof, 100-record limits, source-history limitation/no-progress, active calls, overlap, malformed data, empty history, partial failure, and time fallback.
-- Add read-only live protocol research/validation for available real devices to establish actual pagination/limit/end-of-journal, coverage invariants, no-progress behavior, and device-time behavior. Live devices are not required to contain 100 calls or 90 days of history; synthetic fixtures remain authority for deterministic edge-case regression tests.
+- Add a common call-history snapshot and usage-calculation contract for exactly these existing call-log models:
+  - `Huawei TE20`
+  - `Huawei TE40`
+  - `CloudLink Bar 310`
+  - `CloudLink Box 310`
+  - `Polycom RPG 310`
+- Preserve Huawei call-log ownership on the existing shared interactive-session/controller path and preserve Polycom call-log ownership on its existing short-lived dedicated worker/session path.
+- Preserve literal call-log semantics: completed successful, unanswered, failed, incoming, and outgoing records are all eligible; legitimate overlapping records are summed independently rather than merged.
+- Keep active calls in normal chronology and count them toward the 100-record acquisition ceiling, while excluding them from usage totals until completed.
+- Keep malformed-duration records visible, exclude those durations from totals, and warn that affected statistics are partial.
+- Retrieve newest-first and stop on the first applicable condition: interval-safe 90-day coverage proof, clean end-of-journal, exactly 100 accepted records, structured `source_history_limited`/no-progress, or typed operational failure.
+- For **normal full 30/90 statistics**, do not treat `oldest_retrieved.start_at < boundary` as coverage proof by itself. Early completeness requires a researched interval-safe protocol/query invariant or clean end-of-journal.
+- For **hard-cap 100 degradation**, deliberately use `oldest_of_100.start_at` as the available-history lower bound without an additional interval-safe proof. Calculate from the accepted records only and display an explicit warning that history was limited to 100 records.
+- If the hard cap yields at least 30 but fewer than 90 calendar dates of available history, show a 30-day row plus one actual-day row (for example `47 days`). If it yields fewer than 30 calendar dates, show exactly one actual-day row (for example `18 days`).
+- For `source_history_limited` before the hard cap, preserve recent journal data but do not manufacture a full or capped-product percentage for an unproven interval. Already proven target periods remain valid; otherwise affected statistics are incomplete/unavailable with a warning.
+- Treat clean end-of-journal as meaning there were no older calls for this feature; do not infer an undocumented retention policy.
+- Use codec-local current time as calendar authority when reliably available; otherwise use computer-local current time with a visible non-modal warning.
+- Define 30/90-day windows by calendar dates including today. Count only the temporal overlap of each completed call with the applicable interval.
+- Calculate normative working capacity as `8 hours * count(Monday..Friday calendar dates touched by the interval)`. Ignore public holidays and shifted workdays, include all eligible call duration regardless of hour/day, give the current weekday and a partial first weekday the full eight-hour denominator, and allow percentages above 100%.
+- Display usage hours with one decimal place and percentage as a whole number; avoid division by zero if an interval touches no weekdays.
+- Redesign the dialog to show the latest two calls always visible, usage summary row(s), and an initially collapsed `Журнал звонков` section showing the latest 20 records total, including the same top two.
+- Show `Загрузка журнала звонков...` during initial acquisition and `Расчёт статистики использования...` while deeper history/statistics work continues.
+- Expanding/collapsing the journal uses already acquired records and does not refetch; each later explicit dialog opening starts a fresh acquisition.
+- Add deterministic synthetic regression coverage for 30/90 boundaries, hidden long boundary-crossing records, hard-cap 47-day and 18-day degradation, active/malformed/overlapping records, source no-progress, empty history, time fallback, lifecycle ownership, partial failure, and GUI behavior.
+- Use available physical devices only for read-only protocol confirmation of request shape/order, pagination/end/no-progress, timestamp encoding, device time, and any claimed full-coverage invariant. Real devices do not need 100 calls or 90 days of history.
 
 ## Impact
 
@@ -42,7 +47,7 @@ Affected specifications:
 
 Expected implementation areas include:
 
-- a focused normalized call-history/statistics model or helper in the application/core layer
+- a focused normalized call-history/statistics helper in the application/core layer
 - `handlers/huawei/te20.py`
 - `handlers/huawei/te40.py`
 - `handlers/huawei/bar310.py` for both exact CloudLink 310 identities
@@ -53,4 +58,4 @@ Expected implementation areas include:
 - `gui/dialogs/call_log_window.py`
 - focused handler, worker/controller, calculation, and GUI tests
 
-This change does not alter codec model recognition, equipment inventory, PDU room/codec resolution, credential selection/fallback ownership, transport retry policy, state-changing codec operations, microphone metering, DMP behavior, Graphify artifacts, or unrelated diagnostic/status presentation.
+This change does not alter codec model recognition, equipment inventory, PDU room/codec resolution, credential-selection/fallback ownership, transport retry policy, state-changing codec operations, microphone metering, DMP behavior, Graphify artifacts, or unrelated diagnostic/status presentation.
