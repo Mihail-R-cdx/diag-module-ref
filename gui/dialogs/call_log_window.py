@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
 
 from core.codec_call_history import (
     CallHistorySnapshot, CallRecord, calculate_usage, snapshot_from_display_records,
+    usage_warnings,
 )
 
 
@@ -86,7 +87,7 @@ class CallLogWindow(QDialog):
             suffix = " (неполные данные)" if not row.complete else ""
             rendered_rows.append(f"{row.days} дней: {row.hours:.1f} ч, {percentage}{suffix}")
         self.usage_label.setText("\n".join(rendered_rows))
-        warnings = " ".join(snapshot.warnings)
+        warnings = " ".join((*snapshot.warnings, *usage_warnings(rows)))
         if records:
             self.status_label.setText(warnings or f"Показаны последние {min(len(records), self.MAX_ROWS)} звонков.")
         else:

@@ -845,7 +845,6 @@ class CodecScreen(BaseScreen):
 
         def on_records(snapshot, _payload):
             if not self._is_deleted_widget(self.call_log_window):
-                self.call_log_window.status_label.setText("Расчёт статистики использования...")
                 self.call_log_window.set_snapshot(snapshot)
 
         def on_error(payload):
@@ -920,7 +919,6 @@ class CodecScreen(BaseScreen):
                 and not widget_deleted(screen.call_log_window)
                 and screen.call_log_window.isVisible()
             ):
-                screen.call_log_window.status_label.setText("Расчёт статистики использования...")
                 screen.call_log_window.set_snapshot(payload.get("snapshot", payload.get("records", [])))
 
         def on_error(error_info):

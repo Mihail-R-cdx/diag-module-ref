@@ -14,6 +14,9 @@ from typing import Any, Iterable, Optional, Sequence
 
 
 MAX_ACCEPTED_RECORDS = 100
+ZERO_WEEKDAY_WARNING = (
+    "Процент использования недоступен: период не содержит рабочих дней."
+)
 
 
 class TerminationReason(str, Enum):
@@ -147,12 +150,14 @@ def snapshot_from_records(
     source_ended: bool = False, coverage_lower_bound: Optional[datetime] = None,
     coverage_basis: Optional[str] = None, warnings: Iterable[str] = (),
     termination_reason: Optional[TerminationReason] = None,
+    reference_time_source: str = "system_fallback",
 ) -> CallHistorySnapshot:
     """Build a safe snapshot from one bounded source response.
 
     A source without documented continuation is never treated as complete after
-    returning records.  Empty responses are a clean EoJ for the supported
-    call-log endpoints.  The generic hard ceiling remains useful to adapters
+    returning records. ``source_ended`` is an explicit protocol fact supplied
+    by a model-specific boundary; an empty normalized collection alone is not
+    evidence of clean EoJ. The generic hard ceiling remains useful to adapters
     that do have real pagination.
     """
     accepted: list[CallRecord] = []
@@ -163,17 +168,29 @@ def snapshot_from_records(
         if record.source_identity:
             identities.add(record.source_identity)
         accepted.append(record)
-        if len(accepted) == MAX_ACCEPTED_RECORDS:
-            break
+    # Source ordering is not evidence of coverage. Normalise the returned
+    # batch before any preview/latest-20/product-cap selection.
+    accepted.sort(
+        key=lambda record: (
+            record.start_at is not None,
+            record.start_at or datetime.min,
+        ),
+        reverse=True,
+    )
+    accepted = accepted[:MAX_ACCEPTED_RECORDS]
     now = (reference_now or datetime.now()).replace(tzinfo=None)
     messages = list(warnings)
-    if reference_now is None:
+    if reference_time_source not in {"device", "system_fallback"}:
+        raise ValueError("reference_time_source must be device or system_fallback")
+    if reference_time_source == "device" and reference_now is None:
+        raise ValueError("device reference time requires an explicit datetime")
+    if reference_time_source != "device":
         messages.append("Использовано системное время: время кодека недоступно.")
     if termination_reason is not None:
         reason = termination_reason
     elif len(accepted) == MAX_ACCEPTED_RECORDS:
         reason = TerminationReason.PRODUCT_LIMIT_REACHED
-    elif source_ended or not accepted:
+    elif source_ended:
         reason = TerminationReason.SOURCE_ENDED
     elif coverage_lower_bound is not None:
         reason = TerminationReason.COVERAGE_PROVEN
@@ -188,7 +205,7 @@ def snapshot_from_records(
     if any(not record.active and record.duration_seconds is None for record in accepted):
         messages.append("Часть длительностей не распознана и не включена в расчёт.")
     return CallHistorySnapshot(
-        reference_now=now, reference_time_source="device" if reference_now else "system_fallback",
+        reference_now=now, reference_time_source=reference_time_source,
         records=tuple(accepted), termination_reason=reason,
         coverage_lower_bound=coverage_lower_bound, coverage_basis=coverage_basis,
         warnings=tuple(dict.fromkeys(messages)),
@@ -197,7 +214,8 @@ def snapshot_from_records(
 
 def snapshot_from_display_records(
     records: Iterable[dict[str, Any]], *, reference_now: Optional[datetime] = None,
-    source_ended: Optional[bool] = None,
+    source_ended: bool = False,
+    reference_time_source: str = "system_fallback",
 ) -> CallHistorySnapshot:
     """Compatibility adapter for existing handler call-log contracts.
 
@@ -239,7 +257,8 @@ def snapshot_from_display_records(
     return snapshot_from_records(
         normalized,
         reference_now=reference_now,
-        source_ended=not normalized if source_ended is None else source_ended,
+        source_ended=source_ended,
+        reference_time_source=reference_time_source,
     )
 
 
@@ -317,4 +336,11 @@ def calculate_usage(snapshot: CallHistorySnapshot) -> tuple[UsageRow, ...]:
             if snapshot.coverage_lower_bound <= start:
                 rows.append(calculate_row(snapshot, days))
         return tuple(rows)
+    return ()
+
+
+def usage_warnings(rows: Iterable[UsageRow]) -> tuple[str, ...]:
+    """Return calculation warnings without replacing acquisition warnings."""
+    if any(row.percentage is None for row in rows):
+        return (ZERO_WEEKDAY_WARNING,)
     return ()

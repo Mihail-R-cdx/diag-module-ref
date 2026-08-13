@@ -49,19 +49,19 @@ git diff --check
 ## 3. Implement bounded Huawei call-history retrieval without changing lifecycle authority
 
 - [x] Preserve Huawei TE20, TE40, CloudLink Bar 310, and CloudLink Box 310 call-history work on the existing shared interactive-session/controller path.
-- [ ] Extend each model-specific handler/protocol boundary only as required by the researched read-only history mechanism; do not invent undocumented pagination parameters.
-- [x] Retrieve newest-first and stop on interval-safe normal 90-day coverage, clean EoJ, exactly 100 accepted records, structured `source_history_limited`, or typed operational failure.
+- [x] Validate each model-specific fixed response shape; treat only a validated empty journal as clean EoJ, raise typed protocol failures for malformed/unrecognized payloads, and do not invent undocumented pagination parameters.
+- [x] Normalize every returned batch newest-first by machine `start_at` before preview/latest-20/product-cap selection; do not claim that this proves source ordering or normal-period coverage.
 - [x] Never accept a 101st call-log record solely to improve statistics.
 - [x] Keep existing bounded invalid-session recovery with no handler-owned credential fallback and no unbounded retry loop.
-- [ ] Obtain codec-local current time through the researched read-only mechanism when reliable; otherwise publish the structured system-time fallback warning.
+- [x] Use codec-local current time only through a reliable researched mechanism; otherwise publish the structured system-time fallback warning without treating a supplied datetime as device authority.
 - [x] Preserve exact `CloudLink Box 310` identity while reusing shared CloudLink handler semantics where already approved.
 - [x] Keep all history/device-time I/O and cleanup outside the Qt GUI thread.
 
 ## 4. Implement bounded Polycom call-history retrieval while preserving its dedicated worker
 
 - [x] Keep Polycom RPG310 call-log acquisition owned by the existing short-lived Polycom call-log worker/session path; do not route it through the Huawei/shared interactive controller.
-- [ ] Replace the current fixed presentation-depth request only as required by researched Polycom history mechanics.
-- [x] Apply the same newest-first stop conditions and exact 100-accepted-record ceiling as the Huawei paths.
+- [x] Keep the current fixed Polycom request until researched history mechanics prove a safe continuation mechanism; a non-empty fixed response without clean EoJ remains `source_history_limited`.
+- [x] Normalize the returned batch newest-first and apply the same exact 100-accepted-record ceiling as the Huawei paths without claiming source-global recency.
 - [x] Preserve typed HTTPS authentication/session/transport errors and existing application-owned credential policy.
 - [x] Obtain/normalize Polycom codec-local current time when reliable; otherwise use the same explicit computer-time fallback warning.
 - [x] Keep Polycom connection, history reads, device-time reads, and logout/cleanup off the Qt GUI thread.
@@ -88,7 +88,7 @@ git diff --check
 - [x] Add an initially collapsed section labelled exactly `Журнал звонков` showing up to the latest 20 records total, including the same two preview records.
 - [x] If fewer than 20 records exist, show every available record with no artificial empty rows.
 - [x] Keep active calls in chronological preview/list position and visibly mark them `Активный`.
-- [x] Show `Загрузка журнала звонков...` during initial acquisition and `Расчёт статистики использования...` while deeper work continues.
+- [x] Show `Загрузка журнала звонков...` during initial acquisition; show `Расчёт статистики использования...` only while real deeper work continues, never as an artificial fixed-batch stage.
 - [x] Show non-modal warnings for system-time fallback, hard cap 100, malformed durations, source-history limitation, and incomplete deeper retrieval.
 - [x] Use already loaded records when expanding/collapsing; do not perform a device query on disclosure toggles.
 - [x] Preserve fresh acquisition for every later explicit dialog open; do not introduce a cross-open history cache.

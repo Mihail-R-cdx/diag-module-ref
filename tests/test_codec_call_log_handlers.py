@@ -1,7 +1,11 @@
 from datetime import datetime
 import unittest
 
-from core.codec_call_history import CallRecord, snapshot_from_records
+from core.codec_call_history import (
+    CallRecord, TerminationReason, snapshot_from_display_records,
+    snapshot_from_records,
+)
+from core.exceptions import ProtocolError
 from core.workers.codec_call_logs import PolycomCallLogWorker
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 from handlers.huawei.te20 import HuaweiTE20Handler
@@ -74,6 +78,37 @@ class CodecCallLogHandlerTests(unittest.TestCase):
         self.assertEqual(1, len(results))
         self.assertIs(snapshot, results[0]["snapshot"])
         self.assertEqual(list(snapshot.records), results[0]["records"])
+
+    def test_valid_empty_journals_are_clean_eoj_but_malformed_shapes_raise_protocol_error(self):
+        te20 = object.__new__(HuaweiTE20Handler)
+        te40 = object.__new__(HuaweiTE40Handler)
+        bar = object.__new__(CloudLinkBar310Handler)
+        polycom = object.__new__(PolycomRPG310Handler)
+
+        empty_parsers = (
+            (te20._parse_p2p_call_records, {"CallList": []}),
+            (te40._parse_p2p_call_records, {"CallList": []}),
+            (bar._parse_call_records, {"callRecordList": []}),
+            (polycom._parse_call_records, []),
+        )
+        for parser, payload in empty_parsers:
+            with self.subTest(payload=payload):
+                self.assertEqual([], parser(payload))
+                snapshot = snapshot_from_display_records(
+                    parser(payload), source_ended=True,
+                )
+                self.assertEqual(TerminationReason.SOURCE_ENDED, snapshot.termination_reason)
+
+        malformed_parsers = (
+            (te20._parse_p2p_call_records, {}),
+            (te40._parse_p2p_call_records, {"CallList": {}}),
+            (bar._parse_call_records, {"callRecordList": {}}),
+            (polycom._parse_call_records, {"entries": []}),
+        )
+        for parser, payload in malformed_parsers:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ProtocolError):
+                    parser(payload)
 
 
 if __name__ == "__main__":

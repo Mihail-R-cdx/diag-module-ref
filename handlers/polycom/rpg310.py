@@ -421,11 +421,11 @@ class PolycomRPG310Handler:
     def _parse_call_records(self, entries: Any) -> List[Dict[str, str]]:
         records = []
         if not isinstance(entries, list):
-            return records
+            raise ProtocolError("Polycom call-history payload is not an array")
 
         for entry in entries:
             if not isinstance(entry, dict):
-                continue
+                raise ProtocolError("Polycom call-history array contains a non-object record")
             room_number = entry.get("address") or entry.get("name") or entry.get("number") or ""
             records.append({
                 "room_number": str(room_number),
@@ -449,8 +449,9 @@ class PolycomRPG310Handler:
         return self._parse_call_records(entries)
 
     def get_call_history_snapshot(self):
-        """Return typed history; ``limit=10`` has no supported continuation."""
-        return snapshot_from_display_records(self.get_call_records())
+        """Return typed history; only a validated empty list proves clean EoJ."""
+        records = self.get_call_records()
+        return snapshot_from_display_records(records, source_ended=not records)
 
     def _get_audio_muted(self) -> Optional[bool]:
         query = urlencode({"_dc": int(time.time() * 1000)})

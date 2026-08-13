@@ -606,14 +606,19 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
 
     def _parse_p2p_call_records(self, data) -> list[Dict[str, str]]:
         if isinstance(data, str):
-            data = json.loads(data)
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE40 call-history payload is not valid JSON") from error
         if not isinstance(data, dict):
-            return []
+            raise ProtocolError("TE40 call-history payload is not an object")
 
+        if "CallList" not in data or not isinstance(data["CallList"], list):
+            raise ProtocolError("TE40 call-history payload has no CallList array")
         records = []
-        for item in data.get("CallList", []):
+        for item in data["CallList"]:
             if not isinstance(item, dict):
-                continue
+                raise ProtocolError("TE40 call-history CallList contains a non-object record")
             start_time = item.get("StartTime", "")
             stop_time = item.get("StopTime", "")
             records.append({
@@ -639,8 +644,9 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         return self._parse_p2p_call_records(result.get("data", {}))
 
     def get_call_history_snapshot(self):
-        """Return typed history; this endpoint exposes no documented paging."""
-        return snapshot_from_display_records(self.get_call_records())
+        """Return typed history; only a validated empty list proves clean EoJ."""
+        records = self.get_call_records()
+        return snapshot_from_display_records(records, source_ended=not records)
 
     def get_status(self) -> Dict[str, Any]:
         """Получение полного статуса устройства"""

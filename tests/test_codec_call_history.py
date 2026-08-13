@@ -4,7 +4,7 @@ import unittest
 from core.codec_call_history import (
     CallRecord, MAX_ACCEPTED_RECORDS, TerminationReason, calculate_usage,
     normal_period, snapshot_from_display_records, snapshot_from_records,
-    touched_weekday_hours,
+    touched_weekday_hours, usage_warnings,
 )
 
 
@@ -72,9 +72,13 @@ class CodecCallHistoryTests(unittest.TestCase):
         snap = snapshot_from_records(records, reference_now=now)
         row = calculate_usage(snap)[0]
         self.assertIsNone(row.percentage)
+        self.assertEqual(1.7, row.hours)
+        self.assertTrue(any("не содержит рабочих дней" in warning for warning in usage_warnings((row,))))
 
     def test_clean_empty_journal_produces_complete_zero_rows(self):
-        snap = snapshot_from_records([], reference_now=datetime(2026, 6, 10, 12))
+        snap = snapshot_from_records(
+            [], reference_now=datetime(2026, 6, 10, 12), source_ended=True,
+        )
         self.assertEqual(TerminationReason.SOURCE_ENDED, snap.termination_reason)
         self.assertEqual((30, 90), tuple(row.days for row in calculate_usage(snap)))
         self.assertEqual((0.0, 0.0), tuple(row.hours for row in calculate_usage(snap)))
@@ -83,7 +87,7 @@ class CodecCallHistoryTests(unittest.TestCase):
         now = datetime(2026, 6, 30, 12)
         records = [record(now - timedelta(days=95), 24 * 3600)] + [
             record(now - timedelta(hours=24, seconds=index), 24 * 3600)
-            for index in range(MAX_ACCEPTED_RECORDS)
+            for index in range(MAX_ACCEPTED_RECORDS - 1)
         ]
         snap = snapshot_from_records(records, reference_now=now)
         rows = calculate_usage(snap)
@@ -144,6 +148,30 @@ class CodecCallHistoryTests(unittest.TestCase):
         )
         self.assertIsNone(snap.records[0].duration_seconds)
         self.assertTrue(any("длительностей" in warning for warning in snap.warnings))
+
+    def test_empty_records_without_clean_eoj_are_not_complete_zero_statistics(self):
+        snap = snapshot_from_records([], reference_now=datetime(2026, 6, 10, 12))
+        self.assertEqual(TerminationReason.SOURCE_HISTORY_LIMITED, snap.termination_reason)
+        self.assertEqual((), calculate_usage(snap))
+
+    def test_out_of_order_batch_is_normalized_newest_first_before_preview_and_cap(self):
+        now = datetime(2026, 6, 30, 12)
+        records = [
+            CallRecord(f"id-{index}", now - timedelta(minutes=index), 60)
+            for index in reversed(range(MAX_ACCEPTED_RECORDS + 2))
+        ]
+        snapshot = snapshot_from_records(records, reference_now=now)
+        self.assertEqual(MAX_ACCEPTED_RECORDS, len(snapshot.records))
+        self.assertEqual(now, snapshot.records[0].start_at)
+        self.assertEqual(now - timedelta(minutes=99), snapshot.records[-1].start_at)
+        self.assertEqual(TerminationReason.PRODUCT_LIMIT_REACHED, snapshot.termination_reason)
+
+    def test_explicit_datetime_is_not_device_time_without_device_authority(self):
+        snapshot = snapshot_from_records(
+            [], reference_now=datetime(2026, 6, 10, 12), source_ended=True,
+        )
+        self.assertEqual("system_fallback", snapshot.reference_time_source)
+        self.assertTrue(any("системное время" in warning for warning in snapshot.warnings))
 
 
 if __name__ == "__main__":

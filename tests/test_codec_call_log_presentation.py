@@ -50,6 +50,37 @@ class CallLogPresentationTests(unittest.TestCase):
         self.assertEqual(3, dialog.table.rowCount())
         dialog.close()
 
+    def test_out_of_order_source_records_render_true_newest_preview(self):
+        now = datetime(2026, 6, 10, 12)
+        dialog = CallLogWindow()
+        dialog.set_snapshot(snapshot_from_records(
+            [
+                CallRecord("old", now - timedelta(hours=3), 60, room_number="old"),
+                CallRecord("new", now - timedelta(minutes=5), 60, room_number="new"),
+                CallRecord("middle", now - timedelta(hours=1), 60, room_number="middle"),
+            ],
+            reference_now=now,
+            source_ended=True,
+        ))
+        self.assertEqual("new", dialog.preview_table.item(0, 0).text())
+        self.assertEqual("middle", dialog.preview_table.item(1, 0).text())
+        dialog.close()
+
+    def test_weekend_warning_is_kept_in_non_modal_dialog_status(self):
+        now = datetime(2026, 6, 7, 12)  # Sunday
+        dialog = CallLogWindow()
+        dialog.status_label.setText("Загрузка журнала звонков...")
+        dialog.set_snapshot(snapshot_from_records(
+            [
+                CallRecord(f"weekend-{index}", now - timedelta(hours=2), 3600)
+                for index in range(100)
+            ],
+            reference_now=now,
+        ))
+        self.assertIn("период не содержит рабочих дней", dialog.status_label.text())
+        self.assertNotIn("Расчёт статистики использования", dialog.status_label.text())
+        dialog.close()
+
 
 if __name__ == "__main__":
     unittest.main()
