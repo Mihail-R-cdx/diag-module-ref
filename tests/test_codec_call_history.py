@@ -56,6 +56,45 @@ class CodecCallHistoryTests(unittest.TestCase):
         self.assertEqual(TerminationReason.PRODUCT_LIMIT_REACHED, snap.termination_reason)
         self.assertEqual((30, 47), tuple(row.days for row in calculate_usage(snap)))
 
+    def test_exactly_100_with_clean_eoj_is_complete_not_product_cap(self):
+        now = datetime(2026, 6, 30, 12)
+        records = [
+            CallRecord(f"record-{index}", now - timedelta(minutes=index), 60)
+            for index in range(MAX_ACCEPTED_RECORDS)
+        ]
+        snapshot = snapshot_from_records(records, reference_now=now, source_ended=True)
+
+        self.assertEqual(MAX_ACCEPTED_RECORDS, len(snapshot.records))
+        self.assertEqual(TerminationReason.SOURCE_ENDED, snapshot.termination_reason)
+        self.assertFalse(any("ограничена 100" in warning for warning in snapshot.warnings))
+        rows = calculate_usage(snapshot)
+        self.assertEqual((30, 90), tuple(row.days for row in rows))
+        self.assertTrue(all(row.complete for row in rows))
+
+    def test_exactly_100_without_clean_eoj_is_product_limit(self):
+        now = datetime(2026, 6, 30, 12)
+        records = [
+            CallRecord(f"record-{index}", now - timedelta(minutes=index), 60)
+            for index in range(MAX_ACCEPTED_RECORDS)
+        ]
+        snapshot = snapshot_from_records(records, reference_now=now)
+
+        self.assertEqual(TerminationReason.PRODUCT_LIMIT_REACHED, snapshot.termination_reason)
+        self.assertTrue(any("ограничена 100" in warning for warning in snapshot.warnings))
+        self.assertTrue(all(not row.complete for row in calculate_usage(snapshot)))
+
+    def test_101_source_records_without_clean_eoj_accepts_only_100(self):
+        now = datetime(2026, 6, 30, 12)
+        records = [
+            CallRecord(f"record-{index}", now - timedelta(minutes=index), 60)
+            for index in range(MAX_ACCEPTED_RECORDS + 1)
+        ]
+        snapshot = snapshot_from_records(records, reference_now=now)
+
+        self.assertEqual(MAX_ACCEPTED_RECORDS, len(snapshot.records))
+        self.assertEqual(TerminationReason.PRODUCT_LIMIT_REACHED, snapshot.termination_reason)
+        self.assertNotIn("record-100", {record.source_identity for record in snapshot.records})
+
     def test_hard_cap_under_30_days_shows_one_actual_row_and_partial_monday_is_full_capacity(self):
         now = datetime(2026, 6, 26, 12)  # Friday
         monday_at_15 = datetime(2026, 6, 8, 15)

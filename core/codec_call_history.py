@@ -187,13 +187,17 @@ def snapshot_from_records(
     if reference_time_source != "device":
         messages.append("Использовано системное время: время кодека недоступно.")
     if termination_reason is not None:
+        # An acquisition boundary may know more than this generic one-batch
+        # adapter. Never overwrite its explicit terminal observation.
         reason = termination_reason
-    elif len(accepted) == MAX_ACCEPTED_RECORDS:
-        reason = TerminationReason.PRODUCT_LIMIT_REACHED
     elif source_ended:
+        # A clean EoJ observed with the 100th record is completion, not the
+        # product cap: no older record remains to retrieve.
         reason = TerminationReason.SOURCE_ENDED
     elif coverage_lower_bound is not None:
         reason = TerminationReason.COVERAGE_PROVEN
+    elif len(accepted) == MAX_ACCEPTED_RECORDS:
+        reason = TerminationReason.PRODUCT_LIMIT_REACHED
     else:
         reason = TerminationReason.SOURCE_HISTORY_LIMITED
     if reason == TerminationReason.PRODUCT_LIMIT_REACHED:
