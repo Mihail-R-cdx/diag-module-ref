@@ -843,9 +843,9 @@ class CodecScreen(BaseScreen):
 
         self.call_log_window.status_label.setText("Загрузка журнала звонков...")
 
-        def on_records(records, _payload):
+        def on_records(snapshot, _payload):
             if not self._is_deleted_widget(self.call_log_window):
-                self.call_log_window.set_call_records(records or [])
+                self.call_log_window.set_snapshot(snapshot)
 
         def on_error(payload):
             if not self._is_deleted_widget(self.call_log_window):
@@ -861,7 +861,7 @@ class CodecScreen(BaseScreen):
         self._submit_interactive(
             InteractiveOperation(
                 kind="huawei_call_log",
-                method="get_call_records",
+                method="get_call_history_snapshot",
                 semantic=OperationSemantic.READ_ONLY,
             ),
             on_records,
@@ -919,9 +919,7 @@ class CodecScreen(BaseScreen):
                 and not widget_deleted(screen.call_log_window)
                 and screen.call_log_window.isVisible()
             ):
-                screen.call_log_window.set_call_records(
-                    payload.get("records", [])
-                )
+                screen.call_log_window.set_snapshot(payload.get("snapshot", payload.get("records", [])))
 
         def on_error(error_info):
             screen = screen_ref()

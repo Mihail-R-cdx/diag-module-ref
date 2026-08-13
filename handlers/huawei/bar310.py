@@ -10,6 +10,7 @@ import time
 import urllib3
 from datetime import datetime
 from collections.abc import Mapping
+from core.codec_call_history import snapshot_from_display_records
 from numbers import Real
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
@@ -435,15 +436,17 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except json.JSONDecodeError:
-                return []
+            except json.JSONDecodeError as error:
+                raise ProtocolError("Bar 310 call-history payload is not valid JSON") from error
         if not isinstance(data, dict):
-            return []
+            raise ProtocolError("Bar 310 call-history payload is not an object")
+        if "callRecordList" not in data or not isinstance(data["callRecordList"], list):
+            raise ProtocolError("Bar 310 call-history payload has no callRecordList array")
 
         records = []
-        for item in data.get("callRecordList", [])[:10]:
+        for item in data["callRecordList"]:
             if not isinstance(item, dict):
-                continue
+                raise ProtocolError("Bar 310 callRecordList contains a non-object record")
             start_time = item.get("startTime", "")
             end_time = item.get("endTime", "")
             records.append({
@@ -451,6 +454,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 "start_time": self._format_call_start_time(start_time),
                 "duration": self._format_call_duration(start_time, end_time),
                 "speed": self._format_call_rate(item.get("rate")),
+                "_raw_start": start_time,
+                "_raw_end": end_time,
+                "source_identity": item.get("id") or item.get("recordId"),
+                "_active": bool(item.get("active") or item.get("isActive")),
             })
         return records
 
@@ -497,6 +504,11 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             )
 
         return self._parse_call_records(result.get("data", {}))
+
+    def get_call_history_snapshot(self):
+        """Return typed history; only a validated empty list proves clean EoJ."""
+        records = self.get_call_records()
+        return snapshot_from_display_records(records, source_ended=not records)
 
 
     @staticmethod

@@ -4,6 +4,7 @@ import ssl
 import time
 from http.cookiejar import CookieJar
 from typing import Any, Dict, List, Optional
+from core.codec_call_history import snapshot_from_display_records
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPSHandler, HTTPCookieProcessor, Request, build_opener
@@ -420,17 +421,21 @@ class PolycomRPG310Handler:
     def _parse_call_records(self, entries: Any) -> List[Dict[str, str]]:
         records = []
         if not isinstance(entries, list):
-            return records
+            raise ProtocolError("Polycom call-history payload is not an array")
 
-        for entry in entries[:10]:
+        for entry in entries:
             if not isinstance(entry, dict):
-                continue
+                raise ProtocolError("Polycom call-history array contains a non-object record")
             room_number = entry.get("address") or entry.get("name") or entry.get("number") or ""
             records.append({
                 "room_number": str(room_number),
                 "start_time": self._format_call_start_time(entry.get("startTime")),
                 "duration": self._format_call_duration(entry.get("duration")),
                 "speed": self._format_call_rate(entry.get("rate")),
+                "_raw_start": entry.get("startTime"),
+                "_duration_seconds": entry.get("duration"),
+                "source_identity": entry.get("id") or entry.get("recordId"),
+                "_active": bool(entry.get("active") or entry.get("isActive")),
             })
         return records
 
@@ -442,6 +447,11 @@ class PolycomRPG310Handler:
             headers={"Referer": f"{self.base_url}/index.html"},
         )
         return self._parse_call_records(entries)
+
+    def get_call_history_snapshot(self):
+        """Return typed history; only a validated empty list proves clean EoJ."""
+        records = self.get_call_records()
+        return snapshot_from_display_records(records, source_ended=not records)
 
     def _get_audio_muted(self) -> Optional[bool]:
         query = urlencode({"_dc": int(time.time() * 1000)})

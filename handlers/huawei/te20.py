@@ -10,6 +10,7 @@ import ssl
 import tempfile
 from datetime import datetime
 from typing import Dict, Any, Optional
+from core.codec_call_history import snapshot_from_display_records
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import (
     AuthenticationError,
@@ -636,15 +637,20 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
 
     def _parse_p2p_call_records(self, data) -> list[Dict[str, str]]:
         if isinstance(data, str):
-            data = json.loads(data)
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError as error:
+                raise ProtocolError("TE20 call-history payload is not valid JSON") from error
         if not isinstance(data, dict):
-            return []
+            raise ProtocolError("TE20 call-history payload is not an object")
 
-        call_list = data.get("CallList", [])
+        if "CallList" not in data or not isinstance(data["CallList"], list):
+            raise ProtocolError("TE20 call-history payload has no CallList array")
+        call_list = data["CallList"]
         records = []
-        for item in call_list[:10]:
+        for item in call_list:
             if not isinstance(item, dict):
-                continue
+                raise ProtocolError("TE20 call-history CallList contains a non-object record")
             start_time = item.get("StartTime", "")
             stop_time = item.get("StopTime", "")
             room_number = item.get("aucCallCode") or item.get("aucRcdName") or ""
@@ -653,6 +659,10 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 "start_time": self._format_call_start_time(start_time),
                 "duration": self._format_call_duration(start_time, stop_time),
                 "speed": self._format_call_rate(item.get("uwCallRate")),
+                "_raw_start": start_time,
+                "_raw_end": stop_time,
+                "source_identity": item.get("id") or item.get("recordId"),
+                "_active": bool(item.get("active") or item.get("isActive")),
             })
         return records
 
@@ -699,6 +709,11 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
             raise ConnectionError(f"Кодек не вернул журнал звонков: {result.get('exception', result)}")
 
         return self._parse_p2p_call_records(result.get("data", {}))
+
+    def get_call_history_snapshot(self):
+        """Return typed history; only a validated empty list proves clean EoJ."""
+        records = self.get_call_records()
+        return snapshot_from_display_records(records, source_ended=not records)
 
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
