@@ -3,101 +3,105 @@
 ## 1. Architecture baseline and scope
 
 - [x] Base the change on exact `master` `4b958488bb34b5deae23b2201a947154add8acf8` after reading current `RULES.md`.
-- [x] Record the live-read evidence that established the modern Bar session, reviewed read-only endpoint compatibility, meter normalization, sleep/call-state fields, device-local time, and the first-HD-AI contradiction without persisting secrets.
-- [x] Apply the corrected common read-session/read-only behavior to exact `CloudLink Bar 310` and exact `CloudLink Box 310` while preserving distinct identity and credential/profile memory.
-- [x] Preserve the confirmed exceptions: Box live meter remains `WEB_GetCurrentAudioParam`; state-changing CloudLink operations remain on the existing legacy control path.
-- [x] Keep automatic Bar/Box model detection, unproved camera state, and unproved microphone connection/gain semantics out of scope.
+- [x] Record sanitized live-read evidence for modern Bar session, exact verified modern reads, meter normalization, sleep/call state, device-local time, and first-HD-AI contradiction.
+- [x] Apply corrected common read architecture to exact Bar/Box while preserving distinct identity and credential/profile memory.
+- [x] Preserve Box meter `WEB_GetCurrentAudioParam` and keep automatic model detection out of scope.
+- [x] Resolve architecture review finding: deterministic list-of-Mapping peripheral version normalization with exact `version` field, source-order de-duplication, `; ` join, and fail-closed partial-malformed policy.
+- [x] Resolve architecture review finding: modern action.cgi allowlist limited to live-verified version/MAC/mailbox; unverified audio/line/presentation/camera reads remain legacy-compatible.
+- [x] Resolve architecture review finding: CloudLink microphone-gain mutation disabled before network I/O until authoritative target/readback contract exists.
 
 ## 2. OpenSpec contract corrections
 
-- [x] Modify `cloudlink-live-microphone-metering` so Bar metering uses the modern read context and `X-Access-Token`, while Box retains its existing model-specific meter source/field set.
-- [x] Modify `device-diagnostics-and-control` so the shared Bar/Box handler owns modern read and legacy control subcontexts under one application-selected credential and exact model/IP context.
-- [x] Add CloudLink runtime presentation rules for `Режим сна`, `Версия камеры`, `Версия микрофона`, `Встроенная камера`, and `Встроенный микрофон` without making GUI text protocol authority.
-- [x] Modify `request-lifecycle-and-recovery` to use the modern read status plan, exact modern sleep/call mappings, conservative typed failure handling, and no first-HD-AI product authority.
-- [x] Preserve the existing `codec-call-log-usage-statistics` device-time semantic contract; require implementation compliance rather than weakening that root requirement.
-- [ ] Run architecture validation on the published architecture HEAD:
+- [x] Modify `cloudlink-live-microphone-metering` so Bar meter uses modern read context/X-Access-Token while Box retains model-specific source/field set.
+- [x] Modify `device-diagnostics-and-control` for one handler generation with modern read plus legacy compatibility/control subcontexts under one application-selected credential.
+- [x] Add runtime presentation rules for sleep, deterministic camera/microphone version lists, and built-in labels without using WebUI `--` as protocol authority.
+- [x] Modify `request-lifecycle-and-recovery` for exact modern allowlist, legacy compatibility routing, modern sleep/call mappings, no first-HD-AI product authority, and fail-closed gain control.
+- [x] Preserve existing `codec-call-log-usage-statistics` device-time semantic contract; implementation must comply rather than weaken it.
+- [ ] On the current published architecture HEAD run:
   - [ ] `git diff --check`
   - [ ] `git diff --cached --check`
   - [ ] `.\openspec.cmd validate cloudlink-310-runtime-session-corrections --strict`
   - [ ] `.\openspec.cmd validate --all --strict`
 - [ ] Record exact architecture HEAD, current `origin/master`, clean status, commands, exit codes, and exact strict-validation passed/failed counts before architectural `APPROVE`.
 
-## 3. Implement the modern CloudLink 310 read context
+## 3. Implement CloudLink session boundaries
 
-- [ ] Re-read `RULES.md`, fetch current remote state, and implement only after architectural `APPROVE` of the current published change HEAD.
-- [ ] Add the modern read login sequence `POST /v1/login/session` -> `POST /v1/login/account` using only the credential assigned by the application/composition layer.
-- [ ] Keep modern cookies and token in memory, send the token as `X-Access-Token`, and use the reviewed modern token body placement for read-only action.cgi requests.
-- [ ] Implement best-effort `DELETE /v1/login/session` teardown plus local HTTP-session closure with secret-safe idempotent cleanup.
-- [ ] Keep the existing legacy state-changing control path and establish/use it only for operations that already own that contract; do not migrate mutations to the modern context.
-- [ ] Bind modern and legacy subcontexts to one exact model/IP/credential/generation handler unit so invalidation closes both without handler-owned credential iteration.
-- [ ] Preserve exact Bar/Box identity and separate successful credential/profile memory.
+- [ ] Re-read `RULES.md`, fetch current remote state, and implement only after architectural `APPROVE` of current published change HEAD.
+- [ ] Add modern login `POST /v1/login/session` -> `POST /v1/login/account` using only application-assigned credential.
+- [ ] Keep modern cookies/token in memory, send `X-Access-Token`, and use body token only for approved modern action.cgi version/MAC/mailbox reads.
+- [ ] Implement best-effort `DELETE /v1/login/session` teardown plus local session closure and secret-safe cleanup.
+- [ ] Preserve legacy compatibility/control subcontext for existing unverified audio/line/presentation/camera reads and supported non-gain mutations.
+- [ ] Bind both subcontexts to one exact model/IP/credential/generation handler unit; invalidation closes both without handler-owned credential iteration.
+- [ ] Preserve exact Bar/Box identity and separate success memory.
 
 ## 4. Correct status/state normalization
 
-- [ ] Route the reviewed common read-only version/MAC/mailbox/general-state path through the modern read context for both exact CloudLink 310 models.
-- [ ] Normalize modern `state.isSleep` exactly as `1 -> On`, `0 -> Off`; omit/mark unavailable unsupported values.
-- [ ] Normalize case-sensitive modern `state.callState` exactly as `0 No Call`, `1 Calling`, `2 Connected`, `3 Disconnected`; do not reuse the legacy lowercase mapper.
-- [ ] Stop ordinary status publication from using the legacy sleep endpoint as authoritative when modern state is available.
-- [ ] Remove first-HD-AI selection as authority for `mic_connection_status` and `mic_volume`; do not replace it with another unapproved group/order/gain heuristic.
-- [ ] Do not promote `state.camera`, `state.mic`, or unproved `/mic/devices` fields to physical camera/microphone semantics.
+- [ ] Route only exact approved modern read set through modern context; do not migrate unverified action.cgi reads.
+- [ ] Normalize `state.isSleep` exactly `1 -> On`, `0 -> Off`.
+- [ ] Normalize case-sensitive `state.callState` exactly `0 No Call`, `1 Calling`, `2 Connected`, `3 Disconnected`; do not reuse legacy lowercase mapper.
+- [ ] Stop ordinary status publication from using legacy sleep as authority when accepted modern state exists.
+- [ ] Remove first-HD-AI selection as authority for `mic_connection_status`/diagnostic `mic_volume`; add no replacement heuristic.
+- [ ] Do not promote `state.camera`, `state.mic`, or `/mic/devices` fields to unapproved physical/gain semantics.
 - [ ] Preserve optional-field isolation and required core identity/version gates.
 
 ## 5. Version and built-in presentation
 
-- [ ] Normalize successful structured `cameraVersion` evidence into usable-version, built-in-empty, or unavailable states.
-- [ ] Normalize successful structured `micVersion` evidence into usable-version, built-in-empty, or unavailable states.
-- [ ] Render built-in-empty camera exactly as `Встроенная камера` and built-in-empty microphone exactly as `Встроенный микрофон`.
-- [ ] Render usable version evidence as the real normalized version and keep absent/malformed endpoint evidence unavailable rather than calling it built-in.
-- [ ] Add visible `Режим сна`, `Версия камеры`, and `Версия микрофона` rows for exact Bar/Box contexts without parsing vendor WebUI `--` text.
-- [ ] Keep built-in/version presentation separate from camera activity, physical microphone connection, mute, gain, and live signal level.
+- [ ] Require `cameraVersion`/`micVersion` field, when present, to be a list; `[]` means built-in.
+- [ ] For non-empty list require every entry to be Mapping with exact non-empty string `version`; ignore `name` for presentation.
+- [ ] On any malformed non-empty entry make the whole peripheral version unavailable; do not partially render valid siblings.
+- [ ] Strip valid versions, remove duplicates preserving first source order, join with exact `; ` separator.
+- [ ] Render built-in camera exactly `Встроенная камера` and built-in microphone exactly `Встроенный микрофон`.
+- [ ] Add visible `Режим сна`, `Версия камеры`, `Версия микрофона`; do not parse vendor WebUI `--`.
 
-## 6. Meter and call-history time
+## 6. Meter, gain and call-history time
 
-- [ ] Run Bar `GET /v1/mediacontrol/mic/current-volume` through the modern read context while leaving the existing normalization algorithm unchanged.
-- [ ] Preserve Box `POST action.cgi?ActionID=WEB_GetCurrentAudioParam` and its exact approved closed microphone field set/normalization.
-- [ ] Obtain CloudLink codec-local calendar time from `GET /v1/om/config/systemtime` through the modern read context and pass it to call-history normalization as device `reference_now`.
-- [ ] Preserve explicit computer-local fallback warning only when reliable device-local time is unavailable after allowed bounded recovery.
+- [ ] Run Bar `GET /v1/mediacontrol/mic/current-volume` through modern read context with existing normalization unchanged.
+- [ ] Preserve Box `POST action.cgi?ActionID=WEB_GetCurrentAudioParam` and exact approved closed field set.
+- [ ] Disable/reject CloudLink Bar/Box microphone-gain control before network I/O; no gain PUT/POST, fixed device IDs, alternate-method fallback, or first-HD-AI reconciliation.
+- [ ] Obtain codec-local time from `GET /v1/om/config/systemtime` through modern context and pass as device `reference_now`.
+- [ ] Preserve explicit computer-local fallback warning only when device-local time is unavailable after allowed bounded recovery.
 
 ## 7. Regression coverage
 
-- [ ] Add focused tests for modern login/token/header/body/logout lifecycle and secret redaction.
-- [ ] Cover HTTP 401/403 session invalidation and prove generic HTTP-200 `success: 0` does not authorize credential fallback or string-heuristic session recovery.
-- [ ] Cover one application-selected credential, no handler/worker iteration, exact Bar/Box model identity, and separate credential/profile memory.
-- [ ] Cover modern read-only action.cgi use while existing state-changing operations remain on the legacy control path.
-- [ ] Cover Bar meter auth with raw zero/positive/unavailable samples and unchanged all-entry normalization; cover Box source and closed-field regression.
-- [ ] Cover sleep and modern call-state enums, including missing/unsupported fields and the 2/3 legacy-enum mismatch regression.
-- [ ] Cover multiple HD-AI records proving list order is not product authority and that no unapproved connection/gain value is manufactured.
-- [ ] Cover codec-local device time and explicit system fallback.
-- [ ] Cover camera/microphone version, built-in-empty, unavailable, GUI rows, reconstruction, and stale-context suppression.
-- [ ] Cover unresolved inventory/manual fallback so no network Bar/Box auto-detection is introduced.
+- [ ] Cover modern login/token/header/body/logout lifecycle and secret redaction.
+- [ ] Cover exact modern action.cgi allowlist and legacy routing for unverified audio/line/presentation/camera reads.
+- [ ] Cover HTTP 401/403 session invalidation and prove generic HTTP-200 `success: 0` does not authorize fallback.
+- [ ] Cover one application-selected credential, no handler iteration, exact Bar/Box identity and separate success memory.
+- [ ] Cover Bar meter auth/zero/positive/unavailable and unchanged normalizer; Box source regression.
+- [ ] Cover sleep/call enums including 2/3 legacy mismatch.
+- [ ] Cover deterministic version-list normalization: empty, one valid, multiple valid, duplicates, missing field, non-list, partial malformed.
+- [ ] Cover multiple HD-AI records proving no connection/gain authority.
+- [ ] Cover disabled gain control and assert zero device network mutation.
+- [ ] Cover codec-local time and explicit system fallback.
+- [ ] Cover GUI rows/rebuild/currentness/stale suppression and unresolved manual model fallback.
 
 ## 8. Implementation validation and publication
 
-- [ ] Run focused tests for all affected handler/session/parser/worker/GUI/call-history modules.
-- [ ] Run the full required offline test suite and record exact passed/failed counts and exit code.
+- [ ] Run focused tests for affected handler/session/parser/worker/GUI/call-history modules.
+- [ ] Run full required offline test suite and record exact counts/exit code.
 - [ ] Run `.\openspec.cmd validate cloudlink-310-runtime-session-corrections --strict`.
 - [ ] Run `.\openspec.cmd validate --all --strict`.
 - [ ] Run `git diff --check` and `git diff --cached --check`.
-- [ ] Review the implementation diff against the approved OpenSpec and confirm no production behavior was added for camera state or microphone gain/connection without an approved contract.
-- [ ] Create a focused implementation commit and push `agent/cloudlink-310-runtime-session-corrections`; verify local HEAD equals current remote branch HEAD without amend, rebase, force-push, or history rewrite.
-- [ ] Keep the PR Draft. The implementation session MUST NOT issue its own independent final `APPROVE`.
+- [ ] Review implementation against approved OpenSpec, including no modern migration of unverified reads and no CloudLink gain mutation.
+- [ ] Create focused implementation commit and push feature branch; verify local HEAD equals remote without amend/rebase/force-push/history rewrite.
+- [ ] Keep PR Draft. Implementation session MUST NOT issue independent final `APPROVE`.
 
 ## 9. Independent validation and archive applicability
 
-- [ ] Create a separate clean detached worktree from current `origin/agent/cloudlink-310-runtime-session-corrections`; record the remote SHA and prove detached HEAD equals that exact current remote SHA.
-- [ ] Independently inspect current `master`, PR state/Draft/base/head/remote HEAD/mergeability and review every newer feature commit before verdict.
-- [ ] Independently repeat focused tests, the full offline suite, both strict OpenSpec validations, `git diff --check`, `git diff --cached --check`, scope/security review, and all material session/meter/status/time/presentation contracts without fixing findings in the validation session.
-- [ ] Verify local/remote SHA equality again after validation and confirm the validation worktree remained clean.
-- [ ] Because this change uses `MODIFIED Requirements`, perform the required disposable archive-applicability check from the exact validated remote HEAD using only repository-local `openspec.cmd`; inspect the prospective archive/root-spec diff and discard disposable output/worktree without publishing it.
-- [ ] Do not issue `READY FOR ARCHIVE` while any Critical, High, or Medium finding remains, any mandatory check fails, validation used a stale/dirty worktree, implementation differs from approved architecture, or archive applicability is unproven.
+- [ ] Create separate clean detached worktree from current `origin/agent/cloudlink-310-runtime-session-corrections`; prove detached HEAD equals exact current remote SHA.
+- [ ] Recheck current master, PR state/Draft/base/head/remote HEAD/mergeability and inspect newer commits before verdict.
+- [ ] Independently repeat focused tests, full offline suite, both strict validations, Git checks, scope/security review, and architecture conformance without fixing findings.
+- [ ] Verify local/remote SHA equality again and clean validation worktree.
+- [ ] Because change uses `MODIFIED Requirements`, perform disposable archive-applicability check from exact validated remote HEAD and discard disposable output without publication.
+- [ ] Do not issue `READY FOR ARCHIVE` with any Critical/High/Medium finding, failed mandatory check, stale/dirty validation worktree, architecture divergence, or unproven archive applicability.
 
 ## 10. Archive and completion
 
-- [ ] Begin only after a permitting independent verdict on the current published feature HEAD.
-- [ ] Re-read current `RULES.md`, fetch remote state, and verify exact feature/master SHAs plus PR Draft/base/head/mergeability before archive.
+- [ ] Begin only after permitting independent verdict on current published feature HEAD.
+- [ ] Re-read `RULES.md`, fetch remote state, verify exact feature/master SHAs and PR state before archive.
 - [ ] Archive only through `.\openspec.cmd archive cloudlink-310-runtime-session-corrections --yes`.
-- [ ] Review the archive/root-spec diff, especially modified CloudLink meter, diagnostics/control, and request-lifecycle requirements.
-- [ ] Run `.\openspec.cmd validate --all --strict`, the full offline suite, `git diff --check`, and `git diff --cached --check` after archive.
-- [ ] Create and push a dedicated archive commit; verify current remote archive HEAD.
-- [ ] Issue `READY FOR MERGE` only after post-archive checks pass on the exact remote archive HEAD.
-- [ ] Do not merge, close the PR, or delete the branch without explicit user authorization.
+- [ ] Review archive/root-spec diff, especially modified CloudLink meter, diagnostics/control, and request-lifecycle requirements.
+- [ ] Run `.\openspec.cmd validate --all --strict`, full offline suite, `git diff --check`, and `git diff --cached --check` after archive.
+- [ ] Create/push dedicated archive commit; verify remote archive HEAD.
+- [ ] Issue `READY FOR MERGE` only after post-archive checks pass on exact remote archive HEAD.
+- [ ] Do not merge, close PR, or delete branch without explicit user authorization.

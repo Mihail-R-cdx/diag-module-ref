@@ -2,20 +2,20 @@
 
 ## Context
 
-Current `master` routes exact application models `CloudLink Bar 310` and `CloudLink Box 310` through the shared `CloudLinkBar310Handler` lifecycle while retaining distinct trusted product identities. Existing architecture correctly keeps credential selection/fallback in the application/composition layer, but its Bar read-session assumptions are stale.
+Current `master` routes exact application models `CloudLink Bar 310` and `CloudLink Box 310` through the shared `CloudLinkBar310Handler` lifecycle while retaining distinct trusted identities. Credential selection/fallback correctly remains application/composition-owned, but the Bar read-session assumptions and several status normalizers are stale.
 
-Read-only protocol research established the following Bar facts without persisting credentials, cookies, tokens, or raw responses:
+Read-only Bar research established this modern vendor session:
 
 ```text
 POST /v1/login/session
 POST /v1/login/account {account, password}
     -> data.acCSRFToken
 
-subsequent read requests
+reviewed modern requests
     -> X-Access-Token: <modern token>
 ```
 
-The same vendor-equivalent modern session successfully read:
+The same vendor-equivalent session successfully read:
 
 ```text
 GET /v1/mediacontrol/mic/current-volume
@@ -28,50 +28,48 @@ POST action.cgi?ActionID=WEB_GetSystemMacAddrAPI
 POST action.cgi?ActionID=WEB_GetMailboxDataAPI
 ```
 
-The tested read-only action.cgi shape used vendor browser headers including `X-Access-Token` and the same token in JSON field `acCSRFToken`. Static WebUI source did not perform the legacy `WEB_RequestSessionIDAPI` / `WEB_RequestCertificateAPI` handshake for that read context.
+Only those exact action.cgi reads are live-verified on the modern context. Existing audio, line/SIP, presentation, camera, and other read-only action.cgi operations were not verified there and therefore remain on the existing legacy compatibility path in this change.
 
-The project owner has confirmed that the corrected common read-only command/session behavior shall apply to the already supported Box 310 family member as well. This is a product/architecture decision built on the existing approved shared-protocol-family contract; it is not represented as separate live Box hardware evidence.
+The project owner explicitly confirmed that the corrected common read architecture shall apply to the already supported Box 310 family member. This is a product/architecture decision based on the already approved shared Bar/Box protocol-family contract; it is not represented as separate Box hardware evidence. The Box-specific live-meter protocol remains unchanged.
 
 ## Goals
 
-- Make the CloudLink 310 read path match the proven vendor session contract.
+- Match the proven CloudLink modern read-session contract without broadening unverified endpoint claims.
 - Preserve one application-selected credential and exact-model authority.
-- Preserve the existing legacy state-changing control path until mutation compatibility is separately proven.
-- Correct read-only runtime fields whose semantics are now established.
-- Remove contradicted microphone-selection assumptions rather than replace them with new guesses.
-- Keep Bar and Box exact identities distinct despite shared protocol implementation.
+- Preserve existing verified legacy compatibility/control behavior where modern compatibility is unproved.
+- Correct proved sleep/call/time/version presentation semantics.
+- Remove contradicted microphone-selection assumptions rather than replace them with guesses.
+- Make microphone-gain mutation fail closed until an authoritative target/readback contract exists.
 
 ## Non-goals
 
 - Automatic Bar/Box model detection.
-- Broad protocol modernization of state-changing commands.
-- Deriving camera state from `state.camera`.
-- Deriving physical microphone connection or user gain from the current `/mic/devices` list.
+- Broad protocol modernization of unverified read-only or state-changing endpoints.
+- Deriving camera activity/connection from `state.camera`.
+- Deriving physical microphone connection or gain from `/mic/devices`.
 - Changing Box live-meter payload semantics.
-- Introducing a handler-owned credential chain or a second credential source.
+- Handler-owned credential iteration.
 
 ## Decision 1: one handler generation owns two bounded internal subcontexts
 
-For exact `CloudLink Bar 310` or `CloudLink Box 310`, one application-selected credential creates one shared handler generation bound to immutable exact model, IP, credential-context identity, and operation/session generation.
-
-The handler may own two internal protocol subcontexts:
+For exact `CloudLink Bar 310` or `CloudLink Box 310`, one application-selected credential creates one handler generation bound to immutable exact model, IP, credential-context identity, and generation.
 
 ```text
 CloudLink handler generation
 ├─ modern read subcontext
-│  ├─ HTTP session/cookies
+│  ├─ modern HTTP session/cookies
 │  └─ in-memory modern access token
-└─ legacy control subcontext
-   └─ existing state-changing action.cgi session artifacts
+└─ legacy compatibility/control subcontext
+   └─ existing legacy session artifacts
 ```
 
-The modern read subcontext is authoritative for the reviewed read-only operations defined by this change. The legacy control subcontext remains authoritative for existing mutations. It may be established lazily when a mutation actually needs it.
+The modern subcontext is authoritative only for operations explicitly approved as modern by this change. The legacy compatibility/control subcontext remains authoritative for existing unverified read-only action.cgi operations and existing supported mutations, except CloudLink microphone-gain mutation which this change explicitly disables.
 
-Both subcontexts use the same credential already assigned by the application. Neither handler nor worker may iterate credentials, advance credential candidates, change the exact model, or persist successful credential/profile memory. Superseding model/IP/credential/generation invalidates both subcontexts as one handler generation.
+Both subcontexts use the same credential assigned by the application. Neither handler nor worker may iterate credentials, advance candidates, change model identity, or persist successful credential/profile memory. Superseding model/IP/credential/generation invalidates both subcontexts as one handler generation.
 
 ## Decision 2: modern read login and teardown are closed
 
-Modern read authentication SHALL use this sequence:
+Modern read authentication SHALL use:
 
 ```text
 POST /v1/login/session
@@ -79,23 +77,44 @@ POST /v1/login/account
 JSON fields: account, password
 ```
 
-A successful login must yield a usable `data.acCSRFToken`. The token is session material, not a credential source, and remains only in memory. Reviewed modern reads send it as `X-Access-Token`. Reviewed read-only action.cgi calls also send it in body field `acCSRFToken` when that request family requires the proven shape.
+A successful login must yield usable `data.acCSRFToken`. The token is session material, not a credential source, remains in memory only, and is transmitted as `X-Access-Token` for reviewed modern reads. Live-verified read-only action.cgi calls additionally use the same token in JSON field `acCSRFToken` according to the proved request shape.
 
-Modern teardown uses the vendor `DELETE /v1/login/session` for the owned modern context when feasible, followed by local HTTP-session closure. Teardown is best-effort and idempotent; failure to log out must not leak the token or block local cleanup.
-
-No token, cookie, Authorization header, credential, login payload, or raw response body may be written to logs, dialogs, public errors, tests, OpenSpec artifacts, or validation evidence.
+Modern teardown uses vendor `DELETE /v1/login/session` best-effort, followed by local session closure. Teardown is idempotent/fail-closed for secrets: no token, cookie, credential, login payload, Authorization header, or raw auth body may be logged, persisted, or surfaced publicly.
 
 ## Decision 3: failure classification remains conservative
 
-HTTP 401/403 during new modern login is authentication failure only when the login boundary can classify it as such. HTTP 401/403 after the session is established is `SessionInvalidError` and enters the existing bounded same-credential recovery policy.
+HTTP 401/403 during a confirmed new-login boundary may classify as `AuthenticationError`. HTTP 401/403 after a modern session is established is `SessionInvalidError` and enters existing bounded same-credential recovery.
 
-Live research did not establish a unique structured discriminator that maps HTTP 200 plus `success: 0` to expired authentication. Therefore generic `success: 0`, arbitrary `exception`/`message` text, and strings containing `auth`, `401`, or `403` SHALL NOT authorize credential fallback or session-invalid classification. Such outcomes remain endpoint command/protocol failures unless a later approved structured vendor discriminator is added.
+Research found no vendor-verified discriminator proving that HTTP 200 plus generic `success: 0` means expired authentication. Therefore generic `success: 0`, arbitrary exception/message/code text, and strings containing `auth`, `401`, or `403` SHALL NOT authorize credential fallback or session-invalid classification.
 
-This preserves the existing rule that credential advancement is application-owned and occurs only after a structured new-login authentication failure.
+## Decision 4: the modern reviewed read set is exact
 
-## Decision 4: common reviewed read set applies to Bar and Box
+The modern read subcontext is normative for the following proved operations:
 
-After exact model assignment, both CloudLink 310 family members may use the modern read context for the reviewed common reads supported by the shared lifecycle, including version, MAC, mailbox state, call history, system time, and general status fields described by this change.
+```text
+POST action.cgi?ActionID=WEB_GetVersionInfoAPI
+POST action.cgi?ActionID=WEB_GetSystemMacAddrAPI
+POST action.cgi?ActionID=WEB_GetMailboxDataAPI
+GET /v1/login/status
+GET /v1/meeting/calls/history
+GET /v1/om/config/systemtime
+GET /v1/mediacontrol/mic/current-volume   # Bar meter only
+GET /v1/mediacontrol/mic/devices          # research/internal only; no product gain/connection semantics
+```
+
+The following existing read-only action.cgi operations are NOT newly authorized on the modern context by this change and remain on the legacy compatibility subcontext unless separately proved later:
+
+```text
+WEB_InitAudioCtrlParamsAPI
+WEB_GetLineStateInfoAPI
+WEB_IsSendAuxStreamAPI
+WEB_GetCurCtrlCamSrcAPI
+other unverified read-only action.cgi operations
+```
+
+This distinction prevents implementation from moving a working legacy read merely because another action.cgi endpoint succeeded under modern authentication.
+
+## Decision 5: Bar/Box identity remains exact
 
 Protocol sharing does not alias identities:
 
@@ -104,37 +123,33 @@ CloudLink Bar 310 -> Huawei CloudLink Bar 310
 CloudLink Box 310 -> Huawei CloudLink Box 310
 ```
 
-Bar failure never retries as Box and Box failure never retries as Bar. Credential index/profile memory stays scoped to exact model + IP.
+Bar failure never retries as Box and Box failure never retries as Bar. Credential/profile success memory remains exact-model + IP scoped. When inventory cannot resolve an exact model, the existing purpose-bound manual fallback remains authoritative; no network model probe is added.
 
-If inventory cannot resolve an exact supported model, the existing purpose-bound fallback dialog remains required. This change performs no network model probing and creates no automatic Bar/Box detector.
+## Decision 6: meter remains model-specific
 
-## Decision 5: meter remains model-specific
-
-Bar meter source remains exactly:
+Bar meter remains exactly:
 
 ```text
 GET /v1/mediacontrol/mic/current-volume
 ```
 
-but now runs through the modern read context and therefore transmits the modern `X-Access-Token`. The already implemented normalization remains authoritative: `data.curMicVouumeList` must be a list, every Mapping entry is eligible regardless of `deviceId`, the maximum non-negative numeric `curVolume` is the raw observation, and raw zero is available silence.
+It now runs through the modern read context. Existing normalization remains authoritative: `data.curMicVouumeList` must be a list; every Mapping entry is eligible regardless of `deviceId`; maximum non-negative numeric `curVolume` is raw level; zero is available silence.
 
-Box meter source remains exactly:
+Box meter remains exactly:
 
 ```text
 POST action.cgi?ActionID=WEB_GetCurrentAudioParam
 ```
 
-with the already approved closed Box microphone field set. This change does not redirect Box metering to the Bar `/v1` endpoint and does not broaden Box field discovery.
+with the already approved closed Box field set. This change does not redirect Box metering to the Bar endpoint.
 
-## Decision 6: modern state owns only proved sleep and call semantics
+## Decision 7: modern state owns only proved sleep and call semantics
 
-The reviewed general state source is:
+Reviewed general state source:
 
 ```text
 GET /v1/login/status
 ```
-
-A cache-busting `rmd` query parameter may be used as transport anti-cache detail but has no product semantics.
 
 Approved mappings:
 
@@ -148,54 +163,81 @@ state.callState == 2 -> call_status = Connected
 state.callState == 3 -> call_status = Disconnected
 ```
 
-Missing, non-integral, or unsupported values are unavailable/endpoint-local protocol outcomes; they are not guessed.
+Missing/non-integral/unsupported values are unavailable/endpoint-local protocol outcomes. The modern key is case-sensitive `callState`; it SHALL NOT use the legacy lowercase `callstate` mapper whose 2/3 meanings differ.
 
-The modern key is case-sensitive `callState`. It SHALL NOT be passed through the legacy lowercase `callstate` mapper whose 2/3 enum meaning differs.
+`state.camera`, `state.mic`, `state.speaker`, `state.sip`, `shareState`, and `viSourceState` receive no new product authority here.
 
-Other observed state members such as `camera`, `mic`, `speaker`, `sip`, `shareState`, and `viSourceState` receive no new product authority from this change. In particular, `state.camera` is not camera connection/state evidence and `state.mic` is not physical microphone connection evidence.
+## Decision 8: peripheral version normalization is deterministic
 
-## Decision 7: version/type presentation uses structured evidence
+`cameraVersion` and `micVersion` are normalized independently from a successful version response.
 
-The version response may expose `cameraVersion` and `micVersion` as structured vendor values.
-
-The normalization boundary distinguishes three states for each peripheral:
-
-1. usable version evidence -> publish the usable version text;
-2. structurally successful but empty peripheral-version evidence -> publish an explicit built-in marker;
-3. absent/malformed/unavailable version evidence -> publish no authoritative value.
-
-GUI presentation is exact:
+For each field:
 
 ```text
-camera built-in -> Встроенная камера
-microphone built-in -> Встроенный микрофон
-usable version -> real normalized version text
-unavailable -> existing unavailable presentation
+field absent
+    -> unavailable
+field present but not a list
+    -> malformed/unavailable
+[]
+    -> built-in peripheral
+non-empty list
+    -> every element MUST be a Mapping
+    -> every element MUST contain exact field "version"
+    -> each version MUST be a string whose strip() is non-empty
+    -> field "name" and all other members are ignored for presentation authority
+    -> if any element violates the shape, the whole peripheral-version observation is malformed/unavailable
+    -> otherwise strip versions, remove duplicate texts while preserving first source occurrence,
+       then join remaining version texts with exact separator "; "
 ```
 
-Vendor WebUI display text `--` is not parsed or used as machine authority. Empty structured evidence is the machine boundary. Built-in version/type presentation does not assert mute, physical connection, camera activity, microphone gain, or live signal level.
+Thus a non-empty valid list always yields deterministic real version text; an empty list alone yields the built-in semantic. Partial acceptance of a malformed non-empty list is forbidden.
 
-## Decision 8: first-HD-AI is removed from product authority
+GUI presentation:
 
-Live `/v1/mediacontrol/mic/devices` evidence contained multiple HD-AI groups where an earlier group was unplugged and a later group was plugged. Therefore list order and `first HD-AI` are disproven authority.
+```text
+cameraVersion == [] -> Встроенная камера
+micVersion == []    -> Встроенный микрофон
+valid non-empty list -> normalized joined version text
+unavailable/malformed -> existing unavailable presentation
+```
 
-This change SHALL stop publishing `mic_connection_status` or `mic_volume` from the current first-HD-AI algorithm. It SHALL NOT replace that rule with `first plugged`, `MIC1`, `state.mic`, or a `gainVolume` guess. `/mic/devices` may remain a future research source, but its role/aggregation/gain semantics require a later approved contract before becoming user-visible authority.
+Vendor WebUI `--` is presentation only and is never parsed as protocol input. Version/type evidence does not imply camera activity, microphone connection, mute, gain, or signal level.
 
-The live signal meter remains a separate semantic and is unaffected by this removal.
+## Decision 9: first-HD-AI and gainVolume are removed from product authority
 
-## Decision 9: codec-local reference time is used when available
+Live `/v1/mediacontrol/mic/devices` evidence contained multiple HD-AI groups where an earlier group was unplugged and a later group was plugged. Therefore list order/first-HD-AI is disproven authority.
 
-For CloudLink call history, the modern read context obtains:
+This change stops publishing `mic_connection_status` and diagnostic `mic_volume` from first-HD-AI, first-plugged, `MIC1`, `state.mic`, `plugStatus`, `gainVolume`, or fixed device IDs. `/mic/devices` may remain an internal/research source only until a later approved semantic contract exists.
+
+The live microphone signal meter is separate and remains supported.
+
+## Decision 10: CloudLink microphone-gain mutation is disabled
+
+Current shared-handler gain control performs state-changing `PUT` then fallback `POST` to `/v1/mediacontrol/mic/devices`, chooses target devices from unproved HD-AI semantics (including a fixed `4/5/6` fallback), and reconciles through first-HD-AI `gainVolume`. Those assumptions are incompatible with the corrected evidence boundary.
+
+For exact Bar 310 and Box 310 in this change:
+
+- user/operator microphone-gain mutation is unavailable/disabled;
+- application/controller SHALL reject or disable the operation before device network I/O;
+- implementation SHALL NOT send `PUT` or `POST /v1/mediacontrol/mic/devices` for gain;
+- implementation SHALL NOT use fixed device IDs, first-HD-AI, first-plugged, or `gainVolume` as mutation target/reconciliation authority;
+- no blind replay or alternate-method replay is permitted after an ambiguous result.
+
+Re-enabling CloudLink gain requires a later approved change with authoritative target selection, request method, success semantics, and safe readback/reconciliation.
+
+Other already-supported mutations such as Wake, presentation, mute, speaker volume, and SIP configuration remain on their existing legacy compatibility/control path and retain existing mutation-safety rules.
+
+## Decision 11: codec-local reference time is used when available
+
+CloudLink call history obtains:
 
 ```text
 GET /v1/om/config/systemtime
 ```
 
-A successful response with valid integer calendar components produces a naive codec-local `datetime` coherent with the CloudLink call-history timestamps and is passed as `reference_now` with `reference_time_source = device`.
+Valid integer calendar components produce a naive codec-local `datetime` coherent with CloudLink call-history timestamps and are passed as device `reference_now`. If unavailable/malformed after allowed bounded recovery, the existing computer-local fallback and explicit warning remain. No timezone offset is invented.
 
-The existing call-log specification remains authoritative: if device time is unavailable/malformed after allowed bounded recovery, computer-local time is used with the existing explicit non-modal fallback warning. No timezone offset is invented because the observed endpoint did not provide one.
-
-## Decision 10: GUI is a rendering boundary
+## Decision 12: GUI is rendering-only
 
 For exact Bar/Box contexts, the codec page adds visible rows:
 
@@ -205,26 +247,29 @@ For exact Bar/Box contexts, the codec page adds visible rows:
 Версия микрофона
 ```
 
-The screen renders normalized canonical values only. It does not perform login, parse vendor protocol containers, inspect `--`, choose credentials, infer model, or run blocking network I/O. Existing stale-context/generation checks apply to all new values and live-meter callbacks.
+The screen renders normalized canonical values only. It does not establish sessions, parse vendor containers, inspect `--`, choose credentials, infer model, or run blocking device I/O. Existing generation/currentness checks apply to all new values and live-meter callbacks.
 
-Camera connection/status remains unavailable unless some independently approved canonical `camera_status` exists. This change does not manufacture one from version presence or `state.camera`.
+CloudLink microphone-gain controls are disabled/unavailable under this change; the GUI must not offer an enabled control that can issue the prohibited gain mutation.
+
+Camera connection/status remains unavailable unless an independently approved canonical `camera_status` source succeeds; `state.camera` is not a substitute.
 
 ## Testing strategy
 
 Implementation must add regression coverage for:
 
-- modern login sequence, token extraction/header/body placement, logout, redaction, and cleanup;
-- Bar/Box exact identity and credential-memory isolation;
-- bounded session invalidation and no fallback from generic `success: 0`;
-- modern read-only action.cgi compatibility while legacy mutations remain on the legacy path;
-- Bar meter modern auth with unchanged normalization and Box meter source preservation;
-- `isSleep` and modern `callState` mappings, including unsupported/missing values;
-- removal of first-HD-AI product authority;
-- codec-local time success and explicit system fallback;
-- structured built-in/version/unavailable camera/microphone presentation;
-- GUI row visibility, rebuild/currentness, and no stale callback updates;
-- no automatic Bar/Box detection introduced.
+- modern login/token/header/body/logout/redaction/cleanup;
+- exact modern-read allowlist and legacy compatibility routing for unverified audio/line/presentation/camera reads;
+- Bar/Box identity and credential-memory isolation;
+- 401/403 bounded recovery and no auth inference from generic `success: 0`;
+- Bar meter modern auth and unchanged normalization; Box meter preservation;
+- modern `isSleep` and `callState` mappings;
+- deterministic peripheral version-list normalization, including duplicates and malformed partial lists;
+- removal of first-HD-AI/product gain/connection authority;
+- disabled CloudLink microphone-gain mutation with proof of zero device I/O;
+- codec-local time and explicit fallback;
+- GUI rows/currentness/no stale callback updates;
+- no automatic Bar/Box detection.
 
 ## Archive applicability
 
-This change uses `MODIFIED Requirements` against existing root capabilities. Independent validation therefore must perform the repository-required disposable archive-applicability check from the exact validated remote feature HEAD before `READY FOR ARCHIVE`.
+This change uses `MODIFIED Requirements`. Independent validation must perform the repository-required disposable archive-applicability check on the exact validated remote feature HEAD before `READY FOR ARCHIVE`.
