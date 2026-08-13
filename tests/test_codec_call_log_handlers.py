@@ -2,7 +2,7 @@ from datetime import datetime
 import unittest
 
 from core.codec_call_history import (
-    CallRecord, TerminationReason, snapshot_from_display_records,
+    CallRecord, TerminationReason, calculate_usage, snapshot_from_display_records,
     snapshot_from_records,
 )
 from core.exceptions import ProtocolError
@@ -14,6 +14,35 @@ from handlers.polycom.rpg310 import PolycomRPG310Handler
 
 
 class CodecCallLogHandlerTests(unittest.TestCase):
+    def test_polycom_fixed_sixteen_record_response_is_preserved_but_source_limited(self):
+        handler = object.__new__(PolycomRPG310Handler)
+        handler.base_url = "https://synthetic-polycom"
+        handler._ensure_connected = lambda: None
+        entries = [
+            {
+                "address": f"room-{index}",
+                "startTime": 1781082000 + index,
+                "duration": 60,
+            }
+            for index in range(16)
+        ]
+        requested_paths = []
+
+        def request_json(path, **_kwargs):
+            requested_paths.append(path)
+            return entries
+
+        handler._request_json = request_json
+        records = handler.get_call_records()
+        snapshot = handler.get_call_history_snapshot()
+
+        self.assertEqual(16, len(records))
+        self.assertTrue(all("limit=10" in path for path in requested_paths))
+        self.assertEqual(16, len(snapshot.records))
+        self.assertEqual("room-15", snapshot.records[0].room_number)
+        self.assertEqual(TerminationReason.SOURCE_HISTORY_LIMITED, snapshot.termination_reason)
+        self.assertEqual((), calculate_usage(snapshot))
+
     def test_all_supported_parsers_preserve_more_than_ten_source_records(self):
         te_calls = [
             {

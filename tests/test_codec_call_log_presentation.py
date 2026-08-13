@@ -50,6 +50,29 @@ class CallLogPresentationTests(unittest.TestCase):
         self.assertEqual(3, dialog.table.rowCount())
         dialog.close()
 
+    def test_polycom_like_sixteen_record_source_limited_batch_shows_every_record(self):
+        now = datetime(2026, 6, 10, 12)
+        snapshot = snapshot_from_records(
+            [
+                CallRecord(
+                    f"polycom-{index}", now - timedelta(minutes=index), 60,
+                    room_number=f"room-{index}",
+                )
+                for index in reversed(range(16))
+            ],
+            reference_now=now,
+        )
+        dialog = CallLogWindow()
+        dialog.set_snapshot(snapshot)
+
+        self.assertEqual(2, dialog.preview_table.rowCount())
+        self.assertEqual("room-0", dialog.preview_table.item(0, 0).text())
+        self.assertEqual("room-1", dialog.preview_table.item(1, 0).text())
+        self.assertEqual(16, dialog.table.rowCount())
+        self.assertEqual("room-0", dialog.table.item(0, 0).text())
+        self.assertEqual("room-1", dialog.table.item(1, 0).text())
+        dialog.close()
+
     def test_out_of_order_source_records_render_true_newest_preview(self):
         now = datetime(2026, 6, 10, 12)
         dialog = CallLogWindow()

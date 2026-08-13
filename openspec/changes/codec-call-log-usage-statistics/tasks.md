@@ -60,7 +60,8 @@ git diff --check
 ## 4. Implement bounded Polycom call-history retrieval while preserving its dedicated worker
 
 - [x] Keep Polycom RPG310 call-log acquisition owned by the existing short-lived Polycom call-log worker/session path; do not route it through the Huawei/shared interactive controller.
-- [ ] Establish a documented or live-observed Polycom history mechanism that can obtain the approved latest 20 records without inventing continuation parameters; until then a non-empty fixed response without clean EoJ remains `source_history_limited`.
+- [x] Read-only live observation confirmed that the current Polycom fixed response returns all 16 records present on that device for `limit` 10, 20, and 25; the parser preserves every returned record and a non-empty result remains `source_history_limited` without protocol EoJ.
+- [ ] Establish a documented or live-observed Polycom continuation mechanism capable of retrieving 20+ records when a device has more than 16; the observed `start`/`page` variants made no progress, so no undocumented parameter is used.
 - [x] Normalize the returned batch newest-first and apply the same exact 100-accepted-record ceiling as the Huawei paths without claiming source-global recency.
 - [x] Preserve typed HTTPS authentication/session/transport errors and existing application-owned credential policy.
 - [x] Obtain/normalize Polycom codec-local current time when reliable; otherwise use the same explicit computer-time fallback warning.
@@ -85,14 +86,14 @@ git diff --check
 
 - [x] Replace the current ten-row-only presentation with two always-visible newest call rows using `Номер комнаты`, `Дата и время начала`, `Продолжительность`, `Скорость`.
 - [x] Add usage summary row(s) below the preview using existing GUI visual language; period/day count, hours, percentage, and warnings must remain clear.
-- [ ] Add an initially collapsed section labelled exactly `Журнал звонков` showing up to the latest 20 records total, including the same two preview records, for every supported model; current Polycom fixed-depth acquisition is not yet proven capable of this.
+- [x] Add an initially collapsed section labelled exactly `Журнал звонков` showing up to the latest 20 acquired records total, including the same two preview records; if fewer than 20 records are available, show all without padding, including the live-confirmed 16-record Polycom batch.
 - [x] If fewer than 20 records exist, show every available record with no artificial empty rows.
 - [x] Keep active calls in chronological preview/list position and visibly mark them `Активный`.
 - [x] Show `Загрузка журнала звонков...` during initial acquisition; show `Расчёт статистики использования...` only while real deeper work continues, never as an artificial fixed-batch stage.
 - [x] Show non-modal warnings for system-time fallback, hard cap 100, malformed durations, source-history limitation, and incomplete deeper retrieval.
 - [x] Use already loaded records when expanding/collapsing; do not perform a device query on disclosure toggles.
 - [x] Preserve fresh acquisition for every later explicit dialog open; do not introduce a cross-open history cache.
-- [ ] Keep all five supported models visually identical and keep GUI code free of vendor protocol parsing, credential selection, or blocking network I/O; Polycom latest-20 acquisition remains unresolved.
+- [x] Keep all five supported models visually identical and keep GUI code free of vendor protocol parsing, credential selection, or blocking network I/O; source-limited Polycom batches use the same presentation without false completeness.
 
 ## 7. Add deterministic regression coverage
 
@@ -111,7 +112,7 @@ git diff --check
 - [x] Cover typed deep failure after proven 30-day normal coverage preserving that row while an unproven longer target becomes incomplete/unavailable.
 - [x] Cover codec-time authority and computer-time fallback warning without mixing calendar bases.
 - [x] Cover page-boundary duplicate suppression while preserving distinct similar/overlapping records.
-- [ ] Cover latest-two preview, collapsed latest-20 total, fewer-than-20, active label, loading transitions, warnings, no disclosure refetch, and fresh later open for all five production acquisition paths; Polycom latest-20 depth is not yet established.
+- [x] Cover latest-two preview, collapsed latest-20 total, fewer-than-20, active label, loading transitions, warnings, no disclosure refetch, and fresh later open, including a 16-record Polycom-like source-limited batch.
 - [x] Cover Huawei shared-session ownership/recovery and Polycom dedicated-worker ownership.
 - [x] Use synthetic histories/fake handlers for 100+/old/active/malformed/no-progress/error cases; automated regression tests must not require physical devices or network access.
 
