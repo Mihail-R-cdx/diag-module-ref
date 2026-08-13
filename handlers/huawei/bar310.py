@@ -10,6 +10,7 @@ import time
 import urllib3
 from datetime import datetime
 from collections.abc import Mapping
+from core.codec_call_history import snapshot_from_display_records
 from numbers import Real
 from typing import Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
@@ -441,7 +442,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             return []
 
         records = []
-        for item in data.get("callRecordList", [])[:10]:
+        for item in data.get("callRecordList", []):
             if not isinstance(item, dict):
                 continue
             start_time = item.get("startTime", "")
@@ -451,6 +452,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 "start_time": self._format_call_start_time(start_time),
                 "duration": self._format_call_duration(start_time, end_time),
                 "speed": self._format_call_rate(item.get("rate")),
+                "_raw_start": start_time,
+                "_raw_end": end_time,
+                "source_identity": item.get("id") or item.get("recordId"),
+                "_active": bool(item.get("active") or item.get("isActive")),
             })
         return records
 
@@ -497,6 +502,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             )
 
         return self._parse_call_records(result.get("data", {}))
+
+    def get_call_history_snapshot(self):
+        """Return typed history; CloudLink history has no documented cursor."""
+        return snapshot_from_display_records(self.get_call_records())
 
 
     @staticmethod

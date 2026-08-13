@@ -21,8 +21,13 @@ class PolycomCallLogWorker(QRunnable):
         try:
             handler = self.handler_class(**self.handler_kwargs)
             handler.connect()
-            records = handler.get_call_records()
-            self.signals.result.emit({"records": list(records or [])})
+            get_snapshot = getattr(handler, "get_call_history_snapshot", None)
+            if callable(get_snapshot):
+                snapshot = get_snapshot()
+            else:
+                from core.codec_call_history import snapshot_from_display_records
+                snapshot = snapshot_from_display_records(handler.get_call_records())
+            self.signals.result.emit({"snapshot": snapshot, "records": list(snapshot.records)})
         except Exception as error:
             secrets = (
                 self.handler_kwargs.get("username"),

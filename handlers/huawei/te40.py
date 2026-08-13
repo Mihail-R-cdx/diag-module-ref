@@ -11,6 +11,7 @@ import time
 import traceback
 from datetime import datetime
 from typing import Dict, Any, Optional
+from core.codec_call_history import snapshot_from_display_records
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import (
     AuthenticationError,
@@ -610,7 +611,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             return []
 
         records = []
-        for item in data.get("CallList", [])[:10]:
+        for item in data.get("CallList", []):
             if not isinstance(item, dict):
                 continue
             start_time = item.get("StartTime", "")
@@ -620,6 +621,10 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 "start_time": self._format_call_start_time(start_time),
                 "duration": self._format_call_duration(start_time, stop_time),
                 "speed": self._format_call_rate(item.get("uwCallRate")),
+                "_raw_start": start_time,
+                "_raw_end": stop_time,
+                "source_identity": item.get("id") or item.get("recordId"),
+                "_active": bool(item.get("active") or item.get("isActive")),
             })
         return records
 
@@ -632,6 +637,10 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         if not result or result.get("success") != 1:
             raise ConnectionError(f"Кодек не вернул журнал звонков: {result.get('exception', result) if isinstance(result, dict) else result}")
         return self._parse_p2p_call_records(result.get("data", {}))
+
+    def get_call_history_snapshot(self):
+        """Return typed history; this endpoint exposes no documented paging."""
+        return snapshot_from_display_records(self.get_call_records())
 
     def get_status(self) -> Dict[str, Any]:
         """Получение полного статуса устройства"""

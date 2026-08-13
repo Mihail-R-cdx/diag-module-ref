@@ -35,96 +35,96 @@ git diff --check
 
 ## 2. Introduce normalized call-history and usage-calculation boundaries
 
-- [ ] Add a focused machine-readable normalized call-history snapshot/model shared by the five supported presentation paths; do not parse GUI-formatted date/duration strings for arithmetic.
-- [ ] Preserve room/call number, start time, duration, speed, active state, and optional stable source identity needed for display/retrieval semantics.
-- [ ] Represent acquisition termination explicitly as normal coverage proven, clean source end, product limit reached, source history limited, or operational failure.
-- [ ] Keep normalized call timestamps and `reference_now` on one coherent codec-local calendar basis; when reliable codec time is unavailable, use computer-local time with a structured fallback warning.
-- [ ] Preserve literal call-log records: no result/outcome/direction filtering and no interval union across legitimate overlapping calls.
-- [ ] Suppress only transport/page duplicates proven to be the same source record; do not semantic-deduplicate distinct calls.
-- [ ] Count active and malformed-duration visible records toward the 100-record ceiling while excluding active calls and unparseable durations from usage totals.
-- [ ] Implement pure helpers for normal 30/90 calendar windows, exact interval overlap, capped available-history intervals, touched-weekday `* 8h` denominator, one-decimal hours, whole percentages, and values above 100% without clamping.
-- [ ] Make the current weekday and a partial first weekday in a capped interval contribute a full eight denominator hours; ignore holidays/shifted workdays.
-- [ ] Guard a zero-weekday denominator without dividing by zero.
+- [x] Add a focused machine-readable normalized call-history snapshot/model shared by the five supported presentation paths; do not parse GUI-formatted date/duration strings for arithmetic.
+- [x] Preserve room/call number, start time, duration, speed, active state, and optional stable source identity needed for display/retrieval semantics.
+- [x] Represent acquisition termination explicitly as normal coverage proven, clean source end, product limit reached, source history limited, or operational failure.
+- [x] Keep normalized call timestamps and `reference_now` on one coherent codec-local calendar basis; when reliable codec time is unavailable, use computer-local time with a structured fallback warning.
+- [x] Preserve literal call-log records: no result/outcome/direction filtering and no interval union across legitimate overlapping calls.
+- [x] Suppress only transport/page duplicates proven to be the same source record; do not semantic-deduplicate distinct calls.
+- [x] Count active and malformed-duration visible records toward the 100-record ceiling while excluding active calls and unparseable durations from usage totals.
+- [x] Implement pure helpers for normal 30/90 calendar windows, exact interval overlap, capped available-history intervals, touched-weekday `* 8h` denominator, one-decimal hours, whole percentages, and values above 100% without clamping.
+- [x] Make the current weekday and a partial first weekday in a capped interval contribute a full eight denominator hours; ignore holidays/shifted workdays.
+- [x] Guard a zero-weekday denominator without dividing by zero.
 
 ## 3. Implement bounded Huawei call-history retrieval without changing lifecycle authority
 
-- [ ] Preserve Huawei TE20, TE40, CloudLink Bar 310, and CloudLink Box 310 call-history work on the existing shared interactive-session/controller path.
+- [x] Preserve Huawei TE20, TE40, CloudLink Bar 310, and CloudLink Box 310 call-history work on the existing shared interactive-session/controller path.
 - [ ] Extend each model-specific handler/protocol boundary only as required by the researched read-only history mechanism; do not invent undocumented pagination parameters.
-- [ ] Retrieve newest-first and stop on interval-safe normal 90-day coverage, clean EoJ, exactly 100 accepted records, structured `source_history_limited`, or typed operational failure.
-- [ ] Never accept a 101st call-log record solely to improve statistics.
-- [ ] Keep existing bounded invalid-session recovery with no handler-owned credential fallback and no unbounded retry loop.
+- [x] Retrieve newest-first and stop on interval-safe normal 90-day coverage, clean EoJ, exactly 100 accepted records, structured `source_history_limited`, or typed operational failure.
+- [x] Never accept a 101st call-log record solely to improve statistics.
+- [x] Keep existing bounded invalid-session recovery with no handler-owned credential fallback and no unbounded retry loop.
 - [ ] Obtain codec-local current time through the researched read-only mechanism when reliable; otherwise publish the structured system-time fallback warning.
-- [ ] Preserve exact `CloudLink Box 310` identity while reusing shared CloudLink handler semantics where already approved.
-- [ ] Keep all history/device-time I/O and cleanup outside the Qt GUI thread.
+- [x] Preserve exact `CloudLink Box 310` identity while reusing shared CloudLink handler semantics where already approved.
+- [x] Keep all history/device-time I/O and cleanup outside the Qt GUI thread.
 
 ## 4. Implement bounded Polycom call-history retrieval while preserving its dedicated worker
 
-- [ ] Keep Polycom RPG310 call-log acquisition owned by the existing short-lived Polycom call-log worker/session path; do not route it through the Huawei/shared interactive controller.
+- [x] Keep Polycom RPG310 call-log acquisition owned by the existing short-lived Polycom call-log worker/session path; do not route it through the Huawei/shared interactive controller.
 - [ ] Replace the current fixed presentation-depth request only as required by researched Polycom history mechanics.
-- [ ] Apply the same newest-first stop conditions and exact 100-accepted-record ceiling as the Huawei paths.
-- [ ] Preserve typed HTTPS authentication/session/transport errors and existing application-owned credential policy.
-- [ ] Obtain/normalize Polycom codec-local current time when reliable; otherwise use the same explicit computer-time fallback warning.
-- [ ] Keep Polycom connection, history reads, device-time reads, and logout/cleanup off the Qt GUI thread.
+- [x] Apply the same newest-first stop conditions and exact 100-accepted-record ceiling as the Huawei paths.
+- [x] Preserve typed HTTPS authentication/session/transport errors and existing application-owned credential policy.
+- [x] Obtain/normalize Polycom codec-local current time when reliable; otherwise use the same explicit computer-time fallback warning.
+- [x] Keep Polycom connection, history reads, device-time reads, and logout/cleanup off the Qt GUI thread.
 
 ## 5. Implement explicit completeness and degradation semantics
 
-- [ ] Treat clean EoJ as complete history for this feature: older parts of normal 30/90 windows contribute zero and do not trigger retention warnings.
-- [ ] Treat successful empty history with clean EoJ as valid complete data and produce normal 30-day and 90-day zero-usage rows.
-- [ ] For normal full 30/90 claims before clean EoJ, require interval-safe coverage proof; never infer completeness solely from an old `start_at`.
-- [ ] At exactly 100 accepted records, stop immediately and define capped available history as `[oldest_of_100.start_at, reference_now]` without requiring an additional interval-safe proof for that capped lower bound.
-- [ ] Calculate hard-cap values from the accepted records only and display a clear warning that history was limited to 100 records.
-- [ ] If the hard-cap available interval reaches at least 30 but fewer than 90 calendar dates, show `30 days` plus the actual capped-day row (e.g. `47 days`).
-- [ ] If the hard-cap available interval reaches fewer than 30 calendar dates, show exactly one capped actual-day row (e.g. `18 days`).
-- [ ] If the hard-cap available interval reaches at least 90 days, show `30 days` and `90 days` rows from the capped dataset with the 100-record warning.
-- [ ] Recalculate numerator and touched-weekday `* 8h` denominator for every capped actual interval; a partial first weekday contributes full eight hours.
-- [ ] Do not silently apply the hard-cap convention to `source_history_limited` before 100 records. Preserve already proven normal targets; mark unproven targets incomplete/unavailable with a warning.
-- [ ] Keep malformed-duration records visible, exclude them from totals, and attach a partial-calculation warning.
+- [x] Treat clean EoJ as complete history for this feature: older parts of normal 30/90 windows contribute zero and do not trigger retention warnings.
+- [x] Treat successful empty history with clean EoJ as valid complete data and produce normal 30-day and 90-day zero-usage rows.
+- [x] For normal full 30/90 claims before clean EoJ, require interval-safe coverage proof; never infer completeness solely from an old `start_at`.
+- [x] At exactly 100 accepted records, stop immediately and define capped available history as `[oldest_of_100.start_at, reference_now]` without requiring an additional interval-safe proof for that capped lower bound.
+- [x] Calculate hard-cap values from the accepted records only and display a clear warning that history was limited to 100 records.
+- [x] If the hard-cap available interval reaches at least 30 but fewer than 90 calendar dates, show `30 days` plus the actual capped-day row (e.g. `47 days`).
+- [x] If the hard-cap available interval reaches fewer than 30 calendar dates, show exactly one capped actual-day row (e.g. `18 days`).
+- [x] If the hard-cap available interval reaches at least 90 days, show `30 days` and `90 days` rows from the capped dataset with the 100-record warning.
+- [x] Recalculate numerator and touched-weekday `* 8h` denominator for every capped actual interval; a partial first weekday contributes full eight hours.
+- [x] Do not silently apply the hard-cap convention to `source_history_limited` before 100 records. Preserve already proven normal targets; mark unproven targets incomplete/unavailable with a warning.
+- [x] Keep malformed-duration records visible, exclude them from totals, and attach a partial-calculation warning.
 - [ ] If typed deep retrieval fails, preserve already accepted recent records and every normal target whose coverage had already been proven; mark only unproven targets incomplete/unavailable.
 
 ## 6. Redesign the call-log dialog without changing visible record fields
 
-- [ ] Replace the current ten-row-only presentation with two always-visible newest call rows using `Номер комнаты`, `Дата и время начала`, `Продолжительность`, `Скорость`.
-- [ ] Add usage summary row(s) below the preview using existing GUI visual language; period/day count, hours, percentage, and warnings must remain clear.
-- [ ] Add an initially collapsed section labelled exactly `Журнал звонков` showing up to the latest 20 records total, including the same two preview records.
-- [ ] If fewer than 20 records exist, show every available record with no artificial empty rows.
-- [ ] Keep active calls in chronological preview/list position and visibly mark them `Активный`.
-- [ ] Show `Загрузка журнала звонков...` during initial acquisition and `Расчёт статистики использования...` while deeper work continues.
-- [ ] Show non-modal warnings for system-time fallback, hard cap 100, malformed durations, source-history limitation, and incomplete deeper retrieval.
-- [ ] Use already loaded records when expanding/collapsing; do not perform a device query on disclosure toggles.
-- [ ] Preserve fresh acquisition for every later explicit dialog open; do not introduce a cross-open history cache.
-- [ ] Keep all five supported models visually identical and keep GUI code free of vendor protocol parsing, credential selection, or blocking network I/O.
+- [x] Replace the current ten-row-only presentation with two always-visible newest call rows using `Номер комнаты`, `Дата и время начала`, `Продолжительность`, `Скорость`.
+- [x] Add usage summary row(s) below the preview using existing GUI visual language; period/day count, hours, percentage, and warnings must remain clear.
+- [x] Add an initially collapsed section labelled exactly `Журнал звонков` showing up to the latest 20 records total, including the same two preview records.
+- [x] If fewer than 20 records exist, show every available record with no artificial empty rows.
+- [x] Keep active calls in chronological preview/list position and visibly mark them `Активный`.
+- [x] Show `Загрузка журнала звонков...` during initial acquisition and `Расчёт статистики использования...` while deeper work continues.
+- [x] Show non-modal warnings for system-time fallback, hard cap 100, malformed durations, source-history limitation, and incomplete deeper retrieval.
+- [x] Use already loaded records when expanding/collapsing; do not perform a device query on disclosure toggles.
+- [x] Preserve fresh acquisition for every later explicit dialog open; do not introduce a cross-open history cache.
+- [x] Keep all five supported models visually identical and keep GUI code free of vendor protocol parsing, credential selection, or blocking network I/O.
 
 ## 7. Add deterministic regression coverage
 
-- [ ] Cover normal 30/90 windows, inclusion of today, exact boundary overlap, night/weekend numerator inclusion, Monday-Friday denominator, current/partial-first weekday rules, whole percentages, and values above 100%.
-- [ ] Cover literal successful/unanswered/failed and incoming/outgoing records without outcome filtering.
-- [ ] Cover legitimate overlapping records summing independently.
-- [ ] Cover active records remaining visible/counting toward 100 but contributing zero usage.
-- [ ] Cover malformed duration remaining visible, excluded from totals, and warned.
-- [ ] Cover clean early EoJ and successful empty journal as complete full-period data.
-- [ ] Cover a normal full-coverage counterexample where `09:00/20 min` is followed by an unseen older `08:00/3 h` record crossing the 10:00 boundary; `start_at < boundary` alone must not stop normal retrieval.
-- [ ] Cover exact hard stop after the 100th accepted record with no 101st accepted record.
-- [ ] Cover hard-cap `47 days -> 30 + 47` without requiring interval-safe proof for the 47-day capped lower bound.
-- [ ] Cover hard-cap `18 days -> exactly one 18-day row` without requiring interval-safe proof for the 18-day capped lower bound.
-- [ ] Cover oldest hard-cap record Monday 15:00: numerator starts exactly 15:00 and Monday contributes full eight hours denominator.
-- [ ] Cover `source_history_limited`/repeated page/no-progress before 100 remaining distinct from hard-cap product degradation.
-- [ ] Cover typed deep failure after proven 30-day normal coverage preserving that row while an unproven longer target becomes incomplete/unavailable.
-- [ ] Cover codec-time authority and computer-time fallback warning without mixing calendar bases.
-- [ ] Cover page-boundary duplicate suppression while preserving distinct similar/overlapping records.
-- [ ] Cover latest-two preview, collapsed latest-20 total, fewer-than-20, active label, loading transitions, warnings, no disclosure refetch, and fresh later open.
-- [ ] Cover Huawei shared-session ownership/recovery and Polycom dedicated-worker ownership.
-- [ ] Use synthetic histories/fake handlers for 100+/old/active/malformed/no-progress/error cases; automated regression tests must not require physical devices or network access.
+- [x] Cover normal 30/90 windows, inclusion of today, exact boundary overlap, night/weekend numerator inclusion, Monday-Friday denominator, current/partial-first weekday rules, whole percentages, and values above 100%.
+- [x] Cover literal successful/unanswered/failed and incoming/outgoing records without outcome filtering.
+- [x] Cover legitimate overlapping records summing independently.
+- [x] Cover active records remaining visible/counting toward 100 but contributing zero usage.
+- [x] Cover malformed duration remaining visible, excluded from totals, and warned.
+- [x] Cover clean early EoJ and successful empty journal as complete full-period data.
+- [x] Cover a normal full-coverage counterexample where `09:00/20 min` is followed by an unseen older `08:00/3 h` record crossing the 10:00 boundary; `start_at < boundary` alone must not stop normal retrieval.
+- [x] Cover exact hard stop after the 100th accepted record with no 101st accepted record.
+- [x] Cover hard-cap `47 days -> 30 + 47` without requiring interval-safe proof for the 47-day capped lower bound.
+- [x] Cover hard-cap `18 days -> exactly one 18-day row` without requiring interval-safe proof for the 18-day capped lower bound.
+- [x] Cover oldest hard-cap record Monday 15:00: numerator starts exactly 15:00 and Monday contributes full eight hours denominator.
+- [x] Cover `source_history_limited`/repeated page/no-progress before 100 remaining distinct from hard-cap product degradation.
+- [x] Cover typed deep failure after proven 30-day normal coverage preserving that row while an unproven longer target becomes incomplete/unavailable.
+- [x] Cover codec-time authority and computer-time fallback warning without mixing calendar bases.
+- [x] Cover page-boundary duplicate suppression while preserving distinct similar/overlapping records.
+- [x] Cover latest-two preview, collapsed latest-20 total, fewer-than-20, active label, loading transitions, warnings, no disclosure refetch, and fresh later open.
+- [x] Cover Huawei shared-session ownership/recovery and Polycom dedicated-worker ownership.
+- [x] Use synthetic histories/fake handlers for 100+/old/active/malformed/no-progress/error cases; automated regression tests must not require physical devices or network access.
 
 ## 8. Validate implementation and publish for independent validation
 
-- [ ] Run focused handler/history/calculation/worker/GUI regression modules with the repository-supported Python interpreter and record exact commands/counts.
-- [ ] Run the canonical full offline suite:
+- [x] Run focused handler/history/calculation/worker/GUI regression modules with the repository-supported Python interpreter and record exact commands/counts.
+- [x] Run the canonical full offline suite:
 
 ```powershell
 <python> -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-- [ ] Run repository-local strict OpenSpec validation only:
+- [x] Run repository-local strict OpenSpec validation only:
 
 ```powershell
 .\openspec.cmd validate codec-call-log-usage-statistics --strict

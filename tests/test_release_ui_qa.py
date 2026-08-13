@@ -174,11 +174,9 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
                 for number in range(12)
             ]
         )
-        self.assertEqual(call_log.MAX_ROWS, call_log.table.rowCount())
-        self.assertEqual(
-            f"Показаны последние {call_log.MAX_ROWS} звонков.",
-            call_log.status_label.text(),
-        )
+        self.assertEqual(12, call_log.table.rowCount())
+        self.assertIn("Использовано системное время", call_log.status_label.text())
+        self.assertIn("Глубина истории не подтверждена", call_log.status_label.text())
         call_log.close()
         call_log.deleteLater()
 
