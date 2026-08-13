@@ -17,7 +17,7 @@ legacy compatibility/control subcontext
 
 The modern read subcontext SHALL be established through `POST /v1/login/session` followed by `POST /v1/login/account`, retain cookies/token in memory only, and service only operations explicitly approved for the modern context. Modern action.cgi compatibility in this change is limited to the exact live-verified read-only requests `WEB_GetVersionInfoAPI`, `WEB_GetSystemMacAddrAPI`, and `WEB_GetMailboxDataAPI`.
 
-Existing unverified read-only action.cgi operations, including audio, line/SIP, presentation, and camera reads, SHALL remain on the existing legacy compatibility path unless a later approved change proves their modern compatibility. Existing supported state-changing action.cgi operations SHALL remain on the legacy compatibility/control path and retain their existing mutation-safety rules.
+Existing unverified read-only action.cgi operations, including audio, line/SIP, presentation, and camera reads, SHALL remain on the existing legacy compatibility path unless a later approved change proves their modern compatibility. The Box-specific live-meter read `WEB_GetCurrentAudioParam` is an explicit member of that legacy compatibility path in this change and is not added to the modern action.cgi allowlist. Existing supported state-changing action.cgi operations SHALL remain on the legacy compatibility/control path and retain their existing mutation-safety rules.
 
 CloudLink microphone-gain mutation is an explicit exception: for exact Bar 310 and Box 310 it SHALL be unavailable/disabled in this change because authoritative target selection and reconciliation are not established. The application/controller SHALL reject or disable that operation before device network I/O. It SHALL NOT issue gain `PUT`/`POST /v1/mediacontrol/mic/devices`, use fixed device IDs, use first-HD-AI/first-plugged selection, or use `gainVolume` as authoritative reconciliation. Re-enabling gain requires a later approved contract.
 
@@ -43,6 +43,13 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 - **WHEN** CloudLink refresh or interactive work needs existing audio, line/SIP, presentation, camera, or another read-only action.cgi operation not live-verified on modern auth
 - **THEN** this change does not migrate that operation to the modern context
 - **AND** its existing legacy compatibility path remains authoritative until separately approved
+
+#### Scenario: Box live meter remains legacy-compatible
+
+- **GIVEN** exact model is `CloudLink Box 310`
+- **WHEN** live metering executes `WEB_GetCurrentAudioParam`
+- **THEN** the request uses the existing legacy compatibility subcontext
+- **AND** this change does not require modern `X-Access-Token` or modern body-token routing for that endpoint
 
 #### Scenario: Existing CloudLink mutation stays on legacy control path
 

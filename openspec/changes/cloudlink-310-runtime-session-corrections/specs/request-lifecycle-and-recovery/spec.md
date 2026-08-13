@@ -15,7 +15,7 @@ POST action.cgi?ActionID=WEB_GetMailboxDataAPI
 GET /v1/login/status
 ```
 
-Call history, system time, and Bar meter use their separately specified modern endpoints. `GET /v1/mediacontrol/mic/devices` has no user-visible connection/gain authority in this change.
+Call history, system time, and Bar meter use their separately specified modern endpoints. The Box meter `WEB_GetCurrentAudioParam` is not part of this modern allowlist and remains on the existing legacy compatibility subcontext. `GET /v1/mediacontrol/mic/devices` has no user-visible connection/gain authority in this change.
 
 Existing safe read-only action.cgi audio, line/SIP, presentation, camera, and other operations not live-verified on modern authentication SHALL remain on the legacy compatibility subcontext. This change SHALL NOT migrate them to modern authentication merely because other action.cgi requests succeeded there.
 
@@ -43,6 +43,13 @@ Exact assigned Bar/Box identity remains authoritative; shared polling SHALL NOT 
 - **THEN** this change does not migrate those action.cgi requests to modern auth
 - **AND** their existing legacy compatibility path remains authoritative
 
+#### Scenario: Box meter remains on legacy compatibility context
+
+- **GIVEN** exact model is `CloudLink Box 310`
+- **WHEN** live metering executes `WEB_GetCurrentAudioParam`
+- **THEN** the existing legacy compatibility subcontext remains authoritative
+- **AND** this change does not add that endpoint to the modern action.cgi allowlist
+
 #### Scenario: Optional read is unavailable
 
 - **GIVEN** required version evidence succeeded
@@ -68,11 +75,30 @@ For the closed Bar/Box family, canonical status SHALL use these boundaries:
 | MAC read | `mac_address` |
 | legacy-compatible audio read | existing approved `mic_mute`, `speaker_mute`, `speaker_volume` only |
 | legacy-compatible line/SIP read | existing approved `uptime`, `sip_server`, `sip_number`, primary `sip_status` |
+| modern `WEB_GetMailboxDataAPI` read | fallback `sip_status` only when line/SIP produced no valid SIP observation |
 | modern `GET /v1/login/status` | `call_status`, `sleep_mode`; no camera/microphone physical semantics |
 | legacy-compatible presentation read | `presentation` |
 | independently approved legacy camera read, when usable | existing `camera_status`; never `state.camera` |
 
 Version core validation remains unchanged: `softVersion` is required usable software-version evidence and canonical model is exact trusted identity derived from already assigned application model.
+
+`WEB_GetSystemMacAddrAPI` SHALL preserve the existing MAC precedence: use the first non-empty observed value in this exact order:
+
+```text
+system_wanMAC_addr
+system_lanMAC_addr
+```
+
+Line/SIP evidence SHALL preserve the existing precedence. A valid line-state SIP observation is authoritative. Mailbox/call-state `state.sip == 1` MAY populate `sip_status = On` and `state.sip == 0` MAY populate `sip_status = Off` only when line-state produced no valid `sip_status`. Mailbox evidence SHALL NOT overwrite valid line-state evidence; on disagreement line-state wins.
+
+The independently approved legacy camera read SHALL preserve the existing exact mapping:
+
+```text
+localInMainSource == 255 -> camera_status = On
+localInMainSource == 0   -> camera_status = Off
+```
+
+A missing or unsupported `localInMainSource` is an endpoint-local protocol failure and `camera_status` is omitted. Modern `state.camera` does not replace this mapping.
 
 Peripheral version normalization is exact and independent for `cameraVersion` and `micVersion`:
 
@@ -103,13 +129,39 @@ isSleep 1 -> On
 isSleep 0 -> Off
 ```
 
-The legacy lowercase `callstate` mapper SHALL NOT parse modern state. Line-state SIP retains existing precedence unless later approved modern SIP semantics exist.
+The legacy lowercase `callstate` mapper SHALL NOT parse modern state. The accepted modern `state.isSleep` observation is canonical sleep read authority for both ordinary full-status publication and interactive sleep readback. Existing Wake remains a state-changing operation on the legacy compatibility/control path and is not migrated by this read-authority change.
 
 The previous first-HD-AI rule is removed as user-visible microphone authority. This change SHALL NOT create `mic_connection_status` or diagnostic `mic_volume` from first-HD-AI, first-plugged, `MIC1`, `state.mic`, `plugStatus`, `gainVolume`, fixed IDs, or list order.
 
-The previous legacy camera-source mapping is not replaced by `state.camera`. If no independently approved canonical camera-state observation succeeds, `camera_status` remains unavailable.
-
 Failure/absence of one optional observation SHALL NOT delete or manufacture fields owned by another observation.
+
+#### Scenario: MAC WAN value has priority
+
+- **GIVEN** a successful MAC response contains non-empty `system_wanMAC_addr` and `system_lanMAC_addr`
+- **WHEN** canonical MAC is composed
+- **THEN** `system_wanMAC_addr` is used
+
+#### Scenario: MAC falls back to LAN value
+
+- **GIVEN** a successful MAC response has no usable `system_wanMAC_addr`
+- **AND** has non-empty `system_lanMAC_addr`
+- **WHEN** canonical MAC is composed
+- **THEN** `system_lanMAC_addr` is used
+
+#### Scenario: Line and mailbox SIP observations conflict
+
+- **GIVEN** line-state produced a valid SIP observation
+- **AND** mailbox produced the opposite SIP observation
+- **WHEN** canonical status is composed
+- **THEN** line-state wins
+- **AND** mailbox does not overwrite `sip_status`
+
+#### Scenario: Mailbox SIP fallback is used
+
+- **GIVEN** line-state produced no valid SIP observation
+- **AND** mailbox reports `state.sip == 1` or `state.sip == 0`
+- **WHEN** canonical status is composed
+- **THEN** mailbox supplies fallback `sip_status`
 
 #### Scenario: Modern call state is connected
 
@@ -123,11 +175,23 @@ Failure/absence of one optional observation SHALL NOT delete or manufacture fiel
 - **THEN** canonical `sleep_mode` is `Off`
 - **AND** zero is not unavailable
 
+#### Scenario: Modern sleep is interactive read authority
+
+- **WHEN** ordinary status or interactive sleep readback obtains accepted modern `state.isSleep`
+- **THEN** both paths use the same `1 -> On`, `0 -> Off` normalization
+- **AND** the existing Wake mutation remains on the legacy control path
+
 #### Scenario: Structured camera version is empty
 
 - **WHEN** required version succeeds with `cameraVersion == []`
 - **THEN** canonical presentation evidence is built-in camera
 - **AND** no camera state is inferred
+
+#### Scenario: Legacy camera is observed disconnected
+
+- **WHEN** the approved legacy camera read reports `localInMainSource == 0`
+- **THEN** canonical `camera_status` is `Off`
+- **AND** modern `state.camera` does not override it
 
 #### Scenario: Valid multiple microphone versions are present
 
@@ -154,6 +218,24 @@ For exact Bar/Box operations, canonical fields SHALL be populated only from succ
 
 Observed zero values such as `isSleep == 0`, `callState == 0`, or approved speaker-volume zero remain present.
 
+Presentation normalization SHALL preserve the existing exact legacy mapping:
+
+```text
+isSendAux == auxOpen  -> Start
+isSendAux == auxClose -> Stop
+```
+
+Unsupported or malformed presentation values are endpoint-local protocol failures and `presentation` is omitted. The same presentation normalization SHALL be used by ordinary full status and interactive presentation readback.
+
+Sleep read normalization SHALL use accepted modern `state.isSleep` only:
+
+```text
+state.isSleep == 1 -> On
+state.isSleep == 0 -> Off
+```
+
+Unsupported/malformed/missing modern sleep evidence is unavailable rather than guessed. Ordinary full status and interactive sleep readback SHALL use this same modern normalization. The existing state-changing Wake operation remains on the legacy compatibility/control path.
+
 Structured version normalization SHALL distinguish empty from unavailable exactly as defined above. Vendor display dashes are not protocol input. Separate semantics remain separate: version/type does not become connection/activity; live meter does not become gain; `state.mic` does not become connection; `state.camera` does not become camera state.
 
 #### Scenario: Modern state endpoint unavailable
@@ -161,6 +243,18 @@ Structured version normalization SHALL distinguish empty from unavailable exactl
 - **WHEN** modern general-state observation is unavailable
 - **THEN** `call_status` and `sleep_mode` are omitted
 - **AND** absence is not converted into `No Call` or awake
+
+#### Scenario: Presentation is observed inactive
+
+- **WHEN** a successful structured presentation response reports `isSendAux == auxClose`
+- **THEN** canonical `presentation` is `Stop`
+- **AND** ordinary status and interactive readback use the same result
+
+#### Scenario: Presentation endpoint is unavailable
+
+- **WHEN** legacy presentation observation is unavailable or malformed
+- **THEN** `presentation` is omitted
+- **AND** absence is not converted into `Stop`
 
 #### Scenario: Peripheral version field is malformed
 
@@ -191,7 +285,7 @@ WEB_GetSystemMacAddrAPI
 WEB_GetMailboxDataAPI
 ```
 
-Those reads use the proved modern session/header and body `acCSRFToken` shape. Other action.cgi reads SHALL remain on the legacy compatibility path until separately approved.
+Those reads use the proved modern session/header and body `acCSRFToken` shape. Other action.cgi reads SHALL remain on the legacy compatibility path until separately approved. In particular, Box meter `WEB_GetCurrentAudioParam` remains on the existing legacy compatibility subcontext under this change and SHALL NOT be routed through the modern action.cgi token shape.
 
 Modern token/cookies/login payload/Authorization/raw auth responses SHALL NOT be persisted or logged. Safe diagnostics may report endpoint, method, HTTP status, typed category, and non-secret structural outcome.
 
@@ -220,6 +314,13 @@ If same handler generation owns legacy compatibility/control subcontext, both re
 - **WHEN** an existing read-only action.cgi endpoint outside version/MAC/mailbox is required
 - **THEN** this change does not authorize modern header/body-token routing for it
 - **AND** existing legacy compatibility path remains authoritative
+
+#### Scenario: Box meter is not modernized by the common read allowlist
+
+- **GIVEN** exact model is `CloudLink Box 310`
+- **WHEN** meter read requires `WEB_GetCurrentAudioParam`
+- **THEN** it remains on the legacy compatibility subcontext
+- **AND** modern read authorization for version/MAC/mailbox does not extend to that endpoint
 
 ### Requirement: CloudLink 310 microphone gain is fail-closed until target and readback semantics are approved
 

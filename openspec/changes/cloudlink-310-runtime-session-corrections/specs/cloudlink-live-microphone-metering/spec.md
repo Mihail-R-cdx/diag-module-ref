@@ -36,7 +36,7 @@ For `CloudLink Box 310`, the live sample source SHALL remain exactly:
 POST action.cgi?ActionID=WEB_GetCurrentAudioParam
 ```
 
-The request SHALL use the corrected shared CloudLink 310 modern read context for the exact Box operation while retaining the existing Box-specific action and payload semantics. The modern in-memory token MAY be carried as `X-Access-Token` and, for this reviewed read-only action.cgi family, as body field `acCSRFToken` according to the shared read-request boundary. This SHALL NOT redirect Box metering to the Bar `/v1/mediacontrol/mic/current-volume` endpoint.
+The Box meter request SHALL use the existing legacy compatibility subcontext and its already approved Box-specific action/payload semantics. This change SHALL NOT route `WEB_GetCurrentAudioParam` through the modern read subcontext, SHALL NOT newly require `X-Access-Token` or the modern body-token shape for this endpoint, and SHALL NOT redirect Box metering to the Bar `/v1/mediacontrol/mic/current-volume` endpoint. A later change may migrate this exact Box endpoint only after separate approved compatibility evidence.
 
 Only this existing closed Box microphone field set SHALL contribute:
 
@@ -85,11 +85,12 @@ An established-session HTTP 401/403 SHALL remain a typed session invalidation un
 - **AND** raw level is zero
 - **AND** the display fraction is 0%
 
-#### Scenario: Box meter keeps its approved source
+#### Scenario: Box meter keeps its approved source and legacy context
 
 - **GIVEN** the current exact model is `CloudLink Box 310`
 - **WHEN** live metering reads a sample
-- **THEN** it uses `WEB_GetCurrentAudioParam`
+- **THEN** it uses `WEB_GetCurrentAudioParam` through the existing legacy compatibility subcontext
+- **AND** this change does not require the modern read token/header/body shape for that endpoint
 - **AND** it does not call the Bar current-volume endpoint
 - **AND** only the existing closed Box microphone fields contribute
 
