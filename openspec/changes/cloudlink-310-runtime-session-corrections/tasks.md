@@ -70,21 +70,21 @@
 
 ## 7. Regression coverage
 
-- [ ] Cover modern login/token/header/body/logout lifecycle and secret redaction.
-- [ ] Cover exact modern action.cgi allowlist and legacy routing for unverified audio/line/presentation/camera reads plus Box meter.
-- [ ] Cover MAC WAN→LAN fallback and line-state-primary/mailbox SIP fallback precedence.
-- [ ] Cover legacy camera `255/0` mapping and prove `state.camera` is not canonical authority.
-- [ ] Cover presentation `auxOpen/auxClose` mapping and ordinary/interactive readback parity.
-- [ ] Cover modern sleep ordinary/interactive parity while Wake remains on legacy mutation path.
-- [ ] Cover HTTP 401/403 session invalidation and prove generic HTTP-200 `success: 0` does not authorize fallback.
-- [ ] Cover one application-selected credential, no handler iteration, exact Bar/Box identity and separate success memory.
-- [ ] Cover Bar meter auth/zero/positive/unavailable and unchanged normalizer; Box meter source/context regression.
-- [ ] Cover sleep/call enums including 2/3 legacy mismatch.
-- [ ] Cover deterministic version-list normalization: empty, one valid, multiple valid, duplicates, missing field, non-list, partial malformed.
-- [ ] Cover multiple HD-AI records proving no connection/gain authority.
-- [ ] Cover disabled gain control and assert zero device network mutation.
-- [ ] Cover codec-local time and explicit system fallback.
-- [ ] Cover GUI rows/rebuild/currentness/stale suppression and unresolved manual model fallback.
+- [x] Cover modern login/token/header/body/logout lifecycle and secret redaction.
+- [x] Cover exact modern action.cgi allowlist and legacy routing for unverified audio/line/presentation/camera reads plus Box meter.
+- [x] Cover MAC WAN→LAN fallback and line-state-primary/mailbox SIP fallback precedence.
+- [x] Cover legacy camera `255/0` mapping and prove `state.camera` is not canonical authority.
+- [x] Cover presentation `auxOpen/auxClose` mapping and ordinary/interactive readback parity.
+- [x] Cover modern sleep ordinary/interactive parity while Wake remains on legacy mutation path.
+- [x] Cover HTTP 401/403 session invalidation and prove generic HTTP-200 `success: 0` does not authorize fallback.
+- [x] Cover one application-selected credential, no handler iteration, exact Bar/Box identity and separate success memory.
+- [x] Cover Bar meter auth/zero/positive/unavailable and unchanged normalizer; Box meter source/context regression.
+- [x] Cover sleep/call enums including 2/3 legacy mismatch.
+- [x] Cover deterministic version-list normalization: empty, one valid, multiple valid, duplicates, missing field, non-list, partial malformed.
+- [x] Cover multiple HD-AI records proving no connection/gain authority.
+- [x] Cover disabled gain control and assert zero device network mutation.
+- [x] Cover codec-local time and explicit system fallback.
+- [x] Cover GUI rows/rebuild/currentness/stale suppression and unresolved manual model fallback.
 
 ## 8. Implementation validation and publication
 
@@ -92,8 +92,8 @@
 - [x] Run full required offline test suite and record exact counts/exit code.
 - [x] Run `.\openspec.cmd validate cloudlink-310-runtime-session-corrections --strict`.
 - [x] Run `.\openspec.cmd validate --all --strict`.
-- [ ] Run `git diff --check` and `git diff --cached --check`.
-- [ ] Review implementation against approved OpenSpec, including no modern migration of unverified reads/Box meter and no CloudLink gain mutation.
+- [x] Run `git diff --check` and `git diff --cached --check`.
+- [x] Review implementation against approved OpenSpec, including no modern migration of unverified reads/Box meter and no CloudLink gain mutation.
 - [ ] Create focused implementation commit and push feature branch; verify local HEAD equals remote without amend/rebase/force-push/history rewrite.
 - [ ] Keep PR Draft. Implementation session MUST NOT issue independent final `APPROVE`.
 

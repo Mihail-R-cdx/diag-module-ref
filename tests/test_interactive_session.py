@@ -1,6 +1,6 @@
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import paramiko
 from PyQt5.QtCore import QCoreApplication
@@ -17,6 +17,7 @@ from core.interactive_session import (
 )
 from core.interactive_session import _default_handler_factory
 from handlers.huawei.te20 import HuaweiTE20Handler
+from handlers.huawei.bar310 import CloudLinkBar310Handler
 from handlers.huawei.te40 import HuaweiTE40Handler
 from handlers.polycom.rpg310 import PolycomRPG310Handler
 
@@ -354,6 +355,53 @@ class InteractiveSessionControllerTests(unittest.TestCase):
         self.assertEqual(1, results[0]["credential_index"])
         self.assertNotIn(("connect", 80, "one"), calls)
 
+    def test_cloudlink_new_login_authentication_advances_application_credential_chain(self):
+        attempts = []
+
+        class Response:
+            def __init__(self, status_code, text="{}"):
+                self.status_code = status_code
+                self.text = text
+
+        def factory(_model, kwargs):
+            attempts.append(kwargs["password"])
+            handler = CloudLinkBar310Handler(**kwargs)
+            handler._make_request = Mock(side_effect=[
+                {"success": 1},
+                {"success": 1, "data": {"acCSRFToken": "legacy-token"}},
+            ])
+            modern_session = Mock()
+            handler._new_modern_session = Mock(return_value=modern_session)
+            if kwargs["password"] == "rejected":
+                modern_session.request = Mock(return_value=Response(401))
+            else:
+                modern_session.request = Mock(side_effect=[
+                    Response(200, '{"success": 1}'),
+                    Response(200, '{"success": 1, "data": {"acCSRFToken": "modern-token"}}'),
+                ])
+            handler.read = lambda: "connected"
+            return handler
+
+        controller = InteractiveSessionController(handler_factory=factory)
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "CloudLink Bar 310",
+            "192.0.2.10",
+            (
+                {"username": "synthetic", "password": "rejected"},
+                {"username": "synthetic", "password": "accepted"},
+            ),
+        )
+        controller.submit(InteractiveOperation(kind="read", method="read"))
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertEqual("connected", results[0]["value"])
+        self.assertEqual(1, results[0]["credential_index"])
+        self.assertEqual(["rejected", "accepted"], attempts)
+
     def test_session_invalid_reconnects_once_and_replays_read_once(self):
         controller, calls = self.make_controller(
             {"read": [SessionInvalidError("expired"), "recovered"]}
@@ -373,6 +421,32 @@ class InteractiveSessionControllerTests(unittest.TestCase):
         self.assertEqual("recovered", results[0]["value"])
         self.assertEqual(2, len([call for call in calls if call[0] == "connect"]))
         self.assertEqual(2, len([call for call in calls if call[0] == "read"]))
+
+    def test_session_invalid_recovery_keeps_the_same_cloudlink_credential(self):
+        controller, calls = self.make_controller(
+            {"read": [SessionInvalidError("expired"), "recovered"]}
+        )
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "CloudLink Bar 310",
+            "192.0.2.10",
+            (
+                {"username": "u", "password": "one"},
+                {"username": "u", "password": "two"},
+            ),
+        )
+        controller.submit(InteractiveOperation(kind="read", method="read"))
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertEqual("recovered", results[0]["value"])
+        self.assertEqual(0, results[0]["credential_index"])
+        self.assertEqual(
+            ["one", "one"],
+            [call[2] for call in calls if call[0] == "connect"],
+        )
 
     def test_locally_disconnected_cache_consumes_only_reconnect_cycle(self):
         controller, calls = self.make_controller(

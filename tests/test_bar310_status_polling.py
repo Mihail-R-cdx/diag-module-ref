@@ -2,10 +2,11 @@
 
 import unittest
 from contextlib import nullcontext
+from datetime import datetime
 from unittest.mock import Mock
 from unittest.mock import patch
 
-from core.exceptions import ParseError, ProtocolError
+from core.exceptions import ParseError, ProtocolError, SessionInvalidError
 from core.parser import HuaweiBar310DataParser
 from core.workers.codec_polling import HuaweiBar310Worker
 from handlers.huawei.bar310 import CloudLinkBar310Handler
@@ -129,6 +130,52 @@ class CloudLink310StatusTests(unittest.TestCase):
         handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p")
         with self.assertRaises(ProtocolError):
             handler._modern_action("get_audio_status")
+
+    def test_codec_reference_now_uses_approved_structured_calendar_fields(self):
+        handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p")
+        handler._modern_request = Mock(return_value={
+            "success": 1,
+            "data": {
+                "year": "2026", "month": 8, "day": 14,
+                "hour": 0, "minute": "00", "second": 0,
+            },
+        })
+
+        self.assertEqual(datetime(2026, 8, 14, 0, 0, 0), handler._get_codec_reference_now())
+
+    def test_codec_reference_now_rejects_missing_or_invalid_calendar_fields(self):
+        invalid_data = (
+            {"year": 2026, "month": 13, "day": 14, "hour": 9, "minute": 0, "second": 0},
+            {"year": 2026, "month": 8, "day": 32, "hour": 9, "minute": 0, "second": 0},
+            {"year": 2026, "month": 8, "day": 14, "hour": 24, "minute": 0, "second": 0},
+            {"year": 2026, "month": 8, "day": 14, "hour": 9, "minute": 0},
+        )
+        for data in invalid_data:
+            with self.subTest(data=data):
+                handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p")
+                handler._modern_request = Mock(return_value={"success": 1, "data": data})
+                self.assertIsNone(handler._get_codec_reference_now())
+
+    def test_codec_reference_time_snapshot_marks_only_real_system_fallback(self):
+        device_now = datetime(2026, 8, 14, 10, 30, 45)
+        handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p")
+        handler.get_call_records = Mock(return_value=[])
+        handler._get_codec_reference_now = Mock(return_value=device_now)
+        device_snapshot = handler.get_call_history_snapshot()
+        self.assertEqual(device_now, device_snapshot.reference_now)
+        self.assertEqual("device", device_snapshot.reference_time_source)
+        self.assertFalse(any("системное время" in warning.lower() for warning in device_snapshot.warnings))
+
+        handler._get_codec_reference_now = Mock(return_value=None)
+        fallback_snapshot = handler.get_call_history_snapshot()
+        self.assertEqual("system_fallback", fallback_snapshot.reference_time_source)
+        self.assertTrue(any("системное время" in warning.lower() for warning in fallback_snapshot.warnings))
+
+    def test_codec_reference_time_does_not_swallow_session_invalid(self):
+        handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p")
+        handler._modern_request = Mock(side_effect=SessionInvalidError("expired"))
+        with self.assertRaises(SessionInvalidError):
+            handler._get_codec_reference_now()
 
     def test_parser_renders_proved_peripheral_labels(self):
         parsed = HuaweiBar310DataParser.parse_raw_data({

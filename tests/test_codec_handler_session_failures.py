@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
-from core.exceptions import AuthenticationError, SessionInvalidError
+from core.exceptions import AuthenticationError, ProtocolError, SessionInvalidError
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 from handlers.huawei.te20 import HuaweiTE20Handler
 from handlers.huawei.te40 import HuaweiTE40Handler
@@ -256,6 +256,53 @@ class HandlerSessionFailureTests(unittest.TestCase):
                 handler._make_request("action.cgi?ActionID=WEB_GetVersionInfoAPI")
         finally:
             handler.disconnect()
+
+    def test_bar310_modern_new_login_401_and_403_are_authentication_errors(self):
+        for endpoint in ("v1/login/session", "v1/login/account"):
+            for status_code in (401, 403):
+                with self.subTest(endpoint=endpoint, status_code=status_code):
+                    handler = CloudLinkBar310Handler(
+                        "192.0.2.10", username="synthetic", password="synthetic-secret"
+                    )
+                    modern_session = Mock()
+                    handler._new_modern_session = Mock(return_value=modern_session)
+                    responses = [RequestsResponse(200, '{"success": 1}')]
+                    if endpoint == "v1/login/session":
+                        responses = []
+                    responses.append(RequestsResponse(status_code))
+                    modern_session.request = Mock(side_effect=responses)
+
+                    with self.assertRaises(AuthenticationError):
+                        handler._establish_modern_read_context()
+
+    def test_bar310_established_modern_401_and_403_are_session_invalid(self):
+        for status_code in (401, 403):
+            with self.subTest(status_code=status_code):
+                handler = CloudLinkBar310Handler(
+                    "192.0.2.10", username="synthetic", password="synthetic-secret"
+                )
+                handler.modern_session = Mock()
+                handler.acCSRFToken = "synthetic-token"
+                handler.modern_session.request = Mock(return_value=RequestsResponse(status_code))
+
+                with self.assertRaises(SessionInvalidError):
+                    handler._modern_request("v1/login/status")
+
+    def test_bar310_modern_generic_success_zero_is_not_authentication_error(self):
+        handler = CloudLinkBar310Handler(
+            "192.0.2.10", username="synthetic", password="synthetic-secret"
+        )
+        modern_session = Mock()
+        handler._new_modern_session = Mock(return_value=modern_session)
+        modern_session.request = Mock(return_value=RequestsResponse(200, '{"success": 0}'))
+
+        with self.assertRaises(ProtocolError):
+            handler._establish_modern_read_context()
+
+        handler.modern_session = Mock()
+        handler.acCSRFToken = "synthetic-token"
+        handler.modern_session.request = Mock(return_value=RequestsResponse(200, '{"success": 0}'))
+        self.assertEqual({"success": 0}, handler._modern_request("v1/login/status"))
 
     def test_polycom_401_is_phase_sensitive(self):
         handler = PolycomRPG310Handler(

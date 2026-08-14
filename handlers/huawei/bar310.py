@@ -9,6 +9,7 @@ import json
 import time
 import urllib3
 from datetime import datetime
+from enum import Enum
 from collections.abc import Mapping
 from core.codec_call_history import snapshot_from_display_records
 from numbers import Real
@@ -29,6 +30,15 @@ from utils.ssl_adapter import SSLAdapter, create_legacy_ssl_context
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 MICROPHONE_DISPLAY_CEILING = 20.0
+
+
+class _ModernRequestPhase(Enum):
+    """Protocol phase for modern requests with distinct 401/403 semantics."""
+
+    NEW_SESSION_ESTABLISHMENT = "new_session_establishment"
+    ESTABLISHED_SESSION_OPERATION = "established_session_operation"
+
+
 BOX_MICROPHONE_FIELDS = (
     "mic1ValueIndex", "mic2ValueIndex", "mic3ValueIndex", "mic4ValueIndex",
     "micArray1_01ValIdx", "micArray1_02ValIdx", "micArray1_03ValIdx",
@@ -347,13 +357,19 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
     def _establish_modern_read_context(self) -> None:
         self.modern_session = self._new_modern_session()
-        session_login = self._modern_request("v1/login/session", method="POST", require_token=False)
+        session_login = self._modern_request(
+            "v1/login/session",
+            method="POST",
+            require_token=False,
+            phase=_ModernRequestPhase.NEW_SESSION_ESTABLISHMENT,
+        )
         if session_login.get("success") != 1:
             raise ProtocolError("CloudLink 310 modern session login was unsuccessful")
         account = self._modern_request(
             "v1/login/account", method="POST",
             data={"account": self.username, "password": self.password},
             require_token=False,
+            phase=_ModernRequestPhase.NEW_SESSION_ESTABLISHMENT,
         )
         if not isinstance(account, Mapping) or account.get("success") != 1:
             raise ProtocolError("CloudLink 310 modern account login was unsuccessful")
@@ -362,7 +378,15 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ProtocolError("CloudLink 310 modern account login returned no token")
         self.acCSRFToken = data["acCSRFToken"].strip()
 
-    def _modern_request(self, endpoint: str, method: str = "GET", data: Optional[Dict] = None, *, require_token: bool = True) -> Dict:
+    def _modern_request(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: Optional[Dict] = None,
+        *,
+        require_token: bool = True,
+        phase: _ModernRequestPhase = _ModernRequestPhase.ESTABLISHED_SESSION_OPERATION,
+    ) -> Dict:
         if self.modern_session is None:
             raise ConnectionError("CloudLink 310 modern read context is not connected")
         if require_token and not self.acCSRFToken:
@@ -379,7 +403,13 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ConnectionError("CloudLink 310 modern transport request failed") from error
         self._log_command(f"[response] {response.status_code} {response.text}")
         if response.status_code in (401, 403):
-            raise SessionInvalidError(f"HTTP {response.status_code}: established CloudLink 310 modern session was rejected")
+            if phase is _ModernRequestPhase.NEW_SESSION_ESTABLISHMENT:
+                raise AuthenticationError(
+                    f"HTTP {response.status_code}: CloudLink 310 modern login was rejected"
+                )
+            raise SessionInvalidError(
+                f"HTTP {response.status_code}: established CloudLink 310 modern session was rejected"
+            )
         if response.status_code != 200:
             raise CommandError(f"HTTP {response.status_code}: CloudLink 310 modern request failed")
         result = self._parse_response(response.text)
@@ -557,14 +587,23 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         try:
             response = self._modern_request("v1/om/config/systemtime")
             data = self._optional_data(response, "system time")
-            candidate = data.get("systemTime", data.get("time"))
-            if isinstance(candidate, str):
-                for pattern in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
-                    try:
-                        return datetime.strptime(candidate.strip(), pattern)
-                    except ValueError:
-                        continue
+            calendar_fields = ("year", "month", "day", "hour", "minute", "second")
+            values = {}
+            for field in calendar_fields:
+                raw_value = data.get(field)
+                if isinstance(raw_value, bool):
+                    return None
+                if isinstance(raw_value, int):
+                    values[field] = raw_value
+                    continue
+                if isinstance(raw_value, str) and raw_value.strip().isdigit():
+                    values[field] = int(raw_value.strip())
+                    continue
+                return None
+            return datetime(**values)
         except (CommandError, ProtocolError):
+            pass
+        except (TypeError, ValueError):
             pass
         return None
 
