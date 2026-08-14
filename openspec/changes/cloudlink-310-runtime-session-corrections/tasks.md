@@ -30,43 +30,43 @@
 
 ## 3. Implement CloudLink session boundaries
 
-- [ ] Re-read `RULES.md`, fetch current remote state, and implement only after architectural `APPROVE` of current published change HEAD.
-- [ ] Add modern login `/v1/login/session` -> `/v1/login/account` using only application-assigned credential.
-- [ ] Keep modern cookies/token in memory, send `X-Access-Token`, and use body token only for approved modern action.cgi version/MAC/mailbox reads.
-- [ ] Implement best-effort modern logout plus local session closure and secret-safe cleanup.
-- [ ] Preserve legacy compatibility/control subcontext for existing unverified audio/line/presentation/camera reads, Box meter, and supported non-gain mutations.
-- [ ] Bind both subcontexts to one exact model/IP/credential/generation handler unit; invalidation closes both without handler-owned credential iteration.
-- [ ] Preserve exact Bar/Box identity and separate success memory.
+- [x] Re-read `RULES.md`, fetch current remote state, and implement only after architectural `APPROVE` of current published change HEAD.
+- [x] Add modern login `/v1/login/session` -> `/v1/login/account` using only application-assigned credential.
+- [x] Keep modern cookies/token in memory, send `X-Access-Token`, and use body token only for approved modern action.cgi version/MAC/mailbox reads.
+- [x] Implement best-effort modern logout plus local session closure and secret-safe cleanup.
+- [x] Preserve legacy compatibility/control subcontext for existing unverified audio/line/presentation/camera reads, Box meter, and supported non-gain mutations.
+- [x] Bind both subcontexts to one exact model/IP/credential/generation handler unit; invalidation closes both without handler-owned credential iteration.
+- [x] Preserve exact Bar/Box identity and separate success memory.
 
 ## 4. Correct status/state normalization
 
-- [ ] Route only exact approved modern read set through modern context; do not migrate unverified action.cgi reads or Box meter.
-- [ ] Preserve MAC selection: first non-empty `system_wanMAC_addr`, then `system_lanMAC_addr`.
-- [ ] Preserve line-state SIP as primary and mailbox `state.sip` 1/0 as fallback only when line-state has no valid SIP observation.
-- [ ] Normalize `state.isSleep` exactly `1 -> On`, `0 -> Off` for ordinary status and interactive sleep readback; keep Wake on legacy mutation path.
-- [ ] Normalize case-sensitive `state.callState` exactly `0 No Call`, `1 Calling`, `2 Connected`, `3 Disconnected`; do not reuse legacy lowercase mapper.
-- [ ] Preserve legacy camera mapping `localInMainSource == 255 -> On`, `0 -> Off`; do not use `state.camera` as replacement.
-- [ ] Preserve presentation mapping `auxOpen -> Start`, `auxClose -> Stop` identically for ordinary status and interactive readback.
-- [ ] Remove first-HD-AI selection as authority for `mic_connection_status`/diagnostic `mic_volume`; add no replacement heuristic.
-- [ ] Do not promote `state.camera`, `state.mic`, or `/mic/devices` fields to unapproved physical/gain semantics.
-- [ ] Preserve optional-field isolation and required core identity/version gates.
+- [x] Route only exact approved modern read set through modern context; do not migrate unverified action.cgi reads or Box meter.
+- [x] Preserve MAC selection: first non-empty `system_wanMAC_addr`, then `system_lanMAC_addr`.
+- [x] Preserve line-state SIP as primary and mailbox `state.sip` 1/0 as fallback only when line-state has no valid SIP observation.
+- [x] Normalize `state.isSleep` exactly `1 -> On`, `0 -> Off` for ordinary status and interactive sleep readback; keep Wake on legacy mutation path.
+- [x] Normalize case-sensitive `state.callState` exactly `0 No Call`, `1 Calling`, `2 Connected`, `3 Disconnected`; do not reuse legacy lowercase mapper.
+- [x] Preserve legacy camera mapping `localInMainSource == 255 -> On`, `0 -> Off`; do not use `state.camera` as replacement.
+- [x] Preserve presentation mapping `auxOpen -> Start`, `auxClose -> Stop` identically for ordinary status and interactive readback.
+- [x] Remove first-HD-AI selection as authority for `mic_connection_status`/diagnostic `mic_volume`; add no replacement heuristic.
+- [x] Do not promote `state.camera`, `state.mic`, or `/mic/devices` fields to unapproved physical/gain semantics.
+- [x] Preserve optional-field isolation and required core identity/version gates.
 
 ## 5. Version and built-in presentation
 
-- [ ] Require `cameraVersion`/`micVersion` field, when present, to be a list; `[]` means built-in.
-- [ ] For non-empty list require every entry to be Mapping with exact non-empty string `version`; ignore `name` for presentation.
-- [ ] On any malformed non-empty entry make the whole peripheral version unavailable; do not partially render valid siblings.
-- [ ] Strip valid versions, remove duplicates preserving first source order, join with exact `; ` separator.
-- [ ] Render built-in camera exactly `Встроенная камера` and built-in microphone exactly `Встроенный микрофон`.
-- [ ] Add visible `Режим сна`, `Версия камеры`, `Версия микрофона`; do not parse vendor WebUI `--`.
+- [x] Require `cameraVersion`/`micVersion` field, when present, to be a list; `[]` means built-in.
+- [x] For non-empty list require every entry to be Mapping with exact non-empty string `version`; ignore `name` for presentation.
+- [x] On any malformed non-empty entry make the whole peripheral version unavailable; do not partially render valid siblings.
+- [x] Strip valid versions, remove duplicates preserving first source order, join with exact `; ` separator.
+- [x] Render built-in camera exactly `Встроенная камера` and built-in microphone exactly `Встроенный микрофон`.
+- [x] Add visible `Режим сна`, `Версия камеры`, `Версия микрофона`; do not parse vendor WebUI `--`.
 
 ## 6. Meter, gain and call-history time
 
-- [ ] Run Bar `GET /v1/mediacontrol/mic/current-volume` through modern read context with existing normalization unchanged.
-- [ ] Preserve Box `POST action.cgi?ActionID=WEB_GetCurrentAudioParam`, exact approved closed field set, and existing legacy compatibility subcontext.
-- [ ] Disable/reject CloudLink Bar/Box microphone-gain control before network I/O; no gain PUT/POST, fixed device IDs, alternate-method fallback, or first-HD-AI reconciliation.
-- [ ] Obtain codec-local time from `GET /v1/om/config/systemtime` through modern context and pass as device `reference_now`.
-- [ ] Preserve explicit computer-local fallback warning only when device-local time is unavailable after allowed bounded recovery.
+- [x] Run Bar `GET /v1/mediacontrol/mic/current-volume` through modern read context with existing normalization unchanged.
+- [x] Preserve Box `POST action.cgi?ActionID=WEB_GetCurrentAudioParam`, exact approved closed field set, and existing legacy compatibility subcontext.
+- [x] Disable/reject CloudLink Bar/Box microphone-gain control before network I/O; no gain PUT/POST, fixed device IDs, alternate-method fallback, or first-HD-AI reconciliation.
+- [x] Obtain codec-local time from `GET /v1/om/config/systemtime` through modern context and pass as device `reference_now`.
+- [x] Preserve explicit computer-local fallback warning only when device-local time is unavailable after allowed bounded recovery.
 
 ## 7. Regression coverage
 
@@ -88,10 +88,10 @@
 
 ## 8. Implementation validation and publication
 
-- [ ] Run focused tests for affected handler/session/parser/worker/GUI/call-history modules.
-- [ ] Run full required offline test suite and record exact counts/exit code.
-- [ ] Run `.\openspec.cmd validate cloudlink-310-runtime-session-corrections --strict`.
-- [ ] Run `.\openspec.cmd validate --all --strict`.
+- [x] Run focused tests for affected handler/session/parser/worker/GUI/call-history modules.
+- [x] Run full required offline test suite and record exact counts/exit code.
+- [x] Run `.\openspec.cmd validate cloudlink-310-runtime-session-corrections --strict`.
+- [x] Run `.\openspec.cmd validate --all --strict`.
 - [ ] Run `git diff --check` and `git diff --cached --check`.
 - [ ] Review implementation against approved OpenSpec, including no modern migration of unverified reads/Box meter and no CloudLink gain mutation.
 - [ ] Create focused implementation commit and push feature branch; verify local HEAD equals remote without amend/rebase/force-push/history rewrite.

@@ -35,6 +35,11 @@ BOX_MICROPHONE_FIELDS = (
     "micArray2_01ValIdx", "micArray2_02ValIdx", "micArray2_03ValIdx",
     "micArray3_01ValIdx", "micArray3_02ValIdx", "micArray3_03ValIdx",
 )
+MODERN_ACTION_IDS = frozenset({
+    "action.cgi?ActionID=WEB_GetVersionInfoAPI",
+    "action.cgi?ActionID=WEB_GetSystemMacAddrAPI",
+    "action.cgi?ActionID=WEB_GetMailboxDataAPI",
+})
 
 def unavailable_microphone_sample() -> Dict[str, Any]:
     return {"available": False, "raw_level": None, "fraction": None}
@@ -70,7 +75,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         self.username = username
         self.password = password
         self.session = None
+        self.modern_session = None
         self.acCSRFToken = None
+        self.legacy_acCSRFToken = None
         self.session_cookie = None
         self._connected = False
         self.last_presentation_error_message = None
@@ -103,6 +110,13 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             legacy_context = create_legacy_ssl_context(verify_ssl=self.verify_ssl)
             self.session.mount("https://", SSLAdapter(ssl_context=legacy_context))
 
+    def _new_modern_session(self):
+        session = requests.Session()
+        session.verify = self.verify_ssl
+        if self.use_ssl:
+            session.mount("https://", SSLAdapter(ssl_context=create_legacy_ssl_context(verify_ssl=self.verify_ssl)))
+        return session
+
     def _log_command(self, message: str) -> None:
         if message.startswith("[payload]"):
             message = "[payload] <redacted>"
@@ -125,7 +139,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         if not self.username or not self.password:
             raise AuthenticationError("Credentials are required before connecting to CloudLink Bar 310.")
         def print(*args, **kwargs):
-            secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            secrets = (self.username, self.password, self.acCSRFToken, self.legacy_acCSRFToken, self.session_cookie)
             if self.acCSRFToken:
                 secrets += (self.acCSRFToken[:20],)
             return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
@@ -164,16 +178,17 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 data_field = result.get('data', {})
                 
                 if isinstance(data_field, dict):
-                    self.acCSRFToken = data_field.get('acCSRFToken')
+                    self.legacy_acCSRFToken = data_field.get('acCSRFToken')
                 elif isinstance(data_field, str):
                     try:
                         inner_data = json.loads(data_field)
-                        self.acCSRFToken = inner_data.get('acCSRFToken')
+                        self.legacy_acCSRFToken = inner_data.get('acCSRFToken')
                     except:
                         pass
                 
-                if self.acCSRFToken:
-                    print(f"✓ CSRF токен получен: {self.acCSRFToken[:20]}...")
+                if self.legacy_acCSRFToken:
+                    print("✓ Legacy session established")
+                    self._establish_modern_read_context()
                     self._connected = True
                     return True
                 else:
@@ -195,13 +210,20 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def disconnect(self) -> None:
         """Разорвать соединение"""
-        if self._connected and self.acCSRFToken:
+        if self._connected and self.legacy_acCSRFToken:
             try:
                 endpoint = "action.cgi?ActionID=WEB_LogoutAPI"
-                data = {"acCSRFToken": self.acCSRFToken}
+                data = {"acCSRFToken": self.legacy_acCSRFToken}
                 self._make_request(endpoint, data=data)
             except:
                 pass
+        if self.modern_session is not None:
+            try:
+                self._modern_request("v1/login/session", method="DELETE", require_token=False)
+            except Exception:
+                pass
+            self.modern_session.close()
+            self.modern_session = None
         
         if self.session:
             self.session.close()
@@ -209,6 +231,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         
         self._connected = False
         self.acCSRFToken = None
+        self.legacy_acCSRFToken = None
         self.session_cookie = None
     
     def _parse_response(self, response_text: str) -> Optional[Dict]:
@@ -257,7 +280,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
     def _make_request(self, endpoint: str, method: str = 'POST', data: Optional[Dict] = None) -> Optional[Dict]:
         def print(*args, **kwargs):
-            secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            secrets = (self.username, self.password, self.acCSRFToken, self.legacy_acCSRFToken, self.session_cookie)
             return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
 
         """
@@ -321,15 +344,66 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             self._log_command(f"[error] RequestException: {str(e)}")
             print(f"  ! Ошибка запроса: {e}")
             raise ConnectionError("CloudLink Bar 310 transport request failed") from e
+
+    def _establish_modern_read_context(self) -> None:
+        self.modern_session = self._new_modern_session()
+        session_login = self._modern_request("v1/login/session", method="POST", require_token=False)
+        if session_login.get("success") != 1:
+            raise ProtocolError("CloudLink 310 modern session login was unsuccessful")
+        account = self._modern_request(
+            "v1/login/account", method="POST",
+            data={"account": self.username, "password": self.password},
+            require_token=False,
+        )
+        if not isinstance(account, Mapping) or account.get("success") != 1:
+            raise ProtocolError("CloudLink 310 modern account login was unsuccessful")
+        data = account.get("data")
+        if not isinstance(data, Mapping) or not isinstance(data.get("acCSRFToken"), str) or not data["acCSRFToken"].strip():
+            raise ProtocolError("CloudLink 310 modern account login returned no token")
+        self.acCSRFToken = data["acCSRFToken"].strip()
+
+    def _modern_request(self, endpoint: str, method: str = "GET", data: Optional[Dict] = None, *, require_token: bool = True) -> Dict:
+        if self.modern_session is None:
+            raise ConnectionError("CloudLink 310 modern read context is not connected")
+        if require_token and not self.acCSRFToken:
+            raise ConnectionError("CloudLink 310 modern read context has no access token")
+        payload = dict(data or {})
+        headers = {"Content-Type": "application/json"}
+        if require_token:
+            headers["X-Access-Token"] = self.acCSRFToken
+        url = f"{self.base_url}/{endpoint}"
+        self._log_command(f"[request] {method} {url}")
+        try:
+            response = self.modern_session.request(method=method, url=url, data=json.dumps(payload) if payload else None, headers=headers, timeout=5)
+        except requests.exceptions.RequestException as error:
+            raise ConnectionError("CloudLink 310 modern transport request failed") from error
+        self._log_command(f"[response] {response.status_code} {response.text}")
+        if response.status_code in (401, 403):
+            raise SessionInvalidError(f"HTTP {response.status_code}: established CloudLink 310 modern session was rejected")
+        if response.status_code != 200:
+            raise CommandError(f"HTTP {response.status_code}: CloudLink 310 modern request failed")
+        result = self._parse_response(response.text)
+        if not isinstance(result, Mapping):
+            raise ProtocolError("CloudLink 310 modern response is malformed")
+        return result
+
+    def _modern_action(self, command: str) -> Dict:
+        endpoint = self.command_map[command]
+        if endpoint not in MODERN_ACTION_IDS:
+            raise ProtocolError("CloudLink 310 action.cgi endpoint is not approved for modern routing")
+        result = self._modern_request(endpoint, method="POST", data={"acCSRFToken": self.acCSRFToken})
+        if result.get("success") != 1:
+            raise CommandError(f"CloudLink 310 modern {command} response was unsuccessful")
+        return result
     
 
     def send_command(self, command: str, data: Optional[Dict] = None) -> Dict:
         def print(*args, **kwargs):
-            secrets = (self.username, self.password, self.acCSRFToken, self.session_cookie)
+            secrets = (self.username, self.password, self.acCSRFToken, self.legacy_acCSRFToken, self.session_cookie)
             return builtins.print(*(redact_diagnostic(value, secrets) for value in args), **kwargs)
 
         """Отправить команду устройству"""
-        if not self.is_connected() or not self.acCSRFToken:
+        if not self.is_connected() or not self.legacy_acCSRFToken:
             raise ConnectionError("CloudLink Bar 310 session is not connected")
         
         endpoint = self.command_map.get(command, command)
@@ -338,8 +412,8 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         request_data = data or {}
         
         # Добавляем CSRF токен для всех action.cgi запросов
-        if self.acCSRFToken and 'acCSRFToken' not in request_data:
-            request_data['acCSRFToken'] = self.acCSRFToken
+        if self.legacy_acCSRFToken and 'acCSRFToken' not in request_data:
+            request_data['acCSRFToken'] = self.legacy_acCSRFToken
         
         result = self._make_request(endpoint, data=request_data if request_data else None)
         
@@ -360,44 +434,11 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             if not isinstance(response, Mapping) or response.get("success") != 1:
                 return unavailable_microphone_sample()
             return normalize_cloudlink_box_microphone_sample(response.get("data"))
-        response = self._make_request(
-            "v1/mediacontrol/mic/current-volume", method="GET"
-        )
+        response = self._modern_request("v1/mediacontrol/mic/current-volume", method="GET")
         if not isinstance(response, Mapping) or response.get("success") != 1:
             return unavailable_microphone_sample()
         return normalize_cloudlink_bar_microphone_sample(response.get("data"))
 
-
-    def _get_mic_devices_data(self) -> Dict[str, Any]:
-        result = self._make_request('v1/mediacontrol/mic/devices', method='GET')
-        if not result or result.get('success') != 1:
-            return {}
-
-        data = result.get('data', {})
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except json.JSONDecodeError:
-                return {}
-
-        return data if isinstance(data, dict) else {}
-
-    def _get_hd_ai_microphones(self) -> list:
-        data = self._get_mic_devices_data()
-        device_list = data.get('deviceList', [])
-        if not isinstance(device_list, list):
-            return []
-
-        return [
-            device for device in device_list
-            if isinstance(device, dict) and device.get('groupName') == 'HD-AI'
-        ]
-
-    def _get_controllable_hd_ai_microphones(self) -> list:
-        hd_ai_mics = self._get_hd_ai_microphones()
-        controllable = [mic for mic in hd_ai_mics if str(mic.get('enablePlug')) == '1']
-        selected = controllable or hd_ai_mics
-        return sorted(selected, key=lambda mic: mic.get('deviceId', 0))[:3]
 
     @staticmethod
     def _format_call_start_time(raw_value: str) -> str:
@@ -482,7 +523,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         self._log_command(f"[request] GET {url}")
 
         try:
-            response = self.session.get(url, headers=headers, timeout=10)
+            response = self.modern_session.get(url, headers=headers, timeout=10)
             self._log_command(f"[response] {response.status_code} {response.text[:500]}")
         except requests.exceptions.RequestException as e:
             self._log_command(f"[error] RequestException: {str(e)}")
@@ -499,16 +540,33 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
         result = self._parse_response(response.text)
         if not result or result.get("success") != 1:
-            raise ConnectionError(
-                f"Кодек не вернул журнал звонков: {result.get('message', result) if isinstance(result, dict) else result}"
-            )
+            raise ConnectionError("CloudLink 310 did not return call history")
 
         return self._parse_call_records(result.get("data", {}))
 
     def get_call_history_snapshot(self):
         """Return typed history; only a validated empty list proves clean EoJ."""
         records = self.get_call_records()
-        return snapshot_from_display_records(records, source_ended=not records)
+        reference_now = self._get_codec_reference_now()
+        return snapshot_from_display_records(
+            records, reference_now=reference_now, source_ended=not records,
+            reference_time_source="device" if reference_now is not None else "system_fallback",
+        )
+
+    def _get_codec_reference_now(self):
+        try:
+            response = self._modern_request("v1/om/config/systemtime")
+            data = self._optional_data(response, "system time")
+            candidate = data.get("systemTime", data.get("time"))
+            if isinstance(candidate, str):
+                for pattern in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+                    try:
+                        return datetime.strptime(candidate.strip(), pattern)
+                    except ValueError:
+                        continue
+        except (CommandError, ProtocolError):
+            pass
+        return None
 
 
     @staticmethod
@@ -554,7 +612,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         status.update(observed)
 
     def _collect_mac(self) -> Dict[str, Any]:
-        data = self._optional_data(self.send_command("get_mac"), "get_mac")
+        data = self._optional_data(self._modern_action("get_mac"), "get_mac")
         for key in ("system_wanMAC_addr", "system_lanMAC_addr"):
             value = self._nonempty_value(data, key)
             if value is not None:
@@ -594,15 +652,12 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             observed["sip_status"] = sip_values[data["sipStatusTxStr"]]
         return observed
 
-    def _collect_call_status(self) -> Dict[str, Any]:
-        data = self._optional_data(self.send_command("get_call_status"), "get_call_status")
+    def _collect_mailbox(self) -> Dict[str, Any]:
+        data = self._optional_data(self._modern_action("get_call_status"), "get_call_status")
         state = data.get("state")
         if not isinstance(state, Mapping):
             raise ProtocolError("Bar 310 call state is not an object")
         observed = {}
-        call_states = {0: "No Call", 1: "Calling", 2: "Disconnected", 3: "Connected"}
-        if state.get("callstate") in call_states:
-            observed["call_status"] = call_states[state["callstate"]]
         sip_values = {1: "On", 0: "Off"}
         if state.get("sip") in sip_values:
             observed["sip_status"] = sip_values[state["sip"]]
@@ -614,9 +669,19 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         )
         return {"presentation": self._normalize_presentation(data.get("isSendAux"))}
 
-    def _collect_sleep_mode(self) -> Dict[str, Any]:
-        data = self._optional_data(self.send_command("get_sleep_mode"), "get_sleep_mode")
-        return {"sleep_mode": self._normalize_sleep_mode(data.get("isSystemSleep"))}
+    def _collect_modern_state(self) -> Dict[str, Any]:
+        data = self._optional_data(self._modern_request("v1/login/status"), "get_sleep_mode")
+        state = data.get("state")
+        if not isinstance(state, Mapping):
+            raise ProtocolError("CloudLink 310 modern state is not an object")
+        sleep_values = {1: "On", 0: "Off"}
+        call_values = {0: "No Call", 1: "Calling", 2: "Connected", 3: "Disconnected"}
+        if state.get("isSleep") not in sleep_values:
+            raise ProtocolError("CloudLink 310 modern sleep state is unsupported")
+        observed = {"sleep_mode": sleep_values[state["isSleep"]]}
+        if state.get("callState") in call_values:
+            observed["call_status"] = call_values[state["callState"]]
+        return observed
 
     def _collect_camera_status(self) -> Dict[str, Any]:
         data = self._optional_data(
@@ -629,38 +694,29 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             return {"camera_status": "Off"}
         raise ProtocolError("Bar 310 camera source is unsupported")
 
-    def _collect_hd_ai_microphones(self) -> Dict[str, Any]:
-        data = self._optional_data(
-            self._make_request("v1/mediacontrol/mic/devices", method="GET"),
-            "HD-AI microphone status",
-        )
-        devices = data.get("deviceList")
-        if not isinstance(devices, list):
-            raise ProtocolError("Bar 310 microphone device list is not a list")
-        microphone = next(
-            (
-                item for item in devices
-                if isinstance(item, Mapping) and item.get("groupName") == "HD-AI"
-            ),
-            None,
-        )
-        if microphone is None:
-            return {"mic_connection_status": "Микрофон не подключён"}
-        plug_status = str(microphone.get("plugStatus"))
-        if plug_status == "0":
-            return {"mic_connection_status": "Микрофон не подключён"}
-        if plug_status != "1":
-            raise ProtocolError("Bar 310 microphone plug status is unsupported")
-        if "gainVolume" not in microphone or microphone["gainVolume"] is None:
-            raise ProtocolError("Bar 310 connected microphone has no gain")
-        return {
-            "mic_connection_status": "Подключён",
-            "mic_volume": microphone["gainVolume"],
-        }
+    @staticmethod
+    def _normalize_peripheral_version(data: Mapping, field: str, built_in: str):
+        if field not in data:
+            return None
+        values = data[field]
+        if not isinstance(values, list):
+            return None
+        if not values:
+            return built_in
+        normalized = []
+        for entry in values:
+            if not isinstance(entry, Mapping) or not isinstance(entry.get("version"), str):
+                return None
+            value = entry["version"].strip()
+            if not value:
+                return None
+            if value not in normalized:
+                normalized.append(value)
+        return "; ".join(normalized)
 
     def get_status(self) -> Dict[str, Any]:
         """Collect the reviewed, read-only CloudLink Bar 310 status plan."""
-        response = self.send_command("get_version")
+        response = self._modern_action("get_version")
         if not isinstance(response, Mapping):
             raise ProtocolError("Bar 310 version response is not an object")
         if response.get("success") != 1:
@@ -675,28 +731,30 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ProtocolError("Bar 310 version evidence is unusable")
 
         status = {"model": self.device_model, "version": version}
-        for source, target in (("lisence", "serial_number"), ("micVersion", "mic_version")):
+        for source, target in (("lisence", "serial_number"),):
             value = self._nonempty_value(data, source)
             if value is not None:
                 status[target] = value
+        camera_version = self._normalize_peripheral_version(data, "cameraVersion", "Встроенная камера")
+        microphone_version = self._normalize_peripheral_version(data, "micVersion", "Встроенный микрофон")
+        if camera_version is not None:
+            status["camera_version"] = camera_version
+        if microphone_version is not None:
+            status["mic_version"] = microphone_version
 
         self._collect_optional("get_mac", self._collect_mac, status)
         self._collect_optional("get_audio_status", self._collect_audio, status)
         self._collect_optional("get_line_state", self._collect_line_state, status)
 
-        call_status = {}
-        self._collect_optional("get_call_status", self._collect_call_status, call_status)
-        if "call_status" in call_status:
-            status["call_status"] = call_status["call_status"]
-        if "sip_status" not in status and "sip_status" in call_status:
-            status["sip_status"] = call_status["sip_status"]
+        mailbox = {}
+        self._collect_optional("get_mailbox", self._collect_mailbox, mailbox)
+        if "sip_status" not in status and "sip_status" in mailbox:
+            status["sip_status"] = mailbox["sip_status"]
+
+        self._collect_optional("get_modern_state", self._collect_modern_state, status)
 
         self._collect_optional("get_presentation", self._collect_presentation, status)
-        self._collect_optional("get_sleep_mode", self._collect_sleep_mode, status)
         self._collect_optional("get_camera_status", self._collect_camera_status, status)
-        self._collect_optional(
-            "HD-AI microphone status", self._collect_hd_ai_microphones, status
-        )
         return status
   
     # Реализация абстрактных методов
@@ -769,14 +827,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def get_mac_address(self) -> str:
         """Получение MAC адреса"""
-        result = self.send_command('get_mac')
-        if result and result.get('success') == 1:
-            data = result.get('data', {})
-            if isinstance(data, dict):
-                return (data.get('system_wanMAC_addr') or 
-                       data.get('system_lanMAC_addr') or 
-                       data.get('mac_addr') or 'N/A')
-        return 'N/A'
+        return self._collect_mac().get("mac_address", "N/A")
     
     def get_presentation_status(self) -> str:
         """Получить статус презентации"""
@@ -787,15 +838,12 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def get_sleep_mode(self) -> str:
         """Получить режим сна"""
-        data = self._optional_data(
-            self.send_command('get_sleep_mode'), 'get_sleep_mode'
-        )
-        return self._normalize_sleep_mode(data.get('isSystemSleep'))
+        return self._collect_modern_state()["sleep_mode"]
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
         payload = {
-            "acCSRFToken": self.acCSRFToken or "",
+            "acCSRFToken": self.legacy_acCSRFToken or "",
         }
         result = self.send_command('action.cgi?ActionID=WEB_SystemWakeUpAPI', payload)
         return bool(result and result.get('success') == 1)
@@ -814,7 +862,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ValueError("Presentation value must be 'Start' or 'Stop'")
 
         payload = {
-            "acCSRFToken": self.acCSRFToken or "",
+            "acCSRFToken": self.legacy_acCSRFToken or "",
         }
         result = self.send_command(command, payload)
         if result and result.get('success') == 1:
@@ -841,7 +889,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         payload = {
             "speaker": 1,
             "speakerValue": int(value),
-            "acCSRFToken": self.acCSRFToken or "",
+            "acCSRFToken": self.legacy_acCSRFToken or "",
         }
         # Для set-команды нужен полный action.cgi endpoint, иначе запрос уходит
         # на несуществующий URL вида /WEB_SetSpeakVolumeAPI.
@@ -874,53 +922,12 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             return None
 
     def set_microphone_volume(self, value: int) -> bool:
-        min_value, max_value = self.get_volume_range()
-        if not min_value <= int(value) <= max_value:
-            raise ValueError(f"Microphone volume must be in range {min_value}..{max_value}")
-
-        if not self.is_connected() or not self.acCSRFToken:
-            if not self.connect():
-                return False
-
-        microphones = self._get_controllable_hd_ai_microphones()
-        if not microphones:
-            microphones = [{"deviceId": device_id, "ctrlStatus": 1} for device_id in (4, 5, 6)]
-
-        payload = {
-            "setMicInfoList": [
-                {
-                    "deviceId": mic.get("deviceId"),
-                    "ctrlStatus": mic.get("ctrlStatus", 1),
-                    "gainVolume": int(value),
-                }
-                for mic in microphones
-                if mic.get("deviceId") is not None
-            ]
-        }
-        if not payload["setMicInfoList"]:
-            return False
-
-        result = self._make_request('v1/mediacontrol/mic/devices', method='PUT', data=payload)
-        if result and result.get('success') == 1:
-            return True
-
-        result = self._make_request('v1/mediacontrol/mic/devices', method='POST', data=payload)
-        return bool(result and result.get('success') == 1)
+        # No approved authoritative target or readback exists for CloudLink
+        # microphone gain.  Reject before any connection or device I/O.
+        return False
 
     def get_microphone_volume(self) -> Optional[int]:
-        hd_ai_mics = self._get_hd_ai_microphones()
-        if not hd_ai_mics:
-            return None
-
-        first_hd_ai_mic = hd_ai_mics[0]
-        if str(first_hd_ai_mic.get('plugStatus')) == '0':
-            return None
-
-        volume = first_hd_ai_mic.get('gainVolume')
-        try:
-            return int(volume)
-        except (TypeError, ValueError):
-            return None
+        return None
 
     def set_sip_server(self, sip_address: str = "link.ru") -> bool:
         """Установить SIP-сервер через тот же API, что и в референсном драйвере."""
@@ -932,7 +939,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                     "CfgItemInfo": sip_address,
                 }
             ],
-            "acCSRFToken": self.acCSRFToken or "",
+            "acCSRFToken": self.legacy_acCSRFToken or "",
         }
         result = self.send_command('action.cgi?ActionID=WEB_SaveCfgParamAPI', payload)
         if result and result.get('success') == 1:
@@ -945,7 +952,7 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
         """Прочитать текущий SIP-сервер из конфигурации."""
         payload = {
             "CfgIDString": ["sipserv_addr"],
-            "acCSRFToken": self.acCSRFToken or "",
+            "acCSRFToken": self.legacy_acCSRFToken or "",
         }
         result = self.send_command('action.cgi?ActionID=WEB_GetCfgParamAPI', payload)
         if not result or result.get('success') != 1:

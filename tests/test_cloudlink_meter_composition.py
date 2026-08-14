@@ -181,6 +181,12 @@ class CodecScreenMeterRenderingTests(unittest.TestCase):
                 self.assertIsNot(first, self.screen.microphone_meter_bar)
                 self.assertEqual(1, list(self.screen.parameter_rows).count("Уровень микрофонов"))
 
+    def test_cloudlink_runtime_rows_are_visible_without_gain_controls(self):
+        self._rebuild("CloudLink Bar 310")
+        for name in ("Режим сна", "Версия камеры", "Версия микрофона"):
+            self.assertIn(name, self.screen.parameter_rows)
+        self.assertNotIn("Громкость микрофона", self.screen.parameter_rows)
+
     def test_unsupported_rebuild_clears_meter_reference_and_cannot_be_resurrected(self):
         self._rebuild("CloudLink Bar 310")
         old = self.screen.microphone_meter_bar

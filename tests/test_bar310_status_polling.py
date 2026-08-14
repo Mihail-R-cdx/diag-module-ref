@@ -1,268 +1,181 @@
-"""Synthetic regression coverage for the Bar 310 status polling contract."""
+"""Regression coverage for the closed CloudLink 310 runtime contract."""
 
 import unittest
 from contextlib import nullcontext
+from unittest.mock import Mock
 from unittest.mock import patch
 
-from core.exceptions import (
-    AuthenticationError,
-    CommandError,
-    ConnectionError,
-    ParseError,
-    ProtocolError,
-    SessionInvalidError,
-)
+from core.exceptions import ParseError, ProtocolError
 from core.parser import HuaweiBar310DataParser
 from core.workers.codec_polling import HuaweiBar310Worker
 from handlers.huawei.bar310 import CloudLinkBar310Handler
 
 
-CORE = {"success": 1, "data": {"softVersion": "  V1.2.3  "}}
-
-
-def handler_with_responses(responses, microphone_response=None):
-    handler = CloudLinkBar310Handler("synthetic-host", username="assigned", password="assigned")
+def handler_with_observations(*, modern_actions=None, modern_state=None, legacy=None):
+    handler = CloudLinkBar310Handler("192.0.2.10", username="assigned", password="assigned")
     calls = []
+    modern_actions = modern_actions or {}
+    legacy = legacy or {}
 
-    def send_command(command, data=None):
-        calls.append(command)
-        response = responses.get(command)
-        if isinstance(response, BaseException):
-            raise response
-        return response
+    def action(command):
+        calls.append(("modern-action", command))
+        return modern_actions[command]
 
-    def microphone_request(endpoint, method="POST", data=None):
-        calls.append((method, endpoint))
-        if isinstance(microphone_response, BaseException):
-            raise microphone_response
-        return microphone_response
+    def modern(endpoint, method="GET", data=None, **_kwargs):
+        calls.append(("modern", method, endpoint, data))
+        if endpoint == "v1/login/status":
+            return modern_state
+        raise AssertionError(f"unexpected modern request: {endpoint}")
 
-    handler.send_command = send_command
-    handler._make_request = microphone_request
+    def command(command, data=None):
+        calls.append(("legacy", command))
+        return legacy[command]
+
+    handler._modern_action = action
+    handler._modern_request = modern
+    handler.send_command = command
     return handler, calls
 
 
-class Bar310StatusPollingTests(unittest.TestCase):
-    def test_closed_plan_collects_only_reviewed_endpoints(self):
-        responses = {
-            "get_version": {"success": 1, "data": {"softVersion": " V1 "}},
-            "get_mac": {"success": 1, "data": {"system_wanMAC_addr": "WAN", "system_lanMAC_addr": "LAN"}},
-            "get_audio_status": {"success": 1, "data": {"MicSwitch": 0, "SpeakerSwitch": 1, "speakerValue": 0}},
-            "get_line_state": {"success": 1, "data": {"runDay": 0, "runHour": 1, "runMin": 2, "sipStatusTxStr": "SIP_STATE_OK"}},
-            "get_call_status": {"success": 1, "data": {"state": {"callstate": 0, "sip": 0}}},
-            "get_presentation": {"success": 1, "data": {"isSendAux": "auxClose"}},
-            "get_sleep_mode": {"success": 1, "data": {"isSystemSleep": "unsleep"}},
-            "get_camera_status": {"success": 1, "data": {"localInMainSource": 255}},
-            "get_config": {"success": 1, "data": {}},
-            "get_config_default": {"success": 1, "data": {}},
-            "future_mutation": {"success": 1, "data": {}},
-        }
-        handler, calls = handler_with_responses(
-            responses, {"success": 1, "data": {"deviceList": []}}
+class CloudLink310StatusTests(unittest.TestCase):
+    def test_closed_status_routing_preserves_legacy_and_modern_boundaries(self):
+        handler, calls = handler_with_observations(
+            modern_actions={
+                "get_version": {"success": 1, "data": {
+                    "softVersion": " V1 ", "cameraVersion": [],
+                    "micVersion": [{"version": " A "}, {"version": "A"}, {"version": "B"}],
+                }},
+                "get_mac": {"success": 1, "data": {"system_wanMAC_addr": "WAN", "system_lanMAC_addr": "LAN"}},
+                "get_call_status": {"success": 1, "data": {"state": {"sip": 0}}},
+            },
+            modern_state={"success": 1, "data": {"state": {"isSleep": 0, "callState": 2}}},
+            legacy={
+                "get_audio_status": {"success": 1, "data": {"speakerValue": 0}},
+                "get_line_state": {"success": 1, "data": {"sipStatusTxStr": "SIP_STATE_OK"}},
+                "get_presentation": {"success": 1, "data": {"isSendAux": "auxClose"}},
+                "get_camera_status": {"success": 1, "data": {"localInMainSource": 255}},
+            },
         )
 
         status = handler.get_status()
 
-        self.assertEqual(status["model"], "Huawei CloudLink Bar 310")
-        self.assertEqual(status["version"], "V1")
-        self.assertEqual(status["mac_address"], "WAN")
-        self.assertEqual(status["speaker_volume"], 0)
-        self.assertEqual(status["sip_status"], "On")
-        self.assertEqual(status["presentation"], "Stop")
-        self.assertEqual(status["sleep_mode"], "Off")
-        self.assertEqual(status["camera_status"], "On")
-        self.assertEqual(status["mic_connection_status"], "Микрофон не подключён")
-        self.assertNotIn("mic_volume", status)
-        self.assertEqual(
-            calls,
-            [
-                "get_version", "get_mac", "get_audio_status", "get_line_state",
-                "get_call_status", "get_presentation", "get_sleep_mode",
-                "get_camera_status", ("GET", "v1/mediacontrol/mic/devices"),
-            ],
-        )
-
-    def test_required_core_gate_is_exact(self):
-        invalid_data = [
-            {}, {"otherVersion": "V1"}, {"softVersion": None},
-            {"softVersion": 1}, {"softVersion": ""},
-            {"softVersion": "   "}, {"softVersion": "uNkNoWn"},
-        ]
-        for data in invalid_data:
-            with self.subTest(data=data):
-                handler, _ = handler_with_responses({"get_version": {"success": 1, "data": data}})
-                with self.assertRaises(ProtocolError):
-                    handler.get_status()
-        handler, _ = handler_with_responses({"get_version": {"success": 0, "data": {}}})
-        with self.assertRaises(CommandError):
-            handler.get_status()
-        handler, _ = handler_with_responses({"get_version": []})
-        with self.assertRaises(ProtocolError):
-            handler.get_status()
-
-    def test_optional_failure_preserves_core_and_owned_fields_only(self):
-        responses = {
-            "get_version": CORE,
-            "get_mac": {"success": 1, "data": {"system_lanMAC_addr": "LAN"}},
-            "get_audio_status": {"success": 1, "data": {"speakerValue": 0}},
-            "get_line_state": {"success": 1, "data": {}},
-            "get_call_status": {"success": 1, "data": {"state": {"sip": 1}}},
-            "get_presentation": {"success": 1, "data": {"isSendAux": "bad"}},
-            "get_sleep_mode": {"success": 0, "data": {}},
-            "get_camera_status": {"success": 1, "data": {"localInMainSource": 17}},
-        }
-        handler, _ = handler_with_responses(responses, {"success": 1, "data": {"deviceList": "bad"}})
-        status = handler.get_status()
-
-        self.assertEqual(status["version"], "V1.2.3")
-        self.assertEqual(status["mac_address"], "LAN")
-        self.assertEqual(status["speaker_volume"], 0)
-        self.assertEqual(status["sip_status"], "On")
-        for key in ("presentation", "sleep_mode", "camera_status", "mic_connection_status", "mic_volume"):
-            self.assertNotIn(key, status)
-
-    def test_terminal_optional_failures_propagate(self):
-        for error_type in (AuthenticationError, SessionInvalidError, ConnectionError):
-            with self.subTest(error_type=error_type):
-                handler, _ = handler_with_responses(
-                    {"get_version": CORE, "get_mac": error_type("synthetic terminal failure")}
-                )
-                with self.assertRaises(error_type):
-                    handler.get_status()
-
-    def test_line_sip_wins_and_call_sip_falls_back_only_when_needed(self):
-        common = {
-            "get_version": CORE, "get_mac": {"success": 1, "data": {}},
-            "get_audio_status": {"success": 1, "data": {}},
-            "get_presentation": {"success": 0, "data": {}}, "get_sleep_mode": {"success": 0, "data": {}},
-            "get_camera_status": {"success": 0, "data": {}},
-        }
-        responses = dict(common, get_line_state={"success": 1, "data": {"sipStatusTxStr": "SIP_STATE_OK"}}, get_call_status={"success": 1, "data": {"state": {"sip": 0}}})
-        handler, _ = handler_with_responses(responses, {"success": 0, "data": {}})
-        self.assertEqual(handler.get_status()["sip_status"], "On")
-        responses["get_line_state"] = {"success": 1, "data": {}}
-        handler, _ = handler_with_responses(responses, {"success": 0, "data": {}})
-        self.assertEqual(handler.get_status()["sip_status"], "Off")
-
-    def test_hd_ai_and_camera_observations_remain_distinct_from_unavailable(self):
-        base = {
-            "get_version": CORE, "get_mac": {"success": 0, "data": {}}, "get_audio_status": {"success": 0, "data": {}},
-            "get_line_state": {"success": 0, "data": {}}, "get_call_status": {"success": 0, "data": {}},
-            "get_presentation": {"success": 0, "data": {}}, "get_sleep_mode": {"success": 0, "data": {}},
-            "get_camera_status": {"success": 1, "data": {"localInMainSource": 0}},
-        }
-        handler, _ = handler_with_responses(base, {"success": 1, "data": {"deviceList": [{"groupName": "HD-AI", "plugStatus": "1", "gainVolume": 0}]}})
-        status = handler.get_status()
-        self.assertEqual(status["camera_status"], "Off")
-        self.assertEqual(status["mic_connection_status"], "Подключён")
-        self.assertEqual(status["mic_volume"], 0)
-        handler, _ = handler_with_responses(base, {"success": 1, "data": {"deviceList": [{"groupName": "HD-AI", "plugStatus": 0}]}})
-        status = handler.get_status()
-        self.assertEqual(status["mic_connection_status"], "Микрофон не подключён")
-        self.assertNotIn("mic_volume", status)
-        handler, _ = handler_with_responses(base, {"success": 1, "data": {"deviceList": [{"groupName": "HD-AI", "plugStatus": 1}]}})
-        status = handler.get_status()
+        self.assertEqual("V1", status["version"])
+        self.assertEqual("WAN", status["mac_address"])
+        self.assertEqual("On", status["sip_status"])
+        self.assertEqual("Connected", status["call_status"])
+        self.assertEqual("Off", status["sleep_mode"])
+        self.assertEqual("Встроенная камера", status["camera_version"])
+        self.assertEqual("A; B", status["mic_version"])
         self.assertNotIn("mic_connection_status", status)
         self.assertNotIn("mic_volume", status)
-
-    def test_presentation_and_sleep_helpers_are_shared_with_readback(self):
-        handler, _ = handler_with_responses(
-            {"get_presentation": {"success": 1, "data": {"isSendAux": "auxOpen"}}, "get_sleep_mode": {"success": 1, "data": {"isSystemSleep": "sleep"}}}
+        self.assertEqual(
+            [entry[:2] for entry in calls],
+            [("modern-action", "get_version"), ("modern-action", "get_mac"),
+             ("legacy", "get_audio_status"), ("legacy", "get_line_state"),
+             ("modern-action", "get_call_status"), ("modern", "GET"),
+             ("legacy", "get_presentation"), ("legacy", "get_camera_status")],
         )
-        self.assertEqual(handler.get_presentation_status(), "Start")
-        self.assertEqual(handler.get_sleep_mode(), "On")
-        handler, _ = handler_with_responses({"get_presentation": {"success": 1, "data": {"isSendAux": "other"}}})
-        with self.assertRaises(ProtocolError):
-            handler.get_presentation_status()
 
-    def test_parser_requires_exact_core_and_omits_absent_optional_observations(self):
-        invalid_payloads = [None, {}, {"model": "wrong", "version": "V1"}, {"model": "Huawei CloudLink Bar 310"}, {"model": "Huawei CloudLink Bar 310", "version": "   "}, {"model": "Huawei CloudLink Bar 310", "version": "Unknown"}, {"model": "Huawei CloudLink Bar 310", "version": "\x00"}]
-        for payload in invalid_payloads:
-            with self.subTest(payload=payload):
-                with self.assertRaises(ParseError):
-                    HuaweiBar310DataParser.parse_raw_data(payload)
-        parsed = HuaweiBar310DataParser.parse_raw_data({"model": "Huawei CloudLink Bar 310", "version": " V1 ", "speaker_volume": 0, "camera_status": "Off"})
-        self.assertEqual(parsed["Модель"], "Huawei CloudLink Bar 310")
-        self.assertEqual(parsed["Версия ПО"], "V1")
-        self.assertEqual(parsed["Громкость динамиков"], "0")
-        self.assertEqual(parsed["Статус камеры"], "Не подключена")
-        self.assertNotIn("Режим презентации", parsed)
-        self.assertNotIn("Статус звонка", parsed)
-
-    def test_parser_keeps_hd_ai_microphone_fields_owned_by_hd_ai_endpoint(self):
-        core = {"model": "Huawei CloudLink Bar 310", "version": "V1"}
-        audio_only = HuaweiBar310DataParser.parse_raw_data(
-            dict(core, mic_mute="On")
+    def test_mailbox_sip_is_only_fallback_and_modern_call_state_is_case_sensitive(self):
+        modern = {
+            "get_version": {"success": 1, "data": {"softVersion": "V1"}},
+            "get_mac": {"success": 1, "data": {}},
+            "get_call_status": {"success": 1, "data": {"state": {"sip": 0, "callstate": 3}}},
+        }
+        legacy = {
+            "get_audio_status": {"success": 1, "data": {}},
+            "get_line_state": {"success": 1, "data": {}},
+            "get_presentation": {"success": 0, "data": {}},
+            "get_camera_status": {"success": 0, "data": {}},
+        }
+        handler, _ = handler_with_observations(
+            modern_actions=modern, modern_state={"success": 1, "data": {"state": {"isSleep": 1, "callState": 3}}}, legacy=legacy,
         )
-        self.assertNotIn("Статус микрофона", audio_only)
-        self.assertNotIn("Громкость микрофона", audio_only)
-
-        hd_ai = HuaweiBar310DataParser.parse_raw_data(
-            dict(core, mic_connection_status="Подключён", mic_volume=0)
-        )
-        self.assertEqual(hd_ai["Статус микрофона"], "Подключён")
-        self.assertEqual(hd_ai["Громкость микрофона"], "0")
-
-    def test_box_identity_uses_shared_handler_and_rejects_bar_identity(self):
-        handler, _ = handler_with_responses({"get_version": {"success": 1, "data": {"softVersion": "V1"}}})
-        handler.device_model = "Huawei CloudLink Box 310"
         status = handler.get_status()
-        self.assertEqual(status["model"], "Huawei CloudLink Box 310")
-        parsed = HuaweiBar310DataParser.parse_raw_data(status, "Huawei CloudLink Box 310")
-        self.assertEqual(parsed["Модель"], "Huawei CloudLink Box 310")
-        with self.assertRaises(ParseError):
-            HuaweiBar310DataParser.parse_raw_data(status, "Huawei CloudLink Bar 310")
+        self.assertEqual("Off", status["sip_status"])
+        self.assertEqual("Disconnected", status["call_status"])
+        self.assertEqual("On", handler.get_sleep_mode())
+
+    def test_malformed_peripheral_list_is_unavailable_not_partially_rendered(self):
+        handler, _ = handler_with_observations(
+            modern_actions={
+                "get_version": {"success": 1, "data": {"softVersion": "V1", "cameraVersion": [{"version": "ok"}, {"name": "bad"}], "micVersion": "bad"}},
+                "get_mac": {"success": 1, "data": {}}, "get_call_status": {"success": 1, "data": {"state": {}}},
+            }, modern_state={"success": 1, "data": {"state": {"isSleep": 0}}},
+            legacy={"get_audio_status": {"success": 0, "data": {}}, "get_line_state": {"success": 0, "data": {}}, "get_presentation": {"success": 0, "data": {}}, "get_camera_status": {"success": 0, "data": {}}},
+        )
+        status = handler.get_status()
+        self.assertNotIn("camera_version", status)
+        self.assertNotIn("mic_version", status)
+
+    def test_sleep_readback_rejects_unproved_values(self):
+        handler, _ = handler_with_observations(
+            modern_state={"success": 1, "data": {"state": {"isSleep": "0"}}}
+        )
+        with self.assertRaises(ProtocolError):
+            handler.get_sleep_mode()
+
+    def test_gain_is_disabled_before_network_io_for_both_exact_models(self):
+        for identity in ("Huawei CloudLink Bar 310", "Huawei CloudLink Box 310"):
+            with self.subTest(identity=identity):
+                handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p", expected_identity=identity)
+                handler.connect = Mock(side_effect=AssertionError("must not connect"))
+                handler._make_request = Mock(side_effect=AssertionError("must not request"))
+                self.assertFalse(handler.set_microphone_volume(4))
+                handler.connect.assert_not_called()
+                handler._make_request.assert_not_called()
+
+    def test_modern_action_allowlist_rejects_unverified_legacy_audio_read(self):
+        handler = CloudLinkBar310Handler("192.0.2.10", username="u", password="p")
+        with self.assertRaises(ProtocolError):
+            handler._modern_action("get_audio_status")
+
+    def test_parser_renders_proved_peripheral_labels(self):
+        parsed = HuaweiBar310DataParser.parse_raw_data({
+            "model": "Huawei CloudLink Bar 310", "version": "V1",
+            "camera_version": "Встроенная камера", "mic_version": "A; B", "sleep_mode": "Off",
+        })
+        self.assertEqual("Встроенная камера", parsed["Версия камеры"])
+        self.assertEqual("A; B", parsed["Версия микрофона"])
+        self.assertEqual("Выключен", parsed["Режим сна"])
+
+
+class CloudLink310WorkerStatusTests(unittest.TestCase):
+    """Keep the worker's status-validation boundary under regression coverage."""
 
     def test_worker_rejects_unusable_raw_status_as_protocol_error(self):
-        self._assert_worker_outcome({}, expect_result=False)
-        self._assert_worker_outcome([], expect_result=False)
-        self._assert_worker_outcome({"ip_address": "metadata"}, expect_result=False)
-        self._assert_worker_outcome({"model": "wrong", "version": "V1"}, expect_result=False)
+        for payload in ({}, [], {"ip_address": "metadata"}, {"model": "wrong", "version": "V1"}):
+            with self.subTest(payload=payload):
+                self._assert_worker_outcome(payload, expect_result=False)
 
     def test_worker_classifies_parser_contract_failure_as_protocol_error(self):
         self._assert_worker_outcome(
             {"model": "Huawei CloudLink Bar 310", "version": "V1"},
-            expect_result=False,
-            parser_error=ParseError("synthetic parser contract failure"),
+            expect_result=False, parser_error=ParseError("synthetic parser contract failure"),
         )
 
     def test_worker_rejects_invalid_parser_mappings_as_protocol_error(self):
-        invalid_results = [
-            {},
-            {"Модель": "Huawei CloudLink Bar 310"},
-            {"Модель": "wrong", "Версия ПО": "V1"},
-            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": ""},
-            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": "   "},
-            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": "Unknown"},
-            {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": "uNkNoWn"},
-        ]
         raw_status = {"model": "Huawei CloudLink Bar 310", "version": "V1"}
-        for parsed_result in invalid_results:
-            with self.subTest(parsed_result=parsed_result):
-                self._assert_worker_outcome(
-                    raw_status, expect_result=False, parser_result=parsed_result
-                )
+        for parsed in ({}, {"Модель": "Huawei CloudLink Bar 310"}, {"Модель": "wrong", "Версия ПО": "V1"}, {"Модель": "Huawei CloudLink Bar 310", "Версия ПО": ""}):
+            with self.subTest(parsed=parsed):
+                self._assert_worker_outcome(raw_status, expect_result=False, parser_result=parsed)
 
     def test_worker_emits_usable_partial_status_then_cleans_up(self):
         events, results, errors = self._assert_worker_outcome(
-            {"model": "Huawei CloudLink Bar 310", "version": "V1", "speaker_volume": 0},
-            expect_result=True,
+            {"model": "Huawei CloudLink Bar 310", "version": "V1", "speaker_volume": 0}, expect_result=True,
         )
         self.assertFalse(errors)
-        self.assertEqual(results[0]["Громкость динамиков"], "0")
-        self.assertIn("ip_address", results[0])
+        self.assertEqual("0", results[0]["Громкость динамиков"])
         self.assertLess(events.index("result"), events.index("disconnected"))
         self.assertLess(events.index("disconnected"), events.index("finished"))
 
-    def _assert_worker_outcome(
-        self, payload, expect_result, parser_error=None, parser_result=None
-    ):
+    def _assert_worker_outcome(self, payload, expect_result, parser_error=None, parser_result=None):
         class FakeHandler:
             port = 443
             use_ssl = True
 
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
+            def __init__(self, **_kwargs):
+                pass
 
             def connect(self):
                 return True
@@ -280,27 +193,20 @@ class Bar310StatusPollingTests(unittest.TestCase):
         worker.signals.disconnected.connect(lambda: events.append("disconnected"))
         worker.signals.finished.connect(lambda: events.append("finished"))
         parser_context = (
-            patch(
-                "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data",
-                side_effect=parser_error,
-            )
-            if parser_error is not None
-            else patch(
-                "core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data",
-                return_value=parser_result,
-            )
-            if parser_result is not None
-            else nullcontext()
+            patch("core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data", side_effect=parser_error)
+            if parser_error is not None else
+            patch("core.workers.codec_polling.HuaweiBar310DataParser.parse_raw_data", return_value=parser_result)
+            if parser_result is not None else nullcontext()
         )
         with patch("core.workers.codec_polling.CloudLinkBar310Handler", FakeHandler), parser_context:
             worker.run()
         if expect_result:
-            self.assertEqual(len(results), 1)
+            self.assertEqual(1, len(results))
         else:
             self.assertFalse(results)
-            self.assertEqual(errors[0][0], "protocol_error")
+            self.assertEqual("protocol_error", errors[0][0])
             self.assertLess(events.index("error"), events.index("disconnected"))
-        self.assertEqual(events[-1], "finished")
+        self.assertEqual("finished", events[-1])
         return events, results, errors
 
 

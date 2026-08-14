@@ -156,6 +156,13 @@ class CredentialPropagationTests(unittest.TestCase):
                 {"success": 1},
                 {"success": 1, "data": {"acCSRFToken": token}},
             ],
+        ), patch.object(
+            handler,
+            "_modern_request",
+            side_effect=[
+                {"success": 1},
+                {"success": 1, "data": {"acCSRFToken": "modern-session-token"}},
+            ],
         ):
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):

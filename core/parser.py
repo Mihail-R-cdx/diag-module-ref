@@ -454,6 +454,7 @@ class HuaweiBar310DataParser:
         }
         direct_fields = {
             "serial_number": "Серийный номер",
+            "camera_version": "Версия камеры",
             "mic_version": "Версия микрофона",
             "mac_address": "MAC адрес",
             "sip_server": "SIP адрес",

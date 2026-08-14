@@ -435,6 +435,8 @@ class CodecScreen(BaseScreen):
             "Серийный номер",
             "MAC адрес",
         ]
+        if self._uses_cloudlink_microphone_meter():
+            primary_params.extend(["Режим сна", "Версия камеры", "Версия микрофона"])
         secondary_params = [
             "SIP регистрация",
             "SIP адрес",
@@ -444,11 +446,12 @@ class CodecScreen(BaseScreen):
         control_params = [
             "Статус звонка",
             "Статус презентации",
-            self._microphone_param_name(),
             "Громкость динамиков",
             "Статус камеры",
             "Статус микрофона",
         ]
+        if not self._uses_cloudlink_microphone_meter():
+            control_params.insert(2, self._microphone_param_name())
         if self._uses_cloudlink_microphone_meter():
             control_params.append(self.MICROPHONE_LEVEL_PARAM)
 

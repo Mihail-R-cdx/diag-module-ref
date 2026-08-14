@@ -35,12 +35,12 @@ class CloudLinkLiveMicrophoneMeteringTests(unittest.TestCase):
     def _established_bar(self, response):
         handler = CloudLinkBar310Handler("192.0.2.10", username="user", password="secret")
         established = self._EstablishedSession(response)
-        handler.session = established
+        handler.modern_session = established
         handler._connected = True
-        handler.acCSRFToken = "existing-action-csrf-only"
+        handler.acCSRFToken = "existing-modern-token"
         return handler, established
 
-    def test_bar_meter_uses_established_session_exact_get_without_access_token(self):
+    def test_bar_meter_uses_established_modern_session_and_access_token(self):
         handler, established = self._established_bar(self._Response(200, {
             "success": 1, "data": {"curMicVouumeList": [{"deviceId": 18, "curVolume": 4}]},
         }))
@@ -50,14 +50,14 @@ class CloudLinkLiveMicrophoneMeteringTests(unittest.TestCase):
         self.assertEqual(4, sample["raw_level"])
         self.assertEqual(1, len(established.calls))
         request = established.calls[0]
-        self.assertIs(established, handler.session)
+        self.assertIs(established, handler.modern_session)
         self.assertEqual("GET", request["method"])
         self.assertEqual("https://192.0.2.10:443/v1/mediacontrol/mic/current-volume", request["url"])
-        self.assertNotIn("X-Access-Token", request["headers"])
+        self.assertEqual("existing-modern-token", request["headers"]["X-Access-Token"])
         self.assertIsNone(request["data"])
         self.assertNotIn("X-Access-Token", request["url"])
 
-    def test_bar_established_session_rejection_remains_typed_without_token_path(self):
+    def test_bar_established_modern_session_rejection_remains_typed(self):
         handler, established = self._established_bar(self._Response(403, {"success": 0}))
 
         with self.assertRaises(SessionInvalidError):
@@ -65,7 +65,7 @@ class CloudLinkLiveMicrophoneMeteringTests(unittest.TestCase):
 
         self.assertEqual(1, len(established.calls))
         request = established.calls[0]
-        self.assertNotIn("X-Access-Token", request["headers"])
+        self.assertEqual("existing-modern-token", request["headers"]["X-Access-Token"])
         self.assertNotIn("X-Access-Token", request["url"])
     def test_bar_uses_maximum_from_every_device_including_18(self):
         sample = normalize_cloudlink_bar_microphone_sample({"curMicVouumeList": [
