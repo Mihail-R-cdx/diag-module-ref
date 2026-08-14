@@ -85,6 +85,8 @@
 - [x] Cover disabled gain control and assert zero device network mutation.
 - [x] Cover codec-local time and explicit system fallback.
 - [x] Cover GUI rows/rebuild/currentness/stale suppression and unresolved manual model fallback.
+- [x] Resolve corrective review findings: isolate malformed optional presentation and modern sleep/call observations without swallowing terminal typed failures.
+- [x] Resolve corrective review finding: classify Bar call-history HTTP/app/protocol/transport failures with their approved typed exception categories.
 
 ## 8. Implementation validation and publication
 
@@ -94,8 +96,8 @@
 - [x] Run `.\openspec.cmd validate --all --strict`.
 - [x] Run `git diff --check` and `git diff --cached --check`.
 - [x] Review implementation against approved OpenSpec, including no modern migration of unverified reads/Box meter and no CloudLink gain mutation.
-- [ ] Create focused implementation commit and push feature branch; verify local HEAD equals remote without amend/rebase/force-push/history rewrite.
-- [ ] Keep PR Draft. Implementation session MUST NOT issue independent final `APPROVE`.
+- [x] Create focused implementation commit and push feature branch; verify local HEAD equals remote without amend/rebase/force-push/history rewrite.
+- [x] Keep PR Draft. Implementation session MUST NOT issue independent final `APPROVE`.
 
 ## 9. Independent validation and archive applicability
 

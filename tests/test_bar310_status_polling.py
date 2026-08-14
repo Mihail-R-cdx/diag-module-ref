@@ -1,12 +1,22 @@
 """Regression coverage for the closed CloudLink 310 runtime contract."""
 
 import unittest
+import requests
 from contextlib import nullcontext
 from datetime import datetime
 from unittest.mock import Mock
 from unittest.mock import patch
 
-from core.exceptions import ParseError, ProtocolError, SessionInvalidError
+from core.exceptions import (
+    AuthenticationError,
+    CodecFailureCategory,
+    CommandError,
+    ConnectionError,
+    ParseError,
+    ProtocolError,
+    SessionInvalidError,
+    classify_codec_failure,
+)
 from core.parser import HuaweiBar310DataParser
 from core.workers.codec_polling import HuaweiBar310Worker
 from handlers.huawei.bar310 import CloudLinkBar310Handler
@@ -108,6 +118,135 @@ class CloudLink310StatusTests(unittest.TestCase):
         status = handler.get_status()
         self.assertNotIn("camera_version", status)
         self.assertNotIn("mic_version", status)
+
+    def test_malformed_presentation_is_optional_and_preserves_core_status(self):
+        for malformed in ([], {}):
+            with self.subTest(malformed=malformed):
+                handler, _ = handler_with_observations(
+                    modern_actions={
+                        "get_version": {"success": 1, "data": {"softVersion": "V1"}},
+                        "get_mac": {"success": 1, "data": {}},
+                        "get_call_status": {"success": 1, "data": {"state": {}}},
+                    },
+                    modern_state={"success": 1, "data": {"state": {"isSleep": 0}}},
+                    legacy={
+                        "get_audio_status": {"success": 1, "data": {}},
+                        "get_line_state": {"success": 1, "data": {}},
+                        "get_presentation": {"success": 1, "data": {"isSendAux": malformed}},
+                        "get_camera_status": {"success": 1, "data": {"localInMainSource": 0}},
+                    },
+                )
+
+                status = handler.get_status()
+
+                self.assertEqual("V1", status["version"])
+                self.assertEqual("Off", status["sleep_mode"])
+                self.assertNotIn("presentation", status)
+
+    def test_malformed_optional_sip_enums_do_not_abort_status(self):
+        handler, _ = handler_with_observations(
+            modern_actions={
+                "get_version": {"success": 1, "data": {"softVersion": "V1"}},
+                "get_mac": {"success": 1, "data": {}},
+                "get_call_status": {"success": 1, "data": {"state": {"sip": {}}}},
+            },
+            modern_state={"success": 1, "data": {"state": {"isSleep": 0}}},
+            legacy={
+                "get_audio_status": {"success": 1, "data": {}},
+                "get_line_state": {"success": 1, "data": {"sipStatusTxStr": []}},
+                "get_presentation": {"success": 1, "data": {"isSendAux": "auxClose"}},
+                "get_camera_status": {"success": 1, "data": {"localInMainSource": 0}},
+            },
+        )
+
+        status = handler.get_status()
+
+        self.assertEqual("V1", status["version"])
+        self.assertNotIn("sip_status", status)
+
+    def test_modern_state_fields_are_independently_fail_closed(self):
+        cases = (
+            ({"callState": 2}, {"call_status": "Connected"}),
+            ({"isSleep": {}, "callState": 2}, {"call_status": "Connected"}),
+            ({"isSleep": 0, "callState": []}, {"sleep_mode": "Off"}),
+            ({"isSleep": {}, "callState": []}, {}),
+            ({"isSleep": False, "callState": True}, {}),
+        )
+        for state, expected in cases:
+            with self.subTest(state=state):
+                handler, _ = handler_with_observations(
+                    modern_actions={
+                        "get_version": {"success": 1, "data": {"softVersion": "V1"}},
+                        "get_mac": {"success": 1, "data": {}},
+                        "get_call_status": {"success": 1, "data": {"state": {}}},
+                    },
+                    modern_state={"success": 1, "data": {"state": state}},
+                    legacy={
+                        "get_audio_status": {"success": 1, "data": {}},
+                        "get_line_state": {"success": 1, "data": {}},
+                        "get_presentation": {"success": 1, "data": {"isSendAux": "auxClose"}},
+                        "get_camera_status": {"success": 1, "data": {"localInMainSource": 0}},
+                    },
+                )
+
+                status = handler.get_status()
+
+                for field, value in expected.items():
+                    self.assertEqual(value, status[field])
+                for field in {"sleep_mode", "call_status"} - expected.keys():
+                    self.assertNotIn(field, status)
+
+    def test_optional_collection_does_not_swallow_terminal_failures(self):
+        handler = CloudLinkBar310Handler("192.0.2.10", username="assigned", password="assigned")
+        for error in (
+            AuthenticationError("rejected"),
+            SessionInvalidError("expired"),
+            ConnectionError("offline"),
+        ):
+            with self.subTest(error=type(error).__name__), self.assertRaises(type(error)):
+                handler._collect_optional("synthetic", lambda error=error: (_ for _ in ()).throw(error), {})
+
+    def _call_history_handler(self, response=None, error=None):
+        handler = CloudLinkBar310Handler("192.0.2.10", username="assigned", password="assigned")
+        handler.is_connected = Mock(return_value=True)
+        handler.acCSRFToken = "synthetic-token"
+        handler.modern_session = Mock()
+        if error is not None:
+            handler.modern_session.get.side_effect = error
+        else:
+            handler.modern_session.get.return_value = response
+        return handler
+
+    def test_call_history_success_zero_is_command_failure_not_authentication(self):
+        response = Mock(status_code=200, text='{"success": 0}')
+        handler = self._call_history_handler(response)
+
+        with self.assertRaises(CommandError) as raised:
+            handler.get_call_records()
+
+        self.assertEqual(CodecFailureCategory.COMMAND, classify_codec_failure(raised.exception))
+
+    def test_call_history_malformed_http_200_response_is_protocol_failure(self):
+        for text in ("not json", "[]"):
+            with self.subTest(text=text):
+                handler = self._call_history_handler(Mock(status_code=200, text=text))
+                with self.assertRaises(ProtocolError):
+                    handler.get_call_records()
+
+    def test_call_history_session_and_transport_failures_remain_typed(self):
+        for status_code in (401, 403):
+            with self.subTest(status_code=status_code):
+                handler = self._call_history_handler(Mock(status_code=status_code, text="{}"))
+                with self.assertRaises(SessionInvalidError):
+                    handler.get_call_records()
+
+        handler = self._call_history_handler(Mock(status_code=500, text="{}"))
+        with self.assertRaises(CommandError):
+            handler.get_call_records()
+
+        handler = self._call_history_handler(error=requests.exceptions.Timeout("synthetic"))
+        with self.assertRaises(ConnectionError):
+            handler.get_call_records()
 
     def test_sleep_readback_rejects_unproved_values(self):
         handler, _ = handler_with_observations(

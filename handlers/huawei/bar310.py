@@ -564,13 +564,15 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
                 f"HTTP {response.status_code}: established Bar 310 session was rejected"
             )
         if response.status_code >= 400:
-            raise ConnectionError(
+            raise CommandError(
                 f"HTTP {response.status_code}: ошибка получения журнала звонков Bar 310"
             )
 
         result = self._parse_response(response.text)
-        if not result or result.get("success") != 1:
-            raise ConnectionError("CloudLink 310 did not return call history")
+        if not isinstance(result, Mapping):
+            raise ProtocolError("CloudLink 310 call-history response is malformed")
+        if result.get("success") != 1:
+            raise CommandError("CloudLink 310 call-history response was unsuccessful")
 
         return self._parse_call_records(result.get("data", {}))
 
@@ -622,14 +624,29 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     @staticmethod
     def _normalize_presentation(value: Any) -> str:
         values = {"auxOpen": "Start", "auxClose": "Stop"}
-        if value not in values:
+        if not isinstance(value, str) or value not in values:
             raise ProtocolError("Bar 310 presentation state is unsupported")
         return values[value]
 
     @staticmethod
+    def _normalize_modern_enum(value: Any, values: Mapping[int, str]) -> Optional[str]:
+        """Normalize a proved numeric enum without accepting arbitrary JSON."""
+        # Lists and mappings are unhashable, and bool is an int subclass but
+        # not evidence for a CloudLink protocol enum.
+        if type(value) is not int:
+            return None
+        return values.get(value)
+
+    @staticmethod
+    def _normalize_string_enum(value: Any, values: Mapping[str, str]) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        return values.get(value)
+
+    @staticmethod
     def _normalize_sleep_mode(value: Any) -> str:
         values = {"sleep": "On", "unsleep": "Off"}
-        if value not in values:
+        if not isinstance(value, str) or value not in values:
             raise ProtocolError("Bar 310 sleep state is unsupported")
         return values[value]
 
@@ -687,8 +704,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             if value is not None:
                 observed[target] = value
         sip_values = {"SIP_STATE_OK": "On", "EMPTY": "Off"}
-        if data.get("sipStatusTxStr") in sip_values:
-            observed["sip_status"] = sip_values[data["sipStatusTxStr"]]
+        sip_status = self._normalize_string_enum(data.get("sipStatusTxStr"), sip_values)
+        if sip_status is not None:
+            observed["sip_status"] = sip_status
         return observed
 
     def _collect_mailbox(self) -> Dict[str, Any]:
@@ -698,8 +716,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ProtocolError("Bar 310 call state is not an object")
         observed = {}
         sip_values = {1: "On", 0: "Off"}
-        if state.get("sip") in sip_values:
-            observed["sip_status"] = sip_values[state["sip"]]
+        sip_status = self._normalize_modern_enum(state.get("sip"), sip_values)
+        if sip_status is not None:
+            observed["sip_status"] = sip_status
         return observed
 
     def _collect_presentation(self) -> Dict[str, Any]:
@@ -715,11 +734,13 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             raise ProtocolError("CloudLink 310 modern state is not an object")
         sleep_values = {1: "On", 0: "Off"}
         call_values = {0: "No Call", 1: "Calling", 2: "Connected", 3: "Disconnected"}
-        if state.get("isSleep") not in sleep_values:
-            raise ProtocolError("CloudLink 310 modern sleep state is unsupported")
-        observed = {"sleep_mode": sleep_values[state["isSleep"]]}
-        if state.get("callState") in call_values:
-            observed["call_status"] = call_values[state["callState"]]
+        observed = {}
+        sleep_mode = self._normalize_modern_enum(state.get("isSleep"), sleep_values)
+        call_status = self._normalize_modern_enum(state.get("callState"), call_values)
+        if sleep_mode is not None:
+            observed["sleep_mode"] = sleep_mode
+        if call_status is not None:
+            observed["call_status"] = call_status
         return observed
 
     def _collect_camera_status(self) -> Dict[str, Any]:
@@ -877,7 +898,10 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
     
     def get_sleep_mode(self) -> str:
         """Получить режим сна"""
-        return self._collect_modern_state()["sleep_mode"]
+        sleep_mode = self._collect_modern_state().get("sleep_mode")
+        if sleep_mode is None:
+            raise ProtocolError("CloudLink 310 modern sleep state is unsupported")
+        return sleep_mode
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
