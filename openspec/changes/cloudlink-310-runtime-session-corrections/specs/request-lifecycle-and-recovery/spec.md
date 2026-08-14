@@ -43,6 +43,13 @@ Exact assigned Bar/Box identity remains authoritative; shared polling SHALL NOT 
 - **THEN** this change does not migrate those action.cgi requests to modern auth
 - **AND** their existing legacy compatibility path remains authoritative
 
+#### Scenario: Configuration endpoint exists in the command map
+
+- **GIVEN** `get_config` or `get_config_default` remains available for another handler purpose
+- **WHEN** ordinary Bar 310 status refresh runs
+- **THEN** the refresh does not invoke that configuration endpoint
+- **AND** command-map membership alone does not grant polling authority
+
 #### Scenario: Box meter remains on legacy compatibility context
 
 - **GIVEN** exact model is `CloudLink Box 310`
@@ -50,20 +57,28 @@ Exact assigned Bar/Box identity remains authoritative; shared polling SHALL NOT 
 - **THEN** the existing legacy compatibility subcontext remains authoritative
 - **AND** this change does not add that endpoint to the modern action.cgi allowlist
 
-#### Scenario: Optional read is unavailable
+#### Scenario: Optional presentation read is unavailable
 
-- **GIVEN** required version evidence succeeded
-- **WHEN** one optional read has endpoint-local unsuccessful/malformed outcome
-- **THEN** its fields are omitted
-- **AND** already collected status remains available
+- **GIVEN** required version evidence and other status observations succeeded
+- **WHEN** the optional presentation endpoint has an endpoint-local unsuccessful or malformed outcome
+- **THEN** the handler preserves the already collected canonical fields
+- **AND** it omits `presentation` from that refresh result
+- **AND** it does not return an empty mapping
 - **AND** generic endpoint failure does not authorize credential fallback
 
-#### Scenario: Established modern read returns HTTP 401 or 403
+#### Scenario: Established session is rejected during optional read
 
-- **WHEN** reviewed established modern read returns HTTP 401 or 403
+- **GIVEN** Bar 310 shared session establishment and required core response succeeded
+- **WHEN** an optional established-session request returns HTTP 401 or 403
 - **THEN** status collection raises `SessionInvalidError`
 - **AND** bounded same-credential recovery remains authoritative
 - **AND** partial status is not emitted as final success evidence
+
+#### Scenario: Optional read has a transport failure
+
+- **WHEN** an optional Bar 310 request times out or loses transport
+- **THEN** status collection raises `ConnectionError`
+- **AND** the handler does not downgrade the transport failure to partial success
 
 ### Requirement: CloudLink Bar 310 optional field ownership and precedence are closed
 
@@ -148,15 +163,23 @@ Failure/absence of one optional observation SHALL NOT delete or manufacture fiel
 - **WHEN** canonical MAC is composed
 - **THEN** `system_lanMAC_addr` is used
 
-#### Scenario: Line and mailbox SIP observations conflict
+#### Scenario: Line and call SIP observations agree
 
 - **GIVEN** line-state produced a valid SIP observation
-- **AND** mailbox produced the opposite SIP observation
+- **AND** the modern shared-state/mailbox fallback source produced the same SIP observation
+- **WHEN** canonical status is composed
+- **THEN** the line-state value remains canonical
+- **AND** the fallback source does not overwrite it
+
+#### Scenario: Line and call SIP observations conflict
+
+- **GIVEN** line-state produced a valid SIP observation
+- **AND** the modern shared-state/mailbox fallback source produced the opposite SIP observation
 - **WHEN** canonical status is composed
 - **THEN** line-state wins
-- **AND** mailbox does not overwrite `sip_status`
+- **AND** the fallback source does not overwrite `sip_status`
 
-#### Scenario: Mailbox SIP fallback is used
+#### Scenario: Call SIP fallback is used
 
 - **GIVEN** line-state produced no valid SIP observation
 - **AND** mailbox reports `state.sip == 1` or `state.sip == 0`
@@ -187,11 +210,18 @@ Failure/absence of one optional observation SHALL NOT delete or manufacture fiel
 - **THEN** canonical presentation evidence is built-in camera
 - **AND** no camera state is inferred
 
-#### Scenario: Legacy camera is observed disconnected
+#### Scenario: Camera endpoint is unavailable
+
+- **WHEN** the approved legacy camera endpoint is not successfully observed
+- **THEN** `camera_status` is omitted
+- **AND** the parser does not manufacture `Статус камеры = Подключена`
+
+#### Scenario: Camera is observed disconnected
 
 - **WHEN** the approved legacy camera read reports `localInMainSource == 0`
 - **THEN** canonical `camera_status` is `Off`
 - **AND** modern `state.camera` does not override it
+- **AND** parser display status is `Не подключена`
 
 #### Scenario: Valid multiple microphone versions are present
 
@@ -211,6 +241,32 @@ Failure/absence of one optional observation SHALL NOT delete or manufacture fiel
 - **WHEN** `/mic/devices` contains multiple HD-AI records
 - **THEN** list position does not select user-visible connection/gain
 - **AND** no unapproved `mic_connection_status` or `mic_volume` is manufactured
+
+#### Scenario: Successful HD-AI list is empty
+
+- **WHEN** `/mic/devices` succeeds with a valid empty `deviceList` or no HD-AI entries
+- **THEN** no `mic_connection_status` or diagnostic `mic_volume` is published from that response
+- **AND** an observed disconnected microphone or numeric zero is not inferred
+- **AND** live meter availability remains governed by its separate approved endpoint
+
+#### Scenario: HD-AI microphone is physically disconnected
+
+- **WHEN** an HD-AI entry reports `plugStatus == 0`
+- **THEN** that field does not establish user-visible microphone connection authority
+- **AND** no `mic_connection_status` or diagnostic `mic_volume` is manufactured
+
+#### Scenario: Connected HD-AI microphone reports zero gain
+
+- **WHEN** an HD-AI entry reports `plugStatus == 1` and `gainVolume == 0`
+- **THEN** those fields do not establish user-visible connection or gain authority
+- **AND** no diagnostic `mic_volume` is published from `gainVolume`
+- **AND** zero remains available only when observed by the separate approved live-meter endpoint
+
+#### Scenario: HD-AI list is malformed
+
+- **WHEN** `/mic/devices` succeeds but `deviceList` is malformed
+- **THEN** no `mic_connection_status` or diagnostic `mic_volume` is published from that response
+- **AND** already collected canonical fields remain available
 
 ### Requirement: CloudLink Bar 310 normalization distinguishes unavailable from observed state
 
@@ -250,11 +306,23 @@ Structured version normalization SHALL distinguish empty from unavailable exactl
 - **THEN** canonical `presentation` is `Stop`
 - **AND** ordinary status and interactive readback use the same result
 
-#### Scenario: Presentation endpoint is unavailable
+#### Scenario: Presentation endpoint is absent from a partial result
 
 - **WHEN** legacy presentation observation is unavailable or malformed
 - **THEN** `presentation` is omitted
 - **AND** absence is not converted into `Stop`
+
+#### Scenario: Sleep endpoint reports active sleep
+
+- **WHEN** accepted modern state reports `isSleep == 1`
+- **THEN** canonical `sleep_mode` is `On`
+- **AND** ordinary status and interactive sleep readback produce the same value
+
+#### Scenario: Observed speaker volume is zero
+
+- **WHEN** a successful approved audio response reports a valid speaker volume of zero
+- **THEN** canonical speaker volume remains present with value zero
+- **AND** zero is not treated as unavailable data
 
 #### Scenario: Peripheral version field is malformed
 

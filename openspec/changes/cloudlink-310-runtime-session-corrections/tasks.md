@@ -17,6 +17,10 @@
 ## 2. OpenSpec contract corrections
 
 - [x] Modify `cloudlink-live-microphone-metering` so Bar meter uses modern read context/X-Access-Token while Box keeps `WEB_GetCurrentAudioParam`, its closed field set, and legacy compatibility context.
+- [x] Reconcile the meter MODIFIED requirement with archived scenarios for shared modern Bar session reuse, typed rejection, sparse/reordered identifiers, and Box non-microphone exclusion; no meter-specific credential flow is introduced.
+- [x] Reconcile the interactive-session MODIFIED requirement with archived exact Bar/Box scenarios while retaining modern-read and legacy compatibility/control subcontexts.
+- [x] Reconcile the polling MODIFIED requirement with archived command-map, optional-presentation, typed session, and transport-failure scenarios.
+- [x] Reconcile archived SIP, HD-AI, and camera scenarios to the approved source-precedence and no-HD-AI-authority contract.
 - [x] Modify `device-diagnostics-and-control` for one handler generation with modern read plus legacy compatibility/control subcontexts under one application-selected credential, including explicit Box meter legacy routing.
 - [x] Add runtime presentation rules for sleep, deterministic camera/microphone version lists, and built-in labels without using WebUI `--` as protocol authority.
 - [x] Modify `request-lifecycle-and-recovery` for exact modern allowlist, Box-meter legacy exception, preserved MAC/SIP/camera/presentation semantics, modern sleep/call mappings, no first-HD-AI product authority, and fail-closed gain control.

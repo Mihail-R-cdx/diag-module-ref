@@ -62,14 +62,15 @@ An empty Bar list, a Bar list with no valid `curVolume`, or a Box payload with n
 
 An established-session HTTP 401/403 SHALL remain a typed session invalidation under the existing bounded same-credential recovery policy. A generic HTTP-200 application response with `success: 0`, arbitrary exception/message text, or another unapproved discriminator SHALL NOT by itself authorize credential fallback, token discovery, model switching, or string-heuristic session invalidation.
 
-#### Scenario: Bar meter uses the modern read token
+#### Scenario: Bar established session needs no meter-specific token
 
 - **GIVEN** the application has assigned exact `CloudLink Bar 310` and one credential
 - **AND** the shared handler established its modern read context successfully
 - **WHEN** live metering requests `GET /v1/mediacontrol/mic/current-volume`
 - **THEN** the request reuses that modern session and cookies
-- **AND** it transmits the in-memory modern token as `X-Access-Token`
-- **AND** it does not establish a meter-specific credential flow
+- **AND** it transmits the shared in-memory modern token as `X-Access-Token`
+- **AND** it does not create, acquire, persist, refresh, discover, or select a separate meter-specific credential or token
+- **AND** it does not introduce handler-owned credential iteration
 
 #### Scenario: Bar sample includes device ID 18
 
@@ -77,6 +78,14 @@ An established-session HTTP 401/403 SHALL remain a typed session invalidation un
 - **WHEN** the raw level is normalized
 - **THEN** every valid list entry participates in the maximum
 - **AND** `deviceId == 18` is not excluded
+
+#### Scenario: Bar device identifiers are sparse or reordered
+
+- **WHEN** a successful Bar 310 list contains valid entries with arbitrary, sparse, or reordered `deviceId` values
+- **THEN** every Mapping entry with a valid non-negative numeric `curVolume` participates in the maximum
+- **AND** the maximum valid `curVolume` wins
+- **AND** `deviceId == 18` remains eligible
+- **AND** device identifier value, order, and list position do not select or exclude a line
 
 #### Scenario: Bar observed silence is available
 
@@ -94,12 +103,20 @@ An established-session HTTP 401/403 SHALL remain a typed session invalidation un
 - **AND** it does not call the Bar current-volume endpoint
 - **AND** only the existing closed Box microphone fields contribute
 
-#### Scenario: Established meter session is rejected
+#### Scenario: Box payload contains microphone and non-microphone inputs
 
-- **WHEN** a current Bar or Box meter request receives established-session HTTP 401 or 403
+- **GIVEN** a Box 310 response contains approved microphone fields plus TRS, RCA, HDMI, Bluetooth, UAC, `m220w_porwer_hint`, or other unreviewed fields
+- **WHEN** the raw meter level is calculated
+- **THEN** only the exact approved closed Box microphone field set contributes
+- **AND** a larger non-microphone value cannot raise the microphone meter
+
+#### Scenario: Bar meter endpoint rejects the established session
+
+- **WHEN** the established Bar meter request receives HTTP 401 or 403
 - **THEN** the failure remains typed session invalidation
 - **AND** same-credential bounded recovery remains authoritative
 - **AND** the handler does not advance credentials or switch Bar/Box identity
+- **AND** response-string authentication heuristics do not change that handling
 
 #### Scenario: Application-level unsuccessful sample has no approved auth discriminator
 

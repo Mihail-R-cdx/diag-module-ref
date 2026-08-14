@@ -30,6 +30,15 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 - **THEN** it uses HTTPS:443 with the application-selected credential and modern session artifacts
 - **AND** the context remains exactly `CloudLink Bar 310`
 
+#### Scenario: CloudLink Bar 310 interactive session
+
+- **GIVEN** the interactive context model is exactly `CloudLink Bar 310` with one application-selected credential
+- **WHEN** Bar 310 performs supported interactive preparation, volume, mute, presentation, call-log, or other approved read work
+- **THEN** it uses one exact Bar handler generation with the approved modern-read and legacy compatibility/control subcontexts
+- **AND** call-log reads use the recovered shared in-memory modern token through `X-Access-Token`
+- **AND** unverified reads and supported mutations retain their approved legacy compatibility/control path
+- **AND** handler recovery does not select another credential or relabel the operation as Box 310
+
 #### Scenario: CloudLink Box 310 reviewed read uses modern context
 
 - **GIVEN** exact model is `CloudLink Box 310`
@@ -37,6 +46,15 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 - **THEN** it uses the shared handler modern read context
 - **AND** exact Box identity remains unchanged
 - **AND** recovery does not relabel or retry as Bar 310
+
+#### Scenario: CloudLink Box 310 interactive session
+
+- **GIVEN** the interactive context model is exactly `CloudLink Box 310`
+- **WHEN** Box 310 performs an operation supported by the shared CloudLink 310 interactive capability
+- **THEN** it uses HTTPS:443 through the same `CloudLinkBar310Handler` generation and the application-selected credential
+- **AND** approved common modern reads use the modern read subcontext while legacy-compatible operations retain the legacy compatibility/control subcontext
+- **AND** the interactive context remains exactly `CloudLink Box 310`
+- **AND** recovery does not retry or relabel the operation as `CloudLink Bar 310`
 
 #### Scenario: Unverified action.cgi read remains legacy-compatible
 
