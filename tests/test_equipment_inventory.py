@@ -11,10 +11,13 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from core.equipment_inventory import (
     RECORD_FIELDS,
     RECORD_FIELDS_V1,
+    RECORD_FIELDS_V3,
+    RECORD_FIELDS_V4,
     SCHEMA_VERSION,
     SCHEMA_VERSION_V1,
     SCHEMA_VERSION_V2,
     SCHEMA_VERSION_V3,
+    SCHEMA_VERSION_V4,
     EquipmentInventoryLoadError,
     EquipmentRecord,
     InventoryLoadFailure,
@@ -48,6 +51,7 @@ from tools.import_equipment_inventory import (
 HEADERS = [
     SOURCE_COLUMNS["room_id"],
     SOURCE_COLUMNS["room_name"],
+    SOURCE_COLUMNS["room_address"],
     SOURCE_COLUMNS["record_id"],
     SOURCE_COLUMNS["device_kind"],
     SOURCE_COLUMNS["source_model"],
@@ -67,7 +71,7 @@ NETWORK_HEADERS = [
 ]
 
 
-def record(record_id, *, ip_address=None, mac_address=None, serial_number=None, room_id=None, room_name=None, device_kind="other", source_model=None, diagnostic_model=None, room_vip=None):
+def record(record_id, *, ip_address=None, mac_address=None, serial_number=None, room_id=None, room_name=None, room_address=None, device_kind="other", source_model=None, diagnostic_model=None, room_vip=None):
     return EquipmentRecord(
         record_id=record_id,
         source_model=source_model,
@@ -79,12 +83,18 @@ def record(record_id, *, ip_address=None, mac_address=None, serial_number=None, 
         room_name=room_name,
         device_kind=device_kind,
         room_vip=room_vip,
+        room_address=room_address,
     )
 
 
 def snapshot_document(records, *, schema_version=SCHEMA_VERSION, **metadata):
     ordered = tuple(sorted(records, key=lambda item: item.record_id))
-    fields = RECORD_FIELDS_V1 if schema_version == SCHEMA_VERSION_V1 else RECORD_FIELDS
+    fields = {
+        SCHEMA_VERSION_V1: RECORD_FIELDS_V1,
+        SCHEMA_VERSION_V2: RECORD_FIELDS,
+        SCHEMA_VERSION_V3: RECORD_FIELDS_V3,
+        SCHEMA_VERSION_V4: RECORD_FIELDS_V4,
+    }[schema_version]
     record_dicts = [
         {field: getattr(item, field) for field in fields}
         for item in ordered
@@ -104,10 +114,11 @@ def write_snapshot(path, records, **metadata):
     return document
 
 
-def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", source_model=None, source_type="Video Conference", room_vip=None, ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-1", manufacturer="Huawei", model="TE20", controller="CTRL-1"):
+def source_row(record_id, *, room_id="ROOM-1", room_name="Room One", room_address="Building 1", source_model=None, source_type="Video Conference", room_vip=None, ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-1", manufacturer="Huawei", model="TE20", controller="CTRL-1"):
     return {
         SOURCE_COLUMNS["room_id"]: room_id,
         SOURCE_COLUMNS["room_name"]: room_name,
+        SOURCE_COLUMNS["room_address"]: room_address,
         SOURCE_COLUMNS["record_id"]: record_id,
         SOURCE_COLUMNS["device_kind"]: source_type,
         SOURCE_COLUMNS["source_model"]: source_model,
@@ -331,7 +342,7 @@ class EquipmentInventoryRuntimeTests(unittest.TestCase):
             self.assertEqual(InventoryLoadFailure.INVALID_FORMAT, error.exception.category)
 
             unsupported = Path(directory) / "unsupported.json"
-            unsupported.write_text(json.dumps({"schema_version": 4, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
+            unsupported.write_text(json.dumps({"schema_version": 5, "snapshot_id": "sha256:" + "0" * 64, "records": []}), encoding="utf-8")
             with self.assertRaises(EquipmentInventoryLoadError) as error:
                 load_equipment_inventory(unsupported)
             self.assertEqual(InventoryLoadFailure.UNSUPPORTED_SCHEMA, error.exception.category)
@@ -390,7 +401,7 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             self.assertIn("INVALID_IP", codes)
             self.assertIn("INVALID_MAC", codes)
             self.assertIn("ROOM_NAME_WITHOUT_ROOM_ID", codes)
-            self.assertEqual(set(RECORD_FIELDS), set(json.loads(output.read_text(encoding="utf-8"))["records"][0]))
+            self.assertEqual(set(RECORD_FIELDS_V4), set(json.loads(output.read_text(encoding="utf-8"))["records"][0]))
 
     def test_importer_maps_room_vip_closed_source_values(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -438,7 +449,7 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
                 result = import_equipment_inventory(source, output_path=output)
                 self.assertTrue(result.published)
                 codes = {issue.code for issue in result.issues}
-                self.assertEqual(expects_conflict, "ROOM_VIP_CONFLICT" in codes)
+                self.assertFalse("ROOM_VIP_CONFLICT" in codes)
 
     def test_importer_requires_exact_room_vip_header_without_legacy_vip_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -511,8 +522,8 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             source = Path(directory) / "inventory.xlsx"
             output = Path(directory) / "snapshot.json"
             write_xlsx(source, [
-                source_row("RID-1", room_id="ROOM-1", room_name="Room Alpha", source_model="Source Name", source_type="Unexpected", manufacturer="Huawei", model="TE20", ip="192.0.2.9"),
-                source_row("RID-2", room_id="ROOM-1", room_name="Room Beta", source_type="БРП", manufacturer="Aten", model="PE8208AV", ip="192.0.2.10", mac="00:11:22:33:44:55", serial="SER-DUP"),
+                source_row("RID-1", room_id="ROOM-1", room_name="Room Alpha", room_address="Address Alpha", source_model="Source Name", source_type="Unexpected", room_vip=True, manufacturer="Huawei", model="TE20", ip="192.0.2.9"),
+                source_row("RID-2", room_id="ROOM-1", room_name="Room Beta", room_address="Address Beta", source_type="БРП", room_vip=False, manufacturer="Aten", model="PE8208AV", ip="192.0.2.10", mac="00:11:22:33:44:55", serial="SER-DUP"),
                 source_row("RID-3", room_id="ROOM-2", room_name="Room Alpha", source_type="БРП", manufacturer="Aten", model="PE8208AV", ip="192.0.2.10", mac="00-11-22-33-44-55", serial="SER-DUP"),
                 source_row("RID-4", room_id="ROOM-1", room_name="Room Beta", source_type="Video Conference", manufacturer="Huawei", model="TE20", ip="192.0.2.44", mac="66:77:88:99:aa:bb", controller="CTRL-A"),
                 source_row("RID-5", room_id="ROOM-1", room_name="Room Beta", source_type="БРП", manufacturer="Aten", model="PE8208AV", ip="192.0.2.45", mac="66:77:88:99:aa:bc", controller="CTRL-B"),
@@ -534,7 +545,9 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
             codes = {issue.code for issue in result.issues}
             self.assertIn("KNOWN_MODEL_TYPE_MISMATCH", codes)
             self.assertIn("SOURCE_MODEL_EVIDENCE_MISMATCH", codes)
-            self.assertIn("ROOM_ID_NAME_CONFLICT", codes)
+            self.assertNotIn("ROOM_ID_NAME_CONFLICT", codes)
+            self.assertNotIn("ROOM_VIP_CONFLICT", codes)
+            self.assertNotIn("ROOM_ADDRESS_CONFLICT", codes)
             self.assertIn("ROOM_NAME_REUSED", codes)
             self.assertIn("DUPLICATE_IP", codes)
             self.assertIn("DUPLICATE_MAC", codes)
@@ -1189,7 +1202,7 @@ class EquipmentInventoryConverterOperationTests(unittest.TestCase):
         self.assertIsNone(primary.output_path)
         self.assertIsNone(network_result.output_path)
         self.assertIsNone(combined.output_path)
-        self.assertEqual(SCHEMA_VERSION_V3, combined.schema_version)
+        self.assertEqual(SCHEMA_VERSION_V4, combined.schema_version)
         self.assertIsNotNone(combined.snapshot_id)
         self.assertEqual(1, combined.record_count)
         self.assertNotIn("NETWORK_MAC_NOT_IN_INVENTORY", {issue.code for issue in network_result.issues})
@@ -1237,8 +1250,8 @@ class EquipmentInventoryConverterOperationTests(unittest.TestCase):
 
         self.assertTrue(absent.published)
         self.assertTrue(existing.published)
-        self.assertEqual(SCHEMA_VERSION_V3, absent_schema)
-        self.assertEqual(SCHEMA_VERSION_V3, existing_schema)
+        self.assertEqual(SCHEMA_VERSION_V4, absent_schema)
+        self.assertEqual(SCHEMA_VERSION_V4, existing_schema)
 
     def test_guarded_publication_rejects_output_state_changes_and_preserves_bytes(self):
         cases = ("appeared", "modified", "deleted", "path_mismatch")
@@ -1290,6 +1303,71 @@ class EquipmentInventoryGitignoreTests(unittest.TestCase):
     def test_production_snapshot_name_is_ignored(self):
         gitignore = (application_root() / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("equipment_inventory.local.json", gitignore)
+
+
+class EquipmentInventorySchemaV4Tests(unittest.TestCase):
+    def test_room_address_mapping_normalizes_blank_and_participates_in_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(
+                source,
+                [
+                    source_row("RID-1", room_address="  Cafe\u0301  "),
+                    source_row("RID-2", room_address="   ", ip="192.0.2.11", mac="00:11:22:33:44:56", serial="SER-2"),
+                ],
+            )
+            result = import_equipment_inventory(source, output_path=output)
+            document = json.loads(output.read_text(encoding="utf-8"))
+            changed = copy.deepcopy(document)
+            changed["records"][0]["room_address"] = "Different address"
+
+        self.assertTrue(result.published)
+        self.assertEqual(SCHEMA_VERSION_V4, document["schema_version"])
+        self.assertEqual("Café", document["records"][0]["room_address"])
+        self.assertIsNone(document["records"][1]["room_address"])
+        self.assertTrue(all(record["switch_ip_address"] is None and record["switch_port"] is None for record in document["records"]))
+        self.assertNotEqual(document["snapshot_id"], compute_snapshot_id(changed["records"], schema_version=SCHEMA_VERSION_V4))
+
+    def test_missing_or_ambiguous_room_address_header_is_fatal_and_preserves_output(self):
+        for headers in (
+            [header for header in HEADERS if header != SOURCE_COLUMNS["room_address"]],
+            HEADERS + [SOURCE_COLUMNS["room_address"]],
+        ):
+            with self.subTest(headers=headers):
+                with tempfile.TemporaryDirectory() as directory:
+                    source = Path(directory) / "inventory.xlsx"
+                    output = Path(directory) / "snapshot.json"
+                    write_snapshot(output, [record("PREVIOUS")])
+                    previous = output.read_text(encoding="utf-8")
+                    write_xlsx(source, [source_row("RID-1")], headers=headers)
+                    result = import_equipment_inventory(source, output_path=output)
+                    preserved = output.read_text(encoding="utf-8")
+
+                self.assertFalse(result.published)
+                self.assertEqual(previous, preserved)
+                self.assertTrue(result.fatal_issues)
+
+    def test_schema_v4_is_strict_and_preserves_per_record_room_display_metadata(self):
+        document = snapshot_document(
+            [
+                record("RID-1", room_id="ROOM-1", room_name="One", room_address="Address One", room_vip=True),
+                record("RID-2", room_id="ROOM-1", room_name="Two", room_address="Address Two", room_vip=False),
+            ],
+            schema_version=SCHEMA_VERSION_V4,
+        )
+        inventory = inventory_from_document(document)
+        missing = copy.deepcopy(document)
+        del missing["records"][0]["room_address"]
+        extra = copy.deepcopy(document)
+        extra["records"][0]["extra"] = None
+
+        self.assertEqual(("One", "Two"), tuple(record.room_name for record in inventory.records))
+        self.assertEqual(("Address One", "Address Two"), tuple(record.room_address for record in inventory.records))
+        for malformed in (missing, extra):
+            with self.assertRaises(EquipmentInventoryLoadError) as error:
+                inventory_from_document(malformed)
+            self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
 
 
 if __name__ == "__main__":

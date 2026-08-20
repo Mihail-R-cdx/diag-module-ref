@@ -24,7 +24,6 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from core.equipment_inventory import (  # noqa: E402
     RECORD_FIELDS,
-    SCHEMA_VERSION_V3,
     SCHEMA_VERSION,
     EquipmentRecord,
     compute_snapshot_id,
@@ -83,6 +82,7 @@ SOURCE_COLUMNS = {
     "record_id": "SmartRoomID",
     "room_id": "ID комнаты",
     "room_name": "Название комнаты",
+    "room_address": "Адрес комнаты",
     "source_model": "Наименование",
     "ip_address": "IP",
     "mac_address": "MAC",
@@ -563,7 +563,6 @@ def _run_inventory_operation(
     schema_version = SCHEMA_VERSION
     final_records: tuple[EquipmentRecord, ...] = tuple(records)
     if network_source is not None:
-        schema_version = SCHEMA_VERSION_V3
         try:
             network_workbook = _read_workbook(network_source)
         except WorkbookReadError as exc:
@@ -903,6 +902,7 @@ def _build_records(
         source_model = normalize_text(_value(row, header_index, SOURCE_COLUMNS["source_model"]))
         room_id = normalize_text(_value(row, header_index, SOURCE_COLUMNS["room_id"]))
         room_name = normalize_text(_value(row, header_index, SOURCE_COLUMNS["room_name"]))
+        room_address = normalize_text(_value(row, header_index, SOURCE_COLUMNS["room_address"]))
         serial_number = normalize_text(_value(row, header_index, SOURCE_COLUMNS["serial_number"]))
         room_vip, room_vip_issue = _map_room_vip(
             _value(row, header_index, SOURCE_COLUMNS["room_vip"])
@@ -961,6 +961,7 @@ def _build_records(
                 room_name=room_name,
                 device_kind=device_kind,
                 room_vip=room_vip,
+                room_address=room_address,
             )
         )
 
@@ -976,10 +977,8 @@ def _detect_cross_row_issues(
     header_index = {header: index for index, header in enumerate(layout.headers)}
     row_by_record_id = {record.record_id: row_number for record, (row_number, _) in zip(records, source_rows)}
 
-    room_names_by_id: dict[str, set[str]] = {}
     room_ids_by_name: dict[str, set[str]] = {}
     records_by_room_kind: dict[tuple[str, str], list[EquipmentRecord]] = {}
-    room_vip_values_by_id: dict[str, list[bool | None]] = {}
     values_by_field: dict[str, dict[str, list[EquipmentRecord]]] = {
         "ip_address": {},
         "mac_address": {},
@@ -987,9 +986,7 @@ def _detect_cross_row_issues(
     }
     for record in records:
         if record.room_id is not None:
-            room_vip_values_by_id.setdefault(record.room_id, []).append(record.room_vip)
             if record.room_name is not None:
-                room_names_by_id.setdefault(record.room_id, set()).add(record.room_name)
                 room_ids_by_name.setdefault(record.room_name, set()).add(record.room_id)
             records_by_room_kind.setdefault((record.room_id, record.device_kind), []).append(record)
         for field in values_by_field:
@@ -997,9 +994,6 @@ def _detect_cross_row_issues(
             if value is not None:
                 values_by_field[field].setdefault(value, []).append(record)
 
-    for room_id, names in room_names_by_id.items():
-        if len(names) > 1:
-            issues.append(ImportIssue("consistency", "ROOM_ID_NAME_CONFLICT", record_id=room_id, description="One room ID has conflicting room names."))
     for room_name, room_ids in room_ids_by_name.items():
         if len(room_ids) > 1:
             issues.append(ImportIssue("consistency", "ROOM_NAME_REUSED", description="One room name is reused by different room IDs."))
@@ -1015,17 +1009,6 @@ def _detect_cross_row_issues(
         for matching in values.values():
             if len(matching) > 1:
                 issues.append(ImportIssue("data_quality", duplicate_codes[field], record_id=matching[0].record_id, description="A physical identifier is shared by multiple records."))
-    for room_id, values in room_vip_values_by_id.items():
-        if _aggregate_room_vip_values(values) == "CONFLICT":
-            issues.append(
-                ImportIssue(
-                    "consistency",
-                    "ROOM_VIP_CONFLICT",
-                    record_id=room_id,
-                    description="One room ID has conflicting VIP evidence.",
-                )
-            )
-
     if EVIDENCE_COLUMNS["controller_record_id"] in header_index:
         controller_refs_by_room: dict[str, set[str]] = {}
         rooms_with_missing_refs: set[str] = set()
@@ -1059,9 +1042,21 @@ def _select_layout(workbook: dict[str, Any], issues: list[ImportIssue]) -> Works
     for sheet_name, rows in workbook["rows_by_sheet"].items():
         for row_number, row in rows[:50]:
             headers = tuple(normalize_text(value) or "" for value in row)
-            if all(column in headers for column in REQUIRED_SOURCE_COLUMNS):
-                candidates.append(WorksheetLayout(sheet_name, row_number, headers))
-                break
+            if not all(column in headers for column in REQUIRED_SOURCE_COLUMNS):
+                continue
+            if any(headers.count(column) > 1 for column in REQUIRED_SOURCE_COLUMNS):
+                issues.append(
+                    ImportIssue(
+                        "fatal",
+                        "SOURCE_STRUCTURE_AMBIGUOUS",
+                        sheet=sheet_name,
+                        row=row_number,
+                        description="Primary worksheet has an ambiguous required header.",
+                    )
+                )
+                return None
+            candidates.append(WorksheetLayout(sheet_name, row_number, headers))
+            break
     if not candidates:
         issues.append(ImportIssue("fatal", "SOURCE_STRUCTURE_MISSING", description="No worksheet contains the confirmed required source columns."))
         return None

@@ -13,9 +13,11 @@ from core.equipment_inventory import (
     RECORD_FIELDS,
     RECORD_FIELDS_V1,
     RECORD_FIELDS_V3,
+    RECORD_FIELDS_V4,
     SCHEMA_VERSION_V1,
     SCHEMA_VERSION_V2,
     SCHEMA_VERSION_V3,
+    SCHEMA_VERSION_V4,
     EquipmentInventoryLoadError,
     EquipmentInventoryMetadata,
     EquipmentRecord,
@@ -149,6 +151,7 @@ def snapshot_document(records, *, schema_version=SCHEMA_VERSION_V3):
         SCHEMA_VERSION_V1: RECORD_FIELDS_V1,
         SCHEMA_VERSION_V2: RECORD_FIELDS,
         SCHEMA_VERSION_V3: RECORD_FIELDS_V3,
+        SCHEMA_VERSION_V4: RECORD_FIELDS_V4,
     }[schema_version]
     record_dicts = [
         {field: getattr(record, field) for field in fields}
@@ -161,7 +164,7 @@ def snapshot_document(records, *, schema_version=SCHEMA_VERSION_V3):
     }
 
 
-def runtime_record(record_id, *, mac="00:11:22:33:44:55", switch_ip=None, switch_port=None):
+def runtime_record(record_id, *, mac="00:11:22:33:44:55", room_address="Building 1", switch_ip=None, switch_port=None):
     return EquipmentRecord(
         record_id=record_id,
         source_model="Synthetic",
@@ -173,6 +176,7 @@ def runtime_record(record_id, *, mac="00:11:22:33:44:55", switch_ip=None, switch
         room_name="Room One",
         device_kind="video_codec",
         room_vip=True,
+        room_address=room_address,
         switch_ip_address=switch_ip,
         switch_port=switch_port,
     )
@@ -210,7 +214,7 @@ class SwitchPortSchemaRuntimeTests(unittest.TestCase):
             inventory_from_document(hybrid)
         self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
 
-        future = {"schema_version": 4, "snapshot_id": "sha256:" + "0" * 64, "records": []}
+        future = {"schema_version": 5, "snapshot_id": "sha256:" + "0" * 64, "records": []}
         with self.assertRaises(EquipmentInventoryLoadError) as error:
             inventory_from_document(future)
         self.assertEqual(InventoryLoadFailure.UNSUPPORTED_SCHEMA, error.exception.category)
@@ -244,7 +248,7 @@ class SwitchPortSchemaRuntimeTests(unittest.TestCase):
 
 
 class SwitchPortImporterTests(unittest.TestCase):
-    def test_one_source_mode_still_publishes_schema_v2_without_switch_fields(self):
+    def test_one_source_mode_publishes_schema_v4_with_null_switch_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "inventory.xlsx"
             output = Path(directory) / "snapshot.json"
@@ -254,11 +258,12 @@ class SwitchPortImporterTests(unittest.TestCase):
             document = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertTrue(result.published)
-        self.assertEqual(SCHEMA_VERSION_V2, document["schema_version"])
-        self.assertNotIn("switch_ip_address", document["records"][0])
-        self.assertEqual(compute_snapshot_id(document["records"], schema_version=SCHEMA_VERSION_V2), document["snapshot_id"])
+        self.assertEqual(SCHEMA_VERSION_V4, document["schema_version"])
+        self.assertIsNone(document["records"][0]["switch_ip_address"])
+        self.assertIsNone(document["records"][0]["switch_port"])
+        self.assertEqual(compute_snapshot_id(document["records"], schema_version=SCHEMA_VERSION_V4), document["snapshot_id"])
 
-    def test_public_network_configuration_surfaces_resolve_and_publish_schema_v3(self):
+    def test_public_network_configuration_surfaces_resolve_and_publish_schema_v4(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "inventory.xlsx"
             network = Path(directory) / "network.xlsx"
@@ -309,7 +314,7 @@ class SwitchPortImporterTests(unittest.TestCase):
         self.assertTrue(module_result.published)
         self.assertEqual(network.resolve(), resolved.network_xlsx_path)
         self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
-        self.assertEqual([SCHEMA_VERSION_V3] * 4, schema_versions)
+        self.assertEqual([SCHEMA_VERSION_V4] * 4, schema_versions)
 
     def test_valid_two_source_run_uses_exact_sheet_headers_and_ignores_non_authority(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -345,7 +350,7 @@ class SwitchPortImporterTests(unittest.TestCase):
             by_id = {record.record_id: record for record in inventory.records}
 
         self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
-        self.assertEqual(SCHEMA_VERSION_V3, inventory.metadata.schema_version)
+        self.assertEqual(SCHEMA_VERSION_V4, inventory.metadata.schema_version)
         self.assertEqual(NETWORK_WORKSHEET, result.network_worksheet)
         self.assertEqual(2, result.network_source_row_count)
         self.assertEqual(2, result.distinct_network_mac_count)
@@ -397,7 +402,7 @@ class SwitchPortImporterTests(unittest.TestCase):
             codes = {issue.code for issue in result.issues}
 
         self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
-        self.assertEqual(SCHEMA_VERSION_V3, inventory.metadata.schema_version)
+        self.assertEqual(SCHEMA_VERSION_V4, inventory.metadata.schema_version)
         self.assertEqual(("198.51.100.1", "Gi1/0/1"), (by_id["RID-1"].switch_ip_address, by_id["RID-1"].switch_port))
         self.assertEqual(("198.51.100.2", None), (by_id["RID-2"].switch_ip_address, by_id["RID-2"].switch_port))
         self.assertEqual((None, "Gi1/0/3"), (by_id["RID-3"].switch_ip_address, by_id["RID-3"].switch_port))
@@ -484,7 +489,7 @@ class SwitchPortImporterTests(unittest.TestCase):
 
                 for summary in (first, second):
                     self.assertTrue(summary["published"], summary["issues"])
-                    self.assertEqual(SCHEMA_VERSION_V3, summary["schema_version"])
+                    self.assertEqual(SCHEMA_VERSION_V4, summary["schema_version"])
                     self.assertTrue(expected_codes.issubset(summary["codes"]))
                     self.assertEqual(expected_counters["enriched"], summary["enriched_record_count"])
                     self.assertEqual(expected_counters["duplicate"], summary["duplicate_connection_count"])
@@ -642,7 +647,7 @@ class SwitchPortImporterTests(unittest.TestCase):
             inventory = load_equipment_inventory(output)
 
         self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
-        self.assertEqual(SCHEMA_VERSION_V3, inventory.metadata.schema_version)
+        self.assertEqual(SCHEMA_VERSION_V4, inventory.metadata.schema_version)
         self.assertEqual(("198.51.100.10", "Gi1/0/10"), (inventory.records[0].switch_ip_address, inventory.records[0].switch_port))
 
     def test_candidate_snapshot_validation_failure_preserves_previous_output(self):
