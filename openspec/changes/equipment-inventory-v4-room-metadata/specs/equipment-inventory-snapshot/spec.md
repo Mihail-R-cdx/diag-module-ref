@@ -8,9 +8,7 @@ Normal diagnostic application runtime modules SHALL NOT parse `.xlsx` workbooks 
 
 The confirmed primary organization source mapping and the confirmed network-enrichment source mapping defined by this capability SHALL be implemented explicitly. Source-only fields and consistency evidence SHALL remain inside the importer boundary unless the canonical schema explicitly includes them.
 
-Every newly successful conversion SHALL publish schema version 4. A one-source conversion with no network workbook configured SHALL publish schema v4 with `switch_ip_address = null` and `switch_port = null` on every record. A conversion with an explicitly configured valid network workbook SHALL also publish schema v4 and SHALL populate switch fields only through the existing approved reconciliation contract.
-
-If a network workbook is explicitly configured but its path/configuration is invalid, the workbook is unreadable, worksheet `Устройства` is missing or ambiguous, or a required network header is missing or ambiguous, the importer SHALL fail before publication and SHALL NOT silently reinterpret the run as primary-only conversion.
+Every newly successful conversion SHALL publish schema version 4. A one-source conversion with no network workbook configured SHALL remain an intentional supported mode and SHALL publish schema v4 with null switch fields. A conversion with an explicitly configured valid network workbook SHALL also publish schema v4 and SHALL populate switch fields only through the approved reconciliation contract. If a network workbook is explicitly configured but its path/configuration is invalid, the workbook is unreadable, worksheet `Устройства` is missing or ambiguous, or a required network header is missing or ambiguous, the importer SHALL fail before publication and SHALL NOT silently reinterpret the run as primary-only conversion.
 
 Row-level network data-quality, duplication, unmatched-MAC, and ambiguity outcomes SHALL remain non-fatal when the primary candidate can still be represented. They SHALL preserve otherwise valid primary records and SHALL NOT change the requested import mode.
 
@@ -48,13 +46,13 @@ Row-level network data-quality, duplication, unmatched-MAC, and ambiguity outcom
 
 ### Requirement: ID комнаты is authoritative room identity
 
-For the confirmed organization workbook, `ID комнаты` SHALL map to canonical `room_id` and SHALL remain the only authoritative room identity. `Название комнаты` SHALL map to canonical `room_name` as per-record display metadata. Schema v4 additionally carries `room_address` and the existing `room_vip` as per-record display metadata; none of those display fields SHALL identify or merge rooms.
+For the confirmed organization workbook, `ID комнаты` SHALL map to canonical `room_id` and SHALL remain the authoritative room identity. `Название комнаты` SHALL map to canonical `room_name` as a display attribute. Schema v4 additionally carries `room_address` and the existing `room_vip` as per-record display metadata; none of those display fields SHALL identify or merge rooms.
 
 The importer SHALL NOT automatically substitute `room_name`, `room_address`, or `room_vip` for missing `room_id` and SHALL NOT merge rooms because display metadata matches. Records sharing one non-null `room_id` SHALL remain members of that authoritative room even when their non-null display metadata differs.
 
 For current schema-v4 import, the importer SHALL preserve normalized per-record room display metadata without cross-record reconciliation. Different `room_name`, `room_address`, or `room_vip` values under the same `room_id` SHALL NOT by themselves produce a room-display conflict issue, SHALL NOT cause record deletion, and SHALL NOT cause the importer to select or rewrite a room-wide display value.
 
-Missing or blank `ID комнаты` SHALL produce `room_id = null` and MAY produce an observable data-quality issue. It SHALL NOT by itself make an otherwise representable canonical record fatal.
+Missing or blank `ID комнаты` SHALL produce `room_id = null` and MAY produce an observable data-quality or consistency issue. It SHALL NOT by itself make an otherwise representable canonical record fatal.
 
 #### Scenario: Devices share one authoritative room ID
 
@@ -62,11 +60,11 @@ Missing or blank `ID комнаты` SHALL produce `room_id = null` and MAY prod
 - **THEN** they have the same canonical `room_id`
 - **AND** the room index returns all of them under that one `room_id`
 
-#### Scenario: Same room ID has different display metadata
+#### Scenario: One room ID has differing display metadata
 
 - **WHEN** records with the same canonical `room_id` contain different non-null `room_name`, `room_address`, or `room_vip` values
-- **THEN** all canonical records and their normalized per-record values are preserved
-- **AND** the importer does not report a room-display conflict solely for that difference
+- **THEN** all canonical records and their normalized per-record display values are preserved
+- **AND** no room-display conflict issue is emitted solely for that difference
 - **AND** the importer does not select or rewrite one value as room-wide authority
 
 #### Scenario: One room name is reused by different room IDs
@@ -98,13 +96,34 @@ The concrete Python exception hierarchy and exact implementation type names are 
 
 Normal diagnostics SHALL NOT dump complete source rows, complete canonical records when not needed, complete workbook contents, production snapshots, or unrelated topology.
 
-For the primary source, missing or ambiguous discovery of the required `Адрес комнаты` header SHALL be a fatal source-structure issue. A blank individual address cell SHALL NOT be fatal and SHALL normalize to `room_address = null`.
+For the primary source, missing or ambiguous discovery of the required exact `Адрес комнаты` header SHALL be a fatal source-structure issue. A blank individual address cell SHALL NOT be fatal and SHALL normalize to `room_address = null`.
 
-For the network source, fatal outcomes SHALL remain limited to configured path/read/configuration failure, missing or ambiguous `Устройства`, missing or ambiguous required headers, complete candidate validation failure, and output publication failure.
+For the network source, fatal outcomes SHALL be limited to:
 
-Existing row-level invalid-field, diagnostic-model recognition, physical-identifier multiplicity, controller-evidence, and network reconciliation diagnostics SHALL keep their approved severity unless explicitly modified by this change.
+```text
+network path or configuration failure
+network workbook unreadable
+worksheet Устройства missing or ambiguous
+required network header missing or ambiguous
+complete candidate fails runtime schema validation
+output publication failure
+```
 
-Different non-null `room_name`, `room_address`, or `room_vip` values on records sharing one authoritative `room_id` SHALL NOT be reported as importer room-display conflicts. In particular, schema-v4 publication SHALL NOT emit `ROOM_NAME_CONFLICT`, `ROOM_VIP_CONFLICT`, or a new `ROOM_ADDRESS_CONFLICT` solely from those differences. Row-level unsupported non-blank `VIP оборудование` values SHALL still produce the existing `INVALID_ROOM_VIP` data-quality issue.
+The following network conditions SHALL be non-fatal when the primary candidate remains representable:
+
+```text
+missing or invalid network MAC
+EMPTY_SWITCH_CONNECTION
+invalid or missing switch IP or port
+DUPLICATE_SWITCH_CONNECTION_SOURCE
+AMBIGUOUS_SWITCH_CONNECTION
+AMBIGUOUS_INVENTORY_MAC_FOR_SWITCH
+NETWORK_MAC_NOT_IN_INVENTORY
+```
+
+A row with a usable partial candidate MAY produce both the candidate and a missing/invalid-field issue. A non-fatal row-level network issue SHALL NOT block schema-v4 publication, delete a primary record, or cause silent fallback to another import mode.
+
+Different non-null `room_name`, `room_address`, or `room_vip` values on records sharing one authoritative `room_id` SHALL NOT be reported as importer room-display conflicts. In particular, current schema-v4 import SHALL NOT emit `ROOM_NAME_CONFLICT`, `ROOM_VIP_CONFLICT`, or a new `ROOM_ADDRESS_CONFLICT` solely from those differences. Row-level unsupported non-blank `VIP оборудование` values SHALL still produce the existing `INVALID_ROOM_VIP` data-quality issue.
 
 Consistency evidence SHALL NOT grant authority to delete records, rewrite authoritative source mappings, guess missing values, change `record_id`, change `device_kind`, merge rooms, or select a first match.
 
@@ -115,19 +134,41 @@ Consistency evidence SHALL NOT grant authority to delete records, rewrite author
 - **AND** the importer reports a non-fatal data-quality issue
 - **AND** the row remains represented as a canonical record
 
-#### Scenario: Room display metadata differs
+#### Scenario: Consistency evidence conflicts with authoritative mapping
 
-- **GIVEN** otherwise valid records share one canonical `room_id`
-- **AND** one or more of `room_name`, `room_address`, or `room_vip` differs between those records
-- **WHEN** importer consistency diagnostics are produced
-- **THEN** the records remain publishable with their own normalized values
-- **AND** no room-display conflict issue is emitted solely for that difference
+- **WHEN** importer-side evidence suggests an authoritative mapped value may be inconsistent
+- **THEN** the importer preserves the authoritative mapping
+- **AND** it may report a consistency issue
+- **AND** it does not silently correct the canonical record from secondary evidence
+
+#### Scenario: Empty network connection row is accounted for
+
+- **GIVEN** a non-empty `Устройства` row has a valid canonical MAC
+- **AND** both switch IP and port normalize to null without another invalid-field issue describing the row
+- **WHEN** network candidates are built
+- **THEN** the row creates no connection candidate
+- **AND** the importer emits non-fatal `EMPTY_SWITCH_CONNECTION`
+
+#### Scenario: Row-level network ambiguity remains non-fatal
+
+- **GIVEN** one canonical MAC has multiple distinct usable network candidates
+- **WHEN** reconciliation runs
+- **THEN** the importer emits non-fatal `AMBIGUOUS_SWITCH_CONNECTION`
+- **AND** otherwise valid primary records remain publishable with null switch fields
+
+#### Scenario: Fatal network structure blocks publication
+
+- **GIVEN** an explicitly configured network workbook lacks the required worksheet or required header structure
+- **WHEN** conversion is attempted
+- **THEN** the importer reports a fatal source-structure issue
+- **AND** the previous valid output remains intact
 
 #### Scenario: Required room-address header is missing
 
-- **WHEN** the primary source does not expose one unambiguous exact `Адрес комнаты` column
+- **GIVEN** the primary workbook cannot provide one unambiguous exact `Адрес комнаты` header
+- **WHEN** primary preflight or conversion is attempted
 - **THEN** the importer reports a fatal source-structure issue
-- **AND** no candidate snapshot replaces the previous valid output
+- **AND** the previous valid output remains intact
 
 ### Requirement: Structured runtime inventory load failure contract
 
@@ -146,51 +187,60 @@ The categories SHALL mean:
 - `NOT_FOUND`: configured snapshot path does not exist;
 - `UNREADABLE`: the snapshot exists but cannot be read because of filesystem/access failure;
 - `INVALID_FORMAT`: readable content is not valid UTF-8 JSON;
-- `UNSUPPORTED_SCHEMA`: the JSON root declares a schema version outside the explicitly supported integer versions 1, 2, 3, and 4;
+- `UNSUPPORTED_SCHEMA`: the JSON root declares a `schema_version` other than supported integer versions `1`, `2`, `3`, or `4`;
 - `INVALID_SNAPSHOT`: canonical shape/content is invalid for its declared supported version, required fields are invalid, record IDs collide, or declared `snapshot_id` does not match recomputed canonical content.
 
 No failed load SHALL publish a partial `EquipmentInventory`, partial records, or partial indexes. Runtime consumers SHALL NOT need to inspect raw storage-specific exception types or strings to understand inventory availability.
 
 #### Scenario: Snapshot schema version is unsupported
 
-- **WHEN** the runtime loader receives a JSON object whose `schema_version` is not integer 1, 2, 3, or 4
+- **WHEN** the runtime loader receives a JSON object whose `schema_version` is not integer `1`, `2`, `3`, or `4`
 - **THEN** loading fails with category `UNSUPPORTED_SCHEMA`
 - **AND** no inventory is published
 
-#### Scenario: Declared supported schema has invalid shape
+#### Scenario: Supported schema has invalid record shape
 
-- **WHEN** a snapshot declares schema version 1, 2, 3, or 4 but contains missing, extra, or otherwise invalid record fields for that exact version
+- **WHEN** a snapshot declares schema version `1`, `2`, `3`, or `4` but its canonical record shape is invalid for that exact version
 - **THEN** loading fails with category `INVALID_SNAPSHOT`
-- **AND** the loader does not repair or partially publish the candidate
+- **AND** no inventory is published
 
 ### Requirement: Schema v2 carries explicit room VIP state
 
-Historical schema-v2 snapshots contain all schema-v1 record fields plus exactly:
+Historical schema-v2 canonical equipment inventory snapshots use `schema_version` exactly `2` and every schema-v2 equipment record contains exactly one field in addition to schema v1:
 
 ```text
 room_vip
 ```
 
-`room_vip` SHALL be a JSON boolean or JSON null under the approved schema-v2 source mapping. The deterministic schema-v2 snapshot identity includes `room_vip` for every record. Generation metadata remains outside snapshot identity.
+`room_vip` SHALL be a JSON boolean or JSON null. `true` means the source explicitly identifies the authoritative room as VIP, `false` means the source explicitly identifies it as non-VIP, and null means the source value is absent, unsupported, or unresolved.
 
-The current importer SHALL no longer publish new schema-v2 snapshots; new successful conversions publish schema v4. Valid historical schema-v2 snapshots SHALL remain loadable under their exact original shape and identity contract.
+The deterministic schema-v2 snapshot identity SHALL include `room_vip` for every record. Generation metadata SHALL remain outside snapshot identity.
 
-#### Scenario: Historical schema-v2 snapshot remains valid
+The current importer SHALL no longer publish new schema-v2 snapshots. New successful conversions publish schema v4, while valid historical schema-v2 snapshots remain loadable under their exact original shape and identity contract.
 
-- **GIVEN** a valid schema-v2 snapshot whose `room_vip` values satisfy the approved mapping
-- **WHEN** the runtime loader loads it
-- **THEN** it validates schema-v2 identity and record shape before runtime adaptation
-- **AND** the snapshot remains usable
+#### Scenario: Historical VIP room snapshot remains loadable
 
-#### Scenario: Current conversion does not emit schema v2
+- **GIVEN** a valid schema-v2 snapshot contains an explicitly supported VIP value
+- **WHEN** the runtime loader validates it
+- **THEN** the schema-v2 record contains the corresponding JSON boolean
+- **AND** the boolean participates in deterministic schema-v2 snapshot identity
+
+#### Scenario: Historical VIP value is unavailable
+
+- **GIVEN** a valid schema-v2 snapshot contains null `room_vip`
+- **WHEN** the runtime loader validates it
+- **THEN** the canonical `room_vip` value remains null
+- **AND** the loader does not invent a room-wide value
+
+#### Scenario: Current primary-only conversion does not emit schema v2
 
 - **WHEN** the current offline importer successfully converts a primary workbook without a network source
-- **THEN** the candidate schema version is 4
+- **THEN** the candidate schema version is `4`
 - **AND** no new schema-v2 snapshot is published
 
 ### Requirement: Existing schema-v1 snapshots remain loadable
 
-The runtime inventory loader SHALL continue to accept valid schema-v1, schema-v2, and schema-v3 snapshots and SHALL additionally accept valid schema-v4 snapshots. It SHALL strictly validate each supported schema version against its own approved exact record fields and identity payload before runtime adaptation.
+The runtime inventory loader SHALL continue to accept valid schema-v1 snapshots and SHALL additionally accept valid schema-v2, schema-v3, and schema-v4 snapshots. It SHALL strictly validate each supported schema version against its own approved exact record fields and identity payload.
 
 Runtime adaptation SHALL be exactly:
 
@@ -218,12 +268,18 @@ schema v4
 
 Adaptation SHALL NOT rewrite the source file or bypass or alter source-version snapshot identity verification. The loader SHALL NOT accept undeclared hybrid records. Unknown schema versions SHALL remain `UNSUPPORTED_SCHEMA`; missing, extra, or hybrid fields in a declared supported version SHALL remain `INVALID_SNAPSHOT`.
 
-#### Scenario: Existing schema-v1 deployment snapshot is loaded
+#### Scenario: Existing deployment snapshot is loaded
 
-- **GIVEN** a valid schema-v1 snapshot
+- **GIVEN** a valid schema-v1 snapshot created before this change
 - **WHEN** the runtime loader loads it
 - **THEN** the inventory is available
-- **AND** every runtime record exposes null VIP, room-address, and switch fields
+- **AND** every runtime record exposes unknown VIP state and null room-address and switch fields
+
+#### Scenario: Hybrid snapshot is rejected
+
+- **WHEN** a snapshot claims schema version 1 but contains `room_vip`, `room_address`, or either switch field, claims schema version 2 but contains `room_address` or either switch field, or claims schema version 3 but contains `room_address`
+- **THEN** loading fails as an invalid snapshot
+- **AND** no partial inventory is published
 
 #### Scenario: Existing schema-v2 deployment snapshot is loaded
 
@@ -232,26 +288,20 @@ Adaptation SHALL NOT rewrite the source file or bypass or alter source-version s
 - **THEN** the inventory is available
 - **AND** every runtime record exposes source `room_vip`, null `room_address`, and null switch fields
 
-#### Scenario: Existing schema-v3 deployment snapshot is loaded
+#### Scenario: Valid schema-v3 snapshot is loaded
 
 - **GIVEN** a valid schema-v3 snapshot with correct deterministic identity
 - **WHEN** the runtime loader loads it
 - **THEN** the inventory is available
-- **AND** `room_address` is null
-- **AND** both switch fields are exposed exactly as historical canonical nullable attributes
+- **AND** every runtime record exposes null `room_address`
+- **AND** both switch fields are exposed exactly as canonical nullable attributes
 
 #### Scenario: Valid schema-v4 snapshot is loaded
 
 - **GIVEN** a valid schema-v4 snapshot with correct deterministic identity
 - **WHEN** the runtime loader loads it
 - **THEN** the inventory is available
-- **AND** runtime records expose canonical `room_vip`, `room_address`, `switch_ip_address`, and `switch_port`
-
-#### Scenario: Hybrid snapshot is rejected
-
-- **WHEN** a snapshot contains fields not declared by its supported schema version or omits a field required as a key by that version
-- **THEN** loading fails as `INVALID_SNAPSHOT`
-- **AND** no partial inventory is published
+- **AND** `room_vip`, `room_address`, `switch_ip_address`, and `switch_port` are exposed exactly as canonical nullable attributes
 
 #### Scenario: Future schema is rejected
 
@@ -261,36 +311,49 @@ Adaptation SHALL NOT rewrite the source file or bypass or alter source-version s
 
 ### Requirement: Room VIP evidence uses normative room-wide aggregation
 
-Canonical `room_vip` remains per-record source metadata. The schema-v4 importer SHALL preserve each normalized record value and SHALL NOT perform cross-record VIP reconciliation or emit `ROOM_VIP_CONFLICT` merely because both true and false occur under the same authoritative `room_id`.
+Canonical `room_vip` remains per-record source metadata. The current schema-v4 importer SHALL preserve equipment-record multiplicity and each normalized `room_vip` value without performing cross-record VIP conflict reconciliation. Null remains absence of authoritative VIP evidence for that record.
 
-The existing runtime room-context layer used before the separate room-tree orchestration change SHALL continue to evaluate already loaded room VIP evidence across records when that legacy presentation path requests a room-wide VIP label. Null means absence of evidence for that record. The existing runtime aggregation table remains:
+The existing runtime room-context layer used before the separate room-tree orchestration change SHALL continue to evaluate VIP evidence across all records sharing one non-null authoritative `room_id` when that legacy presentation path requests a room-wide VIP label. The runtime aggregation table remains:
 
 ```text
-no room records                          -> unresolved room
-all room_vip values null                 -> NO_DATA
-one or more true, all others null/true   -> VIP_TRUE
-one or more false, all others null/false -> VIP_FALSE
-at least one true and at least one false -> CONFLICT
+no room records                         -> unresolved room
+all room_vip values null                -> NO_DATA
+one or more true, all others null/true  -> VIP_TRUE
+one or more false, all others null/false-> VIP_FALSE
+at least one true and at least one false-> CONFLICT
 ```
 
-This runtime-only aggregation SHALL NOT grant authority back to the importer, SHALL NOT rewrite canonical records, and SHALL NOT affect snapshot publication. Selection semantics for the future room-tree UI belong to a separate reviewed OpenSpec change.
+The importer SHALL NOT report `ROOM_VIP_CONFLICT` solely because both true and false occur under the same authoritative `room_id`. It SHALL preserve those record values unchanged. Runtime room-context resolution SHALL continue to expose `ДА` for `VIP_TRUE`, `НЕТ` for `VIP_FALSE`, `НЕТ ДАННЫХ` for `NO_DATA`, `КОНФЛИКТ ДАННЫХ` for `CONFLICT`, and unresolved room state when no records exist for the authoritative room lookup. The legacy runtime aggregation SHALL NOT rewrite canonical inventory and SHALL NOT grant importer reconciliation authority.
 
-#### Scenario: Importer sees mixed known VIP values
+#### Scenario: All room VIP evidence is absent
 
-- **WHEN** schema-v4 source records sharing one authoritative `room_id` contain at least one true and at least one false `room_vip`
-- **THEN** every otherwise valid record preserves its own canonical value
-- **AND** the importer emits no `ROOM_VIP_CONFLICT` solely for that mixture
+- **WHEN** all records sharing one authoritative `room_id` contain `room_vip = null`
+- **THEN** legacy runtime VIP presentation is `НЕТ ДАННЫХ`
+- **AND** the importer reports no room-wide VIP conflict
 
-#### Scenario: Legacy runtime presentation sees mixed VIP values
+#### Scenario: Known VIP evidence is mixed with null
 
-- **GIVEN** loaded canonical records contain both true and false `room_vip` under one non-null `room_id`
-- **WHEN** the existing pre-room-tree runtime room-context presentation requests its legacy room-wide label
-- **THEN** that legacy path may report the existing runtime `CONFLICT` presentation
-- **AND** canonical inventory remains unchanged
+- **WHEN** records sharing one authoritative `room_id` contain one or more true values and all remaining values are true or null
+- **THEN** legacy runtime VIP presentation is `ДА`
+- **AND** null does not weaken or conflict with the known consistent value
+
+#### Scenario: Known non-VIP evidence is mixed with null
+
+- **WHEN** records sharing one authoritative `room_id` contain one or more false values and all remaining values are false or null
+- **THEN** legacy runtime VIP presentation is `НЕТ`
+- **AND** null does not weaken or conflict with the known consistent value
+
+#### Scenario: One room contains differing VIP flags
+
+- **WHEN** records sharing one authoritative `room_id` contain at least one true and at least one false VIP value
+- **THEN** all otherwise valid records remain in the snapshot with their own canonical values
+- **AND** the importer does not report `ROOM_VIP_CONFLICT` solely for that difference
+- **AND** the legacy runtime presentation remains `КОНФЛИКТ ДАННЫХ`
+- **AND** canonical inventory is not rewritten
 
 ### Requirement: Converter paths use repository-safe absolute configuration
 
-The offline converter SHALL preserve execution-time configuration variables named `SOURCE_XLSX_PATH` and `OUTPUT_JSON_PATH` and the exact optional network-source configuration variable `NETWORK_XLSX_PATH`. Every configured value SHALL be a resolved absolute `Path` before workbook reading or snapshot publication begins.
+The offline converter SHALL preserve execution-time configuration variables named `SOURCE_XLSX_PATH` and `OUTPUT_JSON_PATH` and SHALL preserve the exact optional network-source configuration variable `NETWORK_XLSX_PATH`. Every configured value SHALL be a resolved absolute `Path` before workbook reading or snapshot publication begins.
 
 Primary source and output path resolution priority SHALL remain:
 
@@ -301,9 +364,25 @@ repository-safe default where approved
 configuration failure
 ```
 
-The supported primary/output environment variables SHALL remain `DIAG_INVENTORY_XLSX` and `DIAG_INVENTORY_JSON`. The exact network environment variable SHALL remain `DIAG_INVENTORY_NETWORK_XLSX`; the exact network CLI option SHALL remain `--network-source`; and the exact optional direct API keyword SHALL remain `network_source_path`.
+The supported primary/output environment variables SHALL remain `DIAG_INVENTORY_XLSX` and `DIAG_INVENTORY_JSON`. The exact network environment variable SHALL be:
 
-The direct API contract SHALL remain:
+```text
+DIAG_INVENTORY_NETWORK_XLSX
+```
+
+The exact network CLI option SHALL be:
+
+```text
+--network-source
+```
+
+The exact optional direct API keyword SHALL be:
+
+```text
+network_source_path
+```
+
+The direct API contract SHALL be:
 
 ```python
 import_equipment_inventory(
@@ -321,19 +400,41 @@ Network source resolution SHALL use this priority:
 explicit network_source_path or --network-source
 DIAG_INVENTORY_NETWORK_XLSX
 explicitly configured NETWORK_XLSX_PATH
-no network source configured -> intentional primary-only mode
+no network source configured -> intentional primary-only schema-v4 mode
 ```
 
-Supplying a network source through any approved public surface SHALL request network-enriched schema-v4 conversion. Absence of a network source SHALL request primary-only schema-v4 conversion. Failure of an explicitly configured network source SHALL be fatal for that run and SHALL NOT be interpreted as absence of configuration.
+Supplying a network source through any approved public surface SHALL request network-enriched schema-v4 conversion. Failure of that configured source SHALL be fatal for that run and SHALL NOT be interpreted as absence of configuration. No equivalent or implementation-selected public name is permitted.
 
 The JSON output MAY default to the repository-local deployment snapshot path. No user-specific workbook path SHALL be committed as a default. A source-path configuration failure SHALL occur before candidate publication and SHALL leave any previous valid output intact.
+
+#### Scenario: Environment paths are resolved
+
+- **GIVEN** relative or user-expanded path text is supplied through the supported environment variables
+- **WHEN** converter configuration is initialized
+- **THEN** `SOURCE_XLSX_PATH`, `OUTPUT_JSON_PATH`, and any configured `NETWORK_XLSX_PATH` contain absolute resolved `Path` values
+
+#### Scenario: Source path is not configured
+
+- **GIVEN** no CLI source override, no source environment variable, and no approved repository-safe source default
+- **WHEN** the converter starts
+- **THEN** it exits with a clear safe configuration error
+- **AND** it does not modify the existing JSON snapshot
 
 #### Scenario: Network source is not configured
 
 - **GIVEN** `network_source_path`, `--network-source`, `DIAG_INVENTORY_NETWORK_XLSX`, and `NETWORK_XLSX_PATH` provide no network source
 - **WHEN** converter configuration is initialized
 - **THEN** the run remains in intentional primary-only mode
-- **AND** successful conversion still targets schema version 4
+- **AND** absence of the optional source is not reported as a failure
+- **AND** successful conversion targets schema version 4
+
+#### Scenario: Configured network path is unusable
+
+- **GIVEN** a network source path is explicitly or environmentally configured
+- **AND** the path does not resolve to a readable regular workbook file
+- **WHEN** the converter starts
+- **THEN** it returns a structured fatal configuration/source issue
+- **AND** it does not publish or replace the output snapshot
 
 #### Scenario: Direct API uses the approved keyword
 
@@ -343,14 +444,16 @@ The JSON output MAY default to the repository-local deployment snapshot path. No
 
 ### Requirement: Canonical inventory snapshot schema v3
 
-Historical network-enriched schema-v3 snapshots use `schema_version` equal to JSON integer `3` and contain all schema-v2 fields plus exactly:
+Historical network-enriched schema-v3 snapshots use `schema_version` equal to JSON integer `3`.
+
+The schema-v3 root fields and optional generation metadata SHALL remain the same approved root vocabulary used by schema v2. Schema-v3 records SHALL contain all schema-v2 fields plus exactly:
 
 ```text
 switch_ip_address
 switch_port
 ```
 
-The complete exact schema-v3 record field set remains:
+The complete exact schema-v3 record field set SHALL remain:
 
 ```text
 record_id
@@ -367,16 +470,53 @@ switch_ip_address
 switch_port
 ```
 
-`switch_ip_address` remains canonical dotted-decimal IPv4 text or null. `switch_port` remains normalized non-empty JSON text or null. The deterministic schema-v3 identity payload contains only `schema_version` and canonical `records`; both switch fields participate in that historical identity and generation/report metadata remains outside it.
+`switch_ip_address` SHALL be canonical dotted-decimal IPv4 text or null. `switch_port` SHALL be normalized non-empty JSON text or null.
 
-The runtime loader SHALL continue to validate and load valid historical schema-v3 snapshots under that exact contract. The current importer and combined preflight SHALL no longer generate new schema-v3 candidates; they target schema v4.
+The deterministic schema-v3 identity payload SHALL contain only:
 
-#### Scenario: Historical schema-v3 snapshot remains loadable
+```text
+schema_version
+records
+```
 
-- **GIVEN** a valid schema-v3 snapshot with one unambiguous historical switch connection
-- **WHEN** the runtime loader validates it
-- **THEN** the switch fields participate in schema-v3 deterministic identity
-- **AND** the runtime exposes those switch fields with `room_address = null`
+Records SHALL remain sorted by normalized `record_id` for identity construction. Both switch fields SHALL participate in schema-v3 identity. Generation metadata and structured import-report metadata/counters SHALL remain outside identity.
+
+For schema v3, canonical root metadata `source_row_count` SHALL retain its existing meaning and SHALL count inspected rows from the primary equipment workbook only. It SHALL NOT be the sum of both workbooks. Network worksheet row counts SHALL exist only in `ImportResult` or report metadata and SHALL NOT affect canonical identity.
+
+The runtime loader SHALL continue to validate and load valid historical schema-v3 snapshots under this exact contract. The current importer and combined preflight SHALL no longer create new schema-v3 candidates; current candidate publication targets schema v4.
+
+#### Scenario: Historical unique connection is loaded
+
+- **GIVEN** a valid historical schema-v3 record contains one normalized switch IP and port pair
+- **WHEN** the runtime loader validates the snapshot
+- **THEN** those switch values participate in deterministic schema-v3 snapshot identity
+- **AND** runtime adaptation exposes them with `room_address = null`
+
+#### Scenario: Historical connection is unavailable
+
+- **GIVEN** a valid historical schema-v3 record has no unambiguous network connection
+- **WHEN** the runtime loader validates the snapshot
+- **THEN** both schema-v3 switch fields remain null unless one historical unique partial field is valid
+- **AND** the record remains present when otherwise valid
+
+#### Scenario: Historical switch field changes identity
+
+- **GIVEN** two otherwise identical valid schema-v3 canonical snapshots
+- **WHEN** one record's `switch_ip_address` or `switch_port` differs
+- **THEN** their deterministic `snapshot_id` values differ
+
+#### Scenario: Primary source row count remains canonical metadata
+
+- **GIVEN** a valid historical schema-v3 snapshot declares `source_row_count`
+- **WHEN** its metadata is interpreted
+- **THEN** `source_row_count` retains the primary equipment-workbook row-count meaning
+- **AND** network row count remains report metadata only
+
+#### Scenario: Hybrid schema-v2 record is rejected
+
+- **WHEN** a snapshot claims schema version 2 but contains either schema-v3 switch field
+- **THEN** loading fails as an invalid snapshot
+- **AND** no partial inventory is published
 
 #### Scenario: Current network-enriched conversion does not emit schema v3
 
