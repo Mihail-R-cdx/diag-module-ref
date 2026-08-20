@@ -556,6 +556,115 @@ Combined preflight SHALL NOT publish the candidate. A prior per-source preflight
 - **THEN** conversion rereads and revalidates the current workbook bytes
 - **AND** the previous preflight result is not treated as publication authority
 
+### Requirement: Existing conversion modes and publication semantics remain supported
+
+The standalone GUI support SHALL NOT remove or change the intentional one-source and explicit two-source CLI/direct API conversion entry points. Both current conversion modes SHALL publish schema version 4 under this change. The direct conversion API SHALL continue to accept an optional network source under the existing path-priority contract.
+
+Except for the explicitly approved schema-v4 migration and the added canonical `room_address` field, preflight APIs, guarded publication, and report extensions SHALL NOT independently change canonical source authorities, diagnostic-model recognition, MAC-only reconciliation, deterministic snapshot identity semantics, runtime candidate validation, or ordinary atomic publication. The importer/domain layer SHALL NOT import PyQt5.
+
+#### Scenario: One-source CLI conversion publishes schema v4
+
+- **GIVEN** the CLI or direct API explicitly performs conversion without a network source
+- **WHEN** conversion succeeds
+- **THEN** it publishes schema version 4 under the primary-only schema-v4 contract
+- **AND** standalone GUI support does not require PyQt5 in the importer or runtime loader
+
+#### Scenario: Two-source direct conversion publishes schema v4
+
+- **GIVEN** the direct API receives explicit valid primary, network, and output paths
+- **WHEN** conversion succeeds
+- **THEN** it publishes schema version 4 under the existing reconciliation and atomic-publication contracts
+- **AND** the same operation result can be rendered by CLI or GUI consumers
+
+### Requirement: Switch fields are non-authoritative runtime inventory metadata
+
+The runtime `EquipmentRecord` SHALL expose nullable `switch_ip_address` and `switch_port` for every supported snapshot version. Schema-v1 and schema-v2 records SHALL expose loader-adapted null values. Schema-v3 and schema-v4 records SHALL expose their validated canonical switch fields.
+
+Existing inventory indexes SHALL remain equivalent to:
+
+```text
+ip_address -> tuple[EquipmentRecord, ...]
+room_id -> tuple[EquipmentRecord, ...]
+(room_id, device_kind) -> tuple[EquipmentRecord, ...]
+```
+
+This capability SHALL NOT add an index or public query by switch IP or switch port.
+
+The application/composition layer MAY read `switch_ip_address` and `switch_port` from the one unambiguous record returned through the existing current-device IP lookup solely to create non-blocking equipment-page presentation. It SHALL pass only safe scalar presentation values to registered equipment screens. Screens SHALL NOT receive or query the complete inventory, interpret lookup multiplicity, reconcile source evidence, or use switch fields as device-observation data.
+
+The switch fields remain non-authoritative runtime inventory metadata. Diagnostic model dispatch, credential configuration or fallback, handler acquisition, request retry, successful credential memory, room-context aggregation, PDU-room-codec enrichment, related-codec selection, device controllers, workers, handlers, parsers, transports, protocol behavior, device control, and device or switch network I/O SHALL ignore both switch fields. Switch values SHALL NOT change lookup membership or ordering, select between ambiguous records, authorize a diagnostic lifecycle, classify a device request, or become a precondition for existing diagnostics.
+
+A unique record's two switch fields SHALL remain independent for presentation. A non-null canonical field MAY be displayed while the other field is null. Null fields, loader-adapted null fields from schema v1/v2, unavailable inventory, invalid current device IP, zero matching records, or multiple matching records SHALL produce unavailable display values without changing the validity or availability of existing device diagnostics.
+
+The importer MAY extend its structured result with safe network worksheet/header context and aggregate counts needed to validate two-source conversion. Those report fields SHALL NOT enter canonical records, canonical `source_row_count`, or `snapshot_id`.
+
+#### Scenario: Existing IP and room queries are unchanged
+
+- **WHEN** any valid supported inventory version is loaded
+- **THEN** `find_by_ip`, `find_room_equipment`, and `find_by_room_and_kind` preserve their existing zero/one/many semantics
+- **AND** switch fields do not alter membership or ordering
+- **AND** no switch-IP or switch-port query is added
+
+#### Scenario: Unique current record supplies display-only values
+
+- **GIVEN** existing device-IP lookup returns exactly one record
+- **WHEN** the application prepares equipment-page inventory presentation
+- **THEN** it may read that record's runtime `switch_ip_address` and `switch_port`
+- **AND** schema-v3/v4 canonical values and schema-v1/v2 loader-adapted nulls follow the same presentation boundary
+- **AND** only safe scalar display values are passed to the registered screen
+- **AND** neither field becomes device-response or network-I/O authority
+
+#### Scenario: Unique partial switch connection remains useful
+
+- **GIVEN** existing device-IP lookup returns exactly one record
+- **AND** exactly one switch field is non-null
+- **WHEN** the application prepares equipment-page presentation
+- **THEN** it preserves the non-null canonical field for display
+- **AND** the null field remains unavailable
+- **AND** it does not infer, reconstruct, or query the missing value
+
+#### Scenario: Ambiguous current device is not narrowed for display
+
+- **GIVEN** existing device-IP lookup returns multiple records
+- **WHEN** one record has a matching diagnostic model, preferred device kind, or more complete switch values
+- **THEN** the application displays neither record's switch connection
+- **AND** it does not break ambiguity by model, kind, MAC, room, completeness, or order
+
+#### Scenario: Older snapshots remain compatible
+
+- **GIVEN** a valid schema-v1 or schema-v2 snapshot is loaded
+- **WHEN** equipment-page switch presentation is requested
+- **THEN** the loader-provided null switch fields produce unavailable display values
+- **AND** the source snapshot is not rewritten or upgraded
+- **AND** existing diagnostics remain available
+
+#### Scenario: Diagnostics ignore switch metadata for schema v3 and v4
+
+- **GIVEN** the application loads a valid schema-v3 or schema-v4 snapshot
+- **WHEN** existing diagnostic dispatch, credential, request, room, PDU enrichment, handler, worker, controller, transport, or control workflows execute
+- **THEN** their authority and lifecycle remain unchanged
+- **AND** they do not inspect switch IP or port
+- **AND** informational equipment-page rendering does not become a success or failure gate
+
+#### Scenario: Device payload cannot redefine canonical switch presentation
+
+- **GIVEN** a device handler, parser, worker, or controller produces an IP, port, interface, MAC, or connection value
+- **WHEN** the result is rendered
+- **THEN** that value does not replace or supplement canonical `switch_ip_address` or `switch_port`
+- **AND** no switch field is added to the device-result contract by this capability
+
+#### Scenario: No switch management is introduced
+
+- **WHEN** switch IP or port is available for display
+- **THEN** the application performs no switch reachability check, authentication, link-state query, configuration, or other switch network I/O
+- **AND** it does not request or resolve switch credentials
+
+#### Scenario: Report metadata is not canonical identity
+
+- **WHEN** safe network-run counters or source-location context differ while canonical records for the same schema version remain identical
+- **THEN** deterministic `snapshot_id` remains identical
+- **AND** report-only metadata does not gain canonical authority
+
 ## ADDED Requirements
 
 ### Requirement: Room address source mapping is exact and nullable
