@@ -576,7 +576,7 @@ Except for the explicitly approved schema-v4 migration and the added canonical `
 - **THEN** it publishes schema version 4 under the existing reconciliation and atomic-publication contracts
 - **AND** the same operation result can be rendered by CLI or GUI consumers
 
-### Requirement: Switch fields are non-authoritative runtime inventory metadata
+### Requirement: Schema-v3 switch fields are non-authoritative runtime inventory metadata
 
 The runtime `EquipmentRecord` SHALL expose nullable `switch_ip_address` and `switch_port` for every supported snapshot version. Schema-v1 and schema-v2 records SHALL expose loader-adapted null values. Schema-v3 and schema-v4 records SHALL expose their validated canonical switch fields.
 
