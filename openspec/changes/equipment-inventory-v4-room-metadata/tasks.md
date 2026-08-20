@@ -8,8 +8,8 @@
 
 ## 2. Unified schema-v4 importer output
 
-- [ ] 2.1 Change successful primary-only conversion to publish `schema_version = 4` rather than schema v2.
-- [ ] 2.2 Change successful primary-plus-network conversion to publish `schema_version = 4` rather than schema v3.
+- [ ] 2.1 Change successful primary-only CLI/direct API conversion to publish `schema_version = 4` rather than schema v2.
+- [ ] 2.2 Change successful primary-plus-network CLI/direct API conversion to publish `schema_version = 4` rather than schema v3.
 - [ ] 2.3 Define the exact schema-v4 record shape as all historical canonical fields plus `room_vip`, `room_address`, `switch_ip_address`, and `switch_port`.
 - [ ] 2.4 Ensure every schema-v4 record contains all declared v4 keys even when values are null.
 - [ ] 2.5 In primary-only mode, set both switch fields to null for every record; do not omit them and do not synthesize network evidence.
@@ -17,6 +17,7 @@
 - [ ] 2.7 Preserve fail-closed network configuration: an explicitly configured invalid/unreadable network source remains fatal and must not downgrade to primary-only publication.
 - [ ] 2.8 Change combined preflight to build, identify, and validate an in-memory schema-v4 candidate without publication.
 - [ ] 2.9 Keep canonical `source_row_count` as the primary workbook row count and keep network row counters/report metadata outside canonical identity.
+- [ ] 2.10 Preserve the existing CLI/direct API entry points, GUI-independent importer/domain boundary, and atomic publication semantics while changing only their current output schema to v4.
 
 ## 3. Runtime loader and immutable record model
 
@@ -27,6 +28,7 @@
 - [ ] 3.5 Add strict schema-v4 loading with exact declared record fields and nullable validation for `room_address` and the existing v4 nullable fields.
 - [ ] 3.6 Reject missing, extra, or hybrid fields in any declared supported version as `INVALID_SNAPSHOT`; do not repair malformed snapshots.
 - [ ] 3.7 Keep undeclared future schema versions classified as `UNSUPPORTED_SCHEMA` and preserve the existing no-partial-publication load contract.
+- [ ] 3.8 Preserve switch metadata authority across schema versions: v1/v2 expose loader-adapted null switch fields, v3/v4 expose validated canonical switch fields, and no switch index, dispatch, credential, lifecycle, control, or network-I/O authority is introduced.
 
 ## 4. Deterministic identity and publication
 
@@ -49,8 +51,8 @@
 - [ ] 6.1 Test exact `Адрес комнаты` mapping and canonical NFC/trim normalization.
 - [ ] 6.2 Test a blank room-address cell becomes `room_address = null` without making the row fatal.
 - [ ] 6.3 Test missing or ambiguous `Адрес комнаты` header is fatal for primary preflight/conversion and preserves a previous valid output.
-- [ ] 6.4 Test primary-only conversion publishes schema v4 with null switch fields on every record.
-- [ ] 6.5 Test valid two-source conversion publishes schema v4 with existing MAC-only switch enrichment semantics.
+- [ ] 6.4 Test primary-only CLI/direct API conversion publishes schema v4 with null switch fields on every record.
+- [ ] 6.5 Test valid two-source CLI/direct API conversion publishes schema v4 with existing MAC-only switch enrichment semantics.
 - [ ] 6.6 Test an explicitly configured network-source failure does not downgrade to primary-only schema-v4 publication.
 - [ ] 6.7 Test combined preflight reports schema version 4, validates the candidate, and publishes no output.
 - [ ] 6.8 Test schema-v4 exact shape: all declared fields required as keys; extra or missing keys fail as `INVALID_SNAPSHOT`.
@@ -60,6 +62,7 @@
 - [ ] 6.12 Test differing same-room `room_name`, `room_address`, and `room_vip` values preserve all records and do not emit importer room-display conflict issues.
 - [ ] 6.13 Test row-level unsupported non-blank `VIP оборудование` still produces `INVALID_ROOM_VIP`; removing room-wide conflict checks must not weaken cell-level validation.
 - [ ] 6.14 Test normal runtime inventory loading remains independent of `openpyxl` or any spreadsheet parser.
+- [ ] 6.15 Test switch presentation remains display-only for schema v4, v1/v2 null adaptation remains compatible, and diagnostic dispatch, credentials, lifecycle, control, and network I/O do not gain switch-field authority.
 
 ## 7. Documentation and implementation boundaries
 
@@ -69,7 +72,7 @@
 
 ## 8. Validation and handoff
 
-- [ ] 8.1 Run focused equipment-inventory/importer tests covering schema v4, address mapping, historical loading, identity, preflight, and network enrichment.
+- [ ] 8.1 Run focused equipment-inventory/importer tests covering schema v4, address mapping, historical loading, identity, preflight, network enrichment, conversion entry points, and switch metadata authority.
 - [ ] 8.2 Run the full offline test suite with `python -m unittest discover -s tests -p "test_*.py"`.
 - [ ] 8.3 Run `.\openspec.cmd validate equipment-inventory-v4-room-metadata --strict`.
 - [ ] 8.4 Run `.\openspec.cmd validate --all --strict`.
