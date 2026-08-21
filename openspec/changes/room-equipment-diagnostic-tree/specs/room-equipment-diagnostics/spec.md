@@ -171,8 +171,11 @@ The application SHALL execute room diagnostic network work for at most one recor
 
 ```text
 verify current room/row generation
+-> resolve and validate application-owned credential attempt plan
+-> if required authenticated credentials are absent for a non-PCS4i model:
+       terminal configuration failure with zero network I/O
+       continue to the next eligible row
 -> preliminary reachability check
--> resolve application-owned credential attempt plan
 -> one assigned diagnostic attempt
 -> optional next assigned attempt only after structured AuthenticationError
 -> accept final row outcome
@@ -180,7 +183,28 @@ verify current room/row generation
 -> next eligible row
 ```
 
-Preliminary reachability failure SHALL stop that row before model-specific handler/worker acquisition. Accordion selection SHALL NOT change queue order or cause a waiting row to start early.
+Credential-plan resolution/validation SHALL occur before preliminary reachability because absence of required authenticated credentials is a pre-I/O configuration failure. For an authenticated non-PCS4i model with no valid required credentials, the row SHALL perform no ping, handler acquisition, worker/controller submission, or other device network I/O; it SHALL expose the safe reason `Credentials не настроены` and the room queue SHALL continue.
+
+The approved PCS4i exception SHALL remain application-owned: when no explicit/profile/mapped credential exists, composition MAY create the approved credentialless attempt plan. Only after that plan has been successfully formed does PCS4i proceed to preliminary reachability.
+
+After a valid attempt plan exists, preliminary reachability failure SHALL stop that row before model-specific handler/worker acquisition. Accordion selection SHALL NOT change queue order or cause a waiting row to start early.
+
+#### Scenario: Missing required credentials stops before ping
+
+- **GIVEN** a supported authenticated non-PCS4i room row requires credentials
+- **AND** no valid credential candidate is configured for that model
+- **WHEN** the row reaches its queue turn
+- **THEN** credential-plan validation ends the row as a safe terminal configuration failure
+- **AND** the row displays `Credentials не настроены`
+- **AND** no ping, handler acquisition, worker/controller submission, or other device network I/O occurs for that row
+- **AND** the room queue continues to later eligible rows
+
+#### Scenario: PCS4i credentialless plan precedes ping
+
+- **GIVEN** a supported PCS4i room row has no explicit credential, explicit profile, or mapped credential chain
+- **WHEN** the row reaches its queue turn
+- **THEN** application composition forms the approved credentialless attempt plan
+- **AND** only after that plan exists may preliminary reachability run
 
 #### Scenario: Second device waits for first cleanup
 
@@ -191,7 +215,8 @@ Preliminary reachability failure SHALL stop that row before model-specific handl
 
 #### Scenario: Ping fails
 
-- **WHEN** an eligible row fails preliminary reachability validation
+- **GIVEN** a valid credential attempt plan exists for the eligible row
+- **WHEN** that row fails preliminary reachability validation
 - **THEN** no model-specific diagnostic handler/worker starts for that row
 - **AND** the row receives a safe terminal failure
 - **AND** the room queue proceeds to later rows
