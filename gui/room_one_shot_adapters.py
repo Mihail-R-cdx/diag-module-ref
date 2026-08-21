@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from queue import Empty, Queue
 import threading
+import time
 from typing import Any
 
 from PyQt5.QtCore import Qt
@@ -60,15 +62,13 @@ class WorkerOneShotAdapter:
         if context.is_current is not None and not context.is_current():
             return
         worker = self._factory(context)
-        results: list[dict] = []
-        errors: list[tuple] = []
-        guard = threading.Lock()
+        events: Queue[tuple[str, Any]] = Queue()
         worker.signals.result.connect(
-            lambda value: _append_if_current(results, value, guard, context),
+            lambda value: _queue_if_current(events, "result", value, context),
             Qt.DirectConnection,
         )
         worker.signals.error.connect(
-            lambda value: _append_if_current(errors, value, guard, context),
+            lambda value: _queue_if_current(events, "error", value, context),
             Qt.DirectConnection,
         )
 
@@ -80,57 +80,65 @@ class WorkerOneShotAdapter:
         # invalidated queued row never starts its first operation.
         if context.is_current is not None and not context.is_current():
             return
-        execution = threading.Thread(target=worker.run, daemon=True)
-        execution.start()
-        execution.join(self._cleanup_policy.timeout_seconds)
-        timed_out = execution.is_alive()
-        with guard:
-            captured_results = tuple(results)
-            captured_errors = tuple(errors)
+        finished = threading.Event()
 
-        partial = [item for item in captured_results if item.get("_partial_update") is True]
-        final = [item for item in captured_results if item.get("_partial_update") is not True]
-        for item in partial:
-            yield OneShotEvent(OneShotEventKind.PARTIAL, item)
-        if final:
-            # Existing workers already retire their owned handler/session in finally.
-            yield OneShotEvent(
-                OneShotEventKind.USABLE_SUCCESS,
-                final[-1],
-                credential_success=bool(final[-1].get("_credential_used", True)),
-            )
-            yield OneShotEvent(
-                OneShotEventKind.CLEANUP_TIMEOUT
-                if timed_out
-                else OneShotEventKind.CLEANUP_COMPLETE
-            )
-            return
-        if partial and self._polycom and captured_errors:
-            # HTTPS status is authoritative; SSH enrichment is explicitly optional.
-            yield OneShotEvent(
-                OneShotEventKind.USABLE_SUCCESS_WITH_WARNING,
-                partial[-1],
-                warning="Дополнительные параметры SSH недоступны",
-                credential_success=False,
-            )
-            yield OneShotEvent(
-                OneShotEventKind.CLEANUP_TIMEOUT
-                if timed_out
-                else OneShotEventKind.CLEANUP_COMPLETE
-            )
-            return
-        if captured_errors:
-            category = str(captured_errors[-1][0]) if captured_errors[-1] else ""
-            message = str(captured_errors[-1][1]) if len(captured_errors[-1]) > 1 else "Не удалось выполнить диагностику"
-            error: Exception | None = AuthenticationError(message) if category == "authentication_error" else None
-            yield OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, error, failure_reason=_safe_failure(category))
-        else:
-            yield OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, failure_reason="Не удалось выполнить диагностику")
-        yield OneShotEvent(
-            OneShotEventKind.CLEANUP_TIMEOUT
-            if timed_out
-            else OneShotEventKind.CLEANUP_COMPLETE
-        )
+        def execute() -> None:
+            try:
+                worker.run()
+            finally:
+                finished.set()
+
+        execution = threading.Thread(target=execute, daemon=True)
+        execution.start()
+        terminal = False
+        last_partial: dict | None = None
+        while not terminal:
+            try:
+                kind, value = events.get(timeout=0.02)
+            except Empty:
+                if finished.is_set():
+                    yield OneShotEvent(
+                        OneShotEventKind.TERMINAL_FAILURE,
+                        failure_reason="Не удалось выполнить диагностику",
+                    )
+                    terminal = True
+                continue
+            if kind == "result":
+                if value.get("_partial_update") is True:
+                    last_partial = value
+                    yield OneShotEvent(OneShotEventKind.PARTIAL, value)
+                    continue
+                yield OneShotEvent(
+                    OneShotEventKind.USABLE_SUCCESS,
+                    value,
+                    credential_success=bool(value.get("_credential_used", True)),
+                )
+                terminal = True
+                continue
+            category = str(value[0]) if value else ""
+            message = str(value[1]) if len(value) > 1 else "Не удалось выполнить диагностику"
+            if self._polycom and last_partial is not None:
+                # HTTPS status is authoritative; SSH enrichment is optional.
+                yield OneShotEvent(
+                    OneShotEventKind.USABLE_SUCCESS_WITH_WARNING,
+                    last_partial,
+                    warning="Дополнительные параметры SSH недоступны",
+                    credential_success=False,
+                )
+            else:
+                error: Exception | None = AuthenticationError(message) if category == "authentication_error" else None
+                yield OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, error, failure_reason=_safe_failure(category))
+            terminal = True
+
+        # Only terminal diagnostic state starts the bounded retirement window.
+        deadline = time.monotonic() + self._cleanup_policy.timeout_seconds
+        while not finished.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                yield OneShotEvent(OneShotEventKind.CLEANUP_TIMEOUT)
+                return
+            finished.wait(min(remaining, 0.02))
+        yield OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE)
 
     def cleanup(self, _context: OneShotAttemptContext) -> bool:
         # Completion is emitted by `run`; an unfinished physical lifecycle is
@@ -197,12 +205,11 @@ def _safe_failure(category: str) -> str:
     }.get(category, "Не удалось выполнить диагностику")
 
 
-def _append_if_current(target, value, lock, context: OneShotAttemptContext) -> None:
+def _queue_if_current(events: Queue[tuple[str, Any]], kind: str, value: Any, context: OneShotAttemptContext) -> None:
     if context.is_current is not None and not context.is_current():
         return
-    with lock:
-        if context.is_current is None or context.is_current():
-            target.append(value)
+    if context.is_current is None or context.is_current():
+        events.put((kind, value))
 
 
 ROOM_ADAPTER_BINDINGS: tuple[WorkerAdapterBinding, ...] = (

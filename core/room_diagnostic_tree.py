@@ -332,6 +332,7 @@ class RoomDiagnosticOrchestrator:
                 row.failure_reason = "Диагностический адаптер недоступен"
                 return
             retry = False
+            pending_success_index: int | None = None
             try:
                 for event in adapter.run(context):
                     if not self._is_current(session, row, token):
@@ -343,9 +344,12 @@ class RoomDiagnosticOrchestrator:
                         row.status = DeviceRowStatus.CONNECTED
                         if event.warning:
                             row.warnings.append(event.warning)
-                        if event.credential_success and event.kind is OneShotEventKind.USABLE_SUCCESS and self._persist_success:
-                            self._persist_success(row.diagnostic_model, row.ip_address, index)
+                        if event.credential_success and event.kind is OneShotEventKind.USABLE_SUCCESS:
+                            # A diagnostic result is not yet a completed attempt:
+                            # retain only non-secret evidence until retirement ends.
+                            pending_success_index = index
                     elif event.kind is OneShotEventKind.TERMINAL_FAILURE:
+                        pending_success_index = None
                         if isinstance(event.data, AuthenticationError) and index + 1 < len(candidates):
                             retry = True
                         else:
@@ -353,11 +357,15 @@ class RoomDiagnosticOrchestrator:
                             row.failure_reason = event.failure_reason or "Не удалось выполнить диагностику"
                     elif event.kind is OneShotEventKind.CLEANUP_COMPLETE:
                         row.cleanup_complete = True
+                        if pending_success_index is not None and self._persist_success:
+                            self._persist_success(row.diagnostic_model, row.ip_address, pending_success_index)
+                            pending_success_index = None
                     elif event.kind is OneShotEventKind.CLEANUP_TIMEOUT:
                         # The worker may finish physically later, but its token loses
                         # authority now and the serial queue can make progress.
                         row.cleanup_complete = True
                         row.operation_token += 1
+                        pending_success_index = None
                         if row.accepted_snapshot is not None:
                             row.status = DeviceRowStatus.DEGRADED
                             row.stale = True
@@ -368,6 +376,9 @@ class RoomDiagnosticOrchestrator:
                     self._notify(session)
                 if not row.cleanup_complete:
                     row.cleanup_complete = bool(adapter.cleanup(context))
+                    if row.cleanup_complete and pending_success_index is not None and self._persist_success:
+                        self._persist_success(row.diagnostic_model, row.ip_address, pending_success_index)
+                        pending_success_index = None
             except AuthenticationError:
                 retry = index + 1 < len(candidates)
             except Exception:
