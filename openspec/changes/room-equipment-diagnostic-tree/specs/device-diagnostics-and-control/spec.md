@@ -67,11 +67,27 @@ The related codec, when present as a canonical room record, SHALL be diagnosed o
 
 ### Requirement: Room diagnostic adapters do not expand supported control surface
 
-Adding a model to the automatic room tree SHALL NOT by itself authorize new state-changing operations, transports, protocol fallbacks, credential sharing, or post-cycle live behavior. Existing supported controls remain governed by their current capabilities, and all room-tree state-changing/auxiliary/live interaction is deferred to the separate `room-device-interaction-lifecycle` capability.
+Adding a model to the automatic room tree SHALL NOT by itself authorize new state-changing operations, transports, protocol fallbacks, credential sharing, or post-cycle live behavior. In MIH-7 room mode, existing device-specific network-backed controls SHALL remain disabled or unbound both during and after automatic room-cycle completion. Existing control capability in legacy single-device mode SHALL NOT grant room-mode target authority.
+
+Until the separately approved `room-device-interaction-lifecycle` binds an action to the exact current room record, MIH-7 SHALL reject local Refresh, Matrix routing, PDU mutation, codec mutation, auxiliary network reads, live starts, or equivalent reused-screen network intents before handler acquisition or device network I/O. Presentation of a `подключено` row SHALL NOT by itself enable those controls.
 
 #### Scenario: Room scan completes for a controllable device
 
 - **WHEN** a device with existing control capabilities completes automatic room acquisition
 - **THEN** MIH-7 has established diagnostic row state only
 - **AND** the adapter has not sent a state-changing command
-- **AND** the existence of the row does not authorize any new control or transport behavior
+- **AND** existing device network controls remain unavailable in room mode
+
+#### Scenario: Legacy mutation intent is invoked after room completion
+
+- **GIVEN** a supported room row completed automatic acquisition successfully
+- **WHEN** a reused legacy Matrix, PDU, codec, or equivalent state-changing intent is invoked before exact-row interaction binding exists
+- **THEN** application composition rejects or disables that intent before handler acquisition
+- **AND** no mutation or other device network I/O is sent
+
+#### Scenario: Legacy auxiliary or live intent is invoked after room completion
+
+- **GIVEN** room mode has reached a terminal clean or problem outcome
+- **WHEN** a reused local Refresh, Call Log/auxiliary read, live/poll start, or equivalent network-backed view intent is invoked
+- **THEN** MIH-7 keeps the intent unavailable or rejects it before network I/O
+- **AND** a top-level source IP or prior single-device context is not accepted as the row target
