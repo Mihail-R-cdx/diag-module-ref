@@ -15,7 +15,8 @@ Canonical inventory v4 is already merged and provides the required room metadata
 - Extend the existing exact model dispatch into one application-level model capability registry with one-shot room adapter binding; do not add runtime `source_model` recognition.
 - Run automatic room diagnostics strictly sequentially: application-owned credential-plan resolution/validation first, then preliminary ping, then one assigned attempt at a time, accepted terminal outcome, cleanup/release, and finally the next record. An authenticated non-PCS4i model with no required credentials fails before ping or any other device I/O; PCS4i may form its approved credentialless attempt plan and then proceed to ping.
 - Preserve existing structured credential fallback rules, saved exact model/IP successful candidate/profile policy, and the approved PCS4i credentialless exception.
-- Normalize partial, usable-success-with-warning, ordinary failure, and cleanup-degraded outcomes without treating optional warnings as total failures.
+- Resolve the existing Polycom cross-spec ambiguity for room one-shot diagnostics: authoritative HTTPS success plus optional SSH enrichment failure is a usable room result with warning, while successful-credential persistence is evaluated independently and is not granted merely because the HTTPS data is usable.
+- Normalize partial, usable-success-with-warning, ordinary failure, and cleanup-degraded outcomes without treating approved optional warnings as total failures.
 - Adapt persistent Matrix/DMP/codec diagnostic paths to bounded one-shot acquisition and retire polling/keepalive/session resources before queue advancement.
 - Bound cleanup so one stuck device cannot block the entire room; stale callbacks lose authority and the queue may continue after logical abandonment.
 - Keep automatic room polling off the Qt GUI thread and non-modal.
@@ -53,10 +54,11 @@ valid source IPv4
 
 - `diagnostic-application-shell`: change diagnostic-start inventory resolution so valid inventory is fail-closed and room-aware, preserve the legacy no-room supported-device path, keep credential configuration network-free, and keep legacy interactive shell actions including Debug fail-closed in MIH-7 room mode.
 - `request-lifecycle-and-recovery`: extend request-context/stale-callback and background cleanup requirements for exact room generation/record one-shot work while preserving application-owned credential fallback.
-- `device-diagnostics-and-control`: require every supported exact model to expose bounded one-shot room acquisition without changing its approved transport/control semantics, and keep existing network controls disabled/unbound in MIH-7 room mode until MIH-8 supplies exact-row authority.
+- `device-diagnostics-and-control`: require every supported exact model to expose bounded one-shot room acquisition without changing its approved transport/control semantics, explicitly define Polycom authoritative HTTPS plus optional SSH failure as usable room success-with-warning, and keep existing network controls disabled/unbound in MIH-7 room mode until MIH-8 supplies exact-row authority.
+- `credential-source-isolation`: distinguish room diagnostic usability from successful-credential persistence so an approved Polycom optional SSH warning does not become a terminal room error, credential-retry authority, or automatic proof that a newly attempted candidate is successful.
 
 ## Impact
 
-Implementation is expected to modify application/composition routing, room-session state/orchestration, exact model capability registration, one-shot adapters around existing model lifecycle owners, room-tree GUI projection, and focused regression tests.
+Implementation is expected to modify application/composition routing, room-session state/orchestration, exact model capability registration, one-shot adapters around existing model lifecycle owners, room-tree GUI projection, credential-success bookkeeping at the Polycom room boundary, and focused regression tests.
 
 The change must not alter canonical inventory schema/importer recognition, add per-IP credential storage, move credential fallback into handlers/workers, run network I/O on the Qt GUI thread, silently remove legacy PDU enrichment, or enable exact-row interaction before the following reviewed change.
