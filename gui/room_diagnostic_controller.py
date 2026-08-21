@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from PyQt5.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
 
-from core.room_diagnostic_tree import RoomDiagnosticOrchestrator, RoomDiagnosticSession
+from core.room_diagnostic_tree import (
+    RoomCleanupPolicy,
+    RoomDiagnosticOrchestrator,
+    RoomDiagnosticSession,
+)
 
 from .room_one_shot_adapters import build_room_one_shot_adapters
 
@@ -30,12 +34,23 @@ class RoomDiagnosticController(QObject):
     sessionFinished = pyqtSignal(object)
     sessionUpdated = pyqtSignal(object)
 
-    def __init__(self, *, candidate_provider, ping, persist_success, starting_index, parent=None, thread_pool=None):
+    def __init__(
+        self,
+        *,
+        candidate_provider,
+        ping,
+        persist_success,
+        starting_index,
+        cleanup_policy: RoomCleanupPolicy | None = None,
+        parent=None,
+        thread_pool=None,
+    ):
         super().__init__(parent)
         self._candidate_provider = candidate_provider
         self._ping = ping
         self._persist_success = persist_success
         self._starting_index = starting_index
+        self._cleanup_policy = cleanup_policy or RoomCleanupPolicy()
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
         self._active_session: RoomDiagnosticSession | None = None
         self._signals = _RoomCycleSignals()
@@ -54,7 +69,7 @@ class RoomDiagnosticController(QObject):
 
     def _run_session(self, session: RoomDiagnosticSession) -> None:
         orchestrator = RoomDiagnosticOrchestrator(
-            adapters=build_room_one_shot_adapters(),
+            adapters=build_room_one_shot_adapters(self._cleanup_policy),
             credential_candidates=self._candidate_provider,
             ping=self._ping,
             persist_success=self._persist_success,

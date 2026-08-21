@@ -113,6 +113,7 @@ def validate_dispatch_registry(
     *,
     registered_screens: set[str] | frozenset[str],
     page_models_by_screen: dict[str, tuple[str, ...]],
+    available_room_adapter_keys: set[str] | frozenset[str] | None = None,
 ) -> None:
     seen: set[str] = set()
     for entry in DISPATCH_REGISTRY:
@@ -125,6 +126,13 @@ def validate_dispatch_registry(
             raise ValueError(f"Dispatch model has no lifecycle: {entry.diagnostic_model}")
         if not entry.room_adapter_key:
             raise ValueError(f"Dispatch model has no room adapter: {entry.diagnostic_model}")
+        if (
+            available_room_adapter_keys is not None
+            and entry.room_adapter_key not in available_room_adapter_keys
+        ):
+            raise ValueError(
+                f"Dispatch room adapter is not bound: {entry.diagnostic_model}"
+            )
         if not entry.presentation_capability:
             raise ValueError(f"Dispatch model has no presentation capability: {entry.diagnostic_model}")
         if entry.screen_key not in registered_screens:

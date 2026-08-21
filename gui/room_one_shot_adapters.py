@@ -9,15 +9,21 @@ trigger and no reused device screen becomes lifecycle authority.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+import threading
 from typing import Any
 
 from PyQt5.QtCore import Qt
 
 from core.exceptions import AuthenticationError
 from core.pdu import PDUOperationDescriptor, REFRESH
-from core.room_diagnostic_tree import OneShotAttemptContext, OneShotEvent, OneShotEventKind
+from core.room_diagnostic_tree import (
+    OneShotAttemptContext,
+    OneShotEvent,
+    OneShotEventKind,
+    RoomCleanupPolicy,
+)
 from core.worker import (
-    AtenPDUWorker,
     BiampTesiraForteCIWorker,
     ExtronDMP64PlusMeterWorker,
     ExtronIN1804Worker,
@@ -29,23 +35,61 @@ from core.worker import (
 )
 
 
+@dataclass(frozen=True)
+class WorkerAdapterBinding:
+    key: str
+    factory: Callable[[OneShotAttemptContext], Any]
+    polycom: bool = False
+
+
 class WorkerOneShotAdapter:
     """Run one existing worker once and normalize only its safe public signals."""
 
-    def __init__(self, factory: Callable[[OneShotAttemptContext], Any], *, polycom: bool = False):
+    def __init__(
+        self,
+        factory: Callable[[OneShotAttemptContext], Any],
+        *,
+        polycom: bool = False,
+        cleanup_policy: RoomCleanupPolicy | None = None,
+    ):
         self._factory = factory
         self._polycom = polycom
+        self._cleanup_policy = cleanup_policy or RoomCleanupPolicy()
 
     def run(self, context: OneShotAttemptContext) -> Iterable[OneShotEvent]:
+        if context.is_current is not None and not context.is_current():
+            return
         worker = self._factory(context)
         results: list[dict] = []
         errors: list[tuple] = []
-        worker.signals.result.connect(results.append, Qt.DirectConnection)
-        worker.signals.error.connect(errors.append, Qt.DirectConnection)
-        worker.run()
+        guard = threading.Lock()
+        worker.signals.result.connect(
+            lambda value: _append_if_current(results, value, guard, context),
+            Qt.DirectConnection,
+        )
+        worker.signals.error.connect(
+            lambda value: _append_if_current(errors, value, guard, context),
+            Qt.DirectConnection,
+        )
 
-        partial = [item for item in results if item.get("_partial_update") is True]
-        final = [item for item in results if item.get("_partial_update") is not True]
+        # The worker owns physical disconnect in its finally path.  We never kill
+        # this thread: after the deadline the core revokes logical authority and
+        # ignores late signals while advancing the room queue.
+        # A factory can only allocate protocol objects; it must not establish
+        # device I/O. Recheck before handing execution to the worker so an
+        # invalidated queued row never starts its first operation.
+        if context.is_current is not None and not context.is_current():
+            return
+        execution = threading.Thread(target=worker.run, daemon=True)
+        execution.start()
+        execution.join(self._cleanup_policy.timeout_seconds)
+        timed_out = execution.is_alive()
+        with guard:
+            captured_results = tuple(results)
+            captured_errors = tuple(errors)
+
+        partial = [item for item in captured_results if item.get("_partial_update") is True]
+        final = [item for item in captured_results if item.get("_partial_update") is not True]
         for item in partial:
             yield OneShotEvent(OneShotEventKind.PARTIAL, item)
         if final:
@@ -55,9 +99,13 @@ class WorkerOneShotAdapter:
                 final[-1],
                 credential_success=bool(final[-1].get("_credential_used", True)),
             )
-            yield OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE)
+            yield OneShotEvent(
+                OneShotEventKind.CLEANUP_TIMEOUT
+                if timed_out
+                else OneShotEventKind.CLEANUP_COMPLETE
+            )
             return
-        if partial and self._polycom and errors:
+        if partial and self._polycom and captured_errors:
             # HTTPS status is authoritative; SSH enrichment is explicitly optional.
             yield OneShotEvent(
                 OneShotEventKind.USABLE_SUCCESS_WITH_WARNING,
@@ -65,31 +113,29 @@ class WorkerOneShotAdapter:
                 warning="Дополнительные параметры SSH недоступны",
                 credential_success=False,
             )
-            yield OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE)
+            yield OneShotEvent(
+                OneShotEventKind.CLEANUP_TIMEOUT
+                if timed_out
+                else OneShotEventKind.CLEANUP_COMPLETE
+            )
             return
-        if errors:
-            category = str(errors[-1][0]) if errors[-1] else ""
-            message = str(errors[-1][1]) if len(errors[-1]) > 1 else "Не удалось выполнить диагностику"
+        if captured_errors:
+            category = str(captured_errors[-1][0]) if captured_errors[-1] else ""
+            message = str(captured_errors[-1][1]) if len(captured_errors[-1]) > 1 else "Не удалось выполнить диагностику"
             error: Exception | None = AuthenticationError(message) if category == "authentication_error" else None
             yield OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, error, failure_reason=_safe_failure(category))
         else:
             yield OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, failure_reason="Не удалось выполнить диагностику")
-        yield OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE)
+        yield OneShotEvent(
+            OneShotEventKind.CLEANUP_TIMEOUT
+            if timed_out
+            else OneShotEventKind.CLEANUP_COMPLETE
+        )
 
     def cleanup(self, _context: OneShotAttemptContext) -> bool:
-        # Every wrapped worker closes its handler/channel in its `finally` path.
-        return True
-
-
-def build_room_one_shot_adapters() -> dict[str, WorkerOneShotAdapter]:
-    return {
-        "codec_one_shot": WorkerOneShotAdapter(_codec_worker),
-        "polycom_one_shot": WorkerOneShotAdapter(_polycom_worker, polycom=True),
-        "matrix_one_shot": WorkerOneShotAdapter(_matrix_worker),
-        "pdu_one_shot": WorkerOneShotAdapter(_pdu_worker),
-        "biamp_one_shot": WorkerOneShotAdapter(_biamp_worker),
-        "dmp_one_shot": WorkerOneShotAdapter(_dmp_worker),
-    }
+        # Completion is emitted by `run`; an unfinished physical lifecycle is
+        # represented by CLEANUP_TIMEOUT, never by a fabricated True result.
+        return False
 
 
 def _credentials(context: OneShotAttemptContext) -> Mapping[str, Any]:
@@ -124,7 +170,12 @@ def _pdu_worker(context: OneShotAttemptContext):
         operation=REFRESH,
         credential_index=0 if context.credential else None,
     )
-    return PDUOperationWorker(descriptor, credentials=dict(_credentials(context)))
+    current = context.is_current or (lambda: False)
+    return PDUOperationWorker(
+        descriptor,
+        credentials=dict(_credentials(context)),
+        is_current=lambda _descriptor: current(),
+    )
 
 
 def _biamp_worker(context: OneShotAttemptContext):
@@ -144,3 +195,38 @@ def _safe_failure(category: str) -> str:
         "connection_error": "Не удалось подключиться",
         "protocol_error": "Ошибка протокола устройства",
     }.get(category, "Не удалось выполнить диагностику")
+
+
+def _append_if_current(target, value, lock, context: OneShotAttemptContext) -> None:
+    if context.is_current is not None and not context.is_current():
+        return
+    with lock:
+        if context.is_current is None or context.is_current():
+            target.append(value)
+
+
+ROOM_ADAPTER_BINDINGS: tuple[WorkerAdapterBinding, ...] = (
+    WorkerAdapterBinding("codec_one_shot", _codec_worker),
+    WorkerAdapterBinding("polycom_one_shot", _polycom_worker, polycom=True),
+    WorkerAdapterBinding("matrix_one_shot", _matrix_worker),
+    WorkerAdapterBinding("pdu_one_shot", _pdu_worker),
+    WorkerAdapterBinding("biamp_one_shot", _biamp_worker),
+    WorkerAdapterBinding("dmp_one_shot", _dmp_worker),
+)
+
+
+def room_adapter_keys() -> frozenset[str]:
+    return frozenset(binding.key for binding in ROOM_ADAPTER_BINDINGS)
+
+
+def build_room_one_shot_adapters(
+    cleanup_policy: RoomCleanupPolicy | None = None,
+) -> dict[str, WorkerOneShotAdapter]:
+    return {
+        binding.key: WorkerOneShotAdapter(
+            binding.factory,
+            polycom=binding.polycom,
+            cleanup_policy=cleanup_policy,
+        )
+        for binding in ROOM_ADAPTER_BINDINGS
+    }

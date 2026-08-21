@@ -49,6 +49,18 @@ class OneShotEventKind(str, Enum):
     USABLE_SUCCESS_WITH_WARNING = "USABLE_SUCCESS_WITH_WARNING"
     TERMINAL_FAILURE = "TERMINAL_FAILURE"
     CLEANUP_COMPLETE = "CLEANUP_COMPLETE"
+    CLEANUP_TIMEOUT = "CLEANUP_TIMEOUT"
+
+
+@dataclass(frozen=True)
+class RoomCleanupPolicy:
+    """Non-UI, testable limit for logical room-row retirement."""
+
+    timeout_seconds: float = 5.0
+
+    def __post_init__(self) -> None:
+        if self.timeout_seconds <= 0:
+            raise ValueError("Room cleanup timeout must be positive.")
 
 
 @dataclass(frozen=True)
@@ -87,6 +99,7 @@ class DeviceRowState:
     failure_reason: str | None = None
     operation_token: int = 0
     cleanup_complete: bool = False
+    stale: bool = False
 
     @property
     def eligible(self) -> bool:
@@ -143,6 +156,7 @@ class OneShotAttemptContext:
     ip_address: str
     operation_token: int
     credential: Mapping[str, Any] | None
+    is_current: Callable[[], bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -303,7 +317,15 @@ class RoomDiagnosticOrchestrator:
         while index < len(candidates) and self._is_current(session, row):
             row.operation_token += 1
             token = row.operation_token
-            context = OneShotAttemptContext(session.identity, row.record_id, row.diagnostic_model, row.ip_address, token, candidates[index])
+            context = OneShotAttemptContext(
+                session.identity,
+                row.record_id,
+                row.diagnostic_model,
+                row.ip_address,
+                token,
+                candidates[index],
+                is_current=lambda: self._is_current(session, row, token),
+            )
             adapter = self._adapters.get(capability.room_adapter_key)
             if adapter is None:
                 row.status = DeviceRowStatus.FAILED
@@ -331,6 +353,18 @@ class RoomDiagnosticOrchestrator:
                             row.failure_reason = event.failure_reason or "Не удалось выполнить диагностику"
                     elif event.kind is OneShotEventKind.CLEANUP_COMPLETE:
                         row.cleanup_complete = True
+                    elif event.kind is OneShotEventKind.CLEANUP_TIMEOUT:
+                        # The worker may finish physically later, but its token loses
+                        # authority now and the serial queue can make progress.
+                        row.cleanup_complete = True
+                        row.operation_token += 1
+                        if row.accepted_snapshot is not None:
+                            row.status = DeviceRowStatus.DEGRADED
+                            row.stale = True
+                            row.warnings.append("Соединение завершено по таймауту")
+                        else:
+                            row.status = DeviceRowStatus.FAILED
+                            row.failure_reason = "Не удалось завершить соединение"
                     self._notify(session)
                 if not row.cleanup_complete:
                     row.cleanup_complete = bool(adapter.cleanup(context))

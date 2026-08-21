@@ -27,6 +27,7 @@ from .diagnostic_dispatch import (
 )
 from .room_diagnostic_controller import RoomDiagnosticController
 from .room_diagnostic_tree import RoomDiagnosticTreeWidget
+from .room_one_shot_adapters import room_adapter_keys
 from .device_model_fallback_dialog import DeviceModelFallbackDialog
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
@@ -444,6 +445,7 @@ class VCSDiagnosticApp(QMainWindow):
                 registration.screen_key: registration.device_models
                 for registration in self.equipment_page_registry
             },
+            available_room_adapter_keys=room_adapter_keys(),
         )
         
         # Добавляем экраны в контейнер

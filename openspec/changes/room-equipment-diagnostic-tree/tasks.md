@@ -33,7 +33,7 @@
 
 ## 5. Unified one-shot adapter boundary
 
-- [ ] 5.1 Define a model-neutral one-shot adapter contract that receives immutable exact row/attempt context and one assigned credential candidate and emits partial, usable-success, usable-success-with-warning, terminal-failure, and cleanup-complete outcomes.
+- [x] 5.1 Define a model-neutral one-shot adapter contract that receives immutable exact row/attempt context and one assigned credential candidate and emits partial, usable-success, usable-success-with-warning, terminal-failure, and cleanup-complete outcomes.
 - [ ] 5.2 Keep handlers/workers/adapters unable to iterate credential candidates or persist successful candidate/profile state.
 - [ ] 5.3 Adapt ordinary codec refresh paths to one-shot room acquisition without leaving live/poll timers or interactive session work running after row retirement.
 - [ ] 5.4 Adapt Matrix acquisition so the required final snapshot is accepted and persistent keepalive/session resources are stopped/released before room row retirement.
@@ -65,23 +65,23 @@
 
 ## 8. Bounded cleanup and stale-generation isolation
 
-- [ ] 8.1 Add configurable/testable bounded cleanup policy for every automatic one-shot row lifecycle; do not make an exact timeout value a user-facing OpenSpec contract.
-- [ ] 8.2 Do not start the next device before cleanup completes or the cleanup deadline produces a logical abandonment boundary.
-- [ ] 8.3 On cleanup timeout, permanently remove authority from the old row lifecycle, ignore its late callbacks, and continue to the next room record instead of hanging the room cycle.
-- [ ] 8.4 When cleanup times out after usable data, keep the snapshot visibly stale and mark the row degraded/`соединение потеряно`; without usable data, mark terminal failure.
-- [ ] 8.5 Associate callbacks with room generation, exact record/model/IP context, and row operation token; stale callbacks must not change row/cache/global state, credential/profile memory, control locks, or queue advancement.
-- [ ] 8.6 Recheck currentness before handler acquisition and before first device I/O when separable; queued stale work must perform zero handler acquisition and zero network I/O.
+- [x] 8.1 Add configurable/testable bounded cleanup policy for every automatic one-shot row lifecycle; do not make an exact timeout value a user-facing OpenSpec contract.
+- [x] 8.2 Do not start the next device before cleanup completes or the cleanup deadline produces a logical abandonment boundary.
+- [x] 8.3 On cleanup timeout, permanently remove authority from the old row lifecycle, ignore its late callbacks, and continue to the next room record instead of hanging the room cycle.
+- [x] 8.4 When cleanup times out after usable data, keep the snapshot visibly stale and mark the row degraded/`соединение потеряно`; without usable data, mark terminal failure.
+- [x] 8.5 Associate callbacks with room generation, exact record/model/IP context, and row operation token; stale callbacks must not change row/cache/global state, credential/profile memory, control locks, or queue advancement.
+- [x] 8.6 Recheck currentness before handler acquisition and before first device I/O when separable; queued stale work must perform zero handler acquisition and zero network I/O.
 - [ ] 8.7 Keep background resource cleanup on the owning execution lane and keep the Qt GUI thread non-blocking.
 
 ## 9. Room-tree GUI and full-room Refresh
 
-- [ ] 9.1 Render the complete room tree before starting sequential diagnostics; source row first, deterministic remaining order, one accordion row expanded at most.
+- [x] 9.1 Render the complete room tree before starting sequential diagnostics; source row first, deterministic remaining order, one accordion row expanded at most.
 - [ ] 9.2 During the automatic cycle disable top IP/Password/full Refresh. For the entire MIH-7 room-mode session, including after terminal room completion, keep every row network/state-changing/live/auxiliary/local-Refresh action disabled or unbound until MIH-8 provides exact-row interaction authority.
 - [ ] 9.3 Keep the permanent top-level `Отладка` action disabled/unavailable for the entire MIH-7 room-mode session; do not bind it from top source IP, current reusable screen, or prior single-device state.
-- [ ] 9.4 Allow a waiting eligible row to be expanded with placeholder/waiting values without causing early I/O or queue reordering.
+- [x] 9.4 Allow a waiting eligible row to be expanded with placeholder/waiting values without causing early I/O or queue reordering.
 - [ ] 9.5 Suppress automatic per-device modal error/progress/terminal windows during room polling; show progress through row status/detail and one global room status.
-- [ ] 9.6 On every new room session, including top full Refresh, if the source row is supported and expandable, make it the only initially expanded row; if the source row is non-expandable, start fully collapsed. Never carry forward a previously selected secondary row or auto-select another row.
-- [ ] 9.7 Do not auto-expand or change accordion selection because a row succeeds, warns, or fails.
+- [x] 9.6 On every new room session, including top full Refresh, if the source row is supported and expandable, make it the only initially expanded row; if the source row is non-expandable, start fully collapsed. Never carry forward a previously selected secondary row or auto-select another row.
+- [x] 9.7 Do not auto-expand or change accordion selection because a row succeeds, warns, or fails.
 - [ ] 9.8 Provide no separate Cancel action for the automatic room cycle. On application close, invalidate/cancel read-only room work best-effort without blocking the GUI on network cleanup.
 - [ ] 9.9 Show global `Опрос оборудования помещения...` while active, `Опрос завершён` after a fully clean cycle, and `Опрос завершён с проблемами` when any row is unsupported/missing/ambiguous/failed/degraded/warned.
 - [ ] 9.10 Update `Последнее обновление` at terminal completion of every full room cycle, including a cycle with no eligible network I/O.
@@ -103,12 +103,12 @@
 - [ ] 11.4 Test unsupported/missing-IP/same-room-duplicate-IP row precedence and prove zero device I/O for ineligible rows, including ambiguity caused by an unsupported record.
 - [ ] 11.5 Test same IP in another room does not invalidate a secondary row after room authority is established, while the same IP as a top-level source remains globally ambiguous.
 - [ ] 11.6 Test two same-model records maintain independent row state and widget projection/cache.
-- [ ] 11.7 Test model registry validation and exact-only support authority; no runtime `source_model` recognition.
+- [x] 11.7 Test model registry validation and exact-only support authority; no runtime `source_model` recognition.
 - [ ] 11.8 Test strict one-at-a-time queue ordering and prove accordion switching does not reorder or start early I/O.
 - [ ] 11.9 Test each persistent model adapter retires polling/keepalive/session resources before the next room record starts.
 - [ ] 11.10 Test structured-auth-only candidate fallback, saved-index suffix behavior, no wrap-around, no fallback on non-auth failures, no success persistence on partial/failure, and PCS4i credentialless exception.
 - [ ] 11.11 Test usable-success-with-warning versus terminal failure and partial-followed-by-failure cache semantics.
-- [ ] 11.12 Test cleanup timeout abandonment, queue continuation, stale callback suppression, and degraded stale-snapshot presentation.
+- [x] 11.12 Test cleanup timeout abandonment, queue continuation, stale callback suppression, and degraded stale-snapshot presentation.
 - [ ] 11.13 Test no automatic room PDU one-shot starts legacy related-codec enrichment.
 - [ ] 11.14 Test full-room top Refresh builds a new generation/state set and stale prior callbacks cannot update it.
 - [ ] 11.15 Test automatic room polling produces no per-device modal/progress/terminal dialogs and leaves the Qt event loop responsive.
@@ -121,13 +121,13 @@
 
 ## 12. Validation, independent review, archive, and completion
 
-- [ ] 12.1 Run focused room/dispatch/inventory/lifecycle/controller regression tests added for this implementation.
-- [ ] 12.2 Run the full offline suite with `python -m unittest discover -s tests -p "test_*.py"`.
-- [ ] 12.3 Run `.\openspec.cmd validate room-equipment-diagnostic-tree --strict` using the repository-local wrapper.
-- [ ] 12.4 Run `.\openspec.cmd validate --all --strict` using the repository-local wrapper.
-- [ ] 12.5 Run `git diff --check` and `git diff --cached --check`.
-- [ ] 12.6 Synchronize this task list with implementation evidence without prematurely marking independent validation or archive work complete.
-- [ ] 12.7 Create and push a focused implementation commit before requesting independent validation; implementation must not issue its own final `APPROVE`.
+- [x] 12.1 Run focused room/dispatch/inventory/lifecycle/controller regression tests added for this implementation.
+- [x] 12.2 Run the full offline suite with `python -m unittest discover -s tests -p "test_*.py"`.
+- [x] 12.3 Run `.\openspec.cmd validate room-equipment-diagnostic-tree --strict` using the repository-local wrapper.
+- [x] 12.4 Run `.\openspec.cmd validate --all --strict` using the repository-local wrapper.
+- [x] 12.5 Run `git diff --check` and `git diff --cached --check`.
+- [x] 12.6 Synchronize this task list with implementation evidence without prematurely marking independent validation or archive work complete.
+- [x] 12.7 Create and push a focused implementation commit before requesting independent validation; implementation must not issue its own final `APPROVE`.
 - [ ] 12.8 Independent validation must use a clean detached worktree from current `origin/<feature-branch>`, confirm local/remote SHA equality, rerun required tests/strict validation/Git checks, and review implementation against approved architecture without fixing its own findings.
 - [ ] 12.9 Independent validation must perform a disposable archive-applicability check because this change adds a root capability and modifies an existing root requirement.
 - [ ] 12.10 Archive only after a permitting independent verdict; then review archive/root-spec delta, run `.\openspec.cmd validate --all --strict`, full offline tests, `git diff --check`, and `git diff --cached --check`, and create/push a dedicated archive commit.

@@ -84,6 +84,17 @@ class DispatchRegistryTests(unittest.TestCase):
             self.assertNotIn("password", entry.__dict__)
             self.assertNotIn("handler", entry.__dict__)
 
+    def test_registry_rejects_unbound_room_adapter_key(self):
+        with self.assertRaisesRegex(ValueError, "room adapter is not bound"):
+            validate_dispatch_registry(
+                registered_screens={"codec", "matrix", "pdu", "audio_dsp"},
+                page_models_by_screen={
+                    registration.screen_key: registration.device_models
+                    for registration in EQUIPMENT_PAGE_REGISTRY
+                },
+                available_room_adapter_keys={"codec_one_shot"},
+            )
+
 
 class ExactModelResolverTests(unittest.TestCase):
     def resolve(self, records, ip="192.0.2.10"):
