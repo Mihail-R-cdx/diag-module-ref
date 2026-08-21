@@ -44,11 +44,14 @@ The importer has two intentional conversion modes:
 
 ```text
 primary equipment workbook only
-    -> schema_version = 2
+    -> schema_version = 4
+    -> switch_ip_address = null
+    -> switch_port = null
 
 primary equipment workbook
     + explicitly configured valid network workbook
-    -> schema_version = 3
+    -> schema_version = 4
+    -> switch fields may be populated only through approved MAC-only reconciliation
 ```
 
 If a network source is explicitly configured and then cannot be read or does

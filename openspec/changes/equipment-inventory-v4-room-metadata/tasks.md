@@ -78,5 +78,5 @@
 - [x] 8.4 Run `.\openspec.cmd validate --all --strict`.
 - [x] 8.5 Run `git diff --check` and `git diff --cached --check`.
 - [x] 8.6 Synchronize this task list with implementation evidence without marking independent validation or archive work complete prematurely.
-- [ ] 8.7 Create and push one focused implementation commit before requesting independent validation; the implementation session must not issue its own final `APPROVE`.
+- [x] 8.7 Create and push one focused implementation commit before requesting independent validation; the implementation session must not issue its own final `APPROVE`.
 - [ ] 8.8 Independent validation must use a clean detached worktree from the current remote feature HEAD and must perform a disposable archive-applicability check because this change modifies existing root requirements.
