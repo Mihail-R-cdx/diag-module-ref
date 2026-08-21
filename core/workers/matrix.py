@@ -12,7 +12,7 @@ from handlers.extron.in1804 import ExtronIN1804Handler
 class ExtronIN1804Worker(QRunnable):
     """Worker для опроса матрицы Extron IN1804"""
 
-    def __init__(self, ip_address, port=22023, username=None, password=None):
+    def __init__(self, ip_address, port=22023, username=None, password=None, *, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -20,11 +20,14 @@ class ExtronIN1804Worker(QRunnable):
         self.password = password
         self.signals = WorkerSignals()
         self.handler = None
+        self.is_current = is_current or (lambda: True)
 
     @pyqtSlot()
     def run(self):
         """Запуск процесса опроса"""
         try:
+            if not self.is_current():
+                return
             self.signals.status.emit("Подключение к матрице Extron IN1804...")
             self.signals.progress.emit(10)
 
@@ -37,10 +40,14 @@ class ExtronIN1804Worker(QRunnable):
             )
             self.handler.log_callback = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
 
+            if not self.is_current():
+                return
             self.signals.status.emit("Установка соединения...")
             self.signals.progress.emit(20)
             self.handler.connect()
 
+            if not self.is_current():
+                return
             self.signals.status.emit("Получение информации об устройстве...")
             self.signals.progress.emit(30)
             status = self.handler.get_full_status()

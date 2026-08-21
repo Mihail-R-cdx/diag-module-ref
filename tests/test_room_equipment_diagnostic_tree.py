@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import threading
 import time
 
@@ -393,6 +393,137 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual([], list(WorkerOneShotAdapter(factory).run(context)))
         self.assertEqual(0, worker_runs)
 
+    def test_post_thread_start_invalidation_prevents_matrix_and_codec_handler_acquisition(self):
+        from core.room_diagnostic_tree import OneShotAttemptContext
+        from gui.room_one_shot_adapters import WorkerOneShotAdapter, _codec_worker, _matrix_worker
+
+        def assert_post_start_abort(factory, model, handler_patch):
+            current = True
+            checks = 0
+            check_lock = threading.Lock()
+            worker_guard = threading.Event()
+            resume_worker = threading.Event()
+
+            def is_current():
+                nonlocal checks
+                with check_lock:
+                    checks += 1
+                    pause_here = checks == 3  # two adapter checks precede Thread.start().
+                if pause_here:
+                    worker_guard.set()
+                    self.assertTrue(resume_worker.wait(1.0))
+                with check_lock:
+                    return current
+
+            context = OneShotAttemptContext(
+                self._session([record("a")]).identity,
+                "a", model, "192.0.2.10", 1, {"username": "u", "password": "p"}, is_current=is_current,
+            )
+            events = []
+            with patch(handler_patch) as handler:
+                thread = threading.Thread(
+                    target=lambda: events.extend(WorkerOneShotAdapter(factory).run(context)), daemon=True,
+                )
+                thread.start()
+                self.assertTrue(worker_guard.wait(1.0))
+                with check_lock:
+                    current = False
+                resume_worker.set()
+                thread.join(1.0)
+                self.assertFalse(thread.is_alive())
+                handler.assert_not_called()
+            self.assertEqual([], events)
+
+        assert_post_start_abort(_matrix_worker, "Extron IN1804", "core.workers.matrix.ExtronIN1804Handler")
+        assert_post_start_abort(_codec_worker, "Huawei TE40", "core.workers.codec_polling.HuaweiTE40Handler")
+
+    def test_matrix_invalidation_after_handler_construction_skips_connect(self):
+        from core.workers.matrix import ExtronIN1804Worker
+
+        constructed = threading.Event()
+        release_constructor = threading.Event()
+        current = True
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                constructed.set()
+                self.connect_calls = 0
+                self.disconnected = False
+                self.log_callback = None
+                self._release = release_constructor
+                if not self._release.wait(1.0):
+                    raise AssertionError("test did not release matrix handler construction")
+
+            def connect(self):
+                self.connect_calls += 1
+
+            def disconnect(self):
+                self.disconnected = True
+
+        with patch("core.workers.matrix.ExtronIN1804Handler", Handler):
+            worker = ExtronIN1804Worker(
+                "192.0.2.10", username="u", password="p", is_current=lambda: current,
+            )
+            thread = threading.Thread(target=worker.run, daemon=True)
+            thread.start()
+            self.assertTrue(constructed.wait(1.0))
+            current = False
+            release_constructor.set()
+            thread.join(1.0)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(0, worker.handler.connect_calls)
+
+    def test_post_thread_start_invalidation_prevents_biamp_and_dmp_handler_acquisition(self):
+        from core.worker import BiampTesiraForteCIWorker, ExtronDMP64PlusMeterWorker
+
+        def stale_after_worker_starts(worker, handler_patch):
+            current = True
+            entered_guard = threading.Event()
+            release_guard = threading.Event()
+
+            def is_current():
+                entered_guard.set()
+                self.assertTrue(release_guard.wait(1.0))
+                return current
+
+            worker.is_current = is_current
+            with patch(handler_patch) as handler:
+                thread = threading.Thread(target=worker.run, daemon=True)
+                thread.start()
+                self.assertTrue(entered_guard.wait(1.0))
+                current = False
+                release_guard.set()
+                thread.join(1.0)
+                self.assertFalse(thread.is_alive())
+                handler.assert_not_called()
+
+        stale_after_worker_starts(
+            BiampTesiraForteCIWorker("192.0.2.20", username="u", password="p"),
+            "handlers.biamp.tesira_forte_ci.BiampTesiraForteCIHandler",
+        )
+        dmp_factory = Mock()
+        dmp_guard_entered = threading.Event()
+        dmp_resume = threading.Event()
+        dmp_current = True
+
+        def dmp_is_current():
+            dmp_guard_entered.set()
+            self.assertTrue(dmp_resume.wait(1.0))
+            return dmp_current
+
+        dmp_worker = ExtronDMP64PlusMeterWorker(
+            "192.0.2.64", username="u", password="p", handler_factory=dmp_factory,
+            max_cycles=1, is_current=dmp_is_current,
+        )
+        dmp_thread = threading.Thread(target=dmp_worker.run, daemon=True)
+        dmp_thread.start()
+        self.assertTrue(dmp_guard_entered.wait(1.0))
+        dmp_current = False
+        dmp_resume.set()
+        dmp_thread.join(1.0)
+        self.assertFalse(dmp_thread.is_alive())
+        dmp_factory.assert_not_called()
+
     def test_stale_pdu_descriptor_does_not_build_handler(self):
         from core.pdu import PDUOperationDescriptor, REFRESH, execute_pdu_refresh
 
@@ -650,6 +781,30 @@ class RoomGuiCompositionTests(unittest.TestCase):
                 self.assertEqual("Канал 3", table.item(0, 1).text())
                 self.assertIn("-18.0", table.item(0, 2).text())
                 self.assertIn("present", table.item(0, 2).text())
+
+    def test_matrix_presentation_handles_empty_real_parser_signal_status(self):
+        from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+
+        snapshot = ExtronIN1804DataParser.parse({
+            "device_info": {"model": "IN1804", "temperature": 40},
+            "inputs_num": 8,
+            "input_names": ["Input 1"],
+            "signal_status": [],
+            "input_hdcp_auth": [],
+            "input_hdcp_status": [],
+            "connections": [],
+        })
+        row = OrchestratorTests()._session([record("a")]).row_for("a")
+        row.capability = RoomModelCapability("Extron IN1804", "matrix", "matrix", "adapter")
+        row.accepted_snapshot = snapshot
+        presentation = RoomReadOnlyPresentation(row)
+        self.addCleanup(presentation.deleteLater)
+        table = presentation.findChild(QTableWidget, "roomMatrixRouting")
+        self.assertIsNotNone(table)
+        self.assertEqual(8, table.rowCount())
+        self.assertEqual("—", table.item(1, 1).text())
+        self.assertEqual("—", table.item(0, 2).text())
+        self.assertIn("—", table.item(0, 3).text())
 
 
 if __name__ == "__main__":

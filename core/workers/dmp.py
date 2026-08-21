@@ -31,6 +31,7 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
         handler_factory=None,
         poll_interval: float = 1.0,
         max_cycles: int | None = None,
+        is_current=None,
     ):
         super().__init__()
         self.ip_address = ip_address
@@ -44,12 +45,13 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
         self.current_idx = 0
         self.device_name = DMP64_PLUS_MODEL
         self._credential_success_emitted = False
+        self.is_current = is_current or (lambda: True)
 
     @pyqtSlot()
     def run(self):
         handler = None
         try:
-            if self.cancellation.is_cancelled():
+            if self.cancellation.is_cancelled() or not self.is_current():
                 return
             if not self.username or not self.password:
                 raise AuthenticationError(
@@ -61,6 +63,8 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
             handler_class = self.handler_factory or ExtronDMP64PlusHandler
             self.signals.status.emit("Подключение к Extron DMP 64 Plus...")
             self.signals.progress.emit(10)
+            if not self.is_current():
+                return
             handler = handler_class(
                 ip_address=self.ip_address,
                 port=DMP64_PLUS_PORT,
@@ -68,15 +72,19 @@ class ExtronDMP64PlusMeterWorker(QRunnable):
                 password=self.password,
             )
             self.cancellation.raise_if_cancelled()
+            if not self.is_current():
+                return
             handler.connect(self.cancellation)
             self.signals.connected.emit()
 
             cycles = 0
-            while not self.cancellation.is_cancelled():
+            while not self.cancellation.is_cancelled() and self.is_current():
                 cycle_started = time.monotonic()
                 self.cancellation.raise_if_cancelled()
                 self.signals.status.emit("Чтение meter snapshot DMP...")
                 self.signals.progress.emit(40)
+                if not self.is_current():
+                    return
                 snapshot = handler.get_meter_snapshot(self.cancellation)
                 self.cancellation.raise_if_cancelled()
                 cycles += 1

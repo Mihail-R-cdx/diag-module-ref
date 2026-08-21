@@ -69,8 +69,8 @@
 - [x] 8.2 Do not start the next device before cleanup completes or the cleanup deadline produces a logical abandonment boundary.
 - [x] 8.3 On cleanup timeout, permanently remove authority from the old row lifecycle, ignore its late callbacks, and continue to the next room record instead of hanging the room cycle.
 - [x] 8.4 When cleanup times out after usable data, keep the snapshot visibly stale and mark the row degraded/`соединение потеряно`; without usable data, mark terminal failure.
-- [x] 8.5 Associate callbacks with room generation, exact record/model/IP context, and row operation token; stale callbacks must not change row/cache/global state, credential/profile memory, control locks, or queue advancement.
-- [x] 8.6 Recheck currentness before handler acquisition and before first device I/O when separable; queued stale work must perform zero handler acquisition and zero network I/O.
+- [x] 8.5 Associate callbacks with room generation, exact record/model/IP context, and row operation token; stale callbacks and stale worker execution must not change row/cache/global state, credential/profile memory, control locks, or queue advancement.
+- [x] 8.6 Recheck currentness before handler acquisition and before first device I/O when separable, including inside each room worker after thread start; queued or superseded stale work must perform zero handler acquisition and zero network I/O.
 - [x] 8.7 Keep background resource cleanup on the owning execution lane and keep the Qt GUI thread non-blocking.
 
 ## 9. Room-tree GUI and full-room Refresh
@@ -102,15 +102,15 @@
 - [x] 11.3 Test room membership/order, source-first row placement, room display source-first fallback, and absence of room-name/address/VIP conflict arbitration.
 - [x] 11.4 Test unsupported/missing-IP/same-room-duplicate-IP row precedence and prove zero device I/O for ineligible rows, including ambiguity caused by an unsupported record.
 - [x] 11.5 Test same IP in another room does not invalidate a secondary row after room authority is established, while the same IP as a top-level source remains globally ambiguous.
-- [x] 11.6 Test two same-model records maintain independent row state and widget projection/cache, including production Matrix/DMP/Biamp snapshot presentation rather than synthetic room-only schemas.
+- [x] 11.6 Test two same-model records maintain independent row state and widget projection/cache, including production Matrix/DMP/Biamp snapshot presentation and empty Matrix `signal_status` rather than synthetic room-only schemas.
 - [x] 11.7 Test model registry validation and exact-only support authority; no runtime `source_model` recognition.
 - [x] 11.8 Test strict one-at-a-time queue ordering and prove accordion switching does not reorder or start early I/O.
 - [x] 11.9 Test each persistent model adapter retires polling/keepalive/session resources before the next room record starts.
 - [x] 11.10 Test structured-auth-only candidate fallback after confirmed clean retirement, saved-index suffix behavior, no wrap-around, no fallback after cleanup abandonment or non-auth failures, no success persistence on partial/failure, and PCS4i credentialless exception.
 - [x] 11.11 Test usable-success-with-warning versus terminal failure and partial-followed-by-failure cache semantics.
-- [x] 11.12 Test cleanup timeout abandonment, queue continuation, stale callback suppression, and degraded stale-snapshot presentation.
+- [x] 11.12 Test cleanup timeout abandonment, queue continuation, stale callback suppression, post-thread-start worker invalidation before handler/I/O, and degraded stale-snapshot presentation.
 - [x] 11.13 Test no automatic room PDU one-shot starts legacy related-codec enrichment.
-- [x] 11.14 Test full-room top Refresh builds a new generation/state set and stale prior callbacks cannot update it.
+- [x] 11.14 Test full-room top Refresh builds a new generation/state set and stale prior callbacks or stale worker guards cannot update it, acquire a handler, or begin device I/O.
 - [x] 11.15 Test automatic room polling produces no per-device modal/progress/terminal dialogs and leaves the Qt event loop responsive.
 - [x] 11.16 Test global room summary and `Последнее обновление` for clean, warning/problem, and no-eligible-I/O cycles.
 - [x] 11.17 Test clean and problem terminal room cycles leave local Refresh, Matrix route, PDU/codec mutation, live/polling, Call Log/auxiliary, and equivalent row network intents disabled or rejected before handler acquisition/network I/O.

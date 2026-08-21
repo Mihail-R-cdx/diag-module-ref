@@ -97,6 +97,8 @@ class WorkerOneShotAdapter:
                 kind, value = events.get(timeout=0.02)
             except Empty:
                 if finished.is_set():
+                    if context.is_current is not None and not context.is_current():
+                        return
                     yield OneShotEvent(
                         OneShotEventKind.TERMINAL_FAILURE,
                         failure_reason="Не удалось выполнить диагностику",
@@ -153,20 +155,20 @@ def _credentials(context: OneShotAttemptContext) -> Mapping[str, Any]:
 def _codec_worker(context: OneShotAttemptContext):
     credentials = _credentials(context)
     if context.diagnostic_model == "Huawei TE20":
-        return HuaweiTE20Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"))
+        return HuaweiTE20Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
     if context.diagnostic_model in {"CloudLink Bar 310", "CloudLink Box 310"}:
-        return HuaweiBar310Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), assigned_model=context.diagnostic_model)
-    return HuaweiTE40Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"))
+        return HuaweiBar310Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), assigned_model=context.diagnostic_model, is_current=context.is_current)
+    return HuaweiTE40Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
 
 
 def _polycom_worker(context: OneShotAttemptContext):
     credentials = _credentials(context)
-    return PolycomRPG310Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"))
+    return PolycomRPG310Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
 
 
 def _matrix_worker(context: OneShotAttemptContext):
     credentials = _credentials(context)
-    return ExtronIN1804Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"))
+    return ExtronIN1804Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
 
 
 def _pdu_worker(context: OneShotAttemptContext):
@@ -188,12 +190,12 @@ def _pdu_worker(context: OneShotAttemptContext):
 
 def _biamp_worker(context: OneShotAttemptContext):
     credentials = _credentials(context)
-    return BiampTesiraForteCIWorker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"))
+    return BiampTesiraForteCIWorker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
 
 
 def _dmp_worker(context: OneShotAttemptContext):
     credentials = _credentials(context)
-    return ExtronDMP64PlusMeterWorker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), max_cycles=1)
+    return ExtronDMP64PlusMeterWorker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), max_cycles=1, is_current=context.is_current)
 
 
 def _safe_failure(category: str) -> str:

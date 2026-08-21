@@ -157,7 +157,9 @@ def normalize_matrix_presentation(snapshot: Any) -> list[tuple[Any, Any, Any, An
     output_hdcp = source.get("output_hdcp")
     current = source.get("current_connection")
     if isinstance(signals, Mapping):
-        inputs = max(inputs, *(int(key) for key in signals if str(key).isdigit()))
+        numeric_signal_inputs = [int(key) for key in signals if str(key).isdigit()]
+        if numeric_signal_inputs:
+            inputs = max(inputs, max(numeric_signal_inputs))
     rows = []
     for number in range(1, inputs + 1):
         signal = _indexed_value(signals, number)
