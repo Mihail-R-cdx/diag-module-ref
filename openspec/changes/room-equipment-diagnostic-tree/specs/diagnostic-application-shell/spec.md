@@ -135,3 +135,33 @@ The `Пароль` action SHALL be network-free diagnostic configuration. With v
 - **THEN** the row receives a controlled terminal failure
 - **AND** its assigned model-specific worker/controller does not start
 - **AND** later eligible room rows remain eligible to run
+
+## ADDED Requirements
+
+### Requirement: MIH-7 room mode keeps legacy interactive shell actions fail-closed
+
+For the lifetime of a room-mode session implemented by this capability, including after the automatic room cycle reaches terminal completion, existing device-specific network-backed controls SHALL remain unavailable unless and until a later approved exact-row interaction capability binds them to the current row context. This includes local device Refresh actions, Matrix route actions, PDU mutations, codec state-changing controls, live/polling starts, Call Log or other auxiliary network reads, and equivalent network-backed actions exposed by reused device views.
+
+The permanent top-level `Отладка` action SHALL be unavailable in room mode in this capability. MIH-7 SHALL NOT derive Debug model/IP authority from the top IP field, current reusable screen, prior single-device request, or another presentation value. Exact-row Debug binding is deferred to `room-device-interaction-lifecycle`.
+
+These restrictions SHALL remain in force after both clean and problem terminal room-cycle outcomes. Presentation of accepted per-record cache does not authorize a network operation. The permanent top full-room Refresh and network-free credential configuration remain governed by their separate room-mode contracts and are not row interaction authority.
+
+#### Scenario: Clean room cycle does not enable old row controls
+
+- **GIVEN** a room cycle completes with a supported row in `подключено` state
+- **WHEN** the operator views that row before `room-device-interaction-lifecycle` exists
+- **THEN** existing local Refresh, mutation, auxiliary, and live network actions remain disabled or unbound
+- **AND** none of those intents can acquire a handler, open a transport, or send a device request
+
+#### Scenario: Failed room cycle does not expose stale interactive authority
+
+- **GIVEN** a room cycle completes with one or more failed or degraded rows
+- **WHEN** the operator expands any row
+- **THEN** MIH-7 exposes only presentation of that row's accepted or safe failed state
+- **AND** no reused legacy row control can start network I/O from top-level or previous target state
+
+#### Scenario: Debug is disabled in room mode
+
+- **WHEN** a current diagnostic context is room mode
+- **THEN** the permanent `Отладка` action is disabled or otherwise unavailable
+- **AND** opening a room row cannot bind Debug implicitly from the top-level source IP or a prior single-device context
