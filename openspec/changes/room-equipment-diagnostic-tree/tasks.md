@@ -39,7 +39,7 @@
 - [ ] 5.4 Adapt Matrix acquisition so the required final snapshot is accepted and persistent keepalive/session resources are stopped/released before room row retirement.
 - [ ] 5.5 Adapt DMP acquisition so the first complete authoritative snapshot is accepted, further polling is stopped, and SSH/channel resources are cleaned before retirement.
 - [ ] 5.6 Adapt PDU paths for one-shot room acquisition while preserving existing protocol/status semantics and ensuring automatic room PDU acquisition does not publish the legacy accepted-user-PDU-refresh trigger for PDU->room->codec enrichment.
-- [ ] 5.7 Preserve all existing model-specific transport boundaries, exact CloudLink Bar/Box identities, parser normalization, and optional-enrichment semantics behind the adapters.
+- [ ] 5.7 Preserve all existing model-specific transport boundaries, exact CloudLink Bar/Box identities, parser normalization, and optional-enrichment semantics behind the adapters, including the explicit Polycom room-one-shot HTTPS-usable/SSH-warning contract.
 
 ## 6. Sequential room orchestrator and credential plan
 
@@ -50,7 +50,7 @@
 - [ ] 6.5 Advance credential candidates only after structured new-login `AuthenticationError`; do not advance for timeout, transport, TLS, protocol, parse, empty/malformed response, arbitrary text, or numeric substrings.
 - [ ] 6.6 Treat missing required credentials for authenticated non-PCS4i models as a safe pre-I/O configuration failure: show `Credentials не настроены`, perform no ping, handler acquisition, worker/controller submission, or other device I/O, and continue the room queue.
 - [ ] 6.7 Preserve the approved PCS4i credentialless exception by composing a valid credentialless attempt plan when no explicit/profile/mapped credential exists; only after that plan exists may PCS4i proceed to ping.
-- [ ] 6.8 Persist successful credential index/profile only after an accepted final success; never persist from partial, failed, stale, or cleanup-degraded outcomes.
+- [ ] 6.8 Persist successful credential index/profile only after an accepted model-specific credential-success boundary. For Polycom room one-shot `HTTPS success + optional SSH failure`, keep the row usable with warning but do not persist a newly attempted successful candidate and do not alter prior successful-candidate memory.
 
 ## 7. Row status, partial data, warnings, and safe failures
 
@@ -59,8 +59,8 @@
 - [ ] 7.3 Show `Модель не определена` when an unsupported row also has null `source_model`; do not infer an alternate label from other inventory fields.
 - [ ] 7.4 Transition the active eligible row through `подключение...` and only to `подключено` after accepted usable final success.
 - [ ] 7.5 Preserve intermediate partial values as visible unconfirmed evidence while keeping the row in progress; partial data must not advance the queue, enable controls, or become successful cache.
-- [ ] 7.6 Preserve model-specific usable final success with optional warning, including existing Polycom/PCS4i-style optional enrichment failures; cache usable fields and classify the room cycle as completed with problems.
-- [ ] 7.7 If terminal failure follows partial data, retain only explicitly incomplete/unconfirmed presentation and do not cache/persist it as success.
+- [ ] 7.6 Preserve model-specific usable final success with optional warning. In particular, Polycom authoritative HTTPS success followed by optional SSH enrichment failure is `подключено` with a safe warning and is not a terminal room error or credential-fallback trigger; PCS4i-style optional outlet-name enrichment retains its existing usable semantics.
+- [ ] 7.7 If terminal failure follows partial data on a required/non-optional stage, retain only explicitly incomplete/unconfirmed presentation and do not cache/persist it as success.
 - [ ] 7.8 Map typed/category failures to safe inline reasons; do not expose raw exception strings, credentials, tokens, cookies, secret-bearing URLs, request bodies, or authentication text heuristics.
 
 ## 8. Bounded cleanup and stale-generation isolation
@@ -117,6 +117,7 @@
 - [ ] 11.18 Test top-level `Отладка` is unavailable in room mode and cannot display or bind mixed model/IP context from the top source IP or prior single-device state.
 - [ ] 11.19 Test deterministic accordion initialization/reset: expandable source initially expanded, non-expandable source fully collapsed, automatic outcomes do not change expansion, full Refresh does not retain a prior secondary selection, and failed re-resolution does not resurrect old tree/cache/presentation.
 - [ ] 11.20 Test an authenticated non-PCS4i row with no configured credentials terminates before ping with safe `Credentials не настроены`, performs zero handler acquisition/device I/O, and allows the next eligible row to continue; separately prove PCS4i forms its approved credentialless plan before ping.
+- [ ] 11.21 Test the Polycom cross-spec boundary: authoritative HTTPS success plus optional SSH enrichment failure yields `подключено`/usable-success-with-warning, does not enter the generic legacy partial-result error state, does not advance the credential chain, does not persist a newly attempted successful candidate, and does not overwrite or clear prior successful-candidate memory.
 
 ## 12. Validation, independent review, archive, and completion
 
