@@ -201,8 +201,11 @@ For each eligible row the orchestrator performs:
 
 ```text
 pre-I/O currentness check
--> ping/reachability check
 -> resolve/validate application-owned credential attempt plan
+-> if required authenticated credentials are unavailable for a non-PCS4i model:
+       publish safe terminal configuration failure with zero ping/handler/device I/O
+       continue to the next eligible row
+-> ping/reachability check
 -> start one assigned-candidate diagnostic attempt
 -> if and only if structured new-login AuthenticationError and candidates remain:
        start the next candidate attempt
@@ -213,9 +216,9 @@ pre-I/O currentness check
 
 Only one room record owns diagnostic network activity at a time. Accordion selection never changes queue order and never causes a waiting row to leap ahead.
 
-Preliminary ping failure is terminal for that row and stops before model-specific handler/worker acquisition. The queue continues to later eligible rows.
+Credential-plan resolution and validation is a strict pre-I/O gate and therefore precedes ping. An authenticated non-PCS4i row with no valid required credentials ends with the safe inline reason `Credentials не настроены`, performs no ping, handler acquisition, or other device network I/O, and does not block later queue rows. PCS4i retains its approved exception: when no explicit/profile/mapped credential exists, application composition forms the approved credentialless attempt plan; only after that valid plan exists does the row proceed to ping.
 
-A missing credential configuration for an authenticated non-PCS4i model is a safe pre-I/O terminal configuration failure, not a synthetic authentication rejection. PCS4i retains its approved credentialless attempt when no explicit/mapped credential exists.
+After a valid attempt plan exists, preliminary ping failure is terminal for that row and stops before model-specific handler/worker acquisition. The queue continues to later eligible rows.
 
 ### 9. Credential fallback remains application-owned and exact model/IP scoped
 
@@ -414,11 +417,11 @@ Moving authority out of widgets requires more mapping code and regression covera
 2. Add pure source-to-room session resolution and deterministic room row construction/display metadata selection.
 3. Add `DeviceRowState`/room generation ownership independent of screen widgets.
 4. Define the one-shot adapter interface and adapt existing model lifecycle owners incrementally while preserving their transport/credential contracts.
-5. Add the serialized room orchestrator, reachability gate, application-owned credential attempt loop, terminal/partial/warning normalization, and bounded cleanup.
+5. Add the serialized room orchestrator with a pre-I/O credential-plan gate, then the reachability gate, assigned credential attempt loop, terminal/partial/warning normalization, and bounded cleanup.
 6. Add tree/header presentation and projection of exact row state into lazy reusable views, including deterministic source-row initial expansion/reset.
 7. Add the transitional MIH-7 interaction lock: keep reused row network controls and top-level Debug disabled/unbound throughout room mode, including after terminal completion.
 8. Ensure tree-mode PDU one-shot does not trigger legacy PDU-related codec enrichment.
-9. Add focused regression coverage and run full repository validation before implementation publication.
+9. Add focused regression coverage, including zero-ping/no-handler proof for authenticated non-PCS4i rows whose required credentials are not configured, and run full repository validation before implementation publication.
 
 ## Validation Strategy
 
