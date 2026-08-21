@@ -34,11 +34,10 @@ success followed by failure of the optional SSH enrichment SHALL yield usable
 room diagnostic data with a structured warning rather than a terminal room
 failure. The generic legacy rule for a partial result followed by a later
 failure SHALL NOT convert that explicitly approved room-only
-optional-enrichment outcome into a GUI/room error. A newly attempted Polycom
-candidate MAY be persisted only when independent structured evidence satisfies
-the model-specific successful-credential contract; authoritative HTTPS data
-alone combined with failed SSH enrichment SHALL NOT create new successful
-candidate memory.
+optional-enrichment outcome into a GUI/room error. This exact warning outcome
+SHALL NOT persist a newly attempted Polycom candidate as successful. Existing
+successful-candidate memory for the exact model/IP, if any, SHALL remain
+unchanged by the warning outcome.
 
 #### Scenario: Legacy provider is used
 - **WHEN** a provider implements only the existing one-candidate method
@@ -100,7 +99,7 @@ candidate memory.
 - **WHEN** a worker emits a final non-partial result
 - **THEN** device acquisition and parsing completed successfully
 - **AND** only that result permits the GUI to cache the assigned candidate
-- **AND** for a room one-shot usable-with-warning result, successful-candidate persistence still requires the model-specific credential-success boundary to be independently satisfied
+- **AND** the Polycom room one-shot warning outcome defined below is an explicit exception that does not persist a newly attempted candidate
 
 #### Scenario: Failed attempt is not a result
 - **WHEN** a worker receives an authentication or non-authentication failure
@@ -122,13 +121,13 @@ candidate memory.
 - **AND** the optional SSH failure does not start another credential candidate
 - **AND** the room row does not enter the generic legacy partial-result error state solely because that optional enrichment failed
 
-#### Scenario: Polycom room warning does not prove credential success
+#### Scenario: Polycom room warning does not persist a new credential
 - **GIVEN** a Polycom room one-shot attempt used a candidate that was not already proven successful for the exact model/IP context
 - **AND** authoritative HTTPS diagnostic status succeeded
-- **WHEN** optional SSH enrichment fails before the Polycom successful-credential boundary is independently satisfied
-- **THEN** the room row may remain usable with warning
+- **WHEN** optional SSH enrichment fails
+- **THEN** the room row remains usable with warning
 - **AND** the newly attempted candidate is not cached as successful
-- **AND** prior successful-candidate memory, if any, is not overwritten by this outcome
+- **AND** prior successful-candidate memory, if any, is not overwritten or cleared by this outcome
 
 #### Scenario: Confirmed authentication failure ends protocol fallback
 - **WHEN** a protocol attempt returns a confirmed authentication failure
