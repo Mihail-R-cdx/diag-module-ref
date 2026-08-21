@@ -89,9 +89,9 @@ tests/test_pdu_room_codec_enrichment.py
 tests/test_equipment_room_context_gui.py
 ```
 
-## Authoritative Excel mapping
+## Authoritative primary workbook source mapping
 
-The inspected organization workbook uses this schema-v1 mapping:
+The inspected organization workbook uses this authoritative current source mapping:
 
 ```text
 SmartRoomID       -> record_id
@@ -110,6 +110,10 @@ The current schema-v4 source contract also requires:
 ```text
 VIP оборудование -> room_vip
 ```
+
+`Адрес комнаты -> room_address` is part of the current source mapping. Canonical
+records include `room_address` only in schema v4; historic schema-v1 records
+remain defined as documented below and do not contain that field.
 
 `Адрес комнаты` is an exact required header for primary-source preflight and
 conversion. Individual address cells are nullable: NFC-normalize and trim the

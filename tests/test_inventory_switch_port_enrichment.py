@@ -186,11 +186,13 @@ class SwitchPortSchemaRuntimeTests(unittest.TestCase):
     def test_schema_v1_v2_adapt_switch_fields_and_schema_v3_exposes_them(self):
         v1 = inventory_from_document(snapshot_document([runtime_record("RID-1")], schema_version=SCHEMA_VERSION_V1))
         self.assertIsNone(v1.records[0].room_vip)
+        self.assertIsNone(v1.records[0].room_address)
         self.assertIsNone(v1.records[0].switch_ip_address)
         self.assertIsNone(v1.records[0].switch_port)
 
         v2 = inventory_from_document(snapshot_document([runtime_record("RID-1")], schema_version=SCHEMA_VERSION_V2))
         self.assertTrue(v2.records[0].room_vip)
+        self.assertIsNone(v2.records[0].room_address)
         self.assertIsNone(v2.records[0].switch_ip_address)
         self.assertIsNone(v2.records[0].switch_port)
 
@@ -201,6 +203,7 @@ class SwitchPortSchemaRuntimeTests(unittest.TestCase):
             )
         )
         self.assertEqual(SCHEMA_VERSION_V3, v3.metadata.schema_version)
+        self.assertIsNone(v3.records[0].room_address)
         self.assertEqual("198.51.100.10", v3.records[0].switch_ip_address)
         self.assertEqual("Gi1/0/10", v3.records[0].switch_port)
 
@@ -229,6 +232,19 @@ class SwitchPortSchemaRuntimeTests(unittest.TestCase):
         changed_port["records"][0]["switch_port"] = "Gi1/0/11"
         self.assertNotEqual(base["snapshot_id"], compute_snapshot_id(changed_ip["records"], schema_version=SCHEMA_VERSION_V3))
         self.assertNotEqual(base["snapshot_id"], compute_snapshot_id(changed_port["records"], schema_version=SCHEMA_VERSION_V3))
+
+    def test_historical_room_address_hybrids_are_rejected_after_declared_schema_checksum(self):
+        for schema_version in (SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3):
+            historical_hybrid = snapshot_document([runtime_record("RID-1")], schema_version=schema_version)
+            historical_hybrid["records"][0]["room_address"] = "Building 1"
+            historical_hybrid["snapshot_id"] = compute_snapshot_id(
+                historical_hybrid["records"], schema_version=schema_version
+            )
+
+            with self.assertRaises(EquipmentInventoryLoadError) as error:
+                inventory_from_document(historical_hybrid)
+
+            self.assertEqual(InventoryLoadFailure.INVALID_SNAPSHOT, error.exception.category)
 
     def test_schema_v3_queries_ignore_switch_fields(self):
         inventory = inventory_from_document(
