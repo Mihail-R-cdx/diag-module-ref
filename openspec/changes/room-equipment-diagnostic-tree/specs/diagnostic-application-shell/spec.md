@@ -35,6 +35,17 @@ The `Пароль` action SHALL be network-free diagnostic configuration. With v
 - **THEN** that action does not read a model from `deviceCombo`, current screen, room-row label, window title, prior diagnostic request, prior fallback, or another Qt presentation value
 - **AND** it begins the purpose-bound credential-configuration resolution flow
 
+#### Scenario: Valid supported device refresh
+
+- **GIVEN** valid current inventory contains exactly one source-IP record for the normalized IP
+- **WHEN** the operator starts Refresh or equivalent Enter action
+- **THEN** a non-null authoritative `room_id` on that source record establishes room diagnostic mode regardless of whether its source `diagnostic_model` is null, unsupported, or supported
+- **AND** the room tree/lifecycle is built before ordinary model-specific diagnostic work
+- **AND** ordinary manual model fallback is not offered
+- **AND** each supported eligible room record is handled by the room queue with credentials, preliminary reachability, and worker/controller acquisition evaluated for that exact row
+- **AND** when the one source record instead has `room_id = null` and an exact registered `diagnostic_model`, the existing legacy single-device diagnostic path assigns the matching registered screen and lifecycle
+- **AND** that legacy path applies model-specific credential and reachability rules, creates no synthetic room, and offers no ordinary manual override
+
 #### Scenario: Valid supported device refresh enters room mode
 
 - **GIVEN** a valid current inventory contains exactly one record for the normalized IP
@@ -92,6 +103,20 @@ The `Пароль` action SHALL be network-free diagnostic configuration. With v
 - **AND** it reports a safe unsupported/unmapped outcome
 - **AND** it does not open manual model fallback
 
+#### Scenario: Inventory cannot assign a supported diagnostic model
+
+- **WHEN** valid current inventory has zero source-IP records
+- **THEN** the application fails closed without selecting a model, page, credential chain, handler, worker, or controller
+- **AND** it opens no manual model fallback and performs no device network I/O
+- **WHEN** valid current inventory has more than one source-IP record
+- **THEN** the application fails closed as ambiguous without selecting a model or manual fallback and performs no device network I/O
+- **WHEN** valid current inventory has exactly one source-IP record with `room_id = null` and a null or unsupported `diagnostic_model`
+- **THEN** the application fails closed without manual fallback or device network I/O
+- **WHEN** valid current inventory has exactly one source-IP record with a non-null `room_id` and a null or unsupported `diagnostic_model`
+- **THEN** that record is not an unresolved target: room mode starts from its authoritative room ID, the source row is unsupported, other eligible supported room records may run, and no fallback is requested for the source row
+- **WHEN** inventory is unavailable, unloadable, or corrupt
+- **THEN** diagnostic-purpose manual fallback remains permitted only after a new confirmed model selection creates the fallback context
+
 #### Scenario: Inventory is unavailable for diagnostic start
 
 - **WHEN** canonical inventory is unavailable, unloadable, or corrupt for a valid normalized IP
@@ -120,6 +145,15 @@ The `Пароль` action SHALL be network-free diagnostic configuration. With v
 - **WHEN** the IP field is empty or malformed
 - **THEN** the application displays a controlled warning
 - **AND** it does not query inventory, open fallback, build a room session, resolve model-specific credentials, perform reachability validation, acquire a handler, submit a worker/controller operation, or perform device network I/O
+
+#### Scenario: Preliminary reachability validation fails
+
+- **GIVEN** a final exact legacy single-device automatic or confirmed-fallback diagnostic model has been assigned for a valid IP
+- **WHEN** preliminary reachability validation fails
+- **THEN** the application displays the existing controlled warning, does not start the assigned device worker/controller, and performs zero model-specific device diagnostic I/O
+- **GIVEN** room mode is active and an exact supported eligible row reaches its queue turn
+- **WHEN** that row fails its per-row preliminary reachability validation
+- **THEN** that row receives a terminal controlled failure, its worker/controller does not start, and later eligible room rows continue
 
 #### Scenario: Legacy preliminary reachability validation fails
 
