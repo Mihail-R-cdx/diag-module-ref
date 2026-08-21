@@ -12,6 +12,11 @@ Every newly successful conversion SHALL publish schema version 4. A one-source c
 
 Row-level network data-quality, duplication, unmatched-MAC, and ambiguity outcomes SHALL remain non-fatal when the primary candidate can still be represented. They SHALL preserve otherwise valid primary records and SHALL NOT change the requested import mode.
 
+For archive applicability, the two inherited conversion scenario headings below remain
+stable identifiers. Their normative GIVEN/WHEN/THEN outcomes are updated to the
+schema-v4 contract in this replacement requirement; no current conversion publishes
+schema v2 or schema v3.
+
 #### Scenario: Runtime loads inventory without Excel support
 
 - **GIVEN** a valid canonical equipment inventory snapshot exists
@@ -20,7 +25,7 @@ Row-level network data-quality, duplication, unmatched-MAC, and ambiguity outcom
 - **THEN** the inventory loads through the canonical snapshot path
 - **AND** no `.xlsx` parser is imported or required
 
-#### Scenario: Primary-only conversion publishes schema v4
+#### Scenario: Existing one-source conversion remains supported
 
 - **GIVEN** the primary equipment workbook is configured
 - **AND** no network workbook is configured
@@ -28,7 +33,7 @@ Row-level network data-quality, duplication, unmatched-MAC, and ambiguity outcom
 - **THEN** it publishes a schema-v4 snapshot
 - **AND** every record contains null `switch_ip_address` and null `switch_port`
 
-#### Scenario: Explicit two-source conversion publishes schema v4
+#### Scenario: Explicit two-source conversion publishes schema v3
 
 - **GIVEN** both the primary equipment workbook and a valid network workbook are explicitly configured
 - **WHEN** the offline importer completes successfully despite any non-fatal row-level network issues
@@ -54,13 +59,17 @@ For current schema-v4 import, the importer SHALL preserve normalized per-record 
 
 Missing or blank `ID комнаты` SHALL produce `room_id = null` and MAY produce an observable data-quality or consistency issue. It SHALL NOT by itself make an otherwise representable canonical record fatal.
 
+For archive applicability, the inherited differing-room-name scenario heading below
+remains a stable identifier. Its normative outcome is updated to the current
+per-record display-metadata contract.
+
 #### Scenario: Devices share one authoritative room ID
 
 - **WHEN** multiple records have the same canonical `ID комнаты`
 - **THEN** they have the same canonical `room_id`
 - **AND** the room index returns all of them under that one `room_id`
 
-#### Scenario: One room ID has differing display metadata
+#### Scenario: One room ID has conflicting room names
 
 - **WHEN** records with the same canonical `room_id` contain different non-null `room_name`, `room_address`, or `room_vip` values
 - **THEN** all canonical records and their normalized per-record display values are preserved
@@ -218,14 +227,18 @@ The deterministic schema-v2 snapshot identity SHALL include `room_vip` for every
 
 The current importer SHALL no longer publish new schema-v2 snapshots. New successful conversions publish schema v4, while valid historical schema-v2 snapshots remain loadable under their exact original shape and identity contract.
 
-#### Scenario: Historical VIP room snapshot remains loadable
+For archive applicability, the inherited VIP scenario headings below remain stable
+identifiers. Their normative outcomes describe historical schema-v2 loading; current
+conversion continues to publish only schema v4.
+
+#### Scenario: VIP room is published
 
 - **GIVEN** a valid schema-v2 snapshot contains an explicitly supported VIP value
 - **WHEN** the runtime loader validates it
 - **THEN** the schema-v2 record contains the corresponding JSON boolean
 - **AND** the boolean participates in deterministic schema-v2 snapshot identity
 
-#### Scenario: Historical VIP value is unavailable
+#### Scenario: VIP value is unavailable
 
 - **GIVEN** a valid schema-v2 snapshot contains null `room_vip`
 - **WHEN** the runtime loader validates it
@@ -343,7 +356,7 @@ The importer SHALL NOT report `ROOM_VIP_CONFLICT` solely because both true and f
 - **THEN** legacy runtime VIP presentation is `НЕТ`
 - **AND** null does not weaken or conflict with the known consistent value
 
-#### Scenario: One room contains differing VIP flags
+#### Scenario: One room contains conflicting VIP flags
 
 - **WHEN** records sharing one authoritative `room_id` contain at least one true and at least one false VIP value
 - **THEN** all otherwise valid records remain in the snapshot with their own canonical values
@@ -485,21 +498,25 @@ For schema v3, canonical root metadata `source_row_count` SHALL retain its exist
 
 The runtime loader SHALL continue to validate and load valid historical schema-v3 snapshots under this exact contract. The current importer and combined preflight SHALL no longer create new schema-v3 candidates; current candidate publication targets schema v4.
 
-#### Scenario: Historical unique connection is loaded
+For archive applicability, the inherited switch-connection scenario headings below
+remain stable identifiers. Their normative outcomes describe historical schema-v3
+loading; current candidate publication continues to target schema v4.
+
+#### Scenario: Unique connection is published
 
 - **GIVEN** a valid historical schema-v3 record contains one normalized switch IP and port pair
 - **WHEN** the runtime loader validates the snapshot
 - **THEN** those switch values participate in deterministic schema-v3 snapshot identity
 - **AND** runtime adaptation exposes them with `room_address = null`
 
-#### Scenario: Historical connection is unavailable
+#### Scenario: Connection is unavailable
 
 - **GIVEN** a valid historical schema-v3 record has no unambiguous network connection
 - **WHEN** the runtime loader validates the snapshot
 - **THEN** both schema-v3 switch fields remain null unless one historical unique partial field is valid
 - **AND** the record remains present when otherwise valid
 
-#### Scenario: Historical switch field changes identity
+#### Scenario: Switch field changes identity
 
 - **GIVEN** two otherwise identical valid schema-v3 canonical snapshots
 - **WHEN** one record's `switch_ip_address` or `switch_port` differs
@@ -533,7 +550,11 @@ Combined preflight SHALL require exactly the two workbook paths. It SHALL NOT re
 
 Combined preflight SHALL NOT publish the candidate. A prior per-source preflight result SHALL NOT substitute for rereading either current source. Combined preflight SHALL report inventory-relative network outcomes under the same severity and ambiguity contracts used by conversion.
 
-#### Scenario: Combined preflight reports a valid schema-v4 candidate without output configuration
+For archive applicability, the inherited schema-v3 scenario heading below remains a
+stable identifier. Its normative outcome is updated to the current schema-v4
+preflight contract.
+
+#### Scenario: Combined preflight reports a valid schema-v3 candidate without output configuration
 
 - **GIVEN** valid current primary and network workbooks
 - **AND** no output path is selected
@@ -562,14 +583,18 @@ The standalone GUI support SHALL NOT remove or change the intentional one-source
 
 Except for the explicitly approved schema-v4 migration and the added canonical `room_address` field, preflight APIs, guarded publication, and report extensions SHALL NOT independently change canonical source authorities, diagnostic-model recognition, MAC-only reconciliation, deterministic snapshot identity semantics, runtime candidate validation, or ordinary atomic publication. The importer/domain layer SHALL NOT import PyQt5.
 
-#### Scenario: One-source CLI conversion publishes schema v4
+For archive applicability, the inherited schema-v2/schema-v3 scenario headings below
+remain stable identifiers. Their normative outcomes are updated to the current
+schema-v4 conversion contract.
+
+#### Scenario: One-source CLI conversion remains schema v2
 
 - **GIVEN** the CLI or direct API explicitly performs conversion without a network source
 - **WHEN** conversion succeeds
 - **THEN** it publishes schema version 4 under the primary-only schema-v4 contract
 - **AND** standalone GUI support does not require PyQt5 in the importer or runtime loader
 
-#### Scenario: Two-source direct conversion publishes schema v4
+#### Scenario: Two-source direct conversion remains schema v3
 
 - **GIVEN** the direct API receives explicit valid primary, network, and output paths
 - **WHEN** conversion succeeds
@@ -638,7 +663,7 @@ The importer MAY extend its structured result with safe network worksheet/header
 - **AND** the source snapshot is not rewritten or upgraded
 - **AND** existing diagnostics remain available
 
-#### Scenario: Diagnostics ignore switch metadata for schema v3 and v4
+#### Scenario: Diagnostics run with schema v3
 
 - **GIVEN** the application loads a valid schema-v3 or schema-v4 snapshot
 - **WHEN** existing diagnostic dispatch, credential, request, room, PDU enrichment, handler, worker, controller, transport, or control workflows execute
