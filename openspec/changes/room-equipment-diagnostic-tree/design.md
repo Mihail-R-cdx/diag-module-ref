@@ -318,7 +318,9 @@ During the cycle:
 - all row network/state-changing controls remain disabled;
 - cycle progress is visible through row status and one global room status.
 
-The cycle never auto-expands another row because that row succeeded or failed. When the source row is supported/expandable, it may be the initial expanded row. When the source row is unsupported/missing-IP/ambiguous, the tree starts collapsed rather than choosing a different device on the user's behalf.
+A newly established room session has deterministic initial accordion state. When the source row is supported and expandable, the source row is the one initially expanded row. When the source row is unsupported, missing-IP, same-room ambiguous, or otherwise non-expandable, the tree starts fully collapsed. The application never chooses a secondary row on the user's behalf. Automatic success, warning, or failure never changes expansion.
+
+MIH-7 room mode remains presentation-only after terminal room completion as well as during the cycle. A successful `подключено` row does not enable legacy local Refresh, Matrix route, PDU/codec mutation, live/polling, Call Log/auxiliary network requests, or equivalent network-backed controls. Those controls remain disabled or unbound until MIH-8 supplies exact-row interaction authority. The permanent top-level `Отладка` action is disabled for the entire MIH-7 room-mode session; it must not derive a model/IP from the top source IP, current reused screen, or prior single-device context.
 
 Closing the application during read-only room-cycle activity invalidates the generation and publishes stop/cancel best-effort without waiting for remote network timeout or showing a mutation-warning dialog.
 
@@ -350,7 +352,9 @@ A room with no eligible network rows still completes a full cycle, performs no d
 
 In room mode the permanent top Refresh is a full room Refresh. It does not selectively reuse a previous row cache as current authority.
 
-After it is invoked, the application creates a new room generation, revalidates/re-resolves the current top-level source IP against the immutable loaded inventory, rebuilds shared room display selection and every row state, and runs the entire sequential cycle again.
+As soon as full Refresh starts, the previous room generation, tree/cache presentation, row/view bindings, and accordion selection lose authority and are cleared/reset before new source resolution. The application then creates a new room generation, revalidates/re-resolves the current top-level source IP against the immutable loaded inventory, rebuilds shared room display selection and every row state, and runs the entire sequential cycle again.
+
+The new tree always applies the deterministic source-row initial-state rule from Decision 14; a previously expanded secondary row is never carried into the new generation. If new source re-resolution fails, the old room tree/cache/presentation is not restored as current authority.
 
 Editing the top IP after a completed room cycle invalidates the current room presentation/pending room authority immediately. Returning the text to the previous IP does not resurrect the old room state; Enter/full Refresh is required to establish a new session.
 
@@ -382,7 +386,9 @@ typed warnings/failures
 no automatic one-shot persistent lifecycle left running
 ```
 
-MIH-7 does not start live polling after that terminal boundary and does not define local row Refresh, Call Log/auxiliary network requests, state-changing commands, mandatory mutation readback, or post-cycle connection-loss recovery. Those behaviors are the scope of `room-device-interaction-lifecycle` and must build on the exact per-record state rather than reintroducing selected-widget authority.
+The terminal room tree is presentation-only in MIH-7. Existing device-specific network-backed controls remain disabled or unbound after both clean and problem completion, and attempts to invoke them must be rejected before handler acquisition/device I/O. This includes local row Refresh, Matrix routing, PDU or codec mutations, live/polling starts, Call Log/auxiliary network reads, and equivalent reused-screen actions. The top-level `Отладка` action also remains unavailable in room mode until exact-row Debug binding is explicitly introduced.
+
+MIH-7 does not start live polling after that terminal boundary and does not define local row Refresh, Call Log/auxiliary network requests, state-changing commands, mandatory mutation readback, or post-cycle connection-loss recovery. Those behaviors are the scope of `room-device-interaction-lifecycle` and must build on the exact per-record state rather than reintroducing selected-widget or top-IP target authority.
 
 ## Risks / Trade-offs
 
@@ -409,9 +415,10 @@ Moving authority out of widgets requires more mapping code and regression covera
 3. Add `DeviceRowState`/room generation ownership independent of screen widgets.
 4. Define the one-shot adapter interface and adapt existing model lifecycle owners incrementally while preserving their transport/credential contracts.
 5. Add the serialized room orchestrator, reachability gate, application-owned credential attempt loop, terminal/partial/warning normalization, and bounded cleanup.
-6. Add tree/header presentation and projection of exact row state into lazy reusable views.
-7. Ensure tree-mode PDU one-shot does not trigger legacy PDU-related codec enrichment.
-8. Add focused regression coverage and run full repository validation before implementation publication.
+6. Add tree/header presentation and projection of exact row state into lazy reusable views, including deterministic source-row initial expansion/reset.
+7. Add the transitional MIH-7 interaction lock: keep reused row network controls and top-level Debug disabled/unbound throughout room mode, including after terminal completion.
+8. Ensure tree-mode PDU one-shot does not trigger legacy PDU-related codec enrichment.
+9. Add focused regression coverage and run full repository validation before implementation publication.
 
 ## Validation Strategy
 
