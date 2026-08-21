@@ -102,11 +102,11 @@
 - [x] 11.3 Test room membership/order, source-first row placement, room display source-first fallback, and absence of room-name/address/VIP conflict arbitration.
 - [x] 11.4 Test unsupported/missing-IP/same-room-duplicate-IP row precedence and prove zero device I/O for ineligible rows, including ambiguity caused by an unsupported record.
 - [x] 11.5 Test same IP in another room does not invalidate a secondary row after room authority is established, while the same IP as a top-level source remains globally ambiguous.
-- [x] 11.6 Test two same-model records maintain independent row state and widget projection/cache.
+- [x] 11.6 Test two same-model records maintain independent row state and widget projection/cache, including production Matrix/DMP/Biamp snapshot presentation rather than synthetic room-only schemas.
 - [x] 11.7 Test model registry validation and exact-only support authority; no runtime `source_model` recognition.
 - [x] 11.8 Test strict one-at-a-time queue ordering and prove accordion switching does not reorder or start early I/O.
 - [x] 11.9 Test each persistent model adapter retires polling/keepalive/session resources before the next room record starts.
-- [x] 11.10 Test structured-auth-only candidate fallback, saved-index suffix behavior, no wrap-around, no fallback on non-auth failures, no success persistence on partial/failure, and PCS4i credentialless exception.
+- [x] 11.10 Test structured-auth-only candidate fallback after confirmed clean retirement, saved-index suffix behavior, no wrap-around, no fallback after cleanup abandonment or non-auth failures, no success persistence on partial/failure, and PCS4i credentialless exception.
 - [x] 11.11 Test usable-success-with-warning versus terminal failure and partial-followed-by-failure cache semantics.
 - [x] 11.12 Test cleanup timeout abandonment, queue continuation, stale callback suppression, and degraded stale-snapshot presentation.
 - [x] 11.13 Test no automatic room PDU one-shot starts legacy related-codec enrichment.

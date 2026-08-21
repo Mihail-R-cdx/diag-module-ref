@@ -138,97 +138,70 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._session.expanded_record_id = None
 
 
-def _present_row_data(row, data: Any) -> list[str]:
-    """Project exact-row state through the registered screen family only.
-
-    These presenters share existing screen labels and field semantics, but are
-    deliberately pure/read-only: they neither instantiate an interactive screen
-    nor receive a controller, worker, timer, or connection authority.
-    """
-    screen_key = row.capability.screen_key if row.capability is not None else ""
-    presenter = _ROOM_PRESENTERS.get(screen_key)
-    if presenter is None:
-        return ["Данные модели получены"]
-    return presenter(data)
+def _indexed_value(values: Any, input_number: int) -> Any:
+    if isinstance(values, Mapping):
+        return values.get(input_number, values.get(str(input_number), "—"))
+    if isinstance(values, (list, tuple)) and input_number - 1 < len(values):
+        return values[input_number - 1]
+    return "—"
 
 
-def _codec_presentation(data: Any) -> list[str]:
-    return _labelled_fields(
-        "Кодек",
-        data,
-        (
-            ("model", "Модель"),
-            ("Модель", "Модель"),
-            ("Модель кодеков", "Модель"),
-            ("serial", "Серийный номер"),
-            ("Серийный номер", "Серийный номер"),
-            ("firmware", "Версия прошивки"),
-            ("Версия ПО", "Версия прошивки"),
-            ("ip_address", "IP-адрес"),
-            ("SIP регистрация", "SIP регистрация"),
-            ("Статус презентации", "Статус презентации"),
-        ),
-    )
+def normalize_matrix_presentation(snapshot: Any) -> list[tuple[Any, Any, Any, Any, Any]]:
+    """Adapt the public Extron parser result to read-only table rows."""
+    source = snapshot if isinstance(snapshot, Mapping) else {}
+    inputs = int(source.get("inputs_num", 0) or 0)
+    names = source.get("input_names") or ()
+    signals = source.get("signal_status") or {}
+    auth = source.get("input_hdcp_auth") or ()
+    status = source.get("input_hdcp_status") or ()
+    output_hdcp = source.get("output_hdcp")
+    current = source.get("current_connection")
+    if isinstance(signals, Mapping):
+        inputs = max(inputs, *(int(key) for key in signals if str(key).isdigit()))
+    rows = []
+    for number in range(1, inputs + 1):
+        signal = _indexed_value(signals, number)
+        if isinstance(signal, Mapping):
+            present = "Есть сигнал" if signal.get("has_signal") else "Нет сигнала"
+            signal_text = signal.get("status_text")
+            signal = f"{present}: {signal_text}" if signal_text else present
+        hdcp = f"Auth: {_indexed_value(auth, number)}; статус: {_indexed_value(status, number)}"
+        if output_hdcp not in (None, ""):
+            hdcp += f"; выход: {output_hdcp}"
+        rows.append((number, _indexed_value(names, number), signal, hdcp, "Активен" if current == number else "—"))
+    return rows
 
 
-def _pdu_presentation(data: Any) -> list[str]:
-    source = data.get("device_info", data) if isinstance(data, Mapping) else data
-    lines = _labelled_fields(
-        "PDU",
-        source,
-        (("model", "Модель"), ("ip_address", "IP-адрес"), ("firmware", "Версия ПО"), ("serial", "Серийный номер")),
-    )
-    if isinstance(data, Mapping) and isinstance(data.get("outlets"), list):
-        outlets = [item for item in data["outlets"] if isinstance(item, Mapping)]
-        if outlets:
-            labels = ", ".join(
-                f"{item.get('number', '—')}: {item.get('name') or item.get('status') or '—'}"
-                for item in outlets
-            )
-            lines.append("Розетки: " + labels)
-    return lines
-
-
-def _matrix_presentation(data: Any) -> list[str]:
-    return _labelled_fields(
-        "Матрица",
-        data,
-        (("model", "Модель"), ("ip_address", "IP-адрес"), ("temperature", "Температура"), ("connection_protocol", "Протокол"), ("current_connection", "Активный вход")),
-    )
-
-
-def _audio_presentation(data: Any) -> list[str]:
-    source = data.get("device_info", data) if isinstance(data, Mapping) else data
-    lines = _labelled_fields(
-        "Аудио DSP",
-        source,
-        (("model", "Модель"), ("ip_address", "IP-адрес"), ("name", "Устройство")),
-    )
-    if isinstance(data, Mapping):
-        sections = data.get("meter_sections") or data.get("signal_sources")
-        if isinstance(sections, list):
-            lines.append(f"Источники/метры: {len(sections)}")
-    return lines
-
-
-def _labelled_fields(title: str, data: Any, fields: tuple[tuple[str, str], ...]) -> list[str]:
-    if not isinstance(data, Mapping):
-        return [f"{title}: данные получены"]
-    lines = [title]
-    shown: set[str] = set()
-    for key, label in fields:
-        if key in data and label not in shown:
-            lines.append(f"{label}: {data[key]}")
-            shown.add(label)
-    return lines if len(lines) > 1 else [f"{title}: модельные данные получены"]
-
-
-_ROOM_PRESENTERS = {
-    "codec": _codec_presentation,
-    "pdu": _pdu_presentation,
-    "matrix": _matrix_presentation,
-    "audio_dsp": _audio_presentation,
-}
+def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]]:
+    """Adapt DMP meters and Biamp signal sources without altering snapshots."""
+    source = snapshot if isinstance(snapshot, Mapping) else {}
+    rows: list[tuple[str, str, str]] = []
+    for section in source.get("meter_sections") or ():
+        if not isinstance(section, Mapping):
+            continue
+        title = str(section.get("title") or "Измерения")
+        for channel in section.get("channels") or ():
+            if not isinstance(channel, Mapping):
+                continue
+            if channel.get("available"):
+                value = f"{channel.get('dbfs', '—')} dBFS"
+                if channel.get("state") not in (None, ""):
+                    value += f" ({channel['state']})"
+            else:
+                value = f"Недоступен ({channel.get('outcome') or 'unknown'})"
+            rows.append((title, str(channel.get("name") or "—"), value))
+    for source_row in source.get("signal_sources") or ():
+        if not isinstance(source_row, Mapping):
+            continue
+        title = str(source_row.get("alias") or "Источник")
+        for channel in source_row.get("rows") or ():
+            if not isinstance(channel, Mapping):
+                continue
+            value = str(channel.get("value", "—"))
+            if channel.get("state") not in (None, ""):
+                value += f" ({channel['state']})"
+            rows.append((title, f"Канал {channel.get('channel_number', '—')}", value))
+    return rows
 
 
 class RoomReadOnlyPresentation(QWidget):
@@ -325,14 +298,9 @@ class RoomReadOnlyPresentation(QWidget):
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.setSelectionMode(QTableWidget.NoSelection)
         table.verticalHeader().setVisible(False)
-        names = source.get("input_names") or []
-        signals = source.get("signal_presence") or source.get("input_signals") or []
-        hdcp = source.get("hdcp") or source.get("hdcp_states") or []
-        current = source.get("current_connection")
-        count = max(len(names), len(signals), len(hdcp), int(source.get("inputs_num", 0) or 0))
-        for index in range(count):
+        for values in normalize_matrix_presentation(source):
+            index = table.rowCount()
             table.insertRow(index)
-            values = (index + 1, names[index] if index < len(names) else "—", signals[index] if index < len(signals) else "—", hdcp[index] if index < len(hdcp) else "—", "Активен" if current == index + 1 else "—")
             for column, value in enumerate(values):
                 table.setItem(index, column, QTableWidgetItem(str(value)))
         card.add_widget(table)
@@ -347,19 +315,11 @@ class RoomReadOnlyPresentation(QWidget):
         table.setHorizontalHeaderLabels(("Раздел", "Параметр", "Значение"))
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.verticalHeader().setVisible(False)
-        sections = data.get("meter_sections") or data.get("signal_sources") or [] if isinstance(data, Mapping) else []
-        for section in sections if isinstance(sections, list) else ():
-            title = section.get("title") or section.get("alias") or "Канал" if isinstance(section, Mapping) else "Канал"
-            values = section.get("rows") or section.get("values") or [] if isinstance(section, Mapping) else []
-            for value in values if isinstance(values, list) else ():
-                index = table.rowCount()
-                table.insertRow(index)
-                if isinstance(value, Mapping):
-                    pair = (title, value.get("label") or value.get("name") or "—", value.get("value", "—"))
-                else:
-                    pair = (title, "Значение", value)
-                for column, item in enumerate(pair):
-                    table.setItem(index, column, QTableWidgetItem(str(item)))
+        for values in normalize_audio_dsp_presentation(data):
+            index = table.rowCount()
+            table.insertRow(index)
+            for column, item in enumerate(values):
+                table.setItem(index, column, QTableWidgetItem(str(item)))
         card.add_widget(table)
         layout.addWidget(card)
 

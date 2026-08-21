@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover
 
 from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
 from core.exceptions import AuthenticationError
+from core.parser import BiampTesiraForteCIDataParser, ExtronIN1804DataParser
 from core.room_diagnostic_tree import (
     DeviceRowStatus,
     OneShotEvent,
@@ -119,7 +120,10 @@ class OrchestratorTests(unittest.TestCase):
     def test_only_structured_authentication_error_advances_candidate_suffix(self):
         session = self._session([record("a")])
         adapter = _Adapter([
-            [OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, AuthenticationError("rejected"))],
+            [
+                OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, AuthenticationError("rejected")),
+                OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE),
+            ],
             [OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"ok": True}, credential_success=True)],
         ])
         persisted = []
@@ -130,6 +134,48 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(2, len(adapter.calls))
         self.assertEqual([("Huawei TE40", "192.0.2.10", 1)], persisted)
         self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("a").status)
+
+    def test_authentication_cleanup_timeout_does_not_start_next_candidate_but_continues_next_row(self):
+        session = self._session([record("a"), record("b", ip="192.0.2.11")])
+        adapter = _Adapter([
+            [
+                OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, AuthenticationError("rejected")),
+                OneShotEvent(OneShotEventKind.CLEANUP_TIMEOUT),
+            ],
+            [OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"serial": "B"}, credential_success=True)],
+        ])
+        persisted = []
+        RoomDiagnosticOrchestrator(
+            adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0}, {"id": 1}),
+            ping=lambda _ip: True, persist_success=lambda evidence: persisted.append(evidence),
+        ).run(session)
+        self.assertEqual([("a", 0), ("b", 0)], [(call.record_id, call.credential["id"]) for call in adapter.calls])
+        self.assertEqual(DeviceRowStatus.FAILED, session.row_for("a").status)
+        self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("b").status)
+        self.assertEqual([0], [item.candidate_index for item in persisted])
+
+    def test_authentication_false_fallback_cleanup_does_not_start_next_candidate(self):
+        class AbandoningAdapter(_Adapter):
+            def cleanup(self, _context):
+                return False
+
+        session = self._session([record("a")])
+        adapter = AbandoningAdapter([[OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, AuthenticationError("rejected"))]])
+        RoomDiagnosticOrchestrator(
+            adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0}, {"id": 1}), ping=lambda _ip: True,
+        ).run(session)
+        self.assertEqual([0], [call.credential["id"] for call in adapter.calls])
+        self.assertEqual(DeviceRowStatus.FAILED, session.row_for("a").status)
+
+    def test_authentication_lookalike_text_never_advances_candidate(self):
+        for text in ("auth", "401", "403"):
+            with self.subTest(text=text):
+                session = self._session([record("a")])
+                adapter = _Adapter([[OneShotEvent(OneShotEventKind.TERMINAL_FAILURE, RuntimeError(text))]])
+                RoomDiagnosticOrchestrator(
+                    adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0}, {"id": 1}), ping=lambda _ip: True,
+                ).run(session)
+                self.assertEqual(1, len(adapter.calls))
 
     def test_saved_starting_index_uses_only_remaining_candidate_suffix(self):
         session = self._session([record("a")])
@@ -544,30 +590,42 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertIn("устарели", secondary_text)
         self.assertNotIn("B", primary_text)
 
-    def test_projection_uses_model_specific_read_only_presenters(self):
-        from gui.room_diagnostic_tree import _present_row_data
-
-        row = OrchestratorTests()._session([record("a")]).row_for("a")
-        family_data = {
-            "codec": ({"serial": "codec"}, "Кодек", "Серийный номер: codec"),
-            "pdu": ({"device_info": {"model": "PDU"}, "outlets": [{"number": 1, "name": "Rack"}]}, "PDU", "Розетки: 1: Rack"),
-            "matrix": ({"model": "IN1804", "current_connection": 2}, "Матрица", "Активный вход: 2"),
-            "audio_dsp": ({"device_info": {"model": "DSP"}, "meter_sections": [{}]}, "Аудио DSP", "Источники/метры: 1"),
-        }
-        for screen_key, (data, title, evidence) in family_data.items():
-            row.capability = RoomModelCapability("Synthetic", screen_key, "route", "adapter")
-            projection = "\n".join(_present_row_data(row, data))
-            self.assertIn(title, projection)
-            self.assertIn(evidence, projection)
-
-    def test_read_only_presenters_keep_pdu_matrix_and_audio_detail(self):
+    def test_read_only_presenters_use_production_matrix_dmp_and_biamp_contracts(self):
         from gui.room_diagnostic_tree import RoomReadOnlyPresentation
 
         row = OrchestratorTests()._session([record("a")]).row_for("a")
+        matrix_snapshot = ExtronIN1804DataParser.parse({
+            "device_info": {"model": "IN1804", "temperature": 41},
+            "inputs_num": 2,
+            "outputs_num": 1,
+            "input_names": ["Laptop", "Wireless"],
+            "output_names": ["Display"],
+            "connection_protocol": "TCP",
+            "signal_status": [
+                {"input": 1, "has_signal": True, "status": "Present"},
+                {"input": 2, "has_signal": False, "status": "No signal"},
+            ],
+            "input_hdcp_auth": ["Authenticated", "Not authenticated"],
+            "input_hdcp_status": ["Enabled", "Disabled"],
+            "output_hdcp": "Enabled",
+            "connections": [1],
+        })
+        dmp_snapshot = {
+            "device_info": {"model": "DMP 64 Plus", "ip_address": "192.0.2.30"},
+            "meter_sections": [
+                {"title": "Inputs", "channels": [{"name": "Input 1", "section": "Inputs", "oid": 1001, "available": True, "dbfs": -12.5, "raw_meter": 42, "state": "present", "normalized": 0.7, "outcome": "valid"}]},
+                {"title": "Outputs", "channels": [{"name": "Output 1", "section": "Outputs", "oid": 2001, "available": False, "normalized": None, "outcome": "unavailable"}]},
+            ],
+        }
+        biamp_snapshot = BiampTesiraForteCIDataParser.parse_raw_data({
+            "device_info": {"ip_address": "192.0.2.40"},
+            "signal_sources": [{"alias": "Mic Inputs", "subscription_attribute": "levels", "rows": [{"channel_number": 3, "value": -18.0, "state": "present"}]}],
+        })
         cases = (
             ("pdu", {"device_info": {"model": "PDU"}, "outlets": [{"number": 1, "status": "ON", "name": "Rack"}]}, "roomPduOutlets", 1),
-            ("matrix", {"inputs_num": 1, "input_names": ["Laptop"], "input_signals": ["Present"], "hdcp": ["Authenticated"], "current_connection": 1}, "roomMatrixRouting", 1),
-            ("audio_dsp", {"meter_sections": [{"title": "Mic", "rows": [{"label": "Level", "value": "-12 dB"}]}]}, "roomAudioMeasurements", 1),
+            ("matrix", matrix_snapshot, "roomMatrixRouting", 2),
+            ("audio_dsp", dmp_snapshot, "roomAudioMeasurements", 2),
+            ("audio_dsp", biamp_snapshot, "roomAudioMeasurements", 1),
         )
         for screen_key, snapshot, object_name, rows in cases:
             row.capability = RoomModelCapability("Synthetic", screen_key, "route", "adapter")
@@ -577,6 +635,21 @@ class RoomGuiCompositionTests(unittest.TestCase):
             table = presentation.findChild(QTableWidget, object_name)
             self.assertIsNotNone(table)
             self.assertEqual(rows, table.rowCount())
+            if screen_key == "matrix":
+                self.assertEqual("Laptop", table.item(0, 1).text())
+                self.assertIn("Present", table.item(0, 2).text())
+                self.assertIn("Authenticated", table.item(0, 3).text())
+                self.assertEqual("Активен", table.item(0, 4).text())
+            elif snapshot is dmp_snapshot:
+                self.assertEqual("Inputs", table.item(0, 0).text())
+                self.assertEqual("Input 1", table.item(0, 1).text())
+                self.assertIn("-12.5 dBFS", table.item(0, 2).text())
+                self.assertIn("Недоступен", table.item(1, 2).text())
+            elif snapshot is biamp_snapshot:
+                self.assertEqual("Mic Inputs", table.item(0, 0).text())
+                self.assertEqual("Канал 3", table.item(0, 1).text())
+                self.assertIn("-18.0", table.item(0, 2).text())
+                self.assertIn("present", table.item(0, 2).text())
 
 
 if __name__ == "__main__":

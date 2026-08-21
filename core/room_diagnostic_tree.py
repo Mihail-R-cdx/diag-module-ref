@@ -331,6 +331,9 @@ class RoomDiagnosticOrchestrator:
         session.active_record_id = row.record_id
         self._notify(session)
         while index < len(candidates) and self._is_current(session, row):
+            # Retirement belongs to one exact credential attempt.  A prior
+            # clean retirement must never authorize retrying this attempt.
+            row.cleanup_complete = False
             row.operation_token += 1
             token = row.operation_token
             context = OneShotAttemptContext(
@@ -347,7 +350,8 @@ class RoomDiagnosticOrchestrator:
                 row.status = DeviceRowStatus.FAILED
                 row.failure_reason = "Диагностический адаптер недоступен"
                 return
-            retry = False
+            auth_failure_pending_retry = False
+            cleanup_abandoned = False
             pending_success_index: int | None = None
             try:
                 for event in adapter.run(context):
@@ -367,7 +371,9 @@ class RoomDiagnosticOrchestrator:
                     elif event.kind is OneShotEventKind.TERMINAL_FAILURE:
                         pending_success_index = None
                         if isinstance(event.data, AuthenticationError) and index + 1 < len(candidates):
-                            retry = True
+                            # Candidate fallback is only a possibility until
+                            # this exact attempt has retired cleanly.
+                            auth_failure_pending_retry = True
                         else:
                             row.status = DeviceRowStatus.FAILED
                             row.failure_reason = event.failure_reason or "Не удалось выполнить диагностику"
@@ -382,6 +388,8 @@ class RoomDiagnosticOrchestrator:
                         row.cleanup_complete = True
                         row.operation_token += 1
                         pending_success_index = None
+                        auth_failure_pending_retry = False
+                        cleanup_abandoned = True
                         if row.accepted_snapshot is not None:
                             row.status = DeviceRowStatus.DEGRADED
                             row.stale = True
@@ -395,13 +403,40 @@ class RoomDiagnosticOrchestrator:
                     if row.cleanup_complete and pending_success_index is not None:
                         self._persist_current_success(session, row, context, pending_success_index)
                         pending_success_index = None
+                    elif not row.cleanup_complete:
+                        # A false fallback cleanup is the same logical
+                        # abandonment boundary as CLEANUP_TIMEOUT.  It is not
+                        # another authentication failure and cannot advance
+                        # the credential suffix.
+                        row.operation_token += 1
+                        pending_success_index = None
+                        auth_failure_pending_retry = False
+                        cleanup_abandoned = True
+                        if row.accepted_snapshot is not None:
+                            row.status = DeviceRowStatus.DEGRADED
+                            row.stale = True
+                            row.warnings.append("Соединение завершено по таймауту")
+                        else:
+                            row.status = DeviceRowStatus.FAILED
+                            row.failure_reason = "Не удалось завершить соединение"
             except AuthenticationError:
-                retry = index + 1 < len(candidates)
+                # The adapter may still use the legacy exception path.  It is
+                # subject to the same confirmed-clean-retirement gate.
+                auth_failure_pending_retry = index + 1 < len(candidates)
+                try:
+                    row.cleanup_complete = bool(adapter.cleanup(context))
+                except Exception:
+                    row.cleanup_complete = False
+                if not row.cleanup_complete:
+                    row.operation_token += 1
+                    auth_failure_pending_retry = False
+                    cleanup_abandoned = True
+                    row.status = DeviceRowStatus.FAILED
+                    row.failure_reason = "Не удалось завершить соединение"
             except Exception:
                 row.status = DeviceRowStatus.FAILED
                 row.failure_reason = "Не удалось выполнить диагностику"
-            if retry:
-                row.cleanup_complete = False
+            if auth_failure_pending_retry and row.cleanup_complete and not cleanup_abandoned:
                 index += 1
                 continue
             if row.status is DeviceRowStatus.CONNECTING:
