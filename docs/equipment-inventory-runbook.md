@@ -44,16 +44,20 @@ The importer has two intentional conversion modes:
 
 ```text
 primary equipment workbook only
-    -> schema_version = 2
+    -> schema_version = 4
+    -> switch_ip_address = null
+    -> switch_port = null
 
 primary equipment workbook
     + explicitly configured valid network workbook
-    -> schema_version = 3
+    -> schema_version = 4
+    -> switch fields may be populated only through approved MAC-only reconciliation
 ```
 
 If a network source is explicitly configured and then cannot be read or does
 not satisfy the approved worksheet/header contract, the importer fails the run
-and preserves the previous output. It does not silently fall back to schema v2.
+and preserves the previous output. It does not silently fall back to a
+primary-only schema-v4 candidate.
 
 The deployment-local runtime snapshot is:
 
@@ -85,14 +89,15 @@ tests/test_pdu_room_codec_enrichment.py
 tests/test_equipment_room_context_gui.py
 ```
 
-## Authoritative Excel mapping
+## Authoritative primary workbook source mapping
 
-The inspected organization workbook uses this schema-v1 mapping:
+The inspected organization workbook uses this authoritative current source mapping:
 
 ```text
 SmartRoomID       -> record_id
 ID комнаты        -> room_id
 Название комнаты  -> room_name
+Адрес комнаты     -> room_address
 Наименование      -> source_model
 IP                -> ip_address
 MAC               -> mac_address
@@ -100,11 +105,22 @@ MAC               -> mac_address
 Тип модели        -> device_kind
 ```
 
-Schema v2 adds one confirmed source column:
+The current schema-v4 source contract also requires:
 
 ```text
 VIP оборудование -> room_vip
 ```
+
+`Адрес комнаты -> room_address` is part of the current source mapping. Canonical
+records include `room_address` only in schema v4; historic schema-v1 records
+remain defined as documented below and do not contain that field.
+
+`Адрес комнаты` is an exact required header for primary-source preflight and
+conversion. Individual address cells are nullable: NFC-normalize and trim the
+text, preserve case and internal text, and convert blank values to `null`. No
+aliases, transliteration, substring matching, or inferred address column is
+allowed. Missing or ambiguous discovery is fatal and leaves a previous output
+unchanged.
 
 The VIP mapping is closed:
 
@@ -301,7 +317,7 @@ deployment-local `equipment_inventory.local.json` offline from the configured
 workbook path. The workbook and generated deployment snapshot remain outside
 Git.
 
-After schema-v3 switch enrichment is deployed, regenerate the deployment-local
+After schema-v4 inventory metadata is deployed, regenerate the deployment-local
 snapshot offline from the primary workbook and, when authorized operationally,
 the configured network workbook. The primary workbook, network workbook, and
 generated deployment snapshot remain outside Git.
@@ -404,58 +420,58 @@ PCS4i source type maps to `device_kind = other`. The importer consistency
 expectation follows that contract; runtime PDU dispatch is authorized by exact
 canonical `diagnostic_model`, not by `device_kind`.
 
-## Canonical snapshot schema v2
+## Canonical snapshot schema v4
 
-Newly generated snapshots use `schema_version = 2`. Schema-v2 records contain
-all schema-v1 record fields plus exactly:
+Every newly generated snapshot uses `schema_version = 4`, whether conversion
+uses the primary workbook only or a configured network workbook. Each record
+contains exactly:
 
 ```text
+record_id
+source_model
+diagnostic_model
+ip_address
+mac_address
+serial_number
+room_id
+room_name
+room_address
+device_kind
 room_vip
-```
-
-`room_vip` is JSON `true`, JSON `false`, or JSON `null`. It participates in the
-deterministic snapshot identity. The runtime loader still accepts valid
-schema-v1 snapshots and adapts loaded records to `room_vip = null` without
-rewriting the source file or changing schema-v1 identity validation.
-
-## Canonical snapshot schema v3
-
-Schema-v3 snapshots are generated only by an explicit two-source import.
-Schema-v3 records contain all schema-v2 fields plus exactly:
-
-```text
 switch_ip_address
 switch_port
 ```
 
-Both fields are nullable. `switch_ip_address`, when present, is canonical
-dotted-decimal IPv4. `switch_port`, when present, is normalized non-empty text:
-Unicode NFC, leading/trailing trim, preserved case, and preserved internal
-text. The port remains an opaque string; do not parse chassis, slot, interface
-number, or vendor grammar.
+All keys are present even when nullable. In primary-only mode both switch fields
+are `null`; a valid configured network source may populate them only through
+the existing MAC-only reconciliation. `room_id` remains the sole room identity;
+`room_name`, `room_address`, and `room_vip` remain per-record display metadata.
+The importer does not reconcile different same-room display values or emit
+room-display conflicts solely because they differ.
 
-Schema-v3 deterministic identity still contains only:
+The schema-v4 deterministic identity contains only:
 
 ```text
 schema_version
 records
 ```
 
-Records are sorted by `record_id`. Both switch fields participate in
-schema-v3 identity. `generated_at`, report fields, and all network-run counters
+Records are sorted by `record_id`. `room_address`, `room_vip`, and both switch
+fields participate in schema-v4 identity. `generated_at`, report fields, and all network-run counters
 remain outside identity. `source_row_count` remains the primary equipment
 workbook row count only; network row count is report metadata only.
 
 The runtime loader validates exact per-version record shapes:
 
 ```text
-schema v1 -> room_vip = null, switch_ip_address = null, switch_port = null
-schema v2 -> room_vip is read, switch_ip_address = null, switch_port = null
-schema v3 -> room_vip, switch_ip_address, and switch_port are read
+schema v1 -> room_vip = null, room_address = null, switch_ip_address = null, switch_port = null
+schema v2 -> room_vip is read, room_address = null, switch_ip_address = null, switch_port = null
+schema v3 -> room_vip and switch fields are read, room_address = null
+schema v4 -> room_vip, room_address, and switch fields are read
 ```
 
-Hybrid records are invalid: schema v1 must not contain `room_vip` or switch
-fields, and schema v2 must not contain switch fields. Future schema versions
+Hybrid records are invalid: each declared v1–v4 version must have its own exact
+field set. Future schema versions
 remain unsupported until explicitly reviewed.
 
 ## Switch connection reconciliation
@@ -561,7 +577,7 @@ inventory.find_room_equipment(room_id)
 inventory.find_by_room_and_kind(room_id, device_kind)
 ```
 
-Schema v3 exposes `switch_ip_address` and `switch_port` as passive record
+Schema v4 exposes `switch_ip_address` and `switch_port` as passive record
 attributes only. The runtime inventory keeps the same indexes and public
 queries. Do not add runtime indexes or public queries by switch IP or switch
 port in this change. Diagnostic dispatch, credential configuration, room
@@ -612,14 +628,14 @@ network-source normalization, and issue classification. They do not create or
 replace JSON and they do not become authority for later conversion.
 
 `Check all` rereads the current primary and network workbook bytes, performs
-approved MAC-only reconciliation, builds a schema-v3 candidate in memory,
+approved MAC-only reconciliation, builds a schema-v4 candidate in memory,
 validates it through the runtime loader, and publishes nothing. It intentionally
 does not require an output path.
 
-`Convert` is the explicit two-source schema-v3 GUI workflow. It always rereads
+`Convert` is the explicit two-source schema-v4 GUI workflow. It always rereads
 the current source bytes and repeats full validation; it does not trust cached
 test results. CLI and direct API callers may still use the supported one-source
-mode, which publishes schema v2 when no network source is configured.
+mode, which also publishes schema v4 with null switch fields.
 
 Per-source GUI states are presentation-only:
 
@@ -811,9 +827,9 @@ one or more false, all others null/false-> VIP_FALSE
 at least one true and at least one false-> CONFLICT
 ```
 
-The importer reports `ROOM_VIP_CONFLICT` only for true-plus-false evidence in
-the same room. Null means missing evidence and does not contradict a known
-boolean value.
+The importer preserves differing per-record VIP values and does not report
+`ROOM_VIP_CONFLICT` solely from same-room disagreement. The legacy runtime
+room-context aggregation may still present its existing `CONFLICT` result.
 
 ## Structured runtime load failures
 

@@ -18,7 +18,8 @@ from typing import Any, Mapping
 SCHEMA_VERSION_V1 = 1
 SCHEMA_VERSION_V2 = 2
 SCHEMA_VERSION_V3 = 3
-SCHEMA_VERSION = SCHEMA_VERSION_V2
+SCHEMA_VERSION_V4 = 4
+SCHEMA_VERSION = SCHEMA_VERSION_V4
 SNAPSHOT_FILENAME = "equipment_inventory.local.json"
 DEVICE_KINDS = frozenset({"pdu", "video_codec", "other"})
 SUPPORTED_DIAGNOSTIC_MODELS = frozenset(
@@ -48,6 +49,21 @@ RECORD_FIELDS_V1 = (
 )
 RECORD_FIELDS = RECORD_FIELDS_V1 + ("room_vip",)
 RECORD_FIELDS_V3 = RECORD_FIELDS + ("switch_ip_address", "switch_port")
+RECORD_FIELDS_V4 = (
+    "record_id",
+    "source_model",
+    "diagnostic_model",
+    "ip_address",
+    "mac_address",
+    "serial_number",
+    "room_id",
+    "room_name",
+    "room_address",
+    "device_kind",
+    "room_vip",
+    "switch_ip_address",
+    "switch_port",
+)
 ROOT_FIELDS = frozenset({"schema_version", "snapshot_id", "records", "generated_at", "source_row_count"})
 REQUIRED_ROOT_FIELDS = frozenset({"schema_version", "snapshot_id", "records"})
 SNAPSHOT_ID_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -83,6 +99,7 @@ class EquipmentRecord:
     room_name: str | None
     device_kind: str
     room_vip: bool | None = None
+    room_address: str | None = None
     switch_ip_address: str | None = None
     switch_port: str | None = None
 
@@ -200,7 +217,7 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
     if (
         not isinstance(schema_version, int)
         or isinstance(schema_version, bool)
-        or schema_version not in {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}
+        or schema_version not in {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}
     ):
         raise EquipmentInventoryLoadError(
             InventoryLoadFailure.UNSUPPORTED_SCHEMA,
@@ -245,7 +262,7 @@ def inventory_from_document(document: Any) -> EquipmentInventory:
 
 
 def compute_snapshot_id(records: tuple[EquipmentRecord, ...] | list[EquipmentRecord | Mapping[str, Any]], *, schema_version: int = SCHEMA_VERSION) -> str:
-    if schema_version not in {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}:
+    if schema_version not in {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
         raise ValueError(f"Unsupported inventory schema version: {schema_version}")
     fields = _record_fields_for_schema(schema_version)
     payload = {
@@ -330,18 +347,22 @@ def _parse_record(document: Any, *, schema_version: int) -> EquipmentRecord:
             _invalid_snapshot("Canonical record has invalid mac_address.")
 
     room_vip = None
-    if schema_version in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}:
+    if schema_version in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
         room_vip = document["room_vip"]
         if room_vip is not None and not isinstance(room_vip, bool):
             _invalid_snapshot("Canonical record has invalid room_vip.")
     switch_ip_address = None
     switch_port = None
-    if schema_version == SCHEMA_VERSION_V3:
+    if schema_version in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
         switch_ip_address = document["switch_ip_address"]
         if switch_ip_address is not None:
             if not isinstance(switch_ip_address, str) or normalize_ip_address(switch_ip_address) != switch_ip_address:
                 _invalid_snapshot("Canonical record has invalid switch_ip_address.")
         switch_port = _canonical_nullable_string(document["switch_port"], "switch_port")
+
+    room_address = None
+    if schema_version == SCHEMA_VERSION_V4:
+        room_address = _canonical_nullable_string(document["room_address"], "room_address")
 
     return EquipmentRecord(
         record_id=record_id,
@@ -354,6 +375,7 @@ def _parse_record(document: Any, *, schema_version: int) -> EquipmentRecord:
         room_name=_canonical_nullable_string(document["room_name"], "room_name"),
         device_kind=device_kind,
         room_vip=room_vip,
+        room_address=room_address,
         switch_ip_address=switch_ip_address,
         switch_port=switch_port,
     )
@@ -392,6 +414,8 @@ def _record_fields_for_schema(schema_version: int) -> tuple[str, ...]:
         return RECORD_FIELDS
     if schema_version == SCHEMA_VERSION_V3:
         return RECORD_FIELDS_V3
+    if schema_version == SCHEMA_VERSION_V4:
+        return RECORD_FIELDS_V4
     raise ValueError(f"Unsupported inventory schema version: {schema_version}")
 
 
