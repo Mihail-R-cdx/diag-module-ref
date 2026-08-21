@@ -24,16 +24,18 @@ One-shot room acquisition SHALL terminate persistent diagnostic behavior after t
 
 ### Requirement: Room one-shot acquisition preserves approved model-specific usable result semantics
 
-A room adapter SHALL preserve the existing distinction between authoritative primary diagnostic data and optional enrichment. When a current approved model-specific diagnostic contract defines primary data as usable despite optional enrichment failure, the adapter SHALL return usable final success with a structured safe warning rather than converting the result to total failure.
+A room adapter SHALL preserve the distinction between authoritative primary diagnostic usability and optional enrichment completion. An explicitly approved optional-enrichment failure SHALL NOT convert already accepted authoritative primary data into terminal room failure merely because the enrichment failed. Diagnostic usability and successful-credential persistence are separate authorities; credential persistence is governed by the modified `credential-source-isolation` contract for this change.
 
-When no authoritative final diagnostic data is available, the adapter SHALL return terminal failure rather than emitting an empty/technical-only result as successful room state. Partial/intermediate results SHALL remain explicitly non-final.
+When no authoritative final diagnostic data is available, the adapter SHALL return terminal failure rather than emitting an empty/technical-only result as successful room state. Partial/intermediate results SHALL remain explicitly non-final unless a model-specific room-one-shot contract below promotes authoritative primary data to a usable terminal outcome.
 
-#### Scenario: Polycom optional enrichment is unavailable
+#### Scenario: Polycom optional SSH enrichment is unavailable
 
-- **WHEN** Polycom authoritative HTTPS diagnostic status succeeds and optional SSH enrichment fails under the existing approved semantics
-- **THEN** the room adapter may return usable final success with warning
+- **WHEN** Polycom authoritative HTTPS diagnostic status succeeds and optional SSH enrichment fails during room one-shot acquisition
+- **THEN** the room adapter SHALL return usable final success with a structured warning
 - **AND** the authoritative HTTPS data remains available to the exact row
-- **AND** the optional failure is not treated as credential-retry authority
+- **AND** the row may be presented as `подключено` with that warning
+- **AND** the optional SSH failure SHALL NOT be treated as credential-retry authority
+- **AND** successful-candidate persistence is decided independently under the modified `credential-source-isolation` contract
 
 #### Scenario: PCS4i outlet-name enrichment is unavailable
 
