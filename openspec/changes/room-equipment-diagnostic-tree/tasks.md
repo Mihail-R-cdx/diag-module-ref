@@ -44,12 +44,12 @@
 ## 6. Sequential room orchestrator and credential plan
 
 - [ ] 6.1 Implement one application-owned room queue that performs at most one record's diagnostic network I/O at a time.
-- [ ] 6.2 For every eligible row enforce `currentness -> ping -> credential plan -> assigned attempt -> accepted terminal outcome -> cleanup/release -> next row`.
-- [ ] 6.3 Make ping failure terminal for that row before model handler/worker acquisition and continue the queue.
+- [ ] 6.2 For every eligible row enforce `currentness -> resolve/validate credential plan -> if valid plan then ping -> assigned attempt -> accepted terminal outcome -> cleanup/release -> next row`.
+- [ ] 6.3 Run preliminary ping only after a valid application-owned attempt plan exists; make ping failure terminal for that row before model handler/worker acquisition and continue the queue.
 - [ ] 6.4 Reuse saved supported successful credential index/profile first for exact model/IP, then advance monotonically through only the remaining candidate suffix without wrap-around.
 - [ ] 6.5 Advance credential candidates only after structured new-login `AuthenticationError`; do not advance for timeout, transport, TLS, protocol, parse, empty/malformed response, arbitrary text, or numeric substrings.
-- [ ] 6.6 Treat missing required credentials for authenticated non-PCS4i models as a safe pre-I/O configuration failure and continue the room queue.
-- [ ] 6.7 Preserve the approved PCS4i credentialless attempt when no explicit/mapped credential exists.
+- [ ] 6.6 Treat missing required credentials for authenticated non-PCS4i models as a safe pre-I/O configuration failure: show `Credentials не настроены`, perform no ping, handler acquisition, worker/controller submission, or other device I/O, and continue the room queue.
+- [ ] 6.7 Preserve the approved PCS4i credentialless exception by composing a valid credentialless attempt plan when no explicit/profile/mapped credential exists; only after that plan exists may PCS4i proceed to ping.
 - [ ] 6.8 Persist successful credential index/profile only after an accepted final success; never persist from partial, failed, stale, or cleanup-degraded outcomes.
 
 ## 7. Row status, partial data, warnings, and safe failures
@@ -116,6 +116,7 @@
 - [ ] 11.17 Test clean and problem terminal room cycles leave local Refresh, Matrix route, PDU/codec mutation, live/polling, Call Log/auxiliary, and equivalent row network intents disabled or rejected before handler acquisition/network I/O.
 - [ ] 11.18 Test top-level `Отладка` is unavailable in room mode and cannot display or bind mixed model/IP context from the top source IP or prior single-device state.
 - [ ] 11.19 Test deterministic accordion initialization/reset: expandable source initially expanded, non-expandable source fully collapsed, automatic outcomes do not change expansion, full Refresh does not retain a prior secondary selection, and failed re-resolution does not resurrect old tree/cache/presentation.
+- [ ] 11.20 Test an authenticated non-PCS4i row with no configured credentials terminates before ping with safe `Credentials не настроены`, performs zero handler acquisition/device I/O, and allows the next eligible row to continue; separately prove PCS4i forms its approved credentialless plan before ping.
 
 ## 12. Validation, independent review, archive, and completion
 
