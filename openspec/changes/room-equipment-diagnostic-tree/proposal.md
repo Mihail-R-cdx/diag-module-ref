@@ -1,73 +1,60 @@
 ## Why
 
-The application currently treats a diagnostic Refresh primarily as one selected device/IP request. Canonical inventory v4 now provides stable `room_id`, `room_name`, `room_address`, `room_vip`, exact `record_id`, canonical `diagnostic_model`, and device IP metadata for every represented equipment record. The next step is to use that approved inventory contract to diagnose the room as a unit rather than duplicating room discovery separately inside individual device pages.
+The application currently diagnoses one selected target at a time even though the canonical equipment inventory can identify the authoritative room for an entered source IP and enumerate all equipment records in that room. The next room-centric workflow needs a stable application-level contract before interactive behavior is added: resolve one source IP to one room, show the complete room tree, diagnose every supported eligible room record sequentially, and retain independent exact-record state.
 
-The present PDU-related-codec enrichment is intentionally narrow and PDU-centric: it resolves one PDU, expects one related codec, and owns a separate related-codec read lane. It cannot represent all equipment records in the room, multiple supported devices, unsupported rows, missing IPs, or independent per-record diagnostic state. Reusing that enrichment as the room-tree authority would also preserve the wrong ownership direction: a PDU would continue to own room discovery and codec diagnostics.
-
-The room workflow therefore needs a new application-owned boundary that resolves one source IP to one authoritative room, builds a deterministic equipment tree for that room, and performs one bounded read-only diagnostic attempt for every eligible supported record in strict sequence. The tree must retain exact per-record state rather than treating reusable screen widgets as the source of truth. Model-specific workers/controllers may be reused behind adapters, but transport details and persistent polling lifecycles must not leak into the room orchestrator.
-
-This change deliberately stops at automatic one-shot room diagnostics. Post-cycle live polling, local per-device Refresh, call-log/auxiliary reads, state-changing commands, mandatory mutation readback, and post-cycle interaction recovery belong to the following `room-device-interaction-lifecycle` change.
+Canonical inventory v4 is already merged and provides the required room metadata. This change therefore introduces the automatic room diagnostic tree and its one-shot lifecycle boundaries without redesigning inventory import, post-cycle live interaction, local row Refresh, auxiliary requests, or state-changing controls.
 
 ## What Changes
 
-- Introduce a room-diagnostic session resolved from the current canonical inventory before ordinary model-specific diagnostic dispatch.
-- With a valid inventory, require the entered source IP to resolve to exactly one canonical record. Zero or multiple source records fail closed and do not open manual model fallback.
-- When that unique source record has a non-null `room_id`, enter room-tree mode even when the source record itself is unsupported or has no canonical diagnostic model. `room_id` remains the only room identity authority.
-- When the unique source record has no `room_id`, retain legacy single-device diagnostics only if its exact canonical `diagnostic_model` is supported. A valid inventory with an unresolved/unsupported model does not authorize fallback guessing.
-- Keep manual model fallback only for inventory unavailable/unloadable/corrupt conditions. The same fail-closed principle applies to credential configuration: a valid inventory with zero/many/unmapped/unsupported IP resolution does not become a model-guessing path.
-- Build a room equipment tree from every canonical record with the resolved `room_id`. The source record is first; remaining records use canonical `record_id` order.
-- Present room name, address, and VIP once in a shared room header. For each field, use the source-record value first, otherwise the first nonblank/non-null value in canonical room-record order. Display metadata never replaces `room_id`, and the room workflow does not perform same-room display conflict arbitration.
-- Give every room row independent authoritative runtime state keyed by exact canonical record identity (`record_id` plus its exact model/IP context). Reusable/heavy device widgets become temporary projections of the currently expanded row rather than state owners.
-- Extend the existing application-owned exact model dispatch into one model capability registry that also provides the one-shot diagnostic adapter/view binding needed by room mode. Runtime support remains exact-only by canonical `diagnostic_model`; source text is never re-recognized at runtime.
-- Introduce a unified one-shot adapter contract so the room orchestrator receives model-neutral partial data, usable final success, usable final success with warning, terminal failure, and cleanup completion. Model-specific protocol/session details remain behind existing controllers/workers/handlers.
-- Execute the automatic room cycle strictly sequentially: `ping -> diagnostic attempt -> final accepted outcome -> cleanup/release -> next record`. No two room records perform diagnostic network I/O concurrently.
-- Preserve application-owned credential fallback. A worker/handler/adapter gets one assigned candidate; only structured new-login `AuthenticationError` may advance the request-scoped candidate cursor. Saved supported index/profile remains first for the exact model/IP context and is persisted only after accepted success. The existing PCS4i credentialless exception remains unchanged.
-- Represent unsupported, missing-IP, and same-room duplicate-IP records without device I/O. Duplicate-IP ambiguity is calculated over all room records, including unsupported records, and is not resolved by model/kind filtering.
-- Keep partial data visible without treating it as success. Preserve model-specific usable-success-with-warning behavior (for example optional enrichment failures) while distinguishing it from terminal failure.
-- Bound cleanup for every one-shot lifecycle. Cleanup timeout abandons the old lifecycle, blocks its late callbacks, marks the affected row degraded/failed as appropriate, and continues the room queue instead of hanging the whole room.
-- Keep all automatic room diagnostic network work off the Qt GUI thread. Automatic per-device modal/progress/terminal windows are suppressed; row status, row detail, and global room status carry the outcome.
-- Make top-level Refresh in room mode a full room refresh: invalidate the prior room generation, rebuild room context/tree/cache from the current source IP, and run the complete sequential room cycle again.
-- Do not start the legacy PDU->room->codec enrichment from automatic room PDU one-shot diagnostics. The existing PDU enrichment remains available only through its existing legacy user-PDU lifecycle until the later interaction change removes/replaces that duplication.
+- Resolve a valid source IP against the immutable canonical inventory with strict zero/one/many semantics. Valid inventory not-found/ambiguous/unmapped/unsupported outcomes fail closed instead of opening manual model fallback.
+- Enter room mode whenever exactly one source record has a non-null authoritative `room_id`, even if that source record itself is unsupported.
+- Preserve legacy single-device mode for a unique supported source record whose `room_id` is null, and preserve manual model fallback only when inventory is unavailable/unloadable/corrupt.
+- Build the complete room tree from every canonical record under the resolved `room_id`, with source first and all remaining records ordered by canonical `record_id`.
+- Present shared room name/address/VIP above the tree using source-record value first and canonical-order fallback without conflict arbitration; never show `room_id` as display identity.
+- Establish per-record `DeviceRowState`/equivalent application state so reusable device screens become projections rather than state/session authority.
+- Extend the existing exact model dispatch into one application-level model capability registry with one-shot room adapter binding; do not add runtime `source_model` recognition.
+- Run automatic room diagnostics strictly sequentially: preliminary ping, application-owned credential plan, one assigned attempt at a time, accepted terminal outcome, cleanup/release, then next record.
+- Preserve existing structured credential fallback rules, saved exact model/IP successful candidate/profile policy, and the approved PCS4i credentialless exception.
+- Normalize partial, usable-success-with-warning, ordinary failure, and cleanup-degraded outcomes without treating optional warnings as total failures.
+- Adapt persistent Matrix/DMP/codec diagnostic paths to bounded one-shot acquisition and retire polling/keepalive/session resources before queue advancement.
+- Bound cleanup so one stuck device cannot block the entire room; stale callbacks lose authority and the queue may continue after logical abandonment.
+- Keep automatic room polling off the Qt GUI thread and non-modal.
+- Keep automatic room PDU one-shot acquisition from triggering the existing legacy PDU-to-related-codec enrichment lane.
+- Keep MIH-7 room mode presentation-only even after terminal room-cycle completion: reused row network/state-changing/live/auxiliary controls remain disabled or unbound, and top-level `Отладка` is unavailable until exact-row interaction binding is introduced by MIH-8.
+- Make accordion initialization/reset deterministic: expandable source row initially expanded; otherwise fully collapsed; top full Refresh never preserves prior secondary selection or resurrects old tree/cache after failed re-resolution.
+- Defer post-cycle live handoff, local row Refresh, Call Log/auxiliary operations, mutations/readback, exact-row Debug binding, and post-cycle connection recovery to `room-device-interaction-lifecycle`.
 
 ## Target Flow
 
 ```text
-source IP
-    -> validate IPv4
-    -> resolve exact source record from immutable inventory
-    -> if source has room_id:
-           build RoomDiagnosticSession
-           -> build deterministic room rows
-           -> sequential one-shot room cycle
-              row A: ping -> attempt/fallback -> final -> cleanup
-              row B: ping -> attempt/fallback -> final -> cleanup
-              ...
-           -> terminal room summary + per-record authoritative cache
-       else if source has exact supported diagnostic_model:
-           existing single-device diagnostic flow
-       else:
-           safe fail-closed outcome
-
-inventory unavailable/unloadable/corrupt
-    -> existing explicit manual model fallback path
+valid source IPv4
+    -> immutable inventory zero/one/many source resolution
+    -> authoritative source record + room_id
+    -> complete deterministic room tree
+    -> exact per-record state
+    -> source-first sequential queue
+        -> ping
+        -> application-owned credential attempt(s)
+        -> model one-shot adapter
+        -> terminal row outcome
+        -> cleanup/release or bounded abandonment
+    -> terminal room summary + presentation-only room state
 ```
 
 ## Capabilities
 
 ### New Capabilities
 
-- `room-equipment-diagnostics`: authoritative room-session resolution, deterministic tree membership/order, shared room metadata presentation, per-record state/cache, unified model/adapter authority, sequential one-shot diagnostics, bounded cleanup, stale-generation isolation, and terminal room status.
+- `room-equipment-diagnostics`: authoritative source-to-room resolution, deterministic room tree, per-record state, one-shot adapter contract, sequential automatic room cycle, row/global terminal state, presentation-only post-cycle boundary, deterministic accordion/reset behavior, and stale/cleanup rules.
 
 ### Modified Capabilities
 
-- `diagnostic-application-shell`: change source-IP and credential-configuration resolution so valid inventory enters room mode or fails closed instead of treating every unresolved model as manual-fallback authority.
-- `request-lifecycle-and-recovery`: add room-generation/per-record callback isolation and bounded serialized one-shot lifecycle rules.
-- `device-diagnostics-and-control`: define how existing supported model diagnostic paths are adapted to one-shot room acquisition without changing their approved transport/credential ownership.
+- `diagnostic-application-shell`: change diagnostic-start inventory resolution so valid inventory is fail-closed and room-aware, preserve the legacy no-room supported-device path, keep credential configuration network-free, and keep legacy interactive shell actions including Debug fail-closed in MIH-7 room mode.
+- `request-lifecycle-and-recovery`: extend request-context/stale-callback and background cleanup requirements for exact room generation/record one-shot work while preserving application-owned credential fallback.
+- `device-diagnostics-and-control`: require every supported exact model to expose bounded one-shot room acquisition without changing its approved transport/control semantics, and keep existing network controls disabled/unbound in MIH-7 room mode until MIH-8 supplies exact-row authority.
 
 ## Impact
 
-Implementation is expected to add a focused room-session/orchestration boundary, per-record state model, tree presentation, capability-registry extensions, one-shot adapters around existing model-specific lifecycle owners, and regression coverage across source resolution, row eligibility, sequencing, cleanup, and GUI projection.
+Implementation is expected to modify application/composition routing, room-session state/orchestration, exact model capability registration, one-shot adapters around existing model lifecycle owners, room-tree GUI projection, and focused regression tests.
 
-The implementation must not move network I/O to the Qt GUI thread, move credential fallback into handlers/workers, infer models from `source_model`, change canonical inventory schema v4, or commit operational inventory/credentials.
-
-The old PDU-room-codec enrichment root capability is not removed by this change. Automatic room PDU diagnostics must avoid triggering it, and tree-mode room metadata must be presented only in the shared room header. Full removal/reconciliation of the legacy enrichment and all post-cycle interactive lifecycle is deferred to `room-device-interaction-lifecycle`.
+The change must not alter canonical inventory schema/importer recognition, add per-IP credential storage, move credential fallback into handlers/workers, run network I/O on the Qt GUI thread, silently remove legacy PDU enrichment, or enable exact-row interaction before the following reviewed change.
