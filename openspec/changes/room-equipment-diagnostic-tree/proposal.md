@@ -13,7 +13,7 @@ Canonical inventory v4 is already merged and provides the required room metadata
 - Present shared room name/address/VIP above the tree using source-record value first and canonical-order fallback without conflict arbitration; never show `room_id` as display identity.
 - Establish per-record `DeviceRowState`/equivalent application state so reusable device screens become projections rather than state/session authority.
 - Extend the existing exact model dispatch into one application-level model capability registry with one-shot room adapter binding; do not add runtime `source_model` recognition.
-- Run automatic room diagnostics strictly sequentially: preliminary ping, application-owned credential plan, one assigned attempt at a time, accepted terminal outcome, cleanup/release, then next record.
+- Run automatic room diagnostics strictly sequentially: application-owned credential-plan resolution/validation first, then preliminary ping, then one assigned attempt at a time, accepted terminal outcome, cleanup/release, and finally the next record. An authenticated non-PCS4i model with no required credentials fails before ping or any other device I/O; PCS4i may form its approved credentialless attempt plan and then proceed to ping.
 - Preserve existing structured credential fallback rules, saved exact model/IP successful candidate/profile policy, and the approved PCS4i credentialless exception.
 - Normalize partial, usable-success-with-warning, ordinary failure, and cleanup-degraded outcomes without treating optional warnings as total failures.
 - Adapt persistent Matrix/DMP/codec diagnostic paths to bounded one-shot acquisition and retire polling/keepalive/session resources before queue advancement.
@@ -33,9 +33,11 @@ valid source IPv4
     -> complete deterministic room tree
     -> exact per-record state
     -> source-first sequential queue
+        -> resolve/validate application-owned credential attempt plan
+        -> if required authenticated credentials are absent: terminal configuration failure, zero device I/O
         -> ping
-        -> application-owned credential attempt(s)
-        -> model one-shot adapter
+        -> model one-shot adapter using one assigned credential candidate
+        -> optional next assigned candidate only after structured AuthenticationError
         -> terminal row outcome
         -> cleanup/release or bounded abandonment
     -> terminal room summary + presentation-only room state
