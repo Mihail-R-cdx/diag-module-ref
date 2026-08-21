@@ -400,3 +400,54 @@ Those later operations SHALL consume the exact room session, per-record state/ca
 - **WHEN** `room-device-interaction-lifecycle` is implemented
 - **THEN** it binds interaction to the exact current room record/state established by this capability
 - **AND** it does not redefine room identity or create a competing per-widget source of truth
+
+### Requirement: MIH-7 room mode remains presentation-only after terminal completion
+
+For the lifetime of a room-mode session implemented by this capability, terminal automatic success SHALL authorize presentation only. Existing model-specific network-backed controls SHALL remain disabled or unbound after both clean and problem room-cycle completion until the separately approved `room-device-interaction-lifecycle` establishes exact-row interaction authority.
+
+A `подключено` row SHALL NOT by itself authorize local Refresh, live/polling, Matrix routing, PDU or codec mutations, Call Log/auxiliary network reads, or any equivalent reused-screen network action. Attempts to invoke those paths SHALL be rejected before handler acquisition and device network I/O. Failed or degraded rows SHALL have the same interaction lock and may expose only their safe cached/partial/error presentation.
+
+#### Scenario: Successful row remains presentation-only
+
+- **GIVEN** a supported row reaches accepted `подключено` state and the full room cycle terminates
+- **WHEN** the operator expands that row under MIH-7
+- **THEN** accepted cached data may be rendered
+- **AND** every row network/state-changing action remains disabled or unbound
+- **AND** no reused legacy intent can use the top-level source IP or prior single-device context as target authority
+
+#### Scenario: Problem row remains presentation-only
+
+- **GIVEN** a row ends failed or degraded and the room cycle terminates
+- **WHEN** the operator expands that row
+- **THEN** safe failed/stale presentation may be rendered
+- **AND** no local retry, auxiliary request, live start, mutation, or other device network I/O is available from that row
+
+### Requirement: Room accordion initial state and full-refresh reset are deterministic
+
+Every newly established room session, including one created by top full Refresh, SHALL start from a deterministic accordion state derived only from the new source record. If the source row is supported and expandable under the room-row eligibility contract, that source row SHALL be the one initially expanded row. If the source row is not expandable, no row SHALL be expanded initially; the application SHALL NOT choose a secondary row automatically.
+
+A new full Refresh SHALL NOT carry forward the previously expanded secondary row or any previous accordion selection. Before re-resolution starts, the old room generation, tree/cache presentation, row bindings, and accordion selection SHALL lose authority and SHALL be cleared/reset. If new source re-resolution fails, the previous room tree/cache/presentation SHALL NOT be restored as current authority.
+
+Automatic row success, warning, or failure during the new room cycle SHALL NOT change this user-selection state.
+
+#### Scenario: Expandable source starts expanded
+
+- **GIVEN** a new room session is established and the source row is supported and expandable
+- **WHEN** the tree is first presented
+- **THEN** the source row is the only initially expanded row
+- **AND** no later automatic row outcome changes expansion on the operator's behalf
+
+#### Scenario: Non-expandable source starts fully collapsed
+
+- **GIVEN** a new room session is established and the source row is unsupported, missing-IP, or same-room ambiguous and therefore not expandable
+- **WHEN** the tree is first presented
+- **THEN** no room row is initially expanded
+- **AND** no secondary row is selected automatically
+
+#### Scenario: Full Refresh does not preserve prior secondary selection
+
+- **GIVEN** a secondary row was expanded in the previous room generation
+- **WHEN** top full Refresh starts a new room generation
+- **THEN** the previous selection and old room presentation lose authority before re-resolution
+- **AND** the new tree uses only the new source-row initial-state rule
+- **AND** failed re-resolution does not resurrect the previous tree or selection
