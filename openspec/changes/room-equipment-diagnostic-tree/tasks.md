@@ -76,21 +76,23 @@
 ## 9. Room-tree GUI and full-room Refresh
 
 - [ ] 9.1 Render the complete room tree before starting sequential diagnostics; source row first, deterministic remaining order, one accordion row expanded at most.
-- [ ] 9.2 During the automatic cycle disable top IP/Password/full Refresh and every row network/state-changing action, while keeping accordion switching responsive and presentation-only.
-- [ ] 9.3 Allow a waiting eligible row to be expanded with placeholder/waiting values without causing early I/O or queue reordering.
-- [ ] 9.4 Suppress automatic per-device modal error/progress/terminal windows during room polling; show progress through row status/detail and one global room status.
-- [ ] 9.5 Do not auto-expand rows because they succeed/fail. Use the eligible source row as the initial expansion when appropriate; otherwise start collapsed rather than choosing another device automatically.
-- [ ] 9.6 Provide no separate Cancel action for the automatic room cycle. On application close, invalidate/cancel read-only room work best-effort without blocking the GUI on network cleanup.
-- [ ] 9.7 Show global `Опрос оборудования помещения...` while active, `Опрос завершён` after a fully clean cycle, and `Опрос завершён с проблемами` when any row is unsupported/missing/ambiguous/failed/degraded/warned.
-- [ ] 9.8 Update `Последнее обновление` at terminal completion of every full room cycle, including a cycle with no eligible network I/O.
-- [ ] 9.9 Make top Refresh in room mode rebuild room context/tree/cache and rerun the complete room cycle from the current source IP; do not treat it as local row refresh.
-- [ ] 9.10 Invalidate/clear the established room presentation when the top IP is edited after a completed cycle; restoring old text alone must not resurrect old room authority.
+- [ ] 9.2 During the automatic cycle disable top IP/Password/full Refresh. For the entire MIH-7 room-mode session, including after terminal room completion, keep every row network/state-changing/live/auxiliary/local-Refresh action disabled or unbound until MIH-8 provides exact-row interaction authority.
+- [ ] 9.3 Keep the permanent top-level `Отладка` action disabled/unavailable for the entire MIH-7 room-mode session; do not bind it from top source IP, current reusable screen, or prior single-device state.
+- [ ] 9.4 Allow a waiting eligible row to be expanded with placeholder/waiting values without causing early I/O or queue reordering.
+- [ ] 9.5 Suppress automatic per-device modal error/progress/terminal windows during room polling; show progress through row status/detail and one global room status.
+- [ ] 9.6 On every new room session, including top full Refresh, if the source row is supported and expandable, make it the only initially expanded row; if the source row is non-expandable, start fully collapsed. Never carry forward a previously selected secondary row or auto-select another row.
+- [ ] 9.7 Do not auto-expand or change accordion selection because a row succeeds, warns, or fails.
+- [ ] 9.8 Provide no separate Cancel action for the automatic room cycle. On application close, invalidate/cancel read-only room work best-effort without blocking the GUI on network cleanup.
+- [ ] 9.9 Show global `Опрос оборудования помещения...` while active, `Опрос завершён` after a fully clean cycle, and `Опрос завершён с проблемами` when any row is unsupported/missing/ambiguous/failed/degraded/warned.
+- [ ] 9.10 Update `Последнее обновление` at terminal completion of every full room cycle, including a cycle with no eligible network I/O.
+- [ ] 9.11 Make top Refresh in room mode first invalidate and clear prior room generation/tree/cache/presentation/row bindings/accordion selection, then re-resolve the current source IP, rebuild new room state, and rerun the complete room cycle. Failed re-resolution must not restore the old room presentation.
+- [ ] 9.12 Invalidate/clear the established room presentation when the top IP is edited after a completed cycle; restoring old text alone must not resurrect old room authority.
 
 ## 10. Legacy compatibility and deferred interactive boundary
 
 - [ ] 10.1 Keep valid legacy single-device diagnostics working for a unique supported source record with no `room_id` and for explicit manual fallback when inventory is unavailable/unloadable/corrupt.
 - [ ] 10.2 Keep the existing PDU-room-codec enrichment capability unchanged for its legacy user-PDU lifecycle, but prove automatic room PDU one-shot diagnostics do not start it.
-- [ ] 10.3 Do not implement post-cycle live handoff, local per-device Refresh, Call Log/auxiliary network operations, state-changing commands, mutation readback/reconciliation, or post-cycle connection recovery in MIH-7.
+- [ ] 10.3 Do not implement post-cycle live handoff, local per-device Refresh, Call Log/auxiliary network operations, state-changing commands, mutation readback/reconciliation, or post-cycle connection recovery in MIH-7; keep existing reused-screen implementations fail-closed/disabled in room mode after cycle completion rather than allowing them to use top-IP or previous single-device target authority.
 - [ ] 10.4 Expose stable room session, exact per-record state/cache, capability registry, one-shot adapter, and terminal row-state contracts for the following `room-device-interaction-lifecycle` change.
 
 ## 11. Focused regression coverage
@@ -111,6 +113,9 @@
 - [ ] 11.14 Test full-room top Refresh builds a new generation/state set and stale prior callbacks cannot update it.
 - [ ] 11.15 Test automatic room polling produces no per-device modal/progress/terminal dialogs and leaves the Qt event loop responsive.
 - [ ] 11.16 Test global room summary and `Последнее обновление` for clean, warning/problem, and no-eligible-I/O cycles.
+- [ ] 11.17 Test clean and problem terminal room cycles leave local Refresh, Matrix route, PDU/codec mutation, live/polling, Call Log/auxiliary, and equivalent row network intents disabled or rejected before handler acquisition/network I/O.
+- [ ] 11.18 Test top-level `Отладка` is unavailable in room mode and cannot display or bind mixed model/IP context from the top source IP or prior single-device state.
+- [ ] 11.19 Test deterministic accordion initialization/reset: expandable source initially expanded, non-expandable source fully collapsed, automatic outcomes do not change expansion, full Refresh does not retain a prior secondary selection, and failed re-resolution does not resurrect old tree/cache/presentation.
 
 ## 12. Validation, independent review, archive, and completion
 
