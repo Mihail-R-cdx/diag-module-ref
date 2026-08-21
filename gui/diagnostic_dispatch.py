@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from core.equipment_inventory import EquipmentInventory, EquipmentRecord
+from core.room_diagnostic_tree import RoomModelCapability
 
 
 class DiagnosticActionPurpose(str, Enum):
@@ -27,6 +28,21 @@ class DiagnosticDispatchEntry:
     diagnostic_model: str
     screen_key: str
     lifecycle_route: str
+    room_adapter_key: str | None = None
+    presentation_capability: str = "presentation_only"
+    requires_credentials: bool = True
+    credentialless_allowed: bool = False
+
+    def room_capability(self) -> RoomModelCapability:
+        return RoomModelCapability(
+            diagnostic_model=self.diagnostic_model,
+            screen_key=self.screen_key,
+            lifecycle_route=self.lifecycle_route,
+            room_adapter_key=self.room_adapter_key or self.lifecycle_route,
+            presentation_capability=self.presentation_capability,
+            requires_credentials=self.requires_credentials,
+            credentialless_allowed=self.credentialless_allowed,
+        )
 
 
 @dataclass(frozen=True)
@@ -61,16 +77,16 @@ class ModelResolutionResult:
 
 
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
-    DiagnosticDispatchEntry("Huawei TE20", "codec", "huawei_te20"),
-    DiagnosticDispatchEntry("Huawei TE40", "codec", "huawei_te40"),
-    DiagnosticDispatchEntry("CloudLink Bar 310", "codec", "cloudlink_bar_310"),
-    DiagnosticDispatchEntry("CloudLink Box 310", "codec", "cloudlink_bar_310"),
-    DiagnosticDispatchEntry("Polycom RPG 310", "codec", "polycom_rpg_310"),
-    DiagnosticDispatchEntry("Extron IN1804", "matrix", "matrix_controller"),
-    DiagnosticDispatchEntry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av"),
-    DiagnosticDispatchEntry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i"),
-    DiagnosticDispatchEntry("Biamp Tesira Forte CI", "audio_dsp", "biamp_tesira_forte_ci"),
-    DiagnosticDispatchEntry("Extron DMP 64 Plus", "audio_dsp", "dmp_polling_controller"),
+    DiagnosticDispatchEntry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot"),
+    DiagnosticDispatchEntry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot"),
+    DiagnosticDispatchEntry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot"),
+    DiagnosticDispatchEntry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot"),
+    DiagnosticDispatchEntry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot"),
+    DiagnosticDispatchEntry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot"),
+    DiagnosticDispatchEntry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot"),
+    DiagnosticDispatchEntry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True),
+    DiagnosticDispatchEntry("Biamp Tesira Forte CI", "audio_dsp", "biamp_tesira_forte_ci", "biamp_one_shot"),
+    DiagnosticDispatchEntry("Extron DMP 64 Plus", "audio_dsp", "dmp_polling_controller", "dmp_one_shot"),
 )
 
 
@@ -80,6 +96,11 @@ def dispatch_entries() -> tuple[DiagnosticDispatchEntry, ...]:
 
 def dispatch_model_names() -> tuple[str, ...]:
     return tuple(entry.diagnostic_model for entry in DISPATCH_REGISTRY)
+
+
+def room_model_capabilities() -> dict[str, RoomModelCapability]:
+    """Return the room view/adapter bindings from the sole exact registry."""
+    return {entry.diagnostic_model: entry.room_capability() for entry in DISPATCH_REGISTRY}
 
 
 def dispatch_entry_for_model(model: str | None) -> DiagnosticDispatchEntry | None:
@@ -102,6 +123,10 @@ def validate_dispatch_registry(
             raise ValueError(f"Dispatch model has no screen: {entry.diagnostic_model}")
         if not entry.lifecycle_route:
             raise ValueError(f"Dispatch model has no lifecycle: {entry.diagnostic_model}")
+        if not entry.room_adapter_key:
+            raise ValueError(f"Dispatch model has no room adapter: {entry.diagnostic_model}")
+        if not entry.presentation_capability:
+            raise ValueError(f"Dispatch model has no presentation capability: {entry.diagnostic_model}")
         if entry.screen_key not in registered_screens:
             raise ValueError(f"Dispatch screen is not registered: {entry.screen_key}")
         if entry.diagnostic_model not in page_models_by_screen.get(entry.screen_key, ()):

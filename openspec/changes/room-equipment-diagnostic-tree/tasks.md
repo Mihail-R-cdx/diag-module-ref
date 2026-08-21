@@ -1,35 +1,35 @@
 ## 1. Repository and architecture preparation
 
-- [ ] 1.1 Before implementation, read `RULES.md` and `docs/equipment-inventory-runbook.md`, fetch `origin/master`, confirm the implementation branch is based on the current published architecture branch/head, and preserve unrelated work.
-- [ ] 1.2 Re-read the approved `room-equipment-diagnostic-tree` proposal, design, and delta specs before changing production code or tests.
-- [ ] 1.3 Confirm canonical inventory v4 remains the data authority and do not change importer/schema/recognition behavior unless a new OpenSpec change explicitly approves it.
-- [ ] 1.4 Keep Graphify optional/local-only and do not create Graphify artifacts, evidence, or refresh checkpoints for this change.
+- [x] 1.1 Before implementation, read `RULES.md` and `docs/equipment-inventory-runbook.md`, fetch `origin/master`, confirm the implementation branch is based on the current published architecture branch/head, and preserve unrelated work.
+- [x] 1.2 Re-read the approved `room-equipment-diagnostic-tree` proposal, design, and delta specs before changing production code or tests.
+- [x] 1.3 Confirm canonical inventory v4 remains the data authority and do not change importer/schema/recognition behavior unless a new OpenSpec change explicitly approves it.
+- [x] 1.4 Keep Graphify optional/local-only and do not create Graphify artifacts, evidence, or refresh checkpoints for this change.
 
 ## 2. Source-to-room resolution and deterministic room model
 
-- [ ] 2.1 Add a focused room-session resolver that validates the normalized source IP against the loaded immutable inventory before model-specific diagnostic work.
-- [ ] 2.2 Implement valid-inventory zero/one/many source-IP semantics: zero and many fail closed without manual model fallback; one record with non-null `room_id` enters room mode regardless of source-row supportability.
-- [ ] 2.3 Preserve legacy single-device mode only for one valid-inventory source record with `room_id = null` and an exact supported canonical `diagnostic_model`.
-- [ ] 2.4 Preserve manual model fallback only for inventory unavailable/unloadable/corrupt conditions; do not use fallback to repair valid inventory with missing/ambiguous/unmapped/unsupported source resolution.
-- [ ] 2.5 Apply the same fail-closed valid-inventory rule to `Пароль`: a unique exact supported model may open credential configuration without diagnostics; zero/many/unmapped/unsupported results do not guess a model.
-- [ ] 2.6 Build room membership from every record with the authoritative `room_id`; place the source record first and all remaining records in canonical `record_id` order.
-- [ ] 2.7 Detect same-room duplicate IPs across all room records, including unsupported records, without filtering ambiguity by kind/model/page. Keep duplicate IPs in other rooms irrelevant after room authority is established.
-- [ ] 2.8 Select room name, address, and VIP independently by source-record value first, then first nonblank/non-null canonical room record, with no room display conflict arbitration and no `room_id` display in the GUI.
+- [x] 2.1 Add a focused room-session resolver that validates the normalized source IP against the loaded immutable inventory before model-specific diagnostic work.
+- [x] 2.2 Implement valid-inventory zero/one/many source-IP semantics: zero and many fail closed without manual model fallback; one record with non-null `room_id` enters room mode regardless of source-row supportability.
+- [x] 2.3 Preserve legacy single-device mode only for one valid-inventory source record with `room_id = null` and an exact supported canonical `diagnostic_model`.
+- [x] 2.4 Preserve manual model fallback only for inventory unavailable/unloadable/corrupt conditions; do not use fallback to repair valid inventory with missing/ambiguous/unmapped/unsupported source resolution.
+- [x] 2.5 Apply the same fail-closed valid-inventory rule to `Пароль`: a unique exact supported model may open credential configuration without diagnostics; zero/many/unmapped/unsupported results do not guess a model.
+- [x] 2.6 Build room membership from every record with the authoritative `room_id`; place the source record first and all remaining records in canonical `record_id` order.
+- [x] 2.7 Detect same-room duplicate IPs across all room records, including unsupported records, without filtering ambiguity by kind/model/page. Keep duplicate IPs in other rooms irrelevant after room authority is established.
+- [x] 2.8 Select room name, address, and VIP independently by source-record value first, then first nonblank/non-null canonical room record, with no room display conflict arbitration and no `room_id` display in the GUI.
 
 ## 3. Unified model capability registry
 
-- [ ] 3.1 Extend the existing exact application dispatch registry rather than creating a second room-only model support list.
-- [ ] 3.2 Add the one-shot adapter/view binding and any stable capability metadata required by room mode while preserving current exact `diagnostic_model` identities and existing lifecycle routes.
-- [ ] 3.3 Add startup/composition validation for duplicate models, missing view bindings, missing one-shot adapter bindings, and other incomplete room-required registrations.
-- [ ] 3.4 Keep runtime dispatch exact-only; do not reproduce importer token recognition or infer support from `source_model`, manufacturer text, `device_kind`, or row order.
+- [x] 3.1 Extend the existing exact application dispatch registry rather than creating a second room-only model support list.
+- [x] 3.2 Add the one-shot adapter/view binding and any stable capability metadata required by room mode while preserving current exact `diagnostic_model` identities and existing lifecycle routes.
+- [x] 3.3 Add startup/composition validation for duplicate models, missing view bindings, missing one-shot adapter bindings, and other incomplete room-required registrations.
+- [x] 3.4 Keep runtime dispatch exact-only; do not reproduce importer token recognition or infer support from `source_model`, manufacturer text, `device_kind`, or row order.
 
 ## 4. Per-record room state and presentation projection
 
-- [ ] 4.1 Introduce room generation/session identity containing inventory snapshot identity, normalized source IP, source record, and authoritative `room_id` without secret/session material.
-- [ ] 4.2 Introduce independent `DeviceRowState` (or equivalent) for every room record with exact record/model/IP context, status, accepted cache, partial data, warnings, safe failure reason, capability binding, and row operation token/generation.
-- [ ] 4.3 Make per-record state the source of truth; reusable `CodecScreen`, `PDUScreen`, `MatrixScreen`, and `AudioDSPScreen` widgets must only render accepted state and must not own hidden-row timers/sessions/workers.
-- [ ] 4.4 Ensure multiple records of the same model keep independent state and that collapse/reopen/rebind reconstructs presentation from the exact row state rather than another same-model record.
-- [ ] 4.5 Render one shared room header with room name/address/VIP and remove duplicated room metadata authority from tree-mode device content while preserving legacy single-device compatibility.
+- [x] 4.1 Introduce room generation/session identity containing inventory snapshot identity, normalized source IP, source record, and authoritative `room_id` without secret/session material.
+- [x] 4.2 Introduce independent `DeviceRowState` (or equivalent) for every room record with exact record/model/IP context, status, accepted cache, partial data, warnings, safe failure reason, capability binding, and row operation token/generation.
+- [x] 4.3 Make per-record state the source of truth; reusable `CodecScreen`, `PDUScreen`, `MatrixScreen`, and `AudioDSPScreen` widgets must only render accepted state and must not own hidden-row timers/sessions/workers.
+- [x] 4.4 Ensure multiple records of the same model keep independent state and that collapse/reopen/rebind reconstructs presentation from the exact row state rather than another same-model record.
+- [x] 4.5 Render one shared room header with room name/address/VIP and remove duplicated room metadata authority from tree-mode device content while preserving legacy single-device compatibility.
 
 ## 5. Unified one-shot adapter boundary
 
