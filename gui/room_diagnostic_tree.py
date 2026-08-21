@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QFormLayout, QHeaderView, QLabel, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+
+from .components import ParameterRow, SectionCard
 
 from core.room_diagnostic_tree import DeviceRowStatus, RoomDiagnosticSession
 
@@ -61,12 +63,13 @@ class RoomDiagnosticTreeWidget(QWidget):
                 if self._is_expandable(row):
                     projection = QTreeWidgetItem(("", "", ""))
                     projection.setFirstColumnSpanned(True)
-                    projection.setText(0, self._projection_text(row))
                     projection.setFlags(projection.flags() & ~Qt.ItemIsSelectable)
                     item.addChild(projection)
                 else:
                     item.setText(2, row.status.value)
                 self.tree.addTopLevelItem(item)
+                if self._is_expandable(row):
+                    self.tree.setItemWidget(projection, 0, RoomReadOnlyPresentation(row, self.tree))
                 self._by_record[row.record_id] = item
             if expanded_record_id and expanded_record_id in self._by_record:
                 item = self._by_record[expanded_record_id]
@@ -226,3 +229,162 @@ _ROOM_PRESENTERS = {
     "matrix": _matrix_presentation,
     "audio_dsp": _audio_presentation,
 }
+
+
+class RoomReadOnlyPresentation(QWidget):
+    """Pure exact-row diagnostic view; it has no lifecycle or action authority."""
+
+    def __init__(self, row, parent=None):
+        super().__init__(parent)
+        self.setObjectName("roomReadOnlyPresentation")
+        self.setProperty("recordId", row.record_id)
+        self.setProperty("presentationOnly", True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        state = self._state_text(row)
+        if state:
+            notice = QLabel(state, self)
+            notice.setObjectName("roomPresentationState")
+            notice.setWordWrap(True)
+            layout.addWidget(notice)
+        if row.warnings:
+            warnings = QLabel("Предупреждения: " + "; ".join(row.warnings), self)
+            warnings.setObjectName("roomPresentationWarnings")
+            warnings.setWordWrap(True)
+            layout.addWidget(warnings)
+        data = row.accepted_snapshot if row.accepted_snapshot is not None else row.partial_data
+        screen_key = row.capability.screen_key if row.capability is not None else ""
+        builder = {
+            "codec": self._build_codec,
+            "pdu": self._build_pdu,
+            "matrix": self._build_matrix,
+            "audio_dsp": self._build_audio,
+        }.get(screen_key)
+        if builder is not None:
+            builder(layout, data, row)
+        else:
+            self._add_fields(layout, "Диагностика", data)
+
+    @staticmethod
+    def _state_text(row) -> str:
+        if row.partial_data is not None and row.accepted_snapshot is None:
+            return "Неподтверждённые данные: подключение продолжается"
+        if row.stale:
+            return "Подтверждённые данные устарели: соединение завершено по таймауту"
+        if row.failure_reason:
+            return "Причина: " + row.failure_reason
+        if row.status is DeviceRowStatus.WAITING:
+            return "Ожидание опроса"
+        if row.status is DeviceRowStatus.CONNECTING:
+            return "Подключение и получение данных..."
+        return ""
+
+    def _build_codec(self, layout, data, row) -> None:
+        self._add_fields(layout, "Кодек", data, (
+            "model", "Модель", "Модель кодеков", "firmware", "Версия ПО", "Серийный номер", "serial",
+            "MAC адрес", "mac", "SIP регистрация", "SIP адрес", "Время работы", "temperature",
+            "network_speed", "Статус звонка", "Статус презентации",
+        ))
+
+    def _build_pdu(self, layout, data, row) -> None:
+        source = dict(data.get("device_info") or {}) if isinstance(data, Mapping) else {}
+        if isinstance(data, Mapping):
+            source.update({
+                key: value
+                for key, value in data.items()
+                if key in {"switch_ip_address", "switch_port", "ip_address", "model", "firmware"}
+            })
+        if not source:
+            source = data
+        self._add_fields(layout, "PDU", source)
+        outlets = data.get("outlets", ()) if isinstance(data, Mapping) else ()
+        card = SectionCard("Розетки", "⏻", self)
+        table = QTableWidget(0, 3, card)
+        table.setObjectName("roomPduOutlets")
+        table.setHorizontalHeaderLabels(("№", "Статус", "Название"))
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        for outlet in outlets if isinstance(outlets, list) else ():
+            if not isinstance(outlet, Mapping):
+                continue
+            index = table.rowCount()
+            table.insertRow(index)
+            for column, value in enumerate((outlet.get("number", "—"), outlet.get("status", "—"), outlet.get("name", "—"))):
+                table.setItem(index, column, QTableWidgetItem(str(value)))
+        card.add_widget(table)
+        layout.addWidget(card)
+
+    def _build_matrix(self, layout, data, row) -> None:
+        source = data if isinstance(data, Mapping) else {}
+        self._add_fields(layout, "Матрица", source, ("model", "ip_address", "temperature", "connection_protocol"))
+        card = SectionCard("Маршрутизация (только чтение)", "⇄", self)
+        table = QTableWidget(0, 5, card)
+        table.setObjectName("roomMatrixRouting")
+        table.setHorizontalHeaderLabels(("Вход", "Название", "Сигнал", "HDCP", "Маршрут"))
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.verticalHeader().setVisible(False)
+        names = source.get("input_names") or []
+        signals = source.get("signal_presence") or source.get("input_signals") or []
+        hdcp = source.get("hdcp") or source.get("hdcp_states") or []
+        current = source.get("current_connection")
+        count = max(len(names), len(signals), len(hdcp), int(source.get("inputs_num", 0) or 0))
+        for index in range(count):
+            table.insertRow(index)
+            values = (index + 1, names[index] if index < len(names) else "—", signals[index] if index < len(signals) else "—", hdcp[index] if index < len(hdcp) else "—", "Активен" if current == index + 1 else "—")
+            for column, value in enumerate(values):
+                table.setItem(index, column, QTableWidgetItem(str(value)))
+        card.add_widget(table)
+        layout.addWidget(card)
+
+    def _build_audio(self, layout, data, row) -> None:
+        source = data.get("device_info", data) if isinstance(data, Mapping) else data
+        self._add_fields(layout, "Аудио DSP", source)
+        card = SectionCard("Каналы и измерения", "∿", self)
+        table = QTableWidget(0, 3, card)
+        table.setObjectName("roomAudioMeasurements")
+        table.setHorizontalHeaderLabels(("Раздел", "Параметр", "Значение"))
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        sections = data.get("meter_sections") or data.get("signal_sources") or [] if isinstance(data, Mapping) else []
+        for section in sections if isinstance(sections, list) else ():
+            title = section.get("title") or section.get("alias") or "Канал" if isinstance(section, Mapping) else "Канал"
+            values = section.get("rows") or section.get("values") or [] if isinstance(section, Mapping) else []
+            for value in values if isinstance(values, list) else ():
+                index = table.rowCount()
+                table.insertRow(index)
+                if isinstance(value, Mapping):
+                    pair = (title, value.get("label") or value.get("name") or "—", value.get("value", "—"))
+                else:
+                    pair = (title, "Значение", value)
+                for column, item in enumerate(pair):
+                    table.setItem(index, column, QTableWidgetItem(str(item)))
+        card.add_widget(table)
+        layout.addWidget(card)
+
+    def _add_fields(self, layout, title: str, data: Any, preferred=()) -> None:
+        card = SectionCard(title, "▣", self)
+        form = QFormLayout()
+        source = data if isinstance(data, Mapping) else {}
+        keys = list(preferred) if preferred else list(source)
+        seen = set()
+        for key in keys + [key for key in source if key not in keys]:
+            if key in seen or key not in source or str(key).startswith("_"):
+                continue
+            value = source[key]
+            if isinstance(value, (Mapping, list, tuple)):
+                continue
+            seen.add(key)
+            label = {
+                "serial": "Серийный номер",
+                "firmware": "Версия прошивки",
+                "mac": "MAC адрес",
+                "ip_address": "IP-адрес",
+                "network_speed": "Скорость сети",
+            }.get(str(key), str(key))
+            form.addRow(QLabel(label, card), QLabel(str(value), card))
+        if not seen:
+            form.addRow(QLabel("Статус", card), QLabel("—", card))
+        card.body_layout.addLayout(form)
+        layout.addWidget(card)

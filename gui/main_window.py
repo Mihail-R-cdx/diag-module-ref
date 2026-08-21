@@ -586,8 +586,19 @@ class VCSDiagnosticApp(QMainWindow):
     def _room_credential_start_index(self, device_name, ip_address, candidates):
         return self.get_valid_current_credential_index(device_name, candidates, ip_address)
 
-    def _persist_room_credential_success(self, device_name, ip_address, index):
-        self.set_current_credential_index(device_name, index, ip_address)
+    def _persist_room_credential_success(self, evidence):
+        session = self.__dict__.get("room_diagnostic_session")
+        if session is None or session.identity != evidence.session_identity:
+            return
+        # The orchestrator holds `authority_lock` while calling this method;
+        # invalidate/supersede cannot interleave this currentness check and write.
+        if not session.is_current(evidence.session_identity, session.row_for(evidence.record_id), evidence.operation_token):
+            return
+        self.set_current_credential_index(
+            evidence.diagnostic_model,
+            evidence.candidate_index,
+            evidence.ip_address,
+        )
 
     def _start_room_diagnostic_session(self, source_resolution, generation):
         session = build_room_session(

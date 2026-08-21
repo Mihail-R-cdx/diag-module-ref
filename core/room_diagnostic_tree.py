@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+import threading
 from typing import Any, Protocol
 
 from core.equipment_inventory import EquipmentInventory, EquipmentRecord, normalize_ip_address
@@ -122,6 +123,7 @@ class RoomDiagnosticSession:
     active_record_id: str | None = None
     invalidated: bool = False
     expanded_record_id: str | None = None
+    authority_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def row_for(self, record_id: str) -> DeviceRowState:
         for row in self.rows:
@@ -130,13 +132,15 @@ class RoomDiagnosticSession:
         raise KeyError(record_id)
 
     def is_current(self, identity: RoomDiagnosticSessionIdentity, row: DeviceRowState, token: int) -> bool:
-        return not self.invalidated and self.identity == identity and row.operation_token == token
+        with self.authority_lock:
+            return not self.invalidated and self.identity == identity and row.operation_token == token
 
     def invalidate(self) -> None:
-        self.invalidated = True
-        self.active_record_id = None
-        for row in self.rows:
-            row.operation_token += 1
+        with self.authority_lock:
+            self.invalidated = True
+            self.active_record_id = None
+            for row in self.rows:
+                row.operation_token += 1
 
 
 @dataclass(frozen=True)
@@ -157,6 +161,18 @@ class OneShotAttemptContext:
     operation_token: int
     credential: Mapping[str, Any] | None
     is_current: Callable[[], bool] | None = None
+
+
+@dataclass(frozen=True)
+class RoomCredentialSuccessEvidence:
+    """Exact, secret-free evidence accepted only at the retirement boundary."""
+
+    session_identity: RoomDiagnosticSessionIdentity
+    record_id: str
+    diagnostic_model: str
+    ip_address: str
+    operation_token: int
+    candidate_index: int
 
 
 @dataclass(frozen=True)
@@ -258,7 +274,7 @@ class RoomDiagnosticOrchestrator:
         adapters: Mapping[str, RoomOneShotAdapter],
         credential_candidates: Callable[[str, str], tuple[Mapping[str, Any], ...]],
         ping: Callable[[str], bool],
-        persist_success: Callable[[str, str, int], None] | None = None,
+        persist_success: Callable[[RoomCredentialSuccessEvidence], None] | None = None,
         starting_index: Callable[[str, str, tuple[Mapping[str, Any], ...]], int] | None = None,
         clock: Callable[[], Any] | None = None,
         on_update: Callable[[RoomDiagnosticSession], None] | None = None,
@@ -357,8 +373,8 @@ class RoomDiagnosticOrchestrator:
                             row.failure_reason = event.failure_reason or "Не удалось выполнить диагностику"
                     elif event.kind is OneShotEventKind.CLEANUP_COMPLETE:
                         row.cleanup_complete = True
-                        if pending_success_index is not None and self._persist_success:
-                            self._persist_success(row.diagnostic_model, row.ip_address, pending_success_index)
+                        if pending_success_index is not None:
+                            self._persist_current_success(session, row, context, pending_success_index)
                             pending_success_index = None
                     elif event.kind is OneShotEventKind.CLEANUP_TIMEOUT:
                         # The worker may finish physically later, but its token loses
@@ -376,8 +392,8 @@ class RoomDiagnosticOrchestrator:
                     self._notify(session)
                 if not row.cleanup_complete:
                     row.cleanup_complete = bool(adapter.cleanup(context))
-                    if row.cleanup_complete and pending_success_index is not None and self._persist_success:
-                        self._persist_success(row.diagnostic_model, row.ip_address, pending_success_index)
+                    if row.cleanup_complete and pending_success_index is not None:
+                        self._persist_current_success(session, row, context, pending_success_index)
                         pending_success_index = None
             except AuthenticationError:
                 retry = index + 1 < len(candidates)
@@ -396,6 +412,31 @@ class RoomDiagnosticOrchestrator:
     def _notify(self, session: RoomDiagnosticSession) -> None:
         if self._on_update is not None and not session.invalidated:
             self._on_update(session)
+
+    def _persist_current_success(
+        self,
+        session: RoomDiagnosticSession,
+        row: DeviceRowState,
+        context: OneShotAttemptContext,
+        candidate_index: int,
+    ) -> None:
+        if self._persist_success is None:
+            return
+        # `invalidate()` obtains this same lock.  Currentness and the application
+        # credential-memory mutation are therefore one authoritative operation.
+        with session.authority_lock:
+            if not session.is_current(context.session_identity, row, context.operation_token):
+                return
+            self._persist_success(
+                RoomCredentialSuccessEvidence(
+                    context.session_identity,
+                    context.record_id,
+                    context.diagnostic_model,
+                    context.ip_address,
+                    context.operation_token,
+                    candidate_index,
+                )
+            )
 
     @staticmethod
     def _is_current(session: RoomDiagnosticSession, row: DeviceRowState, token: int | None = None) -> bool:

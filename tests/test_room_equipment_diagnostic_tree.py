@@ -8,7 +8,7 @@ import threading
 import time
 
 try:
-    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtWidgets import QApplication, QLabel, QTableWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -125,7 +125,7 @@ class OrchestratorTests(unittest.TestCase):
         persisted = []
         RoomDiagnosticOrchestrator(
             adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0}, {"id": 1}),
-            ping=lambda _ip: True, persist_success=lambda model, ip, index: persisted.append((model, ip, index)),
+            ping=lambda _ip: True, persist_success=lambda evidence: persisted.append((evidence.diagnostic_model, evidence.ip_address, evidence.candidate_index)),
         ).run(session)
         self.assertEqual(2, len(adapter.calls))
         self.assertEqual([("Huawei TE40", "192.0.2.10", 1)], persisted)
@@ -220,7 +220,7 @@ class OrchestratorTests(unittest.TestCase):
         persisted = []
         RoomDiagnosticOrchestrator(
             adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0},), ping=lambda _ip: True,
-            persist_success=lambda *args: persisted.append(args),
+            persist_success=lambda evidence: persisted.append(evidence),
         ).run(session)
         row = session.row_for("a")
         self.assertEqual(DeviceRowStatus.CONNECTED, row.status)
@@ -255,7 +255,7 @@ class OrchestratorTests(unittest.TestCase):
         persisted = []
         RoomDiagnosticOrchestrator(
             adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0},), ping=lambda _ip: True,
-            persist_success=lambda *args: persisted.append(args),
+            persist_success=lambda evidence: persisted.append((evidence.diagnostic_model, evidence.ip_address, evidence.candidate_index)),
         ).run(session)
         self.assertEqual(DeviceRowStatus.DEGRADED, session.row_for("a").status)
         self.assertEqual([], persisted)
@@ -269,9 +269,27 @@ class OrchestratorTests(unittest.TestCase):
         persisted = []
         RoomDiagnosticOrchestrator(
             adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0},), ping=lambda _ip: True,
-            persist_success=lambda *args: persisted.append(args),
+            persist_success=lambda evidence: persisted.append((evidence.diagnostic_model, evidence.ip_address, evidence.candidate_index)),
         ).run(session)
         self.assertEqual([("Huawei TE40", "192.0.2.10", 0)], persisted)
+
+    def test_invalidation_at_cleanup_persistence_boundary_never_persists(self):
+        session = self._session([record("a")])
+        persisted = []
+
+        class BoundaryAdapter(_Adapter):
+            def cleanup(self, _context):
+                session.invalidate()
+                return True
+
+        adapter = BoundaryAdapter([[
+            OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"serial": "A"}, credential_success=True),
+        ]])
+        RoomDiagnosticOrchestrator(
+            adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0},), ping=lambda _ip: True,
+            persist_success=lambda evidence: persisted.append(evidence),
+        ).run(session)
+        self.assertEqual([], persisted)
 
     def test_invalidated_session_does_not_acquire_adapter_or_ping(self):
         session = self._session([record("a")])
@@ -420,6 +438,26 @@ class OrchestratorTests(unittest.TestCase):
             [event.kind for event in events],
         )
 
+    def test_polycom_worker_signal_boundary_keeps_https_success_with_warning(self):
+        from core.room_diagnostic_tree import OneShotAttemptContext
+        from core.workers.common import WorkerSignals
+        from gui.room_one_shot_adapters import WorkerOneShotAdapter
+
+        class PolycomWorker:
+            def __init__(self):
+                self.signals = WorkerSignals()
+
+            def run(self):
+                self.signals.result.emit({"https": "ok", "_partial_update": True})
+                self.signals.error.emit(("connection_error", "optional ssh unavailable", ""))
+
+        session = self._session([record("a")])
+        context = OneShotAttemptContext(session.identity, "a", "Polycom RPG 310", "192.0.2.10", 1, {"id": 0}, is_current=lambda: True)
+        events = list(WorkerOneShotAdapter(lambda _context: PolycomWorker(), polycom=True).run(context))
+        self.assertEqual(OneShotEventKind.USABLE_SUCCESS_WITH_WARNING, events[-2].kind)
+        self.assertEqual({"https": "ok", "_partial_update": True}, events[-2].data)
+        self.assertFalse(events[-2].credential_success)
+
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
 class RoomGuiCompositionTests(unittest.TestCase):
@@ -451,6 +489,34 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertFalse(window.debug_btn.isEnabled())
         window.room_diagnostic_controller.start.assert_called_once()
 
+    def test_automatic_room_pdu_path_does_not_call_legacy_enrichment_callback(self):
+        from gui.main_window import VCSDiagnosticApp
+        from unittest.mock import patch
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        window._on_pdu_refresh_accepted_for_enrichment = Mock()
+        pdu = record("pdu", model="Extron IPL T PCS4i")
+        inv = inventory(pdu)
+        pdu_caps = {
+            "Extron IPL T PCS4i": RoomModelCapability(
+                "Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True,
+            ),
+        }
+        session = build_room_session(
+            inventory=inv,
+            source=resolve_room_source(inv, pdu.ip_address, pdu_caps),
+            generation=3,
+            capabilities=pdu_caps,
+        )
+        window.room_diagnostic_session = session
+        adapter = _Adapter([[OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"device_info": {"model": "PCS4i"}})]])
+        with patch("gui.room_diagnostic_controller.build_room_one_shot_adapters", return_value={"pdu_one_shot": adapter}):
+            window.room_diagnostic_controller._run_session(session)
+        QApplication.processEvents()
+        self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("pdu").status)
+        window._on_pdu_refresh_accepted_for_enrichment.assert_not_called()
+
     def test_accordion_keeps_secondary_selection_and_exact_row_snapshots(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
@@ -469,9 +535,14 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertEqual("b", session.expanded_record_id)
         widget.render(session)
         self.assertTrue(widget.tree.topLevelItem(1).isExpanded())
-        self.assertIn("Серийный номер: B", widget.tree.topLevelItem(1).child(0).text(0))
-        self.assertIn("устарели", widget.tree.topLevelItem(1).child(0).text(0))
-        self.assertNotIn("Серийный номер: B", widget.tree.topLevelItem(0).child(0).text(0))
+        secondary_view = widget.tree.itemWidget(widget.tree.topLevelItem(1).child(0), 0)
+        primary_view = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
+        secondary_text = "\n".join(label.text() for label in secondary_view.findChildren(QLabel))
+        primary_text = "\n".join(label.text() for label in primary_view.findChildren(QLabel))
+        self.assertIn("Серийный номер", secondary_text)
+        self.assertIn("B", secondary_text)
+        self.assertIn("устарели", secondary_text)
+        self.assertNotIn("B", primary_text)
 
     def test_projection_uses_model_specific_read_only_presenters(self):
         from gui.room_diagnostic_tree import _present_row_data
@@ -488,6 +559,24 @@ class RoomGuiCompositionTests(unittest.TestCase):
             projection = "\n".join(_present_row_data(row, data))
             self.assertIn(title, projection)
             self.assertIn(evidence, projection)
+
+    def test_read_only_presenters_keep_pdu_matrix_and_audio_detail(self):
+        from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+
+        row = OrchestratorTests()._session([record("a")]).row_for("a")
+        cases = (
+            ("pdu", {"device_info": {"model": "PDU"}, "outlets": [{"number": 1, "status": "ON", "name": "Rack"}]}, "roomPduOutlets", 1),
+            ("matrix", {"inputs_num": 1, "input_names": ["Laptop"], "input_signals": ["Present"], "hdcp": ["Authenticated"], "current_connection": 1}, "roomMatrixRouting", 1),
+            ("audio_dsp", {"meter_sections": [{"title": "Mic", "rows": [{"label": "Level", "value": "-12 dB"}]}]}, "roomAudioMeasurements", 1),
+        )
+        for screen_key, snapshot, object_name, rows in cases:
+            row.capability = RoomModelCapability("Synthetic", screen_key, "route", "adapter")
+            row.accepted_snapshot = snapshot
+            presentation = RoomReadOnlyPresentation(row)
+            self.addCleanup(presentation.deleteLater)
+            table = presentation.findChild(QTableWidget, object_name)
+            self.assertIsNotNone(table)
+            self.assertEqual(rows, table.rowCount())
 
 
 if __name__ == "__main__":
