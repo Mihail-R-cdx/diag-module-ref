@@ -26,7 +26,7 @@
 - [ ] 4.2 Stop/retire live before auxiliary I/O and resume it only after terminal cleanup when the same row remains current and usable.
 - [ ] 4.3 While auxiliary read is active/retiring, disable source IP, Password, Local Refresh, mutations, other auxiliary actions, and competing row network actions; keep top full Refresh available as global supersession and keep accordion switching/collapse available as an auxiliary cancellation boundary.
 - [ ] 4.4 Preserve application-owned structured credential fallback; ordinary parse/business failure must not become credential retry or whole-row degradation without typed connection/session authority.
-- [ ] 4.5 Close/cancel exact-row child dialogs on row switch/collapse and reject late callbacks.
+- [ ] 4.5 Treat both row switch/collapse and direct user close (`X`) of an active auxiliary child window as exact-request cancellation boundaries: invalidate authority, publish cancel/stop, perform bounded cleanup, reject late callbacks, resume eligible live if the same row remains current/usable, and require a fresh acquisition on reopen.
 - [ ] 4.6 Bind `Отладка` to exact row as pure local presentation with no network I/O or live teardown on open/close; allow it during auxiliary activity only while that exact row remains current.
 - [ ] 4.7 Keep top full Refresh available as mandatory global supersession during auxiliary read and prove bounded cancellation/abandonment.
 
@@ -70,7 +70,7 @@
 - [ ] 9.5 Add mutation/reconciliation tests proving failed/ambiguous/unconfirmed mutation blocks live, Local Refresh, auxiliary and further mutation until top full Refresh.
 - [ ] 9.6 Add registry tests proving all room interactive capability availability comes from the one exact model registration and no parallel model tables are required.
 - [ ] 9.7 Add room-summary tests proving agreed post-cycle degradation categories set `Есть проблемы с соединением`, while ordinary auxiliary parse/business failure does not.
-- [ ] 9.8 Add Call Log/auxiliary, Debug, source-IP/credential invalidation, per-record degradation, and exact-row currentness tests.
+- [ ] 9.8 Add Call Log/auxiliary tests for direct child-window `X` cancellation, late-callback suppression, bounded cleanup, eligible live resume, and fresh acquisition on reopen; also cover Debug, source-IP/credential invalidation, per-record degradation, and exact-row currentness.
 - [ ] 9.9 Add removal tests proving PDU refresh no longer starts related-codec I/O/presentation while PDU own controls remain functional.
 - [ ] 9.10 Run affected model/controller/screen regression suites and the full offline test suite.
 - [ ] 9.11 Run `git diff --check` and `git diff --cached --check` before the implementation commit.
