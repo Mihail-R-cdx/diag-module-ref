@@ -172,7 +172,7 @@ The operation reuses the existing application-owned credential/session contract:
 
 An ordinary auxiliary parse/business/error outcome that does not prove loss of the connection context does not degrade the row and does not change the global room summary to a connection problem. After cleanup, live may resume when the same row is still current. A terminal typed connection/session failure, or terminal authentication failure after allowed fallback is exhausted, degrades the exact row, sets the global room status to `Есть проблемы с соединением`, and requires full room Refresh.
 
-Device-specific auxiliary child windows are bound to exact `record_id + model + IP + room generation`. Collapsing/switching the row closes the child window, invalidates the auxiliary request, and prevents late callbacks from writing into a new context. Explicit reopening begins a fresh acquisition when the underlying feature contract requires one.
+Device-specific auxiliary child windows are bound to exact `record_id + model + IP + room generation`. Collapse/switch, top full Refresh, and direct user close of the child window are cancellation boundaries for the exact auxiliary request. Direct user close immediately invalidates request authority, publishes available cancel/stop, suppresses all late UI writes/reopen attempts, and runs bounded cleanup/release. If the same row remains current and usable when cleanup completes, eligible live resumes; if the user later reopens the auxiliary action, it starts a fresh acquisition rather than reusing the cancelled request.
 
 Top full Refresh is a mandatory available global supersession action during auxiliary read. It invalidates/cancels the auxiliary context, performs bounded cleanup/abandonment, clears the old room state, and starts a new full room cycle under a new generation. No auxiliary read may hold the application in an old room generation forever.
 
@@ -271,8 +271,9 @@ The canonical room codec remains available as an independent room record and is 
 7. **Read-only and state-changing recovery are different.** Read-only work may use bounded cancellation/retry; a possibly delivered mutation is never blindly replayed.
 8. **Credential selection stays in application composition.** Model-wide chains and exact model/IP successful memory are preserved; handlers/workers never iterate candidates.
 9. **Per-record degradation with mandatory room problem indication.** Failure of one device does not make other rows unusable, but agreed terminal degradation categories set the global problem summary.
-10. **Remove duplicated PDU enrichment instead of adapting it.** The room tree already provides the correct room/codec abstraction.
-11. **Legacy no-room mode stays intact.** The change is an extension of room mode, not a rewrite of all interaction paths.
+10. **Auxiliary child-window close is a lifecycle event.** Direct user close cancels the exact request, performs bounded cleanup, suppresses late callbacks, restores eligible live for the still-current row, and requires fresh acquisition on reopen.
+11. **Remove duplicated PDU enrichment instead of adapting it.** The room tree already provides the correct room/codec abstraction.
+12. **Legacy no-room mode stays intact.** The change is an extension of room mode, not a rewrite of all interaction paths.
 
 ## Risks and Mitigations
 
@@ -284,7 +285,7 @@ The canonical room codec remains available as an independent room record and is 
 - **Risk: unconfirmed mutation is bypassed through Local Refresh or Call Log.** Mitigation: `interaction_blocked` disables the complete row network surface until top full Refresh.
 - **Risk: capability support fragments across model lists.** Mitigation: the single exact application registration owns all room interaction bindings and required cleanup hooks.
 - **Risk: old cache is presented as post-command truth.** Mitigation: only reconciliation can replace authoritative cache; old cache becomes stale/unconfirmed.
-- **Risk: child dialogs receive callbacks for another same-model row.** Mitigation: child-window exact-row identity and forced closure/invalidation on row switch/collapse.
+- **Risk: child dialogs receive callbacks for another same-model row or after the user closed the window.** Mitigation: child-window exact-row identity plus cancellation/invalidation on switch/collapse/direct close, bounded cleanup, and late-callback suppression.
 - **Risk: cleanup hangs forever.** Mitigation: bounded policy timeout and logical abandonment; top full Refresh can establish a new generation.
 - **Risk: global summary looks healthy after a post-cycle degradation.** Mitigation: agreed terminal degradation categories MUST set `Есть проблемы с соединением`, while ordinary auxiliary parse/business failure is explicitly excluded.
 - **Risk: removal of PDU enrichment regresses PDU controls.** Mitigation: separate PDU device diagnostics/control from the removed related-codec side lane and add focused regression tests.
@@ -300,7 +301,7 @@ Implementation validation must prove both exact-row correctness and non-regressi
 - rapid A -> B -> C switching with no I/O for stale intermediate targets;
 - collapse-to-none live teardown;
 - Local Refresh lock matrix, success/warning/failure, and full-refresh-only retry after failure;
-- auxiliary lock matrix, Call Log typed credential fallback, close/cancel, top Refresh supersession, ordinary failure live resume, and terminal connection degradation;
+- auxiliary lock matrix, Call Log typed credential fallback, direct child-window close/cancel, late-callback suppression, bounded cleanup, eligible live resume, fresh reopen acquisition, top Refresh supersession, ordinary failure live resume, and terminal connection degradation;
 - Debug exact-row binding with zero network I/O on open;
 - mutation confirmation Cancel no-op, confirmed live teardown, no-send on cleanup timeout, mandatory reconciliation, no blind replay, complete row-network blocking after unconfirmed outcome, and cache replacement only after readback;
 - mandatory `Есть проблемы с соединением` for agreed degradation categories and no false problem status for ordinary auxiliary parse/business failure;
