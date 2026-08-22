@@ -1,0 +1,259 @@
+## ADDED Requirements
+
+### Requirement: Post-cycle room interaction is bound to the exact expanded record
+
+After the automatic room cycle reaches a terminal state, room-mode network interaction SHALL use the exact current expanded room record as target authority. The application SHALL bind every room live, local Refresh, auxiliary read, and state-changing intent to immutable non-secret context containing current room generation, canonical `record_id`, exact canonical `diagnostic_model`, exact canonical IP, and an operation/currentness token or equivalent.
+
+The top source IP, reusable screen identity, prior legacy single-device context, row label, model text rendered in Qt, or previous expanded row SHALL NOT substitute for exact current row authority. Reusable screens SHALL remain presentation projections of per-record state.
+
+Failed, degraded, unsupported, missing-IP, and same-room ambiguous rows SHALL expose no row network/state-changing actions except presentation allowed by their existing terminal state. An initially failed supported row may remain expandable for safe diagnostics, but retry is through top full Refresh rather than a row-local retry path.
+
+#### Scenario: Two same-model records remain independent
+
+- **GIVEN** two room records share the same supported diagnostic model
+- **AND** each has its own exact record/IP state
+- **WHEN** the operator alternates the expanded row
+- **THEN** every network intent uses only the exact current row context
+- **AND** no cache, session, callback, control authority, or credential-success update crosses from one record to the other
+
+#### Scenario: Top source IP differs from expanded row
+
+- **GIVEN** room mode was entered through source record A
+- **AND** supported record B is currently expanded
+- **WHEN** a room interaction is requested
+- **THEN** the target is B's exact canonical record/model/IP context
+- **AND** A's top source IP is not used as the device target
+
+### Requirement: Live ownership follows the latest expanded connected row
+
+Automatic one-shot room acquisition SHALL leave no persistent live activity. After the entire room cycle reaches terminal state, the application MAY start an existing model-specific live capability only for the exact row that is currently expanded, has accepted usable connected state, is not degraded/blocked, and advertises that live capability in the unified model registry.
+
+At most one room live lifecycle SHALL own network resources at a time. Collapsing the current row SHALL invalidate and retire its live context and SHALL NOT auto-expand another row. Switching rows SHALL immediately change presentation but SHALL start new live I/O only after bounded cleanup/release of prior live authority. Pending target selection SHALL be latest-wins: if the operator switches A -> B -> C before A cleanup completes, B SHALL perform no live I/O and only current C MAY start after cleanup.
+
+During live handoff, network-backed controls for the newly expanded row SHALL remain disabled until prior network authority is released. A terminal typed connection/session failure, or terminal authentication failure after approved fallback/recovery, SHALL stop automatic live restart, mark only that exact row `соединение потеряно`, keep its accepted cache visible as stale, and require top full Refresh for recovery.
+
+#### Scenario: Room cycle ends with a current live-capable row
+
+- **GIVEN** the room cycle has fully terminated
+- **AND** the current expanded row is connected and supports live
+- **WHEN** post-cycle interaction becomes active
+- **THEN** live may start for that exact row only
+- **AND** no hidden row starts polling, keepalive, or live sampling
+
+#### Scenario: Rapid row switching skips stale targets
+
+- **GIVEN** live for row A is being retired
+- **WHEN** the operator expands B and then C before A cleanup completes
+- **THEN** B performs no live network I/O
+- **AND** after cleanup only current C may start live
+
+#### Scenario: Last row is collapsed
+
+- **WHEN** the operator collapses the only expanded row
+- **THEN** its live context is retired
+- **AND** no other row is opened or started automatically
+
+### Requirement: Local Refresh replaces one exact row snapshot through a fresh read-only lifecycle
+
+Local Refresh SHALL be available only for the current expanded exact row whose accepted state is connected/usable and whose interaction state is not degraded or blocked. Before local Refresh device I/O starts, active live SHALL be invalidated and retired through bounded cleanup/release.
+
+The local Refresh SHALL reuse application-owned exact-row credential selection/fallback, preliminary reachability, model diagnostic acquisition, and typed failure rules. Only an accepted final usable result MAY atomically replace that row's authoritative cache. An approved usable-success-with-warning result remains successful and MAY replace cache while preserving its non-modal warning.
+
+A terminal local Refresh failure SHALL stop live, set the exact row to `не удалось подключиться`, block its local Refresh, auxiliary network actions, and state-changing controls, and require top full room Refresh for retry. Previously accepted data MAY remain visible only as stale context. Local Refresh SHALL NOT change the room-level `Последнее обновление` timestamp.
+
+#### Scenario: Local Refresh succeeds
+
+- **GIVEN** a connected current row
+- **WHEN** local Refresh completes with accepted usable data
+- **THEN** that exact row cache is atomically replaced
+- **AND** eligible live may resume only after cleanup/currentness checks
+- **AND** `Последнее обновление` remains the last full room-cycle completion time
+
+#### Scenario: Local Refresh fails terminally
+
+- **WHEN** a current row local Refresh reaches terminal failure
+- **THEN** the row becomes `не удалось подключиться`
+- **AND** row network/state-changing controls remain blocked
+- **AND** recovery requires top full Refresh
+
+### Requirement: Auxiliary read-only actions are exact-row serialized operations
+
+A network-backed auxiliary action, including `Журнал звонков`, SHALL run only for the current expanded connected exact row and SHALL use the room interaction lane rather than a top-source or reusable-widget target. Only one auxiliary network action MAY be active at a time. Active live SHALL be invalidated and retired before auxiliary device I/O begins.
+
+Auxiliary reads SHALL preserve existing application-owned structured credential behavior. A rejected candidate MAY advance only after structured new-login `AuthenticationError` and only within the existing allowed candidate suffix. Timeout, transport, protocol, parse, business error, public strings such as `auth`, `401`, or `403`, and absence of success SHALL NOT independently authorize credential advancement.
+
+An ordinary auxiliary failure that does not prove loss of the current connection/session context SHALL NOT by itself degrade the row. After bounded cleanup, live MAY resume when the same row remains current and usable. Terminal typed connection/session failure, or terminal authentication failure after allowed credential fallback is exhausted, SHALL degrade that exact row to `соединение потеряно` and require top full Refresh.
+
+Device-specific auxiliary child windows SHALL remain bound to the exact row generation. Switching/collapsing the row or starting top full Refresh SHALL close/invalidate the child context and prevent late callbacks from updating another row. A later explicit call-log opening SHALL start the fresh acquisition required by the call-log capability.
+
+#### Scenario: Auxiliary parse error preserves connection context
+
+- **GIVEN** the row was connected before an auxiliary request
+- **WHEN** the auxiliary request ends with a parse/business error that is not a typed session/connection failure
+- **THEN** the row remains connected
+- **AND** the accepted diagnostic cache remains authoritative for its prior refresh point
+- **AND** live may resume after cleanup if the row is still current
+
+#### Scenario: Auxiliary authentication chain is exhausted
+
+- **WHEN** every allowed candidate in the exact-row auxiliary credential suffix is rejected by structured authentication failure
+- **THEN** the exact row becomes `соединение потеряно`
+- **AND** no additional auxiliary/live/mutation I/O starts until top full Refresh
+
+### Requirement: Debug is local exact-row presentation
+
+The current `Отладка` action in room mode SHALL be bound to the exact current expanded supported row and SHALL display only that row's accumulated terminal/log presentation. Opening or closing Debug SHALL NOT by itself create device network I/O, stop live, select credentials, or acquire a handler/session.
+
+When no supported expandable row is current, Debug SHALL be unavailable. Switching/collapsing the row SHALL close/invalidate the row-specific Debug presentation so logs cannot be attributed to another record. Any future Debug sub-action that performs device I/O SHALL explicitly enter an approved auxiliary-read or state-changing lifecycle; this change SHALL NOT create an arbitrary network command console.
+
+#### Scenario: Debug opens while live is active
+
+- **GIVEN** the current exact row has active live
+- **WHEN** the operator opens Debug
+- **THEN** Debug shows that exact row's local accumulated log/terminal state
+- **AND** live continues because opening Debug creates no device I/O
+
+### Requirement: State-changing room commands require live retirement and mandatory reconciliation
+
+Opening a state-changing confirmation dialog SHALL NOT stop live or change room/row authority. Cancel SHALL be a no-op. After explicit confirmation, the application SHALL lock incompatible top/accordion/network actions, invalidate active live, complete bounded cleanup/release, and only then submit one exact-row state-changing operation.
+
+If prior live cleanup cannot release authority within policy timeout, the mutation SHALL NOT be sent. Once a state-changing send is attempted or may have been delivered, the application SHALL NOT blindly repeat the command, restart it with another credential, or infer retry safety from user-facing error text, empty success lists, `auth`, `401`, or `403` strings.
+
+Mutation ACK or transport success SHALL NOT be authoritative final state. Every supported room-mode state-changing command SHALL require the existing model-appropriate readback/reconciliation before terminal success. Only successful reconciliation MAY atomically replace the exact row's authoritative cache and permit normal live/controls to resume.
+
+If command execution fails, the outcome is ambiguous, or readback cannot confirm final state, the application SHALL keep prior cache only as stale/unconfirmed presentation, show a safe operation-specific error, keep live stopped, block further state-changing commands for that record, and require top full Refresh for recovery. The row SHALL NOT become `не удалось подключиться` merely because a mutation failed. A typed connection/session loss MAY additionally move it to `соединение потеряно`.
+
+#### Scenario: Confirmation is canceled
+
+- **WHEN** the operator opens a mutation confirmation and selects Cancel
+- **THEN** no interaction generation is replaced
+- **AND** live continues unchanged
+- **AND** no mutation or reconciliation I/O starts
+
+#### Scenario: Command ACK arrives before readback
+
+- **WHEN** a confirmed state-changing command receives an ACK or apparent transport success
+- **THEN** the operation remains non-terminal
+- **AND** authoritative cache is unchanged until mandatory reconciliation succeeds
+
+#### Scenario: Readback cannot confirm the command
+
+- **WHEN** the mutation may have occurred but mandatory readback fails or cannot confirm final state
+- **THEN** the mutation is not automatically repeated
+- **AND** prior cache remains stale/unconfirmed rather than being overwritten optimistically
+- **AND** further mutations stay blocked until top full Refresh
+
+### Requirement: Authoritative room cache changes only after accepted read-only data or confirmed reconciliation
+
+Room interaction SHALL treat per-record accepted cache as authoritative snapshot data, not optimistic UI state. Live samples MAY update fields explicitly defined as live presentation but SHALL NOT manufacture a new authoritative device snapshot outside the model's approved live contract.
+
+A local Refresh or auxiliary operation MAY update authoritative cache only where its existing capability explicitly defines the returned data as authoritative device state. A state-changing operation SHALL update authoritative cache only from successful mandatory readback/reconciliation, never from the command request or ACK itself.
+
+If a command is unconfirmed, old cache MAY remain visible but SHALL be marked stale/unconfirmed. Collapse/reopen SHALL render the same exact-row authority state and SHALL NOT resurrect pre-command values as if they were freshly confirmed.
+
+#### Scenario: Successful PDU reconciliation replaces cache
+
+- **WHEN** an exact-row PDU mutation completes and mandatory reconciliation returns accepted current outlet state
+- **THEN** that reconciled state atomically replaces the PDU row's authoritative cache
+- **AND** collapse/reopen renders the reconciled state
+
+### Requirement: Room credential selection remains application-owned during interaction
+
+Room interactive operations SHALL reuse the existing model-wide ordered credential chains and exact `model + IP` successful candidate/profile memory. The room row SHALL NOT own a secret store and this change SHALL NOT create per-IP credential candidate lists.
+
+Handlers, workers, live samplers, auxiliary readers, mutation workers, and reconciliation workers SHALL NOT select or iterate later credential candidates. Application composition MAY advance only from structured authentication authority under the applicable read-only or pre-mutation rule. A successful candidate/profile SHALL be persisted only after the relevant existing successful-operation boundary is satisfied.
+
+The existing PCS4i credentialless exception remains valid where its approved operation contract permits credentialless access.
+
+#### Scenario: Same-model room devices use independent successful memory
+
+- **GIVEN** two room records use the same model-wide credential chain
+- **WHEN** each exact model/IP succeeds with a different candidate index
+- **THEN** each exact model/IP retains its own successful memory
+- **AND** editing the shared model-wide chain may remap/invalidate successful indexes under the existing credential contract
+
+### Requirement: Top room controls and context changes supersede interaction safely
+
+Top full Refresh SHALL remain the from-scratch room recovery action. When allowed, it SHALL invalidate the old room interaction generation, stop/cancel read-only activity, clear room tree/header/cache presentation, and execute the entire source resolution and room cycle again as a first connection. It SHALL not preserve a prior expanded secondary row or reuse old per-record cache as current state.
+
+During auxiliary read, top full Refresh MAY act as global supersession after bounded cleanup/abandonment. During a confirmed state-changing command through its mandatory reconciliation terminal boundary, top full Refresh, source IP, Password, and incompatible accordion/network actions SHALL remain blocked.
+
+Editing the source IP in post-cycle idle/live state SHALL immediately invalidate current room/live/pending-start authority and clear room presentation; editing alone SHALL start no network I/O. Returning the field to the previous IP SHALL not resurrect the prior generation.
+
+`Пароль` remains a source-IP/model-wide configuration action rather than a secondary-row credential editor. Cancel and Save-without-effective-change SHALL preserve the current room/live state. A real effective credential-chain change SHALL invalidate exact-row sessions/live, clear current room/tree/cache state, and require a new diagnostic start.
+
+#### Scenario: Auxiliary read is superseded by top Refresh
+
+- **GIVEN** an auxiliary read is active
+- **WHEN** top full Refresh is requested
+- **THEN** the auxiliary context loses authority and is cancelled/retired
+- **AND** the new full room cycle starts only under the new room generation
+- **AND** late auxiliary callbacks cannot update it
+
+#### Scenario: Source IP is edited after room completion
+
+- **WHEN** the operator changes the source IP text
+- **THEN** the current room interaction/tree/cache authority is invalidated immediately
+- **AND** no replacement device I/O begins until Enter/top Refresh creates a new context
+
+### Requirement: Post-cycle degradation is isolated per record and room summary remains full-cycle based
+
+A post-cycle typed connection loss, terminal local Refresh failure, cleanup abandonment, or failed/ambiguous/unconfirmed state-changing outcome SHALL affect only the exact room record that owns that operation. Other connected room records SHALL retain their authoritative cache and eligible interaction capabilities.
+
+The global bottom status MAY change to `Есть проблемы с соединением` when post-cycle interaction reveals a connection/problem state. `Последнее обновление` SHALL remain the completion time of the last full room cycle, including a cycle that performed zero device I/O. Local Refresh, live, auxiliary reads, mutations, and reconciliation SHALL NOT change that timestamp.
+
+A later successful local/auxiliary operation SHALL NOT declare the entire room clean or rewrite the historical result of the last full cycle. Only a new top full Refresh MAY recompute a clean `Опрос завершён` room summary.
+
+#### Scenario: One record loses live while another remains healthy
+
+- **GIVEN** two room records completed the room cycle successfully
+- **WHEN** live/session failure degrades one record
+- **THEN** that record's network/state-changing actions are blocked
+- **AND** the other record remains eligible for its normal interaction lifecycle when expanded
+
+### Requirement: Room interaction cleanup and shutdown are bounded and non-blocking
+
+Room live, local Refresh, auxiliary read, and their cleanup SHALL execute outside the Qt GUI thread. Invalidation SHALL make old callbacks stale immediately; actual network/session cleanup SHALL run on the owning background lane and SHALL be bounded by policy rather than wait forever.
+
+If read-only cleanup times out, the old context SHALL be logically abandoned and late callbacks SHALL remain powerless. The affected row SHALL become degraded as applicable, but the abandonment SHALL NOT permanently prevent a later top full Refresh/new room generation.
+
+Closing the application during read-only room activity SHALL require no warning dialog: generations are invalidated immediately, cancellation is published, GUI close does not wait for network timeout, and cleanup is best-effort. If a confirmed state-changing operation may have been sent and has not reached its reconciliation terminal boundary, application close SHALL warn that the final device state may be unconfirmed. If the user confirms close, the application SHALL perform no mutation retry or rollback and late callbacks SHALL not update destroyed UI.
+
+#### Scenario: Read-only cleanup times out
+
+- **WHEN** an invalidated live/auxiliary/local-refresh lifecycle does not confirm cleanup within policy timeout
+- **THEN** old authority is abandoned
+- **AND** late callbacks are ignored
+- **AND** a later top full Refresh may establish a new generation without waiting forever for the abandoned lifecycle
+
+#### Scenario: Application closes during possible mutation
+
+- **WHEN** a confirmed mutation may have been sent and reconciliation is not terminal
+- **AND** the operator confirms application close after warning
+- **THEN** no retry or rollback is attempted
+- **AND** current generations are invalidated
+- **AND** the application may exit with real device state unknown
+
+### Requirement: Legacy no-room single-device interaction remains compatible
+
+When a unique supported inventory source has `room_id = null`, the existing legacy single-device interactive behavior SHALL remain available under its current model-specific lifecycle. Room exact-row interaction authority, room summary state, and room full-refresh-only recovery SHALL NOT be imposed merely because shared infrastructure was refactored for room mode.
+
+#### Scenario: Supported no-room codec is diagnosed
+
+- **GIVEN** a unique supported source record has `room_id = null`
+- **WHEN** legacy single-device diagnostics completes
+- **THEN** its existing live, local Refresh, auxiliary, Debug, and supported state-changing behavior remains governed by the legacy contracts
+- **AND** no synthetic room interaction session is created
+
+### Requirement: PDU room presentation no longer owns related-codec enrichment
+
+In room mode, a PDU row SHALL present and control only that exact PDU record under its existing supported PDU capability. Accepted PDU refresh or mutation reconciliation SHALL NOT start a secondary room lookup, related-codec credential/session lifecycle, related-codec status read, or PDU-hosted codec live meter.
+
+Shared room name, address, and VIP SHALL appear only in the shared room header above the tree. Related codec diagnostics, call/presentation state, and supported live metering SHALL appear only through the related codec's own exact room row. The legacy PDU `Комната и связанный кодек` block and its dedicated related-codec lane SHALL be removed.
+
+#### Scenario: PDU row refreshes after migration
+
+- **WHEN** a room-mode Aten or PCS4i row completes an accepted PDU refresh
+- **THEN** its PDU data/controls remain available
+- **AND** no related-codec resolver, session, worker, status normalization, or live meter starts as a side effect
+- **AND** the codec remains independently represented by its own room row
