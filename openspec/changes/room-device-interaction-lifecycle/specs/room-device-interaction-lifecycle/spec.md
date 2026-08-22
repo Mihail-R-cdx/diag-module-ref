@@ -153,7 +153,7 @@ Auxiliary reads SHALL preserve existing application-owned structured credential 
 
 An ordinary auxiliary failure that does not prove loss of the current connection/session context SHALL NOT by itself degrade the row. After bounded cleanup, live MAY resume when the same row remains current and usable. Terminal typed connection/session failure, or terminal authentication failure after allowed credential fallback is exhausted, SHALL degrade that exact row to `соединение потеряно` and require top full Refresh.
 
-Device-specific auxiliary child windows SHALL remain bound to the exact row generation. Switching/collapsing the row or starting top full Refresh SHALL close/invalidate the child context and prevent late callbacks from updating another row. A later explicit call-log opening SHALL start the fresh acquisition required by the call-log capability.
+Device-specific auxiliary child windows SHALL remain bound to the exact row generation. Switching/collapsing the row or starting top full Refresh SHALL close/invalidate the child context and prevent late callbacks from updating another row. User-closing an active auxiliary child window SHALL itself invalidate/cancel that exact auxiliary operation, publish the available cancel/stop intent, perform bounded cleanup/release, and prevent late callbacks from updating or reopening the closed child presentation. If the same row remains current, connected/usable, and live-capable after cleanup, eligible live SHALL resume. A later explicit opening SHALL always start a fresh acquisition rather than reuse the cancelled request.
 
 #### Scenario: Auxiliary parse error preserves connection context
 
@@ -170,6 +170,17 @@ Device-specific auxiliary child windows SHALL remain bound to the exact row gene
 - **AND** top full Refresh remains available as global supersession
 - **AND** accordion switching/collapse remains available as an auxiliary cancellation boundary
 - **AND** current exact-row local Debug may remain available without acquiring network resources
+
+#### Scenario: User closes active auxiliary child window
+
+- **GIVEN** an auxiliary child window is open for a current connected exact row
+- **AND** its network request is still active or retiring
+- **WHEN** the user closes that child window directly
+- **THEN** the exact auxiliary request loses authority and cancellation/stop is published where supported
+- **AND** bounded cleanup/release runs before the room interaction lane is free for a replacement lifecycle
+- **AND** late callbacks cannot update or reopen the closed child window
+- **AND** eligible live resumes after cleanup only if the same row remains current and usable
+- **AND** reopening the auxiliary action later starts a fresh acquisition
 
 #### Scenario: Auxiliary authentication chain is exhausted
 
