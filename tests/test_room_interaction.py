@@ -178,6 +178,48 @@ class RoomInteractionCoordinatorTests(unittest.TestCase):
         self.assertIsNone(coordinator.request_local_refresh())
         self.assertEqual(RoomInteractionKind.AUXILIARY_READ, coordinator.active_context.kind)
 
+    def test_accepted_mutation_locks_before_retiring_live_is_released(self):
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context)),
+            mutation=lambda context, command: calls.append((command, context)),
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        current = session()
+        coordinator.bind_session(current)
+        coordinator.cycle_finished(current)
+        live = coordinator.active_context
+
+        self.assertIsNone(coordinator.confirm_mutation("on"))
+        self.assertTrue(coordinator.has_exclusive_operation)
+        self.assertEqual(RoomInteractionKind.MUTATION, coordinator.ui_lock_kind)
+        self.assertTrue(coordinator.is_retiring(live))
+        self.assertEqual([("live", live)], calls)
+
+        coordinator.cleanup_finished(live)
+        self.assertEqual("on", calls[-1][0])
+
+    def test_top_refresh_waits_for_auxiliary_cleanup_or_abandonment(self):
+        bindings = RoomInteractionBindings(
+            auxiliary=lambda _context, _action: None,
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        current = session()
+        coordinator.bind_session(current)
+        auxiliary = coordinator.request_auxiliary("call_log")
+        started = []
+
+        self.assertTrue(coordinator.defer_global_refresh(lambda: started.append("refresh")))
+        self.assertEqual([], started)
+        coordinator.cleanup_finished(auxiliary, timed_out=True)
+
+        self.assertEqual(["refresh"], started)
+        self.assertEqual(DeviceRowStatus.DEGRADED, current.row_for("a").status)
+
     def test_live_sample_cleanup_is_not_live_retirement(self):
         bindings = RoomInteractionBindings(
             live=lambda _context: None,

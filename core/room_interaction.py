@@ -98,6 +98,7 @@ class RoomInteractionCoordinator:
         self._active: RoomInteractionContext | None = None
         self._pending_live_record_id: str | None = None
         self._pending_operation: tuple[RoomInteractionKind, str | None, Any] | None = None
+        self._pending_global_refresh: Callable[[], None] | None = None
 
     @property
     def active_context(self) -> RoomInteractionContext | None:
@@ -111,12 +112,25 @@ class RoomInteractionCoordinator:
         Local Refresh.  Every user-started network operation remains exclusive
         until its terminal callback or retirement cleanup boundary.
         """
-        return self._active is not None and self._active.kind in {
+        pending_kind = self._pending_operation[0] if self._pending_operation else None
+        return pending_kind in {
             RoomInteractionKind.LOCAL_REFRESH,
             RoomInteractionKind.AUXILIARY_READ,
             RoomInteractionKind.MUTATION,
             RoomInteractionKind.RECONCILIATION,
-        }
+        } or (self._active is not None and self._active.kind in {
+            RoomInteractionKind.LOCAL_REFRESH,
+            RoomInteractionKind.AUXILIARY_READ,
+            RoomInteractionKind.MUTATION,
+            RoomInteractionKind.RECONCILIATION,
+        })
+
+    @property
+    def ui_lock_kind(self) -> RoomInteractionKind:
+        """Accepted intent is UI authority even while old LIVE is retiring."""
+        if self._pending_operation is not None:
+            return self._pending_operation[0]
+        return self._active.kind if self._active is not None else RoomInteractionKind.IDLE
 
     def is_retiring(self, context: RoomInteractionContext) -> bool:
         """Whether ``context`` is awaiting its terminal cleanup boundary.
@@ -251,6 +265,14 @@ class RoomInteractionCoordinator:
             if session is not None:
                 self._degrade(session.row_for(context.record_id), "Не удалось завершить соединение")
         self._active = None
+        global_refresh = self._pending_global_refresh
+        self._pending_global_refresh = None
+        if global_refresh is not None:
+            self._pending_operation = None
+            self._pending_live_record_id = None
+            self._notify()
+            global_refresh()
+            return
         pending = self._pending_operation
         self._pending_operation = None
         if pending is not None:
@@ -260,12 +282,28 @@ class RoomInteractionCoordinator:
             self._start_eligible_live()
         self._notify()
 
+    def defer_global_refresh(self, callback: Callable[[], None]) -> bool:
+        """Retire read-only auxiliary authority before beginning a new room cycle.
+
+        The callback is deliberately invoked only from ``cleanup_finished``.
+        This makes top Refresh a non-blocking supersession boundary rather than
+        permitting a new room worker to overlap a still-closing child session.
+        """
+        if self._active is None or self._active.kind is not RoomInteractionKind.AUXILIARY_READ:
+            return False
+        self._pending_global_refresh = callback
+        self._pending_operation = None
+        self._pending_live_record_id = None
+        self._retire_active()
+        return True
+
     def invalidate(self, _reason: str = "superseded") -> None:
         self._generation += 1
         active = self._active
         self._active = None
         self._pending_live_record_id = None
         self._pending_operation = None
+        self._pending_global_refresh = None
         if active is not None:
             binding = self._binding_for_context(active)
             if binding is not None and binding.cancel is not None:

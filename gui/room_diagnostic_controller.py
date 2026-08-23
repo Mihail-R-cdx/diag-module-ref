@@ -17,6 +17,7 @@ from core.room_diagnostic_tree import (
     RoomDiagnosticSession,
     RoomDiagnosticSessionIdentity,
 )
+from gui.diagnostic_dispatch import dispatch_entry_for_model
 
 from .room_one_shot_adapters import build_room_one_shot_adapters
 
@@ -42,26 +43,39 @@ class _RoomLocalRefreshWorker(QRunnable):
         controller: "RoomDiagnosticController",
         context: RoomInteractionContext,
         cancelled: threading.Event,
+        credential,
+        candidate_index: int | None,
     ):
         super().__init__()
         self.controller = controller
         self.context = context
         self.cancelled = cancelled
+        self.credential = credential
+        self.candidate_index = candidate_index
 
     def run(self):
-        self.controller._run_local_refresh(self.context, self.cancelled)
+        self.controller._run_local_refresh(self.context, self.cancelled, self.credential, self.candidate_index)
 
 
 class _RoomPDUMutationWorker(QRunnable):
-    def __init__(self, controller, context, command, cancelled):
+    def __init__(self, controller, context, command, cancelled, credential, candidate_index):
         super().__init__()
         self.controller = controller
         self.context = context
         self.command = command
         self.cancelled = cancelled
+        self.credential = credential
+        self.candidate_index = candidate_index
 
     def run(self):
-        self.controller._run_pdu_mutation(self.context, self.command, self.cancelled)
+        self.controller._run_pdu_mutation(self.context, self.command, self.cancelled, self.credential, self.candidate_index)
+
+
+class RoomAuthenticationRejected:
+    """Typed pre-delivery authentication result; never derived from text."""
+
+    def __init__(self, candidate_index: int | None):
+        self.candidate_index = candidate_index
 
 
 class RoomDiagnosticController(QObject):
@@ -108,7 +122,7 @@ class RoomDiagnosticController(QObject):
             self._active_session.invalidate()
         self._active_session = None
 
-    def start_local_refresh(self, context: RoomInteractionContext) -> None:
+    def start_local_refresh(self, context: RoomInteractionContext, *, credential=None, candidate_index: int | None = None) -> None:
         """Run one exact-row read-only refresh outside the automatic queue.
 
         The immutable interaction context is the sole target authority.  The
@@ -116,69 +130,41 @@ class RoomDiagnosticController(QObject):
         """
         cancelled = threading.Event()
         self._local_refresh_cancellations[context] = cancelled
-        self._thread_pool.start(_RoomLocalRefreshWorker(self, context, cancelled))
+        self._thread_pool.start(_RoomLocalRefreshWorker(self, context, cancelled, credential, candidate_index))
 
     def cancel_local_refresh(self, context: RoomInteractionContext) -> None:
         cancelled = self._local_refresh_cancellations.get(context)
         if cancelled is not None:
             cancelled.set()
 
-    def start_pdu_mutation(self, context: RoomInteractionContext, command) -> None:
+    def start_pdu_mutation(self, context: RoomInteractionContext, command, *, credential=None, candidate_index: int | None = None) -> None:
         cancelled = threading.Event()
         self._pdu_mutation_cancellations[context] = cancelled
-        self._thread_pool.start(_RoomPDUMutationWorker(self, context, command, cancelled))
+        self._thread_pool.start(_RoomPDUMutationWorker(self, context, command, cancelled, credential, candidate_index))
 
     def cancel_pdu_mutation(self, context: RoomInteractionContext) -> None:
         cancelled = self._pdu_mutation_cancellations.get(context)
         if cancelled is not None:
             cancelled.set()
 
-    def _run_pdu_mutation(self, context: RoomInteractionContext, command, cancelled: threading.Event) -> None:
+    def _run_pdu_mutation(self, context: RoomInteractionContext, command, cancelled: threading.Event, credential=None, candidate_index: int | None = None) -> None:
         if not isinstance(command, dict):
             self.pduMutationFinished.emit(context, False, None, True, "Некорректная команда PDU")
             return
         try:
             outlet_number = int(command["outlet_number"])
             operation = str(command["operation"])
-            candidates = tuple(self._candidate_provider(context.diagnostic_model, context.ip_address) or ())
-            if not candidates and context.diagnostic_model in _CREDENTIALLESS_ROOM_MODELS:
-                candidates = ({},)
-            if not candidates:
+            entry = dispatch_entry_for_model(context.diagnostic_model)
+            if entry is None or entry.mutation_binding_key != "room_pdu_mutation":
+                raise ValueError("PDU mutation is unavailable")
+            if credential is None:
                 raise ValueError("Credentials не настроены")
-            index = max(0, min(
-                self._starting_index(context.diagnostic_model, context.ip_address, candidates),
-                len(candidates) - 1,
-            ))
-            result = None
-            for candidate_index in range(index, len(candidates)):
-                descriptor = PDUOperationDescriptor(
-                    context.row_operation_token,
-                    context.room_generation,
-                    context.diagnostic_model,
-                    context.ip_address,
-                    operation,
-                    outlet_number=outlet_number,
-                    credential_index=(
-                        None if not candidates[candidate_index] else candidate_index
-                    ),
-                )
-                try:
-                    result = execute_pdu_command(
-                        descriptor=descriptor,
-                        credentials=candidates[candidate_index],
-                        is_current=lambda _descriptor: not cancelled.is_set(),
-                    )
-                    break
-                except AuthenticationError:
-                    # ``execute_pdu_command`` re-raises AuthenticationError
-                    # only before its tracked state-changing send.  Any auth
-                    # error after send is converted to an indeterminate
-                    # outcome there and deliberately reaches the outer
-                    # failure path instead of authorizing a retry.
-                    if candidate_index + 1 >= len(candidates):
-                        raise
-            if result is None:
-                raise AuthenticationError("PDU credentials rejected before command")
+            descriptor = PDUOperationDescriptor(context.row_operation_token, context.room_generation, context.diagnostic_model, context.ip_address, operation, outlet_number=outlet_number, credential_index=(None if not credential else candidate_index))
+            try:
+                result = execute_pdu_command(descriptor=descriptor, credentials=credential, is_current=lambda _descriptor: not cancelled.is_set())
+            except AuthenticationError:
+                self.pduMutationFinished.emit(context, False, RoomAuthenticationRejected(candidate_index), False, None)
+                return
             if cancelled.is_set() or result.get("_outcome") == "stale":
                 self.localRefreshCleanupFinished.emit(context, False)
                 return
@@ -190,26 +176,14 @@ class RoomDiagnosticController(QObject):
                 context, False, None, True, "Состояние PDU после команды не подтверждено"
             )
 
-    def _run_local_refresh(
-        self,
-        context: RoomInteractionContext,
-        cancelled: threading.Event,
-    ) -> None:
-        try:
-            candidates = tuple(
-                self._candidate_provider(context.diagnostic_model, context.ip_address) or ()
-            )
-        except Exception:
-            candidates = ()
-        if not candidates:
-            # Credentialless models are represented by an explicit empty map;
-            # credential-required models fail safely without worker acquisition.
-            if context.diagnostic_model not in _CREDENTIALLESS_ROOM_MODELS:
-                self.localRefreshFinished.emit(
-                    context, False, None, False, "Credentials не настроены"
-                )
-                return
-            candidates = ({},)
+    def _run_local_refresh(self, context: RoomInteractionContext, cancelled: threading.Event, credential=None, candidate_index: int | None = None) -> None:
+        entry = dispatch_entry_for_model(context.diagnostic_model)
+        if entry is None or entry.local_refresh_binding_key != "room_one_shot_refresh":
+            self.localRefreshFinished.emit(context, False, None, False, "Локальное обновление недоступно")
+            return
+        if credential is None:
+            self.localRefreshFinished.emit(context, False, None, False, "Credentials не настроены")
+            return
         try:
             reachable = bool(self._ping(context.ip_address))
         except Exception:
@@ -219,22 +193,16 @@ class RoomDiagnosticController(QObject):
                 context, False, None, True, "Устройство недоступно"
             )
             return
-        adapter_key = _ROOM_ADAPTER_KEY_BY_MODEL.get(context.diagnostic_model)
-        adapter = build_room_one_shot_adapters(self._cleanup_policy).get(adapter_key)
+        adapter = build_room_one_shot_adapters(self._cleanup_policy).get(entry.room_adapter_key)
         if adapter is None:
             self.localRefreshFinished.emit(
                 context, False, None, False, "Диагностический адаптер недоступен"
             )
             return
-        start = max(0, min(
-            self._starting_index(context.diagnostic_model, context.ip_address, candidates),
-            len(candidates) - 1,
-        ))
-        for candidate_index in range(start, len(candidates)):
-            if cancelled.is_set():
-                self.localRefreshCleanupFinished.emit(context, False)
-                return
-            attempt = OneShotAttemptContext(
+        if cancelled.is_set():
+            self.localRefreshCleanupFinished.emit(context, False)
+            return
+        attempt = OneShotAttemptContext(
                 session_identity=RoomDiagnosticSessionIdentity(
                     context.inventory_snapshot_id,
                     context.room_generation,
@@ -246,57 +214,47 @@ class RoomDiagnosticController(QObject):
                 diagnostic_model=context.diagnostic_model,
                 ip_address=context.ip_address,
                 operation_token=context.row_operation_token,
-                credential=candidates[candidate_index],
+                credential=credential,
                 is_current=lambda: not cancelled.is_set(),
-            )
-            success_data = None
-            success_warning = None
-            authentication_failure = False
-            cleanup_complete = False
-            try:
-                for event in adapter.run(attempt):
-                    if cancelled.is_set():
-                        self.localRefreshCleanupFinished.emit(context, False)
-                        return
-                    if event.kind in {
+        )
+        success_data = None
+        success_warning = None
+        authentication_failure = False
+        cleanup_complete = False
+        try:
+            for event in adapter.run(attempt):
+                if cancelled.is_set():
+                    self.localRefreshCleanupFinished.emit(context, False)
+                    return
+                if event.kind in {
                         OneShotEventKind.USABLE_SUCCESS,
                         OneShotEventKind.USABLE_SUCCESS_WITH_WARNING,
                     }:
                         success_data = event.data
                         success_warning = event.warning
-                    elif event.kind is OneShotEventKind.TERMINAL_FAILURE:
-                        authentication_failure = isinstance(event.data, AuthenticationError)
-                        if not authentication_failure:
-                            self.localRefreshFinished.emit(
-                                context, False, None, True, event.failure_reason
-                            )
-                            return
-                    elif event.kind is OneShotEventKind.CLEANUP_COMPLETE:
-                        cleanup_complete = True
-                    elif event.kind is OneShotEventKind.CLEANUP_TIMEOUT:
-                        self.localRefreshFinished.emit(
-                            context, False, None, True, "Не удалось завершить соединение"
-                        )
+                elif event.kind is OneShotEventKind.TERMINAL_FAILURE:
+                    authentication_failure = isinstance(event.data, AuthenticationError)
+                    if not authentication_failure:
+                        self.localRefreshFinished.emit(context, False, None, True, event.failure_reason)
                         return
-            except Exception:
-                self.localRefreshFinished.emit(
-                    context, False, None, True, "Не удалось выполнить локальный опрос"
-                )
-                return
-            if cancelled.is_set():
-                self.localRefreshCleanupFinished.emit(context, False)
-                return
-            if success_data is not None and cleanup_complete:
-                self.localRefreshFinished.emit(
-                    context, True, success_data, False, success_warning
-                )
-                return
-            if authentication_failure and cleanup_complete and candidate_index + 1 < len(candidates):
-                continue
-            self.localRefreshFinished.emit(
-                context, False, None, True, "Не удалось выполнить локальный опрос"
-            )
+                elif event.kind is OneShotEventKind.CLEANUP_COMPLETE:
+                    cleanup_complete = True
+                elif event.kind is OneShotEventKind.CLEANUP_TIMEOUT:
+                    self.localRefreshFinished.emit(context, False, None, True, "Не удалось завершить соединение")
+                    return
+        except Exception:
+            self.localRefreshFinished.emit(context, False, None, True, "Не удалось выполнить локальный опрос")
             return
+        if cancelled.is_set():
+            self.localRefreshCleanupFinished.emit(context, False)
+            return
+        if success_data is not None and cleanup_complete:
+            self.localRefreshFinished.emit(context, True, success_data, False, success_warning)
+            return
+        if authentication_failure and cleanup_complete:
+            self.localRefreshFinished.emit(context, False, RoomAuthenticationRejected(candidate_index), False, None)
+            return
+        self.localRefreshFinished.emit(context, False, None, True, "Не удалось выполнить локальный опрос")
 
     def forget_local_refresh(self, context: RoomInteractionContext) -> None:
         self._local_refresh_cancellations.pop(context, None)
@@ -322,18 +280,3 @@ class RoomDiagnosticController(QObject):
     def _accept_update(self, session: RoomDiagnosticSession) -> None:
         if session is self._active_session and not session.invalidated:
             self.sessionUpdated.emit(session)
-
-
-_ROOM_ADAPTER_KEY_BY_MODEL = {
-    "Huawei TE20": "codec_one_shot",
-    "Huawei TE40": "codec_one_shot",
-    "CloudLink Bar 310": "codec_one_shot",
-    "CloudLink Box 310": "codec_one_shot",
-    "Polycom RPG 310": "polycom_one_shot",
-    "Extron IN1804": "matrix_one_shot",
-    "Aten PE8208AV": "pdu_one_shot",
-    "Extron IPL T PCS4i": "pdu_one_shot",
-    "Biamp Tesira Forte CI": "biamp_one_shot",
-    "Extron DMP 64 Plus": "dmp_one_shot",
-}
-_CREDENTIALLESS_ROOM_MODELS = frozenset({"Extron IPL T PCS4i"})

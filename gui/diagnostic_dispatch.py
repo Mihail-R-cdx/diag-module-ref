@@ -119,10 +119,10 @@ def _room_entry(
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
     _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True),
     _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True),
-    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True),
-    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True),
+    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, periodic_live=True),
+    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, periodic_live=True),
     _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True),
-    _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot"),
+    _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", periodic_live=True),
     _room_entry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot", pdu_mutation=True),
     _room_entry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True, pdu_mutation=True),
     _room_entry("Biamp Tesira Forte CI", "audio_dsp", "biamp_tesira_forte_ci", "biamp_one_shot"),

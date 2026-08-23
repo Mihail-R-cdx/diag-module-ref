@@ -639,6 +639,73 @@ class OrchestratorTests(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
 class RoomGuiCompositionTests(unittest.TestCase):
+    def test_composed_pdu_ack_starts_exact_reconciliation_before_cache_replacement(self):
+        from gui.diagnostic_dispatch import room_model_capabilities
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        pdu = record("pdu", model="Aten PE8208AV")
+        stock = inventory(pdu)
+        session = build_room_session(
+            inventory=stock,
+            source=resolve_room_source(stock, pdu.ip_address, room_model_capabilities()),
+            generation=4,
+            capabilities=room_model_capabilities(),
+        )
+        session.status = RoomCycleStatus.COMPLETE
+        row = session.row_for("pdu")
+        row.status = DeviceRowStatus.CONNECTED
+        row.accepted_snapshot = {"outlets": ["old"]}
+        window._start_room_pdu_mutation = Mock()
+        window._start_room_reconciliation = Mock()
+        window.room_interaction_coordinator.bind_session(session)
+
+        mutation = window.room_interaction_coordinator.confirm_mutation({"outlet_number": 1, "operation": "on"})
+        self.assertIsNotNone(mutation)
+        window.room_interaction_coordinator.complete(mutation, success=True, data={"ack": True})
+
+        reconciliation = window.room_interaction_coordinator.active_context
+        self.assertIs(RoomInteractionKind.RECONCILIATION, reconciliation.kind)
+        window._start_room_reconciliation.assert_called_once_with(reconciliation)
+        self.assertEqual({"outlets": ["old"]}, row.accepted_snapshot)
+        window.room_interaction_coordinator.complete(reconciliation, success=True, data={"outlets": ["confirmed"]})
+        self.assertEqual({"outlets": ["confirmed"]}, row.accepted_snapshot)
+
+    def test_composed_pending_local_refresh_locks_top_controls_while_live_retires(self):
+        from gui.diagnostic_dispatch import room_model_capabilities
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        device = record("dmp", model="Extron DMP 64 Plus")
+        stock = inventory(device)
+        session = build_room_session(
+            inventory=stock,
+            source=resolve_room_source(stock, device.ip_address, room_model_capabilities()),
+            generation=5,
+            capabilities=room_model_capabilities(),
+        )
+        session.status = RoomCycleStatus.COMPLETE
+        row = session.row_for("dmp")
+        row.status = DeviceRowStatus.CONNECTED
+        row.accepted_snapshot = {"device_info": {"model": "DMP"}}
+        window._start_room_periodic_live = Mock()
+        window._start_room_local_refresh = Mock()
+        window.room_diagnostic_session = session
+        window.room_interaction_coordinator.bind_session(session)
+        window.room_interaction_coordinator.cycle_finished(session)
+        live = window.room_interaction_coordinator.active_context
+
+        self.assertIsNone(window.room_interaction_coordinator.request_local_refresh())
+        self.assertTrue(window.room_interaction_coordinator.is_retiring(live))
+        window._sync_room_interaction_controls()
+
+        self.assertFalse(window.ip_entry.isEnabled())
+        self.assertFalse(window.password_btn.isEnabled())
+        self.assertFalse(window.refresh_btn.isEnabled())
+        self.assertTrue(window.room_diagnostic_tree._interaction_locked)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -721,7 +788,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
             "gui.room_diagnostic_controller.build_room_one_shot_adapters",
             return_value={"codec_one_shot": adapter},
         ):
-            controller._run_local_refresh(context, threading.Event())
+            controller._run_local_refresh(context, threading.Event(), {"id": 0}, 0)
         self.assertEqual(1, len(adapter.calls))
         self.assertEqual(context.record_id, adapter.calls[0].record_id)
         self.assertEqual(context.ip_address, adapter.calls[0].ip_address)
@@ -744,14 +811,14 @@ class RoomGuiCompositionTests(unittest.TestCase):
         completed = []
         controller.localRefreshFinished.connect(lambda *args: completed.append(args))
         with patch("gui.room_diagnostic_controller.build_room_one_shot_adapters") as adapters:
-            controller._run_local_refresh(context, threading.Event())
+            controller._run_local_refresh(context, threading.Event(), {"id": 0}, 0)
         adapters.assert_not_called()
         self.assertEqual(
             [(context, False, None, True, "Устройство недоступно")], completed
         )
 
-    def test_room_pdu_retries_only_structured_pre_send_authentication_failure(self):
-        from gui.room_diagnostic_controller import RoomDiagnosticController
+    def test_room_pdu_worker_reports_structured_pre_send_authentication_without_retrying(self):
+        from gui.room_diagnostic_controller import RoomAuthenticationRejected, RoomDiagnosticController
 
         context = RoomInteractionContext(
             "snapshot", 3, "pdu", "Aten PE8208AV", "192.0.2.20", 7, 11, 0,
@@ -772,13 +839,14 @@ class RoomGuiCompositionTests(unittest.TestCase):
             side_effect=[AuthenticationError("rejected"), {"success": True}],
         ) as command:
             controller._run_pdu_mutation(
-                context, {"outlet_number": 1, "operation": "on"}, threading.Event()
+                context, {"outlet_number": 1, "operation": "on"}, threading.Event(), candidates[0], 0
             )
 
-        self.assertEqual(2, command.call_count)
+        self.assertEqual(1, command.call_count)
         self.assertEqual(candidates[0], command.call_args_list[0].kwargs["credentials"])
-        self.assertEqual(candidates[1], command.call_args_list[1].kwargs["credentials"])
-        self.assertEqual([(context, True, {"success": True}, False, None)], completed)
+        self.assertFalse(completed[0][1])
+        self.assertIsInstance(completed[0][2], RoomAuthenticationRejected)
+        self.assertFalse(completed[0][3])
 
     def test_room_pdu_never_retries_an_indeterminate_command_outcome(self):
         from gui.room_diagnostic_controller import RoomDiagnosticController
@@ -801,7 +869,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
             side_effect=CommandOutcomeUnknownError("may have been sent"),
         ) as command:
             controller._run_pdu_mutation(
-                context, {"outlet_number": 1, "operation": "on"}, threading.Event()
+                context, {"outlet_number": 1, "operation": "on"}, threading.Event(), {"username": "one", "password": "first"}, 0
             )
 
         command.assert_called_once()

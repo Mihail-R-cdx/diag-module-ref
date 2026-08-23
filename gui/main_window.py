@@ -26,7 +26,7 @@ from .diagnostic_dispatch import (
     room_model_capabilities,
     validate_dispatch_registry,
 )
-from .room_diagnostic_controller import RoomDiagnosticController
+from .room_diagnostic_controller import RoomAuthenticationRejected, RoomDiagnosticController
 from .room_codec_call_log_controller import RoomCodecCallLogController
 from .room_diagnostic_tree import RoomDiagnosticTreeWidget
 from .dialogs import CallLogWindow
@@ -371,6 +371,7 @@ class VCSDiagnosticApp(QMainWindow):
             self._on_room_call_log_cleanup_finished
         )
         self._room_call_log_windows = {}
+        self._room_credential_attempts = {}
         self._room_live_timers = {}
         self._room_live_inflight = set()
         self.room_interaction_coordinator = RoomInteractionCoordinator(
@@ -693,7 +694,8 @@ class VCSDiagnosticApp(QMainWindow):
         coordinator = self.__dict__.get("room_interaction_coordinator")
         active = coordinator.active_context if coordinator is not None else None
         exclusive = bool(coordinator is not None and coordinator.has_exclusive_operation)
-        local_or_mutation = active is not None and active.kind in {
+        lock_kind = coordinator.ui_lock_kind if coordinator is not None else RoomInteractionKind.IDLE
+        local_or_mutation = lock_kind in {
             RoomInteractionKind.LOCAL_REFRESH,
             RoomInteractionKind.MUTATION,
             RoomInteractionKind.RECONCILIATION,
@@ -718,7 +720,7 @@ class VCSDiagnosticApp(QMainWindow):
             return None
         bindings = RoomInteractionBindings(
             local_refresh=(
-                self.room_diagnostic_controller.start_local_refresh
+                self._start_room_local_refresh
                 if entry.local_refresh_binding_key == "room_one_shot_refresh"
                 else None
             ),
@@ -733,12 +735,15 @@ class VCSDiagnosticApp(QMainWindow):
                 else None
             ),
             mutation=(
-                self.room_diagnostic_controller.start_pdu_mutation
+                self._start_room_pdu_mutation
                 if entry.mutation_binding_key == "room_pdu_mutation"
                 else None
             ),
             reconciliation=(
-                self.room_diagnostic_controller.start_local_refresh
+                # The mutation ACK is not terminal.  The coordinator gives
+                # this exact reconciliation context to the readback binding;
+                # the mutation result is intentionally not used as cache.
+                lambda context, _mutation_result: self._start_room_reconciliation(context)
                 if entry.reconciliation_binding_key == "room_one_shot_refresh"
                 else None
             ),
@@ -818,6 +823,49 @@ class VCSDiagnosticApp(QMainWindow):
         dialog.resize(700, 480)
         dialog.show()
 
+    def _start_room_local_refresh(self, context):
+        self._start_room_credential_attempt(context)
+
+    def _start_room_reconciliation(self, context):
+        self._start_room_credential_attempt(context)
+
+    def _start_room_pdu_mutation(self, context, command):
+        self._start_room_credential_attempt(context, command=command)
+
+    def _start_room_credential_attempt(self, context, *, command=None, candidate_index=None):
+        """Composition owns candidate selection; workers receive one attempt only."""
+        entry = dispatch_entry_for_model(context.diagnostic_model)
+        candidates = tuple(self._room_credential_candidates(context.diagnostic_model, context.ip_address) or ())
+        if not candidates and entry is not None and entry.credentialless_allowed:
+            candidates = ({},)
+        if not candidates:
+            if context.kind is RoomInteractionKind.MUTATION:
+                self._on_room_pdu_mutation_finished(context, False, None, True, "Credentials не настроены")
+            else:
+                self._on_room_local_refresh_finished(context, False, None, True, "Credentials не настроены")
+            return
+        if candidate_index is None:
+            candidate_index = self._room_credential_start_index(context.diagnostic_model, context.ip_address, candidates)
+        candidate_index = max(0, min(candidate_index, len(candidates) - 1))
+        self._room_credential_attempts[context] = (candidates, candidate_index, command)
+        if context.kind is RoomInteractionKind.MUTATION:
+            self.room_diagnostic_controller.start_pdu_mutation(context, command, credential=candidates[candidate_index], candidate_index=candidate_index)
+        else:
+            self.room_diagnostic_controller.start_local_refresh(context, credential=candidates[candidate_index], candidate_index=candidate_index)
+
+    def _retry_room_authentication(self, context):
+        attempt = self._room_credential_attempts.get(context)
+        if attempt is None:
+            return False
+        candidates, candidate_index, command = attempt
+        if candidate_index + 1 >= len(candidates):
+            return False
+        if context.kind is RoomInteractionKind.AUXILIARY_READ:
+            self._start_room_call_log_attempt(context, candidates, candidate_index + 1)
+            return True
+        self._start_room_credential_attempt(context, command=command, candidate_index=candidate_index + 1)
+        return True
+
     def _cancel_room_interaction(self, context):
         if context.kind is RoomInteractionKind.LIVE:
             timer = self._room_live_timers.pop(context, None)
@@ -874,15 +922,23 @@ class VCSDiagnosticApp(QMainWindow):
         candidates = self._room_credential_candidates(
             context.diagnostic_model, context.ip_address
         )
+        start_index = self._room_credential_start_index(
+            context.diagnostic_model, context.ip_address, candidates
+        ) if candidates else 0
+        self._start_room_call_log_attempt(context, tuple(candidates), start_index)
+
+    def _start_room_call_log_attempt(self, context, candidates, candidate_index):
+        if candidate_index < 0 or candidate_index >= len(candidates):
+            self._on_room_call_log_finished(context, False, None, True, "Credentials отклонены")
+            return
+        self._room_credential_attempts[context] = (candidates, candidate_index, None)
+        # A room Call Log session is deliberately handed one exact credential.
+        # Its worker has no candidate suffix to iterate; retry remains here.
         self.room_call_log_controller.start(
             context,
-            candidates,
-            self._room_credential_start_index(
-                context.diagnostic_model, context.ip_address, candidates
-            ) if candidates else 0,
-            self.get_device_connection_profile(
-                context.diagnostic_model, context.ip_address
-            ),
+            (candidates[candidate_index],),
+            0,
+            self.get_device_connection_profile(context.diagnostic_model, context.ip_address),
         )
 
     def _on_room_call_log_window_closed(self, context):
@@ -894,12 +950,17 @@ class VCSDiagnosticApp(QMainWindow):
     def _on_room_call_log_finished(
         self, context, success, data, connection_lost, warning
     ):
+        if isinstance(data, RoomAuthenticationRejected):
+            if self._retry_room_authentication(context):
+                return
+            success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
         window = self._room_call_log_windows.get(context)
         if window is not None and success:
             window.set_snapshot(data)
         elif window is not None:
             window.status_label.setText(warning or "Не удалось загрузить журнал звонков")
         coordinator = self.__dict__.get("room_interaction_coordinator")
+        accepted_current = coordinator is not None and coordinator.active_context == context
         if coordinator is not None:
             coordinator.complete(
                 context,
@@ -908,6 +969,9 @@ class VCSDiagnosticApp(QMainWindow):
                 connection_lost=connection_lost,
                 warning=warning,
             )
+        attempt = self._room_credential_attempts.pop(context, None)
+        if success and accepted_current and attempt is not None:
+            self.set_current_credential_index(context.diagnostic_model, attempt[1], context.ip_address)
 
     def _on_room_call_log_cleanup_finished(self, context, timed_out):
         coordinator = self.__dict__.get("room_interaction_coordinator")
@@ -922,7 +986,12 @@ class VCSDiagnosticApp(QMainWindow):
         connection_lost,
         warning,
     ):
+        if isinstance(data, RoomAuthenticationRejected):
+            if self._retry_room_authentication(context):
+                return
+            success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
         coordinator = self.__dict__.get("room_interaction_coordinator")
+        accepted_current = coordinator is not None and coordinator.active_context == context
         if coordinator is not None:
             coordinator.complete(
                 context,
@@ -931,6 +1000,9 @@ class VCSDiagnosticApp(QMainWindow):
                 connection_lost=connection_lost,
                 warning=warning,
             )
+        attempt = self._room_credential_attempts.pop(context, None)
+        if success and accepted_current and attempt is not None:
+            self.set_current_credential_index(context.diagnostic_model, attempt[1], context.ip_address)
         if context.kind is RoomInteractionKind.LIVE:
             self._room_live_inflight.discard(context)
             if not success:
@@ -943,6 +1015,10 @@ class VCSDiagnosticApp(QMainWindow):
     def _on_room_pdu_mutation_finished(
         self, context, success, data, connection_lost, warning
     ):
+        if isinstance(data, RoomAuthenticationRejected):
+            if self._retry_room_authentication(context):
+                return
+            success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.complete(
@@ -953,6 +1029,7 @@ class VCSDiagnosticApp(QMainWindow):
                 unconfirmed=not success,
                 warning=warning,
             )
+        self._room_credential_attempts.pop(context, None)
         self.room_diagnostic_controller.forget_local_refresh(context)
 
     def _on_room_local_refresh_cleanup_finished(self, context, timed_out):
@@ -2841,6 +2918,12 @@ class VCSDiagnosticApp(QMainWindow):
 
     def refresh_data(self):
         """Resolve current IP to one exact model and submit reachability off the GUI thread."""
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None and coordinator.defer_global_refresh(self.refresh_data):
+            # A Call Log owns an isolated background session.  Its cancellation
+            # and bounded cleanup must finish (or be abandoned) before the
+            # replacement full room generation can acquire any device I/O.
+            return
         ip_address = self._normalized_current_ip_or_warn()
         if ip_address is None:
             return

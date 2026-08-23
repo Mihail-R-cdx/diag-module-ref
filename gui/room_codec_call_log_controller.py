@@ -14,17 +14,10 @@ from core.interactive_session import (
     OperationSemantic,
 )
 from core.room_interaction import RoomInteractionContext
+from gui.diagnostic_dispatch import dispatch_entry_for_model
+from gui.room_diagnostic_controller import RoomAuthenticationRejected
 
 
-_CODEC_MODELS = frozenset(
-    {
-        "Huawei TE20",
-        "Huawei TE40",
-        "CloudLink Bar 310",
-        "CloudLink Box 310",
-        "Polycom RPG 310",
-    }
-)
 _CONNECTION_FAILURES = frozenset({"authentication", "session_invalid", "transport"})
 
 
@@ -81,7 +74,8 @@ class RoomCodecCallLogController(QObject):
         start_index: int,
         saved_profile: Mapping[str, Any] | None = None,
     ) -> None:
-        if context.diagnostic_model not in _CODEC_MODELS:
+        entry = dispatch_entry_for_model(context.diagnostic_model)
+        if entry is None or entry.auxiliary_binding_key != "room_codec_call_log":
             self.operationFinished.emit(
                 context, False, None, False, "Журнал звонков для этой модели недоступен"
             )
@@ -136,6 +130,12 @@ class RoomCodecCallLogController(QObject):
         if context not in self._runs:
             return
         category = str(payload.get("category") or "")
+        if category == "authentication":
+            # The interactive controller reports this category only from its
+            # structured AuthenticationError path.  Composition owns deciding
+            # whether another one-candidate session is permitted.
+            self._finish(context, False, RoomAuthenticationRejected(None), False, None)
+            return
         self._finish(
             context,
             False,
