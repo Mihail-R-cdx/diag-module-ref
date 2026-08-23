@@ -101,6 +101,15 @@ class DeviceRowState:
     operation_token: int = 0
     cleanup_complete: bool = False
     stale: bool = False
+    # Post-cycle interaction data is still per-record application authority.
+    # Import lazily to keep automatic room acquisition independent from the
+    # coordinator module.
+    interaction_state: Any = "IDLE"
+    live_state: Any = "INACTIVE"
+    network_actions_enabled: bool = True
+    interaction_blocked: bool = False
+    unconfirmed_after_command: bool = False
+    last_safe_operation_error: str | None = None
 
     @property
     def eligible(self) -> bool:
@@ -123,6 +132,9 @@ class RoomDiagnosticSession:
     active_record_id: str | None = None
     invalidated: bool = False
     expanded_record_id: str | None = None
+    # This supplements (rather than rewrites) the historical full-cycle
+    # result.  It is set only by post-cycle exact-row degradation.
+    post_cycle_problem: bool = False
     authority_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def row_for(self, record_id: str) -> DeviceRowState:

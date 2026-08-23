@@ -5,16 +5,23 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QFormLayout, QHeaderView, QLabel, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QFormLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard
 
-from core.room_diagnostic_tree import DeviceRowStatus, RoomDiagnosticSession
+from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession
 
 
 class RoomDiagnosticTreeWidget(QWidget):
     """A deterministic accordion-like room tree with no network-owning controls."""
+
+    rowExpanded = pyqtSignal(str)
+    rowCollapsed = pyqtSignal(str)
+    localRefreshRequested = pyqtSignal(str)
+    auxiliaryRequested = pyqtSignal(str, str)
+    pduMutationRequested = pyqtSignal(str, int, str)
+    debugRequested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,6 +45,7 @@ class RoomDiagnosticTreeWidget(QWidget):
         layout.addWidget(self.tree, 1)
         self._by_record: dict[str, QTreeWidgetItem] = {}
         self._changing = False
+        self._interaction_locked = False
         self._session: RoomDiagnosticSession | None = None
 
     def render(self, session: RoomDiagnosticSession) -> None:
@@ -53,7 +61,9 @@ class RoomDiagnosticTreeWidget(QWidget):
                 f"Название комнаты: {session.room_name or '—'}\n"
                 f"Адрес: {session.room_address or '—'}\nVIP: {vip}"
             )
-            self.global_status.setText(session.status.value)
+            self.global_status.setText(
+                "Есть проблемы с соединением" if session.post_cycle_problem else session.status.value
+            )
             self.tree.clear()
             self._by_record.clear()
             for row in session.rows:
@@ -69,7 +79,43 @@ class RoomDiagnosticTreeWidget(QWidget):
                     item.setText(2, row.status.value)
                 self.tree.addTopLevelItem(item)
                 if self._is_expandable(row):
-                    self.tree.setItemWidget(projection, 0, RoomReadOnlyPresentation(row, self.tree))
+                    self.tree.setItemWidget(
+                        projection,
+                        0,
+                        RoomReadOnlyPresentation(
+                            row,
+                            request_local_refresh=lambda record_id=row.record_id: self.localRefreshRequested.emit(record_id),
+                            request_auxiliary=(
+                                lambda action, record_id=row.record_id: self.auxiliaryRequested.emit(record_id, action)
+                            ),
+                            request_mutation=(
+                                lambda outlet, command, record_id=row.record_id: self.pduMutationRequested.emit(record_id, outlet, command)
+                            ),
+                            request_debug=lambda record_id=row.record_id: self.debugRequested.emit(record_id),
+                            local_refresh_allowed=(
+                                session.status in {
+                                    RoomCycleStatus.COMPLETE,
+                                    RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
+                                }
+                                and not self._interaction_locked
+                            ),
+                            auxiliary_allowed=(
+                                session.status in {
+                                    RoomCycleStatus.COMPLETE,
+                                    RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
+                                }
+                                and not self._interaction_locked
+                            ),
+                            mutation_allowed=(
+                                session.status in {
+                                    RoomCycleStatus.COMPLETE,
+                                    RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
+                                }
+                                and not self._interaction_locked
+                            ),
+                            parent=self.tree,
+                        ),
+                    )
                 self._by_record[row.record_id] = item
             if expanded_record_id and expanded_record_id in self._by_record:
                 item = self._by_record[expanded_record_id]
@@ -77,6 +123,12 @@ class RoomDiagnosticTreeWidget(QWidget):
                     item.setExpanded(True)
         finally:
             self._changing = False
+        self.tree.setEnabled(not self._interaction_locked)
+
+    def set_interaction_locked(self, locked: bool) -> None:
+        """Block accordion changes while an exclusive row operation owns I/O."""
+        self._interaction_locked = locked
+        self.tree.setEnabled(not locked)
 
     @staticmethod
     def _is_expandable(row) -> bool:
@@ -128,6 +180,7 @@ class RoomDiagnosticTreeWidget(QWidget):
                     other.setExpanded(False)
             if self._session is not None:
                 self._session.expanded_record_id = item.data(0, Qt.UserRole)
+                self.rowExpanded.emit(self._session.expanded_record_id)
         finally:
             self._changing = False
 
@@ -135,7 +188,9 @@ class RoomDiagnosticTreeWidget(QWidget):
         if self._changing or item.parent() is not None:
             return
         if self._session is not None and self._session.expanded_record_id == item.data(0, Qt.UserRole):
+            record_id = self._session.expanded_record_id
             self._session.expanded_record_id = None
+            self.rowCollapsed.emit(record_id)
 
 
 def _indexed_value(values: Any, input_number: int) -> Any:
@@ -207,9 +262,9 @@ def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]
 
 
 class RoomReadOnlyPresentation(QWidget):
-    """Pure exact-row diagnostic view; it has no lifecycle or action authority."""
+    """Exact-row data projection with a deliberately narrow action request."""
 
-    def __init__(self, row, parent=None):
+    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, parent=None):
         super().__init__(parent)
         self.setObjectName("roomReadOnlyPresentation")
         self.setProperty("recordId", row.record_id)
@@ -223,6 +278,37 @@ class RoomReadOnlyPresentation(QWidget):
             notice.setObjectName("roomPresentationState")
             notice.setWordWrap(True)
             layout.addWidget(notice)
+        refresh_button = QPushButton("Локальный опрос", self)
+        refresh_button.setObjectName("roomLocalRefreshButton")
+        refresh_button.setEnabled(
+            bool(request_local_refresh)
+            and local_refresh_allowed
+            and row.status is DeviceRowStatus.CONNECTED
+            and row.network_actions_enabled
+            and not row.interaction_blocked
+        )
+        if request_local_refresh is not None:
+            refresh_button.clicked.connect(request_local_refresh)
+        layout.addWidget(refresh_button)
+        if row.capability is not None and row.capability.screen_key == "codec":
+            call_log_button = QPushButton("Журнал звонков", self)
+            call_log_button.setObjectName("roomCallLogButton")
+            call_log_button.setEnabled(
+                bool(request_auxiliary)
+                and auxiliary_allowed
+                and row.status is DeviceRowStatus.CONNECTED
+                and row.network_actions_enabled
+                and not row.interaction_blocked
+            )
+            if request_auxiliary is not None:
+                call_log_button.clicked.connect(lambda: request_auxiliary("call_log"))
+            layout.addWidget(call_log_button)
+        debug_button = QPushButton("Отладка", self)
+        debug_button.setObjectName("roomLocalDebugButton")
+        debug_button.setEnabled(bool(request_debug) and row.accepted_snapshot is not None)
+        if request_debug is not None:
+            debug_button.clicked.connect(request_debug)
+        layout.addWidget(debug_button)
         if row.warnings:
             warnings = QLabel("Предупреждения: " + "; ".join(row.warnings), self)
             warnings.setObjectName("roomPresentationWarnings")
@@ -237,7 +323,7 @@ class RoomReadOnlyPresentation(QWidget):
             "audio_dsp": self._build_audio,
         }.get(screen_key)
         if builder is not None:
-            builder(layout, data, row)
+            builder(layout, data, row, request_mutation=request_mutation, mutation_allowed=mutation_allowed)
         else:
             self._add_fields(layout, "Диагностика", data)
 
@@ -246,7 +332,11 @@ class RoomReadOnlyPresentation(QWidget):
         if row.partial_data is not None and row.accepted_snapshot is None:
             return "Неподтверждённые данные: подключение продолжается"
         if row.stale:
+            if row.unconfirmed_after_command:
+                return "Подтверждённые данные устарели: состояние после команды не подтверждено"
             return "Подтверждённые данные устарели: соединение завершено по таймауту"
+        if row.last_safe_operation_error:
+            return "Последняя операция: " + row.last_safe_operation_error
         if row.failure_reason:
             return "Причина: " + row.failure_reason
         if row.status is DeviceRowStatus.WAITING:
@@ -255,14 +345,14 @@ class RoomReadOnlyPresentation(QWidget):
             return "Подключение и получение данных..."
         return ""
 
-    def _build_codec(self, layout, data, row) -> None:
+    def _build_codec(self, layout, data, row, **_unused) -> None:
         self._add_fields(layout, "Кодек", data, (
             "model", "Модель", "Модель кодеков", "firmware", "Версия ПО", "Серийный номер", "serial",
             "MAC адрес", "mac", "SIP регистрация", "SIP адрес", "Время работы", "temperature",
             "network_speed", "Статус звонка", "Статус презентации",
         ))
 
-    def _build_pdu(self, layout, data, row) -> None:
+    def _build_pdu(self, layout, data, row, *, request_mutation=None, mutation_allowed=True) -> None:
         source = dict(data.get("device_info") or {}) if isinstance(data, Mapping) else {}
         if isinstance(data, Mapping):
             source.update({
@@ -275,9 +365,9 @@ class RoomReadOnlyPresentation(QWidget):
         self._add_fields(layout, "PDU", source)
         outlets = data.get("outlets", ()) if isinstance(data, Mapping) else ()
         card = SectionCard("Розетки", "⏻", self)
-        table = QTableWidget(0, 3, card)
+        table = QTableWidget(0, 6, card)
         table.setObjectName("roomPduOutlets")
-        table.setHorizontalHeaderLabels(("№", "Статус", "Название"))
+        table.setHorizontalHeaderLabels(("№", "Статус", "Название", "Вкл", "Выкл", "Перезагрузка"))
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.verticalHeader().setVisible(False)
         for outlet in outlets if isinstance(outlets, list) else ():
@@ -287,10 +377,28 @@ class RoomReadOnlyPresentation(QWidget):
             table.insertRow(index)
             for column, value in enumerate((outlet.get("number", "—"), outlet.get("status", "—"), outlet.get("name", "—"))):
                 table.setItem(index, column, QTableWidgetItem(str(value)))
+            outlet_number = outlet.get("number")
+            enabled = (
+                bool(request_mutation)
+                and mutation_allowed
+                and row.status is DeviceRowStatus.CONNECTED
+                and row.network_actions_enabled
+                and not row.interaction_blocked
+                and isinstance(outlet_number, int)
+            )
+            for column, command, label in ((3, "on", "Вкл"), (4, "off", "Выкл"), (5, "reboot", "Перезагрузка")):
+                button = QPushButton(label, table)
+                button.setObjectName(f"roomPdu{command.title()}Button")
+                button.setEnabled(enabled and (command != "reboot" or row.diagnostic_model == "Aten PE8208AV"))
+                if request_mutation is not None and isinstance(outlet_number, int):
+                    button.clicked.connect(
+                        lambda _checked=False, number=outlet_number, action=command: request_mutation(number, action)
+                    )
+                table.setCellWidget(index, column, button)
         card.add_widget(table)
         layout.addWidget(card)
 
-    def _build_matrix(self, layout, data, row) -> None:
+    def _build_matrix(self, layout, data, row, **_unused) -> None:
         source = data if isinstance(data, Mapping) else {}
         self._add_fields(layout, "Матрица", source, ("model", "ip_address", "temperature", "connection_protocol"))
         card = SectionCard("Маршрутизация (только чтение)", "⇄", self)
@@ -308,7 +416,7 @@ class RoomReadOnlyPresentation(QWidget):
         card.add_widget(table)
         layout.addWidget(card)
 
-    def _build_audio(self, layout, data, row) -> None:
+    def _build_audio(self, layout, data, row, **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data
         self._add_fields(layout, "Аудио DSP", source)
         card = SectionCard("Каналы и измерения", "∿", self)

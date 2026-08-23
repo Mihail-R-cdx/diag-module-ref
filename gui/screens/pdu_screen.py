@@ -4,14 +4,12 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
     QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QProgressBar,
     QWidget,
 )
 
@@ -28,21 +26,6 @@ from ..equipment_pages import (
 )
 from ..theme import SPACING
 from .base_screen import BaseScreen
-
-
-RESOLUTION_STATUS_MESSAGES = {
-    "INVENTORY_UNAVAILABLE": "База оборудования недоступна.",
-    "PDU_NOT_FOUND": "PDU не найден в базе оборудования.",
-    "AMBIGUOUS_PDU_IP": "В базе найдено несколько устройств с этим IP-адресом.",
-    "PDU_MODEL_UNSUPPORTED": "Модель PDU не поддерживает автоматический контекст комнаты.",
-    "PDU_MODEL_MISMATCH": "Модель PDU в базе не совпадает с текущим диагностическим контекстом.",
-    "ROOM_UNRESOLVED": "Для PDU не указано помещение.",
-    "CODEC_NOT_FOUND": "В помещении не найден кодек ВКС.",
-    "AMBIGUOUS_CODEC": "В помещении найдено несколько кодеков ВКС.",
-    "CODEC_IP_MISSING": "Для связанного кодека не указан IP-адрес.",
-    "CODEC_UNSUPPORTED": "Модель связанного кодека не поддерживается.",
-}
-LEGACY_INVENTORY_UNAVAILABLE_MESSAGE = "Equipment inventory is unavailable."
 
 
 class PDUScreen(BaseScreen):
@@ -91,7 +74,6 @@ class PDUScreen(BaseScreen):
         main_layout.setSpacing(SPACING["md"])
         self.create_info_panel(main_layout)
         self.create_outlets_table(main_layout)
-        self.create_related_room_codec_panel(main_layout)
         self.scroll_area.setWidget(self.content)
         root_layout.addWidget(self.scroll_area)
         self.outlet_control_signal.connect(self.on_outlet_control)
@@ -127,42 +109,6 @@ class PDUScreen(BaseScreen):
             switch_ip_address=switch_ip_address,
             switch_port=switch_port,
         )
-
-    def create_related_room_codec_panel(self, parent_layout):
-        self.related_group = SectionCard(
-            "Комната и связанный кодек", "◇", self
-        )
-        self.related_group.setProperty("density", "compact")
-        self.related_rows = {}
-        fields = (
-            ("microphone_level", "Уровень микрофонов"),
-            ("room_vip", "VIP"),
-            ("codec_diagnostic_status", "Статус кодека"),
-            ("room_name", "Название комнаты"),
-            ("codec_diagnostic_model", "Модель кодека"),
-            ("codec_ip_address", "IP кодека"),
-            ("call_status", "Статус звонка"),
-            ("presentation_status", "Презентация"),
-        )
-        for field, title in fields:
-            row = ParameterRow(title, "—", self.related_group, compact=True)
-            row.value_display.setProperty("data_field", True)
-            self.related_rows[field] = row
-            if field == "microphone_level":
-                row.value_display.setVisible(False)
-                meter = QProgressBar(row)
-                meter.setRange(0, 100)
-                meter.setTextVisible(False)
-                meter.setProperty("meterState", "unavailable")
-                row.add_action(meter)
-                self.microphone_meter_bar = meter
-            self.related_group.add_widget(row)
-        self.related_message = QLabel("", self.related_group)
-        self.related_message.setWordWrap(True)
-        self.related_message.setProperty("uiRole", "secondary")
-        self.related_group.add_widget(self.related_message)
-        parent_layout.addWidget(self.related_group)
-        self.reset_related_room_codec()
 
     def create_outlets_table(self, parent_layout):
         self.outlets_group = SectionCard(
@@ -255,7 +201,6 @@ class PDUScreen(BaseScreen):
         self.mutation_busy = False
         self.mutation_context = None
         self.mutation_kind = None
-        self.reset_related_room_codec()
         self._sync_bulk_controls()
 
     def update_data(self, data):
@@ -320,108 +265,6 @@ class PDUScreen(BaseScreen):
     def _is_aten_pe8208av_model(model):
         normalized = str(model or "").strip()
         return normalized in {"Aten PE8208AV", "PE8208AV"}
-
-    def reset_related_room_codec(self):
-        if not hasattr(self, "related_rows"):
-            return
-        for row in self.related_rows.values():
-            row.set_value("—")
-            row.set_state("inactive")
-        meter_row = self.related_rows.get("microphone_level")
-        if meter_row is not None:
-            meter_row.setVisible(False)
-        if hasattr(self, "related_message"):
-            self.related_message.setText("")
-
-    def set_related_room_codec(self, payload):
-        if not hasattr(self, "related_rows"):
-            return
-        payload = dict(payload or {})
-        if payload.get("reset"):
-            self.reset_related_room_codec()
-            return
-        state = "normal"
-        if payload.get("pending"):
-            state = "inactive"
-        elif payload.get("resolution_status") == "RESOLVED" and payload.get("codec_diagnostic_status") == "SUCCESS":
-            state = "success"
-        elif payload.get("resolution_status") != "RESOLVED" or payload.get("codec_diagnostic_status") not in {"NOT_STARTED", "PENDING", "SUCCESS"}:
-            state = "warning"
-
-        values = {
-            "microphone_level": payload.get("microphone_fraction"),
-            "room_vip": payload.get("room_vip_label"),
-            "codec_diagnostic_status": payload.get("codec_diagnostic_status"),
-            "room_name": payload.get("room_name"),
-            "codec_diagnostic_model": payload.get("codec_diagnostic_model") or payload.get("codec_source_model"),
-            "codec_ip_address": payload.get("codec_ip_address"),
-            "call_status": payload.get("call_status"),
-            "presentation_status": payload.get("presentation_status"),
-        }
-        for field, row in self.related_rows.items():
-            if field == "microphone_level":
-                supported = payload.get("codec_diagnostic_model") in {"CloudLink Bar 310", "CloudLink Box 310"}
-                row.setVisible(supported)
-                meter = getattr(self, "microphone_meter_bar", None)
-                if meter is not None:
-                    available = supported and bool(payload.get("microphone_available"))
-                    meter.setValue(round(float(payload.get("microphone_fraction") or 0.0) * 100) if available else 0)
-                    meter.setProperty("meterState", "available" if available else "unavailable")
-                    meter.style().unpolish(meter); meter.style().polish(meter)
-                continue
-            value = values.get(field)
-            row.set_value("—" if value in (None, "", (), []) else str(value))
-            row_state = state
-            if field == "room_vip" and payload.get("room_vip_status") == "VIP_TRUE":
-                row_state = "success"
-            elif field == "room_vip" and payload.get("room_vip_status") == "CONFLICT":
-                row_state = "warning"
-            row.set_state(row_state if value not in (None, "", (), []) else "inactive")
-        message_parts = self._related_message_parts(payload)
-        self.related_message.setText(" · ".join(message_parts))
-
-    @classmethod
-    def _related_message_parts(cls, payload):
-        message_parts = []
-        resolution_message = cls._resolution_message_for(
-            payload.get("resolution_status")
-        )
-        cls._append_unique_message(message_parts, resolution_message)
-        for warning in payload.get("warnings") or ():
-            cls._append_unique_message(message_parts, warning)
-
-        safe_message = payload.get("safe_message")
-        if not cls._is_redundant_legacy_inventory_message(
-            payload.get("resolution_status"),
-            safe_message,
-            resolution_message,
-        ):
-            cls._append_unique_message(message_parts, safe_message)
-        return message_parts
-
-    @staticmethod
-    def _resolution_message_for(status):
-        status_value = getattr(status, "value", status)
-        return RESOLUTION_STATUS_MESSAGES.get(status_value)
-
-    @staticmethod
-    def _append_unique_message(message_parts, message):
-        text = str(message or "").strip()
-        if text and text not in message_parts:
-            message_parts.append(text)
-
-    @staticmethod
-    def _is_redundant_legacy_inventory_message(
-        resolution_status,
-        safe_message,
-        resolution_message,
-    ):
-        status_value = getattr(resolution_status, "value", resolution_status)
-        return (
-            status_value == "INVENTORY_UNAVAILABLE"
-            and resolution_message
-            and str(safe_message or "").strip() == LEGACY_INVENTORY_UNAVAILABLE_MESSAGE
-        )
 
     @staticmethod
     def _is_outlet_on(value):

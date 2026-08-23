@@ -27,6 +27,7 @@ from core.room_diagnostic_tree import (
     build_room_session,
     resolve_room_source,
 )
+from core.room_interaction import RoomInteractionContext, RoomInteractionKind
 
 
 def record(record_id, *, ip="192.0.2.10", model="Huawei TE40", room="R-1", source="Synthetic", name=None, address=None, vip=None):
@@ -694,6 +695,61 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("pdu").status)
         window._on_pdu_refresh_accepted_for_enrichment.assert_not_called()
 
+    def test_local_refresh_worker_uses_exact_context_and_emits_only_clean_success(self):
+        from gui.room_diagnostic_controller import RoomDiagnosticController
+
+        context = RoomInteractionContext(
+            "snapshot", 3, "a", "Huawei TE40", "192.0.2.10", 7, 11, 0,
+            RoomInteractionKind.LOCAL_REFRESH,
+        )
+        adapter = _Adapter([[
+            OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"serial": "fresh"}),
+            OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE),
+        ]])
+        controller = RoomDiagnosticController(
+            candidate_provider=lambda _model, _ip: ({"id": 0},),
+            ping=lambda _ip: True,
+            persist_success=lambda _evidence: None,
+            starting_index=lambda _model, _ip, _candidates: 0,
+        )
+        self.addCleanup(controller.deleteLater)
+        completed = []
+        controller.localRefreshFinished.connect(
+            lambda *args: completed.append(args)
+        )
+        with patch(
+            "gui.room_diagnostic_controller.build_room_one_shot_adapters",
+            return_value={"codec_one_shot": adapter},
+        ):
+            controller._run_local_refresh(context, threading.Event())
+        self.assertEqual(1, len(adapter.calls))
+        self.assertEqual(context.record_id, adapter.calls[0].record_id)
+        self.assertEqual(context.ip_address, adapter.calls[0].ip_address)
+        self.assertEqual([(context, True, {"serial": "fresh"}, False, None)], completed)
+
+    def test_local_refresh_rejects_unreachable_row_before_adapter_acquisition(self):
+        from gui.room_diagnostic_controller import RoomDiagnosticController
+
+        context = RoomInteractionContext(
+            "snapshot", 3, "a", "Huawei TE40", "192.0.2.10", 7, 11, 0,
+            RoomInteractionKind.LOCAL_REFRESH,
+        )
+        controller = RoomDiagnosticController(
+            candidate_provider=lambda _model, _ip: ({"id": 0},),
+            ping=lambda _ip: False,
+            persist_success=lambda _evidence: None,
+            starting_index=lambda _model, _ip, _candidates: 0,
+        )
+        self.addCleanup(controller.deleteLater)
+        completed = []
+        controller.localRefreshFinished.connect(lambda *args: completed.append(args))
+        with patch("gui.room_diagnostic_controller.build_room_one_shot_adapters") as adapters:
+            controller._run_local_refresh(context, threading.Event())
+        adapters.assert_not_called()
+        self.assertEqual(
+            [(context, False, None, True, "Устройство недоступно")], completed
+        )
+
     def test_accordion_keeps_secondary_selection_and_exact_row_snapshots(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
@@ -781,6 +837,24 @@ class RoomGuiCompositionTests(unittest.TestCase):
                 self.assertEqual("Канал 3", table.item(0, 1).text())
                 self.assertIn("-18.0", table.item(0, 2).text())
                 self.assertIn("present", table.item(0, 2).text())
+
+    def test_room_pdu_presentation_emits_only_intent_after_button_click(self):
+        from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+
+        row = OrchestratorTests()._session([record("pdu", model="Aten PE8208AV")]).row_for("pdu")
+        row.status = DeviceRowStatus.CONNECTED
+        row.capability = RoomModelCapability("Aten PE8208AV", "pdu", "pdu", "pdu_one_shot")
+        row.accepted_snapshot = {"outlets": [{"number": 1, "status": "off", "name": "Rack"}]}
+        intents = []
+        presentation = RoomReadOnlyPresentation(
+            row,
+            request_mutation=lambda outlet, command: intents.append((outlet, command)),
+        )
+        self.addCleanup(presentation.deleteLater)
+        table = presentation.findChild(QTableWidget, "roomPduOutlets")
+        self.assertEqual(6, table.columnCount())
+        table.cellWidget(0, 3).click()
+        self.assertEqual([(1, "on")], intents)
 
     def test_matrix_presentation_handles_empty_real_parser_signal_status(self):
         from gui.room_diagnostic_tree import RoomReadOnlyPresentation

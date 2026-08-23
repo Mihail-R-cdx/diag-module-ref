@@ -95,6 +95,16 @@ class DispatchRegistryTests(unittest.TestCase):
                 available_room_adapter_keys={"codec_one_shot"},
             )
 
+    def test_room_interaction_capabilities_are_declared_by_exact_registry_entries(self):
+        entries = {entry.diagnostic_model: entry for entry in dispatch_entries()}
+        for entry in entries.values():
+            self.assertEqual("room_one_shot_refresh", entry.local_refresh_binding_key)
+            self.assertEqual("room_one_shot_cleanup", entry.cleanup_binding_key)
+        self.assertEqual("room_codec_call_log", entries["Huawei TE40"].auxiliary_binding_key)
+        self.assertEqual("room_pdu_mutation", entries["Aten PE8208AV"].mutation_binding_key)
+        self.assertEqual("room_one_shot_refresh", entries["Aten PE8208AV"].reconciliation_binding_key)
+        self.assertEqual("room_periodic_live", entries["Extron DMP 64 Plus"].live_binding_key)
+
 
 class ExactModelResolverTests(unittest.TestCase):
     def resolve(self, records, ip="192.0.2.10"):

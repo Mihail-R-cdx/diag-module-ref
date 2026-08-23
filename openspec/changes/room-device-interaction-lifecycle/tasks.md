@@ -1,8 +1,8 @@
 ## 1. Application-owned room interaction authority
 
-- [ ] 1.1 Add a focused room interaction coordinator/state machine bound to exact `inventory snapshot + room generation + record_id + diagnostic_model + IP + operation token` context.
+- [x] 1.1 Add a focused room interaction coordinator/state machine bound to exact `inventory snapshot + room generation + record_id + diagnostic_model + IP + operation token` context.
 - [ ] 1.2 Extend the existing single exact model capability/dispatch registry so the same registration owns screen/view, room one-shot adapter, live, Local Refresh, auxiliary network actions, mutations, and required cleanup/release hooks; do not create parallel supported-model tables.
-- [ ] 1.3 Keep authoritative interactive state/cache per record and keep reusable Qt screens presentation-only.
+- [x] 1.3 Keep authoritative interactive state/cache per record and keep reusable Qt screens presentation-only.
 - [ ] 1.4 Enforce one serialized room interactive network lane across mutually exclusive `LIVE / LOCAL_REFRESH / AUXILIARY_READ / MUTATION / RECONCILIATION`, including stale-before-handler/stale-before-I/O checks and cross-type exclusion while prior authority is active or retiring.
 
 ## 2. Post-cycle live lifecycle
@@ -49,10 +49,10 @@
 
 ## 7. Remove legacy PDU related-codec enrichment
 
-- [ ] 7.1 Remove the dedicated PDU room/related-codec resolver/controller/session lane and all accepted-refresh side effects that start codec work.
-- [ ] 7.2 Remove duplicated PDU room/VIP/related-codec presentation and the PDU-hosted CloudLink microphone meter.
-- [ ] 7.3 Preserve PDU own diagnostic data, outlet/control behavior, mutation/reconciliation behavior, and room-tree PDU row rendering.
-- [ ] 7.4 Remove or update tests/runbook references that treat PDU enrichment as current authority; do not update legacy Graphify artifacts.
+- [x] 7.1 Remove the dedicated PDU room/related-codec resolver/controller/session lane and all accepted-refresh side effects that start codec work.
+- [x] 7.2 Remove duplicated PDU room/VIP/related-codec presentation and the PDU-hosted CloudLink microphone meter.
+- [x] 7.3 Preserve PDU own diagnostic data, outlet/control behavior, mutation/reconciliation behavior, and room-tree PDU row rendering.
+- [x] 7.4 Remove or update tests/runbook references that treat PDU enrichment as current authority; do not update legacy Graphify artifacts.
 
 ## 8. Cleanup and shutdown
 
@@ -71,13 +71,13 @@
 - [ ] 9.6 Add registry tests proving all room interactive capability availability comes from the one exact model registration and no parallel model tables are required.
 - [ ] 9.7 Add room-summary tests proving agreed post-cycle degradation categories set `Есть проблемы с соединением`, while ordinary auxiliary parse/business failure does not.
 - [ ] 9.8 Add Call Log/auxiliary tests for direct child-window `X` cancellation, late-callback suppression, bounded cleanup, eligible live resume, and fresh acquisition on reopen; also cover Debug, source-IP/credential invalidation, per-record degradation, and exact-row currentness.
-- [ ] 9.9 Add removal tests proving PDU refresh no longer starts related-codec I/O/presentation while PDU own controls remain functional.
-- [ ] 9.10 Run affected model/controller/screen regression suites and the full offline test suite.
-- [ ] 9.11 Run `git diff --check` and `git diff --cached --check` before the implementation commit.
+- [x] 9.9 Add removal tests proving PDU refresh no longer starts related-codec I/O/presentation while PDU own controls remain functional.
+- [x] 9.10 Run affected model/controller/screen regression suites and the full offline test suite.
+- [x] 9.11 Run `git diff --check` and `git diff --cached --check` before the implementation commit.
 
 ## 10. OpenSpec and workflow gates
 
-- [ ] 10.1 Run `./openspec.cmd validate room-device-interaction-lifecycle --strict` during architecture and implementation work.
+- [x] 10.1 Run `./openspec.cmd validate room-device-interaction-lifecycle --strict` during architecture and implementation work.
 - [ ] 10.2 Obtain independent architectural review and final `APPROVE` before production implementation.
 - [ ] 10.3 Implementation session adds focused regression coverage, runs strict validation and required tests, creates a focused commit, and pushes the feature branch without self-approving.
 - [ ] 10.4 Independent validation runs in a clean detached worktree from the current published remote feature HEAD and re-runs all required checks without fixing its own findings.

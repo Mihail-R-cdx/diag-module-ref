@@ -5,6 +5,7 @@ from PyQt5.QtGui import QColor
 from dataclasses import dataclass
 from collections.abc import Mapping
 import datetime
+import json
 import os
 import random
 import platform
@@ -26,12 +27,13 @@ from .diagnostic_dispatch import (
     validate_dispatch_registry,
 )
 from .room_diagnostic_controller import RoomDiagnosticController
+from .room_codec_call_log_controller import RoomCodecCallLogController
 from .room_diagnostic_tree import RoomDiagnosticTreeWidget
+from .dialogs import CallLogWindow
 from .room_one_shot_adapters import room_adapter_keys
 from .device_model_fallback_dialog import DeviceModelFallbackDialog
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
-from .pdu_room_codec_enrichment import PDURoomCodecEnrichmentController
 from .equipment_pages import (
     EQUIPMENT_PAGE_REGISTRY,
     PDU_DEVICE_NAMES,
@@ -48,9 +50,15 @@ from core.equipment_inventory import (
 )
 from core.room_context import RoomContextResolver, RoomResolutionStatus
 from core.room_diagnostic_tree import (
+    RoomCycleStatus,
     RoomSourceStatus,
     build_room_session,
     resolve_room_source,
+)
+from core.room_interaction import (
+    RoomInteractionBindings,
+    RoomInteractionCoordinator,
+    RoomInteractionKind,
 )
 from core.switch_connection_context import SwitchConnectionResolver
 from core.worker import (
@@ -304,7 +312,6 @@ class VCSDiagnosticApp(QMainWindow):
         self._current_action_dialog_bindings = {}
         self._credential_attempt_plans = {}
         self._matrix_credential_context_revision = 0
-        self._pdu_room_codec_enrichment_enabled = True
         self.matrix_controller = MatrixController(
             context_provider=self._matrix_public_context,
             credential_candidates_provider=self._matrix_credential_candidates,
@@ -316,19 +323,6 @@ class VCSDiagnosticApp(QMainWindow):
         self.pdu_controller = PDUController(
             shell=self,
             screen_provider=lambda: getattr(self, "screens", {}).get("pdu"),
-            accepted_refresh_callback=self._on_pdu_refresh_accepted_for_enrichment,
-            superseded_callback=self._on_pdu_context_superseded_for_enrichment,
-        )
-        self.pdu_room_codec_enrichment_controller = PDURoomCodecEnrichmentController(
-            inventory_provider=lambda: self.equipment_inventory,
-            inventory_failure_provider=lambda: self.equipment_inventory_load_error,
-            credential_candidates_provider=self._related_codec_credential_candidates,
-            credential_index_provider=self._related_codec_credential_index,
-            credential_revision_provider=self._related_codec_credential_revision,
-            connection_profile_provider=self.get_device_connection_profile,
-            success_persistence=self._persist_related_codec_success,
-            presentation_callback=self._render_pdu_room_codec_enrichment,
-            parent=self,
         )
         # Created only for an accepted supported CloudLink context.  This
         # avoids allocating a background session lane for every other device.
@@ -360,6 +354,38 @@ class VCSDiagnosticApp(QMainWindow):
         )
         self.room_diagnostic_controller.sessionUpdated.connect(self._on_room_diagnostic_updated)
         self.room_diagnostic_controller.sessionFinished.connect(self._on_room_diagnostic_finished)
+        self.room_diagnostic_controller.localRefreshFinished.connect(
+            self._on_room_local_refresh_finished
+        )
+        self.room_diagnostic_controller.localRefreshCleanupFinished.connect(
+            self._on_room_local_refresh_cleanup_finished
+        )
+        self.room_diagnostic_controller.pduMutationFinished.connect(
+            self._on_room_pdu_mutation_finished
+        )
+        self.room_call_log_controller = RoomCodecCallLogController(parent=self)
+        self.room_call_log_controller.operationFinished.connect(
+            self._on_room_call_log_finished
+        )
+        self.room_call_log_controller.cleanupFinished.connect(
+            self._on_room_call_log_cleanup_finished
+        )
+        self._room_call_log_windows = {}
+        self._room_live_timers = {}
+        self._room_live_inflight = set()
+        self.room_interaction_coordinator = RoomInteractionCoordinator(
+            bindings_for_model=self._room_interaction_bindings_for_model,
+            credential_context_revision=lambda: self.__dict__.get("_equipment_room_credential_context_revision", 0),
+            changed=self._on_room_diagnostic_updated,
+        )
+        self.room_diagnostic_tree.rowExpanded.connect(self._on_room_row_expanded)
+        self.room_diagnostic_tree.rowCollapsed.connect(self._on_room_row_collapsed)
+        self.room_diagnostic_tree.localRefreshRequested.connect(self._on_room_local_refresh_requested)
+        self.room_diagnostic_tree.auxiliaryRequested.connect(self._on_room_auxiliary_requested)
+        self.room_diagnostic_tree.pduMutationRequested.connect(
+            self._on_room_pdu_mutation_requested
+        )
+        self.room_diagnostic_tree.debugRequested.connect(self._on_room_debug_requested)
         self.update_timer.setInterval(30000)
         self.update_timer.timeout.connect(self.update_time_display)
         self.update_timer.start()
@@ -446,6 +472,13 @@ class VCSDiagnosticApp(QMainWindow):
                 for registration in self.equipment_page_registry
             },
             available_room_adapter_keys=room_adapter_keys(),
+            available_room_interaction_binding_keys={
+                "room_one_shot_refresh",
+                "room_one_shot_cleanup",
+                "room_codec_call_log",
+                "room_pdu_mutation",
+                "room_periodic_live",
+            },
         )
         
         # Добавляем экраны в контейнер
@@ -569,11 +602,19 @@ class VCSDiagnosticApp(QMainWindow):
         self.__dict__.setdefault("_current_action_dialog_bindings", {}).clear()
 
     def _clear_room_diagnostic_session(self, _reason="context_changed"):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.bind_session(None)
+        for window in tuple(self.__dict__.get("_room_call_log_windows", {}).values()):
+            window.close()
+            window.deleteLater()
+        self.__dict__.setdefault("_room_call_log_windows", {}).clear()
         controller = self.__dict__.get("room_diagnostic_controller")
         if controller is not None:
             controller.supersede()
         self.__dict__["room_diagnostic_session"] = None
         if hasattr(self, "room_diagnostic_tree"):
+            self.room_diagnostic_tree.set_interaction_locked(False)
             self.room_diagnostic_tree.tree.clear()
         if hasattr(self, "debug_btn"):
             self.debug_btn.setEnabled(True)
@@ -608,6 +649,7 @@ class VCSDiagnosticApp(QMainWindow):
             capabilities=room_model_capabilities(),
         )
         self.room_diagnostic_session = session
+        self.room_interaction_coordinator.bind_session(session)
         self.room_diagnostic_tree.render(session)
         self.screen_container.setCurrentWidget(self.room_diagnostic_tree)
         self.ip_entry.setEnabled(False)
@@ -632,10 +674,287 @@ class VCSDiagnosticApp(QMainWindow):
         self.update_time_display()
         terminal = UIState.CONNECTED if session.status.value == "Опрос завершён" else UIState.REQUEST_ERROR
         self.set_ui_state(terminal, session.status.value)
+        self.room_interaction_coordinator.cycle_finished(session)
+        self._sync_room_interaction_controls()
 
     def _on_room_diagnostic_updated(self, session):
         if session is self.__dict__.get("room_diagnostic_session"):
+            self._sync_room_interaction_controls()
             self.room_diagnostic_tree.render(session)
+
+    def _sync_room_interaction_controls(self):
+        """Reflect coordinator authority without consulting device screens."""
+        session = self.__dict__.get("room_diagnostic_session")
+        if session is None or session.status not in {
+            RoomCycleStatus.COMPLETE,
+            RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
+        }:
+            return
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        active = coordinator.active_context if coordinator is not None else None
+        exclusive = bool(coordinator is not None and coordinator.has_exclusive_operation)
+        local_or_mutation = active is not None and active.kind in {
+            RoomInteractionKind.LOCAL_REFRESH,
+            RoomInteractionKind.MUTATION,
+            RoomInteractionKind.RECONCILIATION,
+        }
+        # Auxiliary reads keep top full Refresh and accordion changes as
+        # explicit cancellation boundaries, while Local Refresh stays atomic.
+        self.ip_entry.setEnabled(not exclusive)
+        self.password_btn.setEnabled(not exclusive)
+        self.refresh_btn.setEnabled(not local_or_mutation)
+        self.room_diagnostic_tree.set_interaction_locked(local_or_mutation)
+
+    def _room_interaction_bindings_for_model(self, model):
+        """Compose only interaction capabilities declared on the exact model."""
+        entry = dispatch_entry_for_model(model)
+        if entry is None:
+            return None
+        bindings = RoomInteractionBindings(
+            local_refresh=(
+                self.room_diagnostic_controller.start_local_refresh
+                if entry.local_refresh_binding_key == "room_one_shot_refresh"
+                else None
+            ),
+            live=(
+                self._start_room_periodic_live
+                if entry.live_binding_key == "room_periodic_live"
+                else None
+            ),
+            auxiliary=(
+                self._start_room_call_log
+                if entry.auxiliary_binding_key == "room_codec_call_log"
+                else None
+            ),
+            mutation=(
+                self.room_diagnostic_controller.start_pdu_mutation
+                if entry.mutation_binding_key == "room_pdu_mutation"
+                else None
+            ),
+            reconciliation=(
+                self.room_diagnostic_controller.start_local_refresh
+                if entry.reconciliation_binding_key == "room_one_shot_refresh"
+                else None
+            ),
+            cancel=(
+                self._cancel_room_interaction
+                if entry.cleanup_binding_key == "room_one_shot_cleanup"
+                else None
+            ),
+            # WorkerOneShotAdapter reports physical retirement asynchronously.
+            cleanup=(lambda _context: False)
+            if entry.cleanup_binding_key == "room_one_shot_cleanup"
+            else None,
+        )
+        bindings.validate()
+        return bindings
+
+    def _on_room_row_expanded(self, record_id):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.expand(record_id)
+
+    def _on_room_row_collapsed(self, record_id):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.collapse(record_id)
+
+    def _on_room_local_refresh_requested(self, _record_id):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.request_local_refresh()
+
+    def _on_room_auxiliary_requested(self, _record_id, action):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.request_auxiliary(action)
+
+    def _on_room_pdu_mutation_requested(self, _record_id, outlet_number, command):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is None:
+            return
+        labels = {
+            "on": "включить",
+            "off": "выключить",
+            "reboot": "перезагрузить",
+        }
+        label = labels.get(command)
+        if label is None:
+            return
+        decision = QMessageBox.question(
+            self,
+            "Подтверждение команды PDU",
+            f"Подтвердите: {label} розетку {outlet_number}.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if decision == QMessageBox.Yes:
+            coordinator.confirm_mutation(
+                {"outlet_number": outlet_number, "operation": command}
+            )
+
+    def _on_room_debug_requested(self, record_id):
+        session = self.__dict__.get("room_diagnostic_session")
+        if session is None or session.expanded_record_id != record_id:
+            return
+        row = session.row_for(record_id)
+        if row.accepted_snapshot is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Отладка: {row.model_label}")
+        layout = QVBoxLayout(dialog)
+        output = QPlainTextEdit(dialog)
+        output.setReadOnly(True)
+        output.setPlainText(
+            json.dumps(row.accepted_snapshot, ensure_ascii=False, indent=2, default=str)
+        )
+        layout.addWidget(output)
+        dialog.resize(700, 480)
+        dialog.show()
+
+    def _cancel_room_interaction(self, context):
+        if context.kind is RoomInteractionKind.LIVE:
+            timer = self._room_live_timers.pop(context, None)
+            if timer is not None:
+                timer.stop()
+                timer.deleteLater()
+            self.room_diagnostic_controller.cancel_local_refresh(context)
+            if context not in self._room_live_inflight:
+                QTimer.singleShot(
+                    0,
+                    lambda current=context: self.room_interaction_coordinator.cleanup_finished(current),
+                )
+        elif context.kind is RoomInteractionKind.LOCAL_REFRESH:
+            self.room_diagnostic_controller.cancel_local_refresh(context)
+        elif context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION}:
+            self.room_diagnostic_controller.cancel_pdu_mutation(context)
+            self.room_diagnostic_controller.cancel_local_refresh(context)
+        elif context.kind is RoomInteractionKind.AUXILIARY_READ:
+            self.room_call_log_controller.cancel(context)
+
+    def _start_room_periodic_live(self, context):
+        timer = QTimer(self)
+        timer.setInterval(5000)
+        timer.timeout.connect(lambda current=context: self._run_room_live_tick(current))
+        self._room_live_timers[context] = timer
+        self._run_room_live_tick(context)
+        timer.start()
+
+    def _run_room_live_tick(self, context):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is None or coordinator.active_context != context:
+            return
+        if context in self._room_live_inflight:
+            return
+        self._room_live_inflight.add(context)
+        self.room_diagnostic_controller.start_local_refresh(context)
+
+    def _start_room_call_log(self, context, action):
+        if action != "call_log":
+            self._on_room_call_log_finished(
+                context, False, None, False, "Действие недоступно"
+            )
+            return
+        window = CallLogWindow(self, self.colors)
+        window.clear_records()
+        window.status_label.setText("Загрузка журнала звонков...")
+        self._room_call_log_windows[context] = window
+        window.finished.connect(
+            lambda _result, current=context: self._on_room_call_log_window_closed(current)
+        )
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        candidates = self._room_credential_candidates(
+            context.diagnostic_model, context.ip_address
+        )
+        self.room_call_log_controller.start(
+            context,
+            candidates,
+            self._room_credential_start_index(
+                context.diagnostic_model, context.ip_address, candidates
+            ) if candidates else 0,
+            self.get_device_connection_profile(
+                context.diagnostic_model, context.ip_address
+            ),
+        )
+
+    def _on_room_call_log_window_closed(self, context):
+        self._room_call_log_windows.pop(context, None)
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.child_window_closed(context)
+
+    def _on_room_call_log_finished(
+        self, context, success, data, connection_lost, warning
+    ):
+        window = self._room_call_log_windows.get(context)
+        if window is not None and success:
+            window.set_snapshot(data)
+        elif window is not None:
+            window.status_label.setText(warning or "Не удалось загрузить журнал звонков")
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.complete(
+                context,
+                success=success,
+                data=data,
+                connection_lost=connection_lost,
+                warning=warning,
+            )
+
+    def _on_room_call_log_cleanup_finished(self, context, timed_out):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.cleanup_finished(context, timed_out=timed_out)
+
+    def _on_room_local_refresh_finished(
+        self,
+        context,
+        success,
+        data,
+        connection_lost,
+        warning,
+    ):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.complete(
+                context,
+                success=success,
+                data=data,
+                connection_lost=connection_lost,
+                warning=warning,
+            )
+        if context.kind is RoomInteractionKind.LIVE:
+            self._room_live_inflight.discard(context)
+            if not success:
+                timer = self._room_live_timers.pop(context, None)
+                if timer is not None:
+                    timer.stop()
+                    timer.deleteLater()
+        self.room_diagnostic_controller.forget_local_refresh(context)
+
+    def _on_room_pdu_mutation_finished(
+        self, context, success, data, connection_lost, warning
+    ):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.complete(
+                context,
+                success=success,
+                data=data,
+                connection_lost=connection_lost,
+                unconfirmed=not success,
+                warning=warning,
+            )
+        self.room_diagnostic_controller.forget_local_refresh(context)
+
+    def _on_room_local_refresh_cleanup_finished(self, context, timed_out):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        self._room_live_inflight.discard(context)
+        if coordinator is not None:
+            coordinator.cleanup_finished(context, timed_out=timed_out)
+        self.room_diagnostic_controller.forget_local_refresh(context)
 
     def _restore_refresh_button(self):
         if hasattr(self, "refresh_btn"):
@@ -873,54 +1192,16 @@ class VCSDiagnosticApp(QMainWindow):
     def _pdu_controller(self):
         controller = self.__dict__.get("pdu_controller")
         if controller is None:
-            enrichment_enabled = self.__dict__.get("_pdu_room_codec_enrichment_enabled", False)
             controller = PDUController(
                 shell=self,
                 screen_provider=lambda: getattr(self, "screens", {}).get("pdu"),
                 thread_pool=QThreadPool.globalInstance(),
-                accepted_refresh_callback=(
-                    self._on_pdu_refresh_accepted_for_enrichment
-                    if enrichment_enabled
-                    else None
-                ),
-                superseded_callback=(
-                    self._on_pdu_context_superseded_for_enrichment
-                    if enrichment_enabled
-                    else None
-                ),
             )
             self.__dict__["pdu_controller"] = controller
         return controller
 
     def _invalidate_pdu_context(self):
         self._pdu_controller().invalidate_context()
-
-    def _pdu_room_codec_controller(self):
-        controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
-        if controller is None:
-            controller = PDURoomCodecEnrichmentController(
-                inventory_provider=lambda: self.equipment_inventory,
-                inventory_failure_provider=lambda: self.equipment_inventory_load_error,
-                credential_candidates_provider=self._related_codec_credential_candidates,
-                credential_index_provider=self._related_codec_credential_index,
-                credential_revision_provider=self._related_codec_credential_revision,
-                connection_profile_provider=self.get_device_connection_profile,
-                success_persistence=self._persist_related_codec_success,
-                presentation_callback=self._render_pdu_room_codec_enrichment,
-                parent=self,
-            )
-            self.__dict__["pdu_room_codec_enrichment_controller"] = controller
-        return controller
-
-    def _on_pdu_refresh_accepted_for_enrichment(self, context):
-        if not self.__dict__.get("_pdu_room_codec_enrichment_enabled", False):
-            return
-        self._pdu_room_codec_controller().accept_pdu_refresh(context)
-
-    def _on_pdu_context_superseded_for_enrichment(self, event):
-        if not self.__dict__.get("_pdu_room_codec_enrichment_enabled", False):
-            return
-        self._pdu_room_codec_controller().supersede_pdu_context(event)
 
     def current_device_name(self):
         request = self.__dict__.get("_active_request") or {}
@@ -1175,29 +1456,6 @@ class VCSDiagnosticApp(QMainWindow):
             )
         return context
 
-    def _related_codec_credential_candidates(self, device_name, ip_address):
-        return tuple(self.device_credentials.get(device_name) or ())
-
-    def _related_codec_credential_index(self, device_name, ip_address, candidates):
-        return self.get_valid_current_credential_index(
-            device_name,
-            tuple(candidates or ()),
-            ip_address,
-        )
-
-    def _related_codec_credential_revision(self):
-        return self.__dict__.get("_related_codec_credential_context_revision", 0)
-
-    def _persist_related_codec_success(self, device_name, ip_address, credential_index, profile):
-        self.set_current_credential_index(device_name, credential_index, ip_address)
-        if profile:
-            self.set_device_connection_profile(device_name, dict(profile), ip_address)
-
-    def _render_pdu_room_codec_enrichment(self, payload):
-        screen = getattr(self, "screens", {}).get("pdu")
-        if screen is not None and hasattr(screen, "set_related_room_codec"):
-            screen.set_related_room_codec(payload)
-
     def _attach_registered_room_blocks(self):
         self.room_information_blocks = {}
         registrations = registrations_by_screen()
@@ -1248,9 +1506,6 @@ class VCSDiagnosticApp(QMainWindow):
         current_identity = self._equipment_inventory_snapshot_context()
         if supersede and current_identity != previous_identity:
             self._supersede_model_actions(reason)
-            controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
-            if controller is not None:
-                controller.invalidate_context(reason)
             if hasattr(self, "matrix_controller"):
                 self.matrix_controller.invalidate_context()
             if "dmp_polling_controller" in self.__dict__:
@@ -1547,16 +1802,6 @@ class VCSDiagnosticApp(QMainWindow):
         request = self.__dict__.get("_active_request") or {}
         return request.get("device") == device_name and request.get("ip") == normalized_ip
 
-    def _related_codec_context_matches_model_ip(self, device_name, normalized_ip):
-        controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
-        presentation = getattr(controller, "_last_presentation", None)
-        if presentation is None or normalized_ip is None:
-            return False
-        return (
-            presentation.codec_diagnostic_model == device_name
-            and presentation.codec_ip_address == normalized_ip
-        )
-
     def _current_room_context_matches_model_ip(self, device_name, normalized_ip):
         binding = self.__dict__.get("_equipment_room_context_binding")
         if binding is None or normalized_ip is None:
@@ -1577,17 +1822,6 @@ class VCSDiagnosticApp(QMainWindow):
             self._supersede_pending_diagnostic_reachability(
                 "credential_context_changed"
             )
-
-        related_changed = self._related_codec_context_matches_model_ip(
-            device_name, normalized_ip
-        )
-        if related_changed:
-            self.__dict__["_related_codec_credential_context_revision"] = (
-                self.__dict__.get("_related_codec_credential_context_revision", 0) + 1
-            )
-            controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
-            if controller is not None:
-                controller.invalidate_context("credential_context_changed")
 
         room_changed = self._current_room_context_matches_model_ip(
             device_name, normalized_ip
@@ -4497,9 +4731,6 @@ class VCSDiagnosticApp(QMainWindow):
         session = self.__dict__.get("cloudlink_meter_session")
         if session is not None:
             session.shutdown(wait=False)
-        controller = self.__dict__.get("pdu_room_codec_enrichment_controller")
-        if controller is not None:
-            controller.shutdown()
         self._dmp_controller().shutdown()
         codec_screen = self.screens.get("codec") if hasattr(self, "screens") else None
         if codec_screen and hasattr(codec_screen, "shutdown_interactive_controller"):

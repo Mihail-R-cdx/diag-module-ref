@@ -352,20 +352,16 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
             "matrix",
             0,
         )
-        window._related_codec_credential_context_revision = 3
         window._equipment_room_credential_context_revision = 4
         window._invalidate_pdu_context = Mock()
         window._publish_current_equipment_room_context = Mock()
-        window.pdu_room_codec_enrichment_controller.invalidate_context = Mock()
         window.matrix_controller.invalidate_context = Mock()
 
         window._on_credential_configuration_changed("Huawei TE40", "192.0.2.10")
 
-        self.assertEqual(3, window._related_codec_credential_context_revision)
         self.assertEqual(4, window._equipment_room_credential_context_revision)
         window._invalidate_pdu_context.assert_not_called()
         window._publish_current_equipment_room_context.assert_not_called()
-        window.pdu_room_codec_enrichment_controller.invalidate_context.assert_not_called()
         window.matrix_controller.invalidate_context.assert_not_called()
 
     def test_exact_credential_invalidation_affects_matching_context(self):
@@ -390,12 +386,10 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
 
         window = VCSDiagnosticApp()
         self.addCleanup(window.close)
-        window._related_codec_credential_context_revision = 3
         window._equipment_room_credential_context_revision = 4
         window._matrix_credential_context_revision = 5
         window._invalidate_pdu_context = Mock()
         window._publish_current_equipment_room_context = Mock()
-        window.pdu_room_codec_enrichment_controller.invalidate_context = Mock()
         window.matrix_controller.invalidate_context = Mock()
 
         window.device_credentials["Huawei TE40"] = [
@@ -403,12 +397,10 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
         ]
         window.device_credentials.setdefault("Aten PE8208AV", [{"password": "secret"}])
 
-        self.assertEqual(3, window._related_codec_credential_context_revision)
         self.assertEqual(4, window._equipment_room_credential_context_revision)
         self.assertEqual(5, window._matrix_credential_context_revision)
         window._invalidate_pdu_context.assert_not_called()
         window._publish_current_equipment_room_context.assert_not_called()
-        window.pdu_room_codec_enrichment_controller.invalidate_context.assert_not_called()
         window.matrix_controller.invalidate_context.assert_not_called()
 
     def test_scoped_credential_mutation_invalidates_only_exact_context(self):
