@@ -703,6 +703,12 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.setEnabled(not exclusive)
         self.password_btn.setEnabled(not exclusive)
         self.refresh_btn.setEnabled(not local_or_mutation)
+        self.room_diagnostic_tree.set_active_interaction(
+            active,
+            retiring=(
+                active is not None and coordinator is not None and coordinator.is_retiring(active)
+            ),
+        )
         self.room_diagnostic_tree.set_interaction_locked(local_or_mutation)
 
     def _room_interaction_bindings_for_model(self, model):
@@ -952,7 +958,13 @@ class VCSDiagnosticApp(QMainWindow):
     def _on_room_local_refresh_cleanup_finished(self, context, timed_out):
         coordinator = self.__dict__.get("room_interaction_coordinator")
         self._room_live_inflight.discard(context)
-        if coordinator is not None:
+        # A live tick shares the one-shot adapter cleanup, but successful
+        # per-sample cleanup must not retire the long-lived exact-row owner.
+        # Only cancellation/supersession cleanup may free the live lane.
+        if coordinator is not None and (
+            context.kind is not RoomInteractionKind.LIVE
+            or coordinator.is_retiring(context)
+        ):
             coordinator.cleanup_finished(context, timed_out=timed_out)
         self.room_diagnostic_controller.forget_local_refresh(context)
 
@@ -1823,17 +1835,25 @@ class VCSDiagnosticApp(QMainWindow):
                 "credential_context_changed"
             )
 
+        room_session = self.__dict__.get("room_diagnostic_session")
         room_changed = self._current_room_context_matches_model_ip(
             device_name, normalized_ip
+        ) or (
+            room_session is not None
+            and any(
+                row.diagnostic_model == device_name and row.ip_address == normalized_ip
+                for row in room_session.rows
+            )
         )
         if room_changed:
             self.__dict__["_equipment_room_credential_context_revision"] = (
                 self.__dict__.get("_equipment_room_credential_context_revision", 0) + 1
             )
-            self._publish_current_equipment_room_context(
-                "credential_context_changed",
-                force=True,
-            )
+            # A model-wide credential-chain change invalidates every exact-row
+            # room target that could have captured the old candidate order.
+            # Publishing a replacement context alone would leave the old tree
+            # and live/session authority deceptively usable.
+            self._clear_room_diagnostic_session("credential_context_changed")
 
         if (
             device_name == MATRIX_DEVICE_NAME
@@ -4726,6 +4746,25 @@ class VCSDiagnosticApp(QMainWindow):
         dialog.activateWindow()
 
     def closeEvent(self, event):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        active_room_context = (
+            coordinator.active_context if coordinator is not None else None
+        )
+        if active_room_context is not None and active_room_context.kind in {
+            RoomInteractionKind.MUTATION,
+            RoomInteractionKind.RECONCILIATION,
+        }:
+            decision = QMessageBox.question(
+                self,
+                "Неподтверждённая команда PDU",
+                "Команда PDU могла быть отправлена, но её итог ещё не подтверждён. "
+                "Закрыть приложение без повтора или отката?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if decision != QMessageBox.Yes:
+                event.ignore()
+                return
         self._supersede_model_actions("shutdown")
         self._stop_cloudlink_microphone_meter()
         session = self.__dict__.get("cloudlink_meter_session")

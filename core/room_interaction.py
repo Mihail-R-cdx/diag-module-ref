@@ -118,6 +118,24 @@ class RoomInteractionCoordinator:
             RoomInteractionKind.RECONCILIATION,
         }
 
+    def is_retiring(self, context: RoomInteractionContext) -> bool:
+        """Whether ``context`` is awaiting its terminal cleanup boundary.
+
+        A periodic live sample uses the same one-shot worker cleanup as Local
+        Refresh. Its per-sample release is not retirement of the live
+        lifecycle; callers use this predicate to distinguish it from a
+        cancel/supersede cleanup that is allowed to free the lane.
+        """
+        if self._active != context or self._session is None:
+            return False
+        try:
+            return (
+                self._session.row_for(context.record_id).interaction_state
+                is RoomInteractionState.RETIRING
+            )
+        except KeyError:
+            return False
+
     def bind_session(self, session: RoomDiagnosticSession | None) -> None:
         self.invalidate("room_session_changed")
         self._session = session

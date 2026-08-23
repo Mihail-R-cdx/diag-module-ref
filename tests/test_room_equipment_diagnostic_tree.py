@@ -8,12 +8,12 @@ import threading
 import time
 
 try:
-    from PyQt5.QtWidgets import QApplication, QLabel, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
 from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
-from core.exceptions import AuthenticationError
+from core.exceptions import AuthenticationError, CommandOutcomeUnknownError
 from core.parser import BiampTesiraForteCIDataParser, ExtronIN1804DataParser
 from core.room_diagnostic_tree import (
     DeviceRowStatus,
@@ -750,6 +750,65 @@ class RoomGuiCompositionTests(unittest.TestCase):
             [(context, False, None, True, "Устройство недоступно")], completed
         )
 
+    def test_room_pdu_retries_only_structured_pre_send_authentication_failure(self):
+        from gui.room_diagnostic_controller import RoomDiagnosticController
+
+        context = RoomInteractionContext(
+            "snapshot", 3, "pdu", "Aten PE8208AV", "192.0.2.20", 7, 11, 0,
+            RoomInteractionKind.MUTATION,
+        )
+        candidates = ({"username": "one", "password": "first"}, {"username": "two", "password": "second"})
+        controller = RoomDiagnosticController(
+            candidate_provider=lambda _model, _ip: candidates,
+            ping=lambda _ip: True,
+            persist_success=lambda _evidence: None,
+            starting_index=lambda _model, _ip, _candidates: 0,
+        )
+        self.addCleanup(controller.deleteLater)
+        completed = []
+        controller.pduMutationFinished.connect(lambda *args: completed.append(args))
+        with patch(
+            "gui.room_diagnostic_controller.execute_pdu_command",
+            side_effect=[AuthenticationError("rejected"), {"success": True}],
+        ) as command:
+            controller._run_pdu_mutation(
+                context, {"outlet_number": 1, "operation": "on"}, threading.Event()
+            )
+
+        self.assertEqual(2, command.call_count)
+        self.assertEqual(candidates[0], command.call_args_list[0].kwargs["credentials"])
+        self.assertEqual(candidates[1], command.call_args_list[1].kwargs["credentials"])
+        self.assertEqual([(context, True, {"success": True}, False, None)], completed)
+
+    def test_room_pdu_never_retries_an_indeterminate_command_outcome(self):
+        from gui.room_diagnostic_controller import RoomDiagnosticController
+
+        context = RoomInteractionContext(
+            "snapshot", 3, "pdu", "Aten PE8208AV", "192.0.2.20", 7, 11, 0,
+            RoomInteractionKind.MUTATION,
+        )
+        controller = RoomDiagnosticController(
+            candidate_provider=lambda _model, _ip: ({"username": "one", "password": "first"}, {"username": "two", "password": "second"}),
+            ping=lambda _ip: True,
+            persist_success=lambda _evidence: None,
+            starting_index=lambda _model, _ip, _candidates: 0,
+        )
+        self.addCleanup(controller.deleteLater)
+        completed = []
+        controller.pduMutationFinished.connect(lambda *args: completed.append(args))
+        with patch(
+            "gui.room_diagnostic_controller.execute_pdu_command",
+            side_effect=CommandOutcomeUnknownError("may have been sent"),
+        ) as command:
+            controller._run_pdu_mutation(
+                context, {"outlet_number": 1, "operation": "on"}, threading.Event()
+            )
+
+        command.assert_called_once()
+        self.assertEqual(context, completed[0][0])
+        self.assertFalse(completed[0][1])
+        self.assertTrue(completed[0][3])
+
     def test_accordion_keeps_secondary_selection_and_exact_row_snapshots(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
@@ -776,6 +835,52 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertIn("B", secondary_text)
         self.assertIn("устарели", secondary_text)
         self.assertNotIn("B", primary_text)
+
+    def test_active_auxiliary_locks_network_controls_but_keeps_exact_debug(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        session = OrchestratorTests()._session([
+            record("a"), record("b", ip="192.0.2.11"),
+        ])
+        for row in session.rows:
+            row.accepted_snapshot = {"serial": row.record_id}
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        context = RoomInteractionContext(
+            "snapshot", 1, "a", "Huawei TE40", "192.0.2.10", 1, 1, 0,
+            RoomInteractionKind.AUXILIARY_READ,
+        )
+        widget.set_active_interaction(context)
+        widget.render(session)
+
+        a_view = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
+        b_view = widget.tree.itemWidget(widget.tree.topLevelItem(1).child(0), 0)
+        self.assertFalse(a_view.findChild(QPushButton, "roomLocalRefreshButton").isEnabled())
+        self.assertFalse(a_view.findChild(QPushButton, "roomCallLogButton").isEnabled())
+        self.assertFalse(b_view.findChild(QPushButton, "roomLocalRefreshButton").isEnabled())
+        self.assertTrue(a_view.findChild(QPushButton, "roomLocalDebugButton").isEnabled())
+        self.assertFalse(b_view.findChild(QPushButton, "roomLocalDebugButton").isEnabled())
+
+    def test_active_live_keeps_same_exact_row_local_refresh_available(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        session = OrchestratorTests()._session([record("a")])
+        row = session.row_for("a")
+        row.accepted_snapshot = {"serial": "A"}
+        row.status = DeviceRowStatus.CONNECTED
+        row.network_actions_enabled = False
+        session.status = RoomCycleStatus.COMPLETE
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        context = RoomInteractionContext(
+            "snapshot", 1, "a", "Huawei TE40", "192.0.2.10", 1, 1, 0,
+            RoomInteractionKind.LIVE,
+        )
+        widget.set_active_interaction(context)
+        widget.render(session)
+
+        view = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
+        self.assertTrue(view.findChild(QPushButton, "roomLocalRefreshButton").isEnabled())
 
     def test_read_only_presenters_use_production_matrix_dmp_and_biamp_contracts(self):
         from gui.room_diagnostic_tree import RoomReadOnlyPresentation

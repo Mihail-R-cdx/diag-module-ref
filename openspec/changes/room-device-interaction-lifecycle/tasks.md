@@ -1,15 +1,15 @@
 ## 1. Application-owned room interaction authority
 
 - [x] 1.1 Add a focused room interaction coordinator/state machine bound to exact `inventory snapshot + room generation + record_id + diagnostic_model + IP + operation token` context.
-- [ ] 1.2 Extend the existing single exact model capability/dispatch registry so the same registration owns screen/view, room one-shot adapter, live, Local Refresh, auxiliary network actions, mutations, and required cleanup/release hooks; do not create parallel supported-model tables.
+- [x] 1.2 Extend the existing single exact model capability/dispatch registry so the same registration owns screen/view, room one-shot adapter, live, Local Refresh, auxiliary network actions, mutations, and required cleanup/release hooks; do not create parallel supported-model tables.
 - [x] 1.3 Keep authoritative interactive state/cache per record and keep reusable Qt screens presentation-only.
-- [ ] 1.4 Enforce one serialized room interactive network lane across mutually exclusive `LIVE / LOCAL_REFRESH / AUXILIARY_READ / MUTATION / RECONCILIATION`, including stale-before-handler/stale-before-I/O checks and cross-type exclusion while prior authority is active or retiring.
+- [x] 1.4 Enforce one serialized room interactive network lane across mutually exclusive `LIVE / LOCAL_REFRESH / AUXILIARY_READ / MUTATION / RECONCILIATION`, including stale-before-handler/stale-before-I/O checks and cross-type exclusion while prior authority is active or retiring.
 
 ## 2. Post-cycle live lifecycle
 
-- [ ] 2.1 Start live only after terminal room-cycle completion for the latest currently expanded connected row that advertises an existing live capability from the unified model registry.
-- [ ] 2.2 Implement safe live handoff `invalidate -> bounded cleanup/release -> start latest current target` and collapse-to-none behavior.
-- [ ] 2.3 Keep network-backed controls disabled during pending handoff and prove rapid A -> B -> C switching starts no stale intermediate live I/O.
+- [x] 2.1 Start live only after terminal room-cycle completion for the latest currently expanded connected row that advertises an existing live capability from the unified model registry.
+- [x] 2.2 Implement safe live handoff `invalidate -> bounded cleanup/release -> start latest current target` and collapse-to-none behavior.
+- [x] 2.3 Keep network-backed controls disabled during pending handoff and prove rapid A -> B -> C switching starts no stale intermediate live I/O.
 - [ ] 2.4 Convert terminal live/session/auth loss after approved recovery into exact-row `соединение потеряно` without blocking other room rows, and set the global bottom status to `Есть проблемы с соединением`.
 
 ## 3. Local exact-row Refresh

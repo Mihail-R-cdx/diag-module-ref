@@ -149,20 +149,36 @@ class RoomDiagnosticController(QObject):
                 self._starting_index(context.diagnostic_model, context.ip_address, candidates),
                 len(candidates) - 1,
             ))
-            descriptor = PDUOperationDescriptor(
-                context.row_operation_token,
-                context.room_generation,
-                context.diagnostic_model,
-                context.ip_address,
-                operation,
-                outlet_number=outlet_number,
-                credential_index=None if not candidates[index] else index,
-            )
-            result = execute_pdu_command(
-                descriptor=descriptor,
-                credentials=candidates[index],
-                is_current=lambda _descriptor: not cancelled.is_set(),
-            )
+            result = None
+            for candidate_index in range(index, len(candidates)):
+                descriptor = PDUOperationDescriptor(
+                    context.row_operation_token,
+                    context.room_generation,
+                    context.diagnostic_model,
+                    context.ip_address,
+                    operation,
+                    outlet_number=outlet_number,
+                    credential_index=(
+                        None if not candidates[candidate_index] else candidate_index
+                    ),
+                )
+                try:
+                    result = execute_pdu_command(
+                        descriptor=descriptor,
+                        credentials=candidates[candidate_index],
+                        is_current=lambda _descriptor: not cancelled.is_set(),
+                    )
+                    break
+                except AuthenticationError:
+                    # ``execute_pdu_command`` re-raises AuthenticationError
+                    # only before its tracked state-changing send.  Any auth
+                    # error after send is converted to an indeterminate
+                    # outcome there and deliberately reaches the outer
+                    # failure path instead of authorizing a retry.
+                    if candidate_index + 1 >= len(candidates):
+                        raise
+            if result is None:
+                raise AuthenticationError("PDU credentials rejected before command")
             if cancelled.is_set() or result.get("_outcome") == "stale":
                 self.localRefreshCleanupFinished.emit(context, False)
                 return

@@ -131,3 +131,66 @@ class RoomInteractionCoordinatorTests(unittest.TestCase):
         self.assertEqual([context], calls)
         self.assertIs(context, coordinator.active_context)
         self.assertEqual({"meter": -12.0}, current.row_for("a").accepted_snapshot)
+
+    def test_rapid_live_switch_starts_only_latest_row_after_retirement(self):
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(context.record_id),
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        current = session()
+        current.rows.append(
+            DeviceRowState("c", "Huawei TE20", "192.0.2.12", None, DeviceRowStatus.CONNECTED)
+        )
+        coordinator.bind_session(current)
+        coordinator.cycle_finished(current)
+        old = coordinator.active_context
+
+        coordinator.expand("b")
+        coordinator.expand("c")
+        coordinator.cleanup_finished(old)
+
+        self.assertEqual(["a", "c"], calls)
+        self.assertEqual("c", coordinator.active_context.record_id)
+
+    def test_cross_type_operation_waits_for_live_cleanup_before_acquisition(self):
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            local_refresh=lambda context: calls.append(("refresh", context.record_id)),
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        current = session()
+        coordinator.bind_session(current)
+        coordinator.cycle_finished(current)
+        live = coordinator.active_context
+
+        self.assertIsNone(coordinator.request_auxiliary("call_log"))
+        self.assertEqual([("live", "a")], calls)
+        coordinator.cleanup_finished(live)
+
+        self.assertEqual([("live", "a"), ("call_log", "a")], calls)
+        self.assertIsNone(coordinator.request_local_refresh())
+        self.assertEqual(RoomInteractionKind.AUXILIARY_READ, coordinator.active_context.kind)
+
+    def test_live_sample_cleanup_is_not_live_retirement(self):
+        bindings = RoomInteractionBindings(
+            live=lambda _context: None,
+            cancel=lambda _context: None,
+            cleanup=lambda _context: True,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        current = session()
+        coordinator.bind_session(current)
+        coordinator.cycle_finished(current)
+        context = coordinator.active_context
+
+        coordinator.complete(context, success=True, data={"meter": -12.0})
+
+        self.assertFalse(coordinator.is_retiring(context))
+        self.assertIs(context, coordinator.active_context)

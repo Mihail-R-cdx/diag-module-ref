@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import QFormLayout, QHeaderView, QLabel, QPushButton, QTabl
 from .components import ParameterRow, SectionCard
 
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession
+from core.room_interaction import RoomInteractionKind
 
 
 class RoomDiagnosticTreeWidget(QWidget):
@@ -46,6 +47,8 @@ class RoomDiagnosticTreeWidget(QWidget):
         self._by_record: dict[str, QTreeWidgetItem] = {}
         self._changing = False
         self._interaction_locked = False
+        self._active_interaction = None
+        self._active_interaction_retiring = False
         self._session: RoomDiagnosticSession | None = None
 
     def render(self, session: RoomDiagnosticSession) -> None:
@@ -67,6 +70,34 @@ class RoomDiagnosticTreeWidget(QWidget):
             self.tree.clear()
             self._by_record.clear()
             for row in session.rows:
+                active_here = (
+                    self._active_interaction is not None
+                    and self._active_interaction.record_id == row.record_id
+                )
+                live_here = (
+                    active_here
+                    and self._active_interaction.kind is RoomInteractionKind.LIVE
+                    and not self._active_interaction_retiring
+                )
+                actions_allowed = (
+                    session.status in {
+                        RoomCycleStatus.COMPLETE,
+                        RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
+                    }
+                    and not self._interaction_locked
+                    and (self._active_interaction is None or live_here)
+                )
+                debug_allowed = (
+                    self._active_interaction is None
+                    or (
+                        active_here
+                        and self._active_interaction.kind in {
+                            RoomInteractionKind.LIVE,
+                            RoomInteractionKind.LOCAL_REFRESH,
+                            RoomInteractionKind.AUXILIARY_READ,
+                        }
+                    )
+                )
                 item = QTreeWidgetItem((row.model_label, row.ip_address or "—", row.status.value))
                 item.setData(0, Qt.UserRole, row.record_id)
                 item.setData(0, Qt.UserRole + 1, self._is_expandable(row))
@@ -92,27 +123,11 @@ class RoomDiagnosticTreeWidget(QWidget):
                                 lambda outlet, command, record_id=row.record_id: self.pduMutationRequested.emit(record_id, outlet, command)
                             ),
                             request_debug=lambda record_id=row.record_id: self.debugRequested.emit(record_id),
-                            local_refresh_allowed=(
-                                session.status in {
-                                    RoomCycleStatus.COMPLETE,
-                                    RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
-                                }
-                                and not self._interaction_locked
-                            ),
-                            auxiliary_allowed=(
-                                session.status in {
-                                    RoomCycleStatus.COMPLETE,
-                                    RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
-                                }
-                                and not self._interaction_locked
-                            ),
-                            mutation_allowed=(
-                                session.status in {
-                                    RoomCycleStatus.COMPLETE,
-                                    RoomCycleStatus.COMPLETE_WITH_PROBLEMS,
-                                }
-                                and not self._interaction_locked
-                            ),
+                            local_refresh_allowed=actions_allowed,
+                            auxiliary_allowed=actions_allowed,
+                            mutation_allowed=actions_allowed,
+                            debug_allowed=debug_allowed,
+                            live_here=live_here,
                             parent=self.tree,
                         ),
                     )
@@ -128,7 +143,11 @@ class RoomDiagnosticTreeWidget(QWidget):
     def set_interaction_locked(self, locked: bool) -> None:
         """Block accordion changes while an exclusive row operation owns I/O."""
         self._interaction_locked = locked
-        self.tree.setEnabled(not locked)
+
+    def set_active_interaction(self, context, *, retiring: bool = False) -> None:
+        """Render controls from coordinator authority, never widget identity."""
+        self._active_interaction = context
+        self._active_interaction_retiring = retiring
 
     @staticmethod
     def _is_expandable(row) -> bool:
@@ -163,7 +182,7 @@ class RoomDiagnosticTreeWidget(QWidget):
         return "\n".join(lines)
 
     def _accordion_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        if self._changing or item.parent() is not None:
+        if self._changing or self._interaction_locked or item.parent() is not None:
             return
         if not item.data(0, Qt.UserRole + 1):
             return
@@ -171,6 +190,13 @@ class RoomDiagnosticTreeWidget(QWidget):
 
     def _accordion_expanded(self, item: QTreeWidgetItem) -> None:
         if self._changing or item.parent() is not None:
+            return
+        if self._interaction_locked:
+            self._changing = True
+            try:
+                item.setExpanded(False)
+            finally:
+                self._changing = False
             return
         self._changing = True
         try:
@@ -264,7 +290,7 @@ def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]
 class RoomReadOnlyPresentation(QWidget):
     """Exact-row data projection with a deliberately narrow action request."""
 
-    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, parent=None):
+    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, parent=None):
         super().__init__(parent)
         self.setObjectName("roomReadOnlyPresentation")
         self.setProperty("recordId", row.record_id)
@@ -284,7 +310,7 @@ class RoomReadOnlyPresentation(QWidget):
             bool(request_local_refresh)
             and local_refresh_allowed
             and row.status is DeviceRowStatus.CONNECTED
-            and row.network_actions_enabled
+            and (row.network_actions_enabled or live_here)
             and not row.interaction_blocked
         )
         if request_local_refresh is not None:
@@ -297,7 +323,7 @@ class RoomReadOnlyPresentation(QWidget):
                 bool(request_auxiliary)
                 and auxiliary_allowed
                 and row.status is DeviceRowStatus.CONNECTED
-                and row.network_actions_enabled
+                and (row.network_actions_enabled or live_here)
                 and not row.interaction_blocked
             )
             if request_auxiliary is not None:
@@ -305,7 +331,9 @@ class RoomReadOnlyPresentation(QWidget):
             layout.addWidget(call_log_button)
         debug_button = QPushButton("Отладка", self)
         debug_button.setObjectName("roomLocalDebugButton")
-        debug_button.setEnabled(bool(request_debug) and row.accepted_snapshot is not None)
+        debug_button.setEnabled(
+            bool(request_debug) and debug_allowed and row.accepted_snapshot is not None
+        )
         if request_debug is not None:
             debug_button.clicked.connect(request_debug)
         layout.addWidget(debug_button)
@@ -382,7 +410,7 @@ class RoomReadOnlyPresentation(QWidget):
                 bool(request_mutation)
                 and mutation_allowed
                 and row.status is DeviceRowStatus.CONNECTED
-                and row.network_actions_enabled
+                and (row.network_actions_enabled or live_here)
                 and not row.interaction_blocked
                 and isinstance(outlet_number, int)
             )
