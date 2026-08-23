@@ -97,6 +97,7 @@ class InteractiveSessionSignals(QObject):
     error = pyqtSignal(dict)
     finished = pyqtSignal(dict)
     dropped = pyqtSignal(dict)
+    shutdown_finished = pyqtSignal(dict)
 
 
 class InteractiveSessionController(QObject):
@@ -123,6 +124,7 @@ class InteractiveSessionController(QObject):
         self._operation_serial = 0
         self._pending_duplicates: dict[tuple[int, str], int] = {}
         self._accepting = True
+        self._shutdown_future = None
 
     @property
     def generation(self) -> int:
@@ -217,18 +219,34 @@ class InteractiveSessionController(QObject):
     def wait_until_idle(self, timeout: Optional[float] = None) -> None:
         self._executor.submit(lambda: None).result(timeout=timeout)
 
-    def shutdown(self, *, wait: bool = True) -> None:
+    def shutdown(self, *, wait: bool = True):
+        """Retire the executor and expose its physical handler-release boundary.
+
+        ``wait=False`` is safe for Qt callers: the returned future and the
+        ``shutdown_finished`` signal complete only after every previously
+        queued operation has left the single owning lane and ``_close_handler``
+        has run there.
+        """
         with self._lock:
             if not self._accepting:
-                return
+                return self._shutdown_future
             self._accepting = False
             self._generation += 1
+            shutdown_generation = self._generation
             self._context = None
             self._pending_duplicates.clear()
         future = self._executor.submit(self._close_handler)
+        self._shutdown_future = future
+        future.add_done_callback(
+            lambda _future: _emit_signal(
+                self.signals.shutdown_finished,
+                {"generation": shutdown_generation},
+            )
+        )
         if wait:
             future.result()
         self._executor.shutdown(wait=wait, cancel_futures=False)
+        return future
 
     def _run_operation(
         self,

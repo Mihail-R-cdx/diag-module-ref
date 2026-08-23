@@ -104,6 +104,7 @@ class MatrixController(QObject):
     statusAccepted = pyqtSignal(str, object)
     terminalAccepted = pyqtSignal(str, object)
     finishedAccepted = pyqtSignal(object)
+    cleanupFinished = pyqtSignal(object)
     routeAccepted = pyqtSignal(int)
     routeError = pyqtSignal(str)
 
@@ -163,7 +164,12 @@ class MatrixController(QObject):
         self._release_session_background()
 
     def shutdown(self):
-        self.invalidate_context()
+        """Retire active work/session asynchronously on the Matrix owner lane."""
+        self._generation += 1
+        self._active_context = None
+        self._request_keepalive_stop()
+        context = self._make_cleanup_context()
+        self._thread_pool.start(_MatrixRetirementOperation(self, context))
 
     def request_full_refresh(self, ip_address: str, candidates, candidate_index: int):
         self._last_model = MATRIX_DEVICE_NAME
@@ -612,6 +618,9 @@ class MatrixController(QObject):
 
     def _on_finished(self, context: MatrixOperationContext):
         self._candidate_snapshots.pop(context.operation_id, None)
+        if context.operation_kind == "retirement":
+            self.cleanupFinished.emit(context)
+            return
         if not self._is_current(context):
             return
         if context.operation_kind in {"route", "quick_refresh", "keepalive", "cleanup"}:
@@ -637,3 +646,35 @@ class _MatrixCleanupOperation(QRunnable):
                 self.handler.disconnect()
             finally:
                 self.controller._signals.finished.emit(self.context)
+
+
+class _MatrixRetirementOperation(QRunnable):
+    """Wait behind active Matrix work, then release its session physically."""
+
+    def __init__(self, controller: MatrixController, context):
+        super().__init__()
+        self.controller = controller
+        self.context = MatrixOperationContext(
+            model=context.model,
+            ip_address=context.ip_address,
+            operation_kind="retirement",
+            generation=context.generation,
+            operation_id=context.operation_id,
+            expected_operation_id=context.expected_operation_id,
+            credential_context_revision=context.credential_context_revision,
+        )
+
+    @pyqtSlot()
+    def run(self):
+        handler = None
+        with self.controller._operation_lock:
+            with self.controller._session_lock:
+                handler = self.controller._session_handler
+                self.controller._session_handler = None
+                self.controller._session_identity = None
+            if handler is not None:
+                try:
+                    handler.disconnect()
+                except Exception:
+                    pass
+        self.controller._signals.finished.emit(self.context)

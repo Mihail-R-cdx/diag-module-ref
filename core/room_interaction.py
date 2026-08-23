@@ -150,6 +150,10 @@ class RoomInteractionCoordinator:
         except KeyError:
             return False
 
+    def accepts_context(self, context: RoomInteractionContext) -> bool:
+        """Public currentness boundary for composition-owned success evidence."""
+        return self._is_current(context)
+
     def bind_session(self, session: RoomDiagnosticSession | None) -> None:
         self.invalidate("room_session_changed")
         self._session = session
@@ -249,6 +253,12 @@ class RoomInteractionCoordinator:
                 self._degrade(row, warning or "Соединение потеряно", failed=context.kind is RoomInteractionKind.LOCAL_REFRESH)
             elif warning:
                 row.last_safe_operation_error = warning
+        if context.kind is RoomInteractionKind.LIVE and not success:
+            # A terminal live outcome still owns model resources.  Keep the
+            # serialized lane retiring until composition reports their real
+            # release or bounded abandonment.
+            self._retire_active()
+            return
         if warning and success:
             row.warnings.append(warning)
         self._finish_active(context)
@@ -260,10 +270,21 @@ class RoomInteractionCoordinator:
     def cleanup_finished(self, context: RoomInteractionContext, *, timed_out: bool = False) -> None:
         if self._active != context:
             return
+        row = None
+        session = self._session
+        if session is not None:
+            row = session.row_for(context.record_id)
         if timed_out:
-            session = self._session
-            if session is not None:
-                self._degrade(session.row_for(context.record_id), "Не удалось завершить соединение")
+            if row is not None:
+                self._degrade(row, "Не удалось завершить соединение")
+        if row is not None:
+            row.live_state = RoomLiveState.INACTIVE
+            if row.interaction_blocked:
+                row.interaction_state = RoomInteractionState.BLOCKED
+                row.network_actions_enabled = False
+            else:
+                row.interaction_state = RoomInteractionState.IDLE
+                row.network_actions_enabled = self._usable(row)
         self._active = None
         global_refresh = self._pending_global_refresh
         self._pending_global_refresh = None
@@ -371,6 +392,9 @@ class RoomInteractionCoordinator:
         session = self._session
         if session is not None:
             row = session.row_for(context.record_id)
+            if row.interaction_state is RoomInteractionState.RETIRING:
+                self._notify()
+                return
             row.operation_token += 1
             row.interaction_state = RoomInteractionState.RETIRING
             row.live_state = RoomLiveState.INACTIVE

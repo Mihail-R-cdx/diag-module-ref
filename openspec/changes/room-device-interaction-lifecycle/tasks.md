@@ -8,7 +8,7 @@
 ## 2. Post-cycle live lifecycle
 
 - [x] 2.1 Start live only after terminal room-cycle completion for the latest currently expanded connected row that advertises an existing live capability from the unified model registry.
-- [x] 2.2 Implement safe live handoff `invalidate -> bounded cleanup/release -> start latest current target` and collapse-to-none behavior.
+- [x] 2.2 Implement safe live handoff `invalidate -> model-owner physical cleanup/release or bounded abandonment -> start latest current target` and collapse-to-none behavior for CloudLink, Matrix, and DMP.
 - [x] 2.3 Keep network-backed controls disabled during pending handoff and prove rapid A -> B -> C switching starts no stale intermediate live I/O.
 - [x] 2.4 Convert terminal live/session/auth loss after approved recovery into exact-row `соединение потеряно` without blocking other room rows, and set the global bottom status to `Есть проблемы с соединением`.
 
@@ -26,7 +26,7 @@
 - [x] 4.2 Stop/retire live before auxiliary I/O and resume it only after terminal cleanup when the same row remains current and usable.
 - [x] 4.3 While auxiliary read is active/retiring, disable source IP, Password, Local Refresh, mutations, other auxiliary actions, and competing row network actions; keep top full Refresh available as global supersession and keep accordion switching/collapse available as an auxiliary cancellation boundary.
 - [x] 4.4 Preserve application-owned structured credential fallback; ordinary parse/business failure must not become credential retry or whole-row degradation without typed connection/session authority.
-- [x] 4.5 Treat both row switch/collapse and direct user close (`X`) of an active auxiliary child window as exact-request cancellation boundaries: invalidate authority, publish cancel/stop, perform bounded cleanup, reject late callbacks, resume eligible live if the same row remains current/usable, and require a fresh acquisition on reopen.
+- [x] 4.5 Treat both real accordion row switch/collapse and direct user close (`X`) of an active auxiliary child window as exact-request cancellation boundaries: invalidate authority, publish cancel/stop, perform bounded cleanup, reject late callbacks, resume eligible live if the same row remains current/usable, and require a fresh acquisition on reopen.
 - [x] 4.6 Bind `Отладка` to exact row as pure local presentation with no network I/O or live teardown on open/close; allow it during auxiliary activity only while that exact row remains current.
 - [x] 4.7 Keep top full Refresh available as mandatory global supersession during auxiliary read and prove bounded cancellation/abandonment.
 
@@ -63,8 +63,8 @@
 
 ## 9. Regression coverage
 
-- [x] 9.1 Add focused exact-row/same-model, live-handoff, stale callback, and cleanup-timeout tests.
-- [x] 9.2 Add cross-type serialization tests proving `LIVE / LOCAL_REFRESH / AUXILIARY_READ / MUTATION / RECONCILIATION` cannot overlap or concurrently acquire/await device network resources.
+- [x] 9.1 Add focused exact-row/same-model, CloudLink/Matrix/DMP production-composition live-handoff, stale callback, and cleanup-timeout tests.
+- [x] 9.2 Add cross-type serialization tests proving `LIVE / LOCAL_REFRESH / AUXILIARY_READ / MUTATION / RECONCILIATION` cannot overlap or concurrently acquire/await device network resources, including mutation no-send before cleanup and after cleanup timeout.
 - [x] 9.3 Add Local Refresh lock-matrix tests for source IP, Password, top Refresh, accordion, auxiliary, mutation, repeated refresh, and pure-local Debug behavior.
 - [x] 9.4 Add auxiliary lock-matrix tests proving source IP/Password/Local Refresh/mutations/other auxiliary actions are blocked while top full Refresh and accordion cancellation remain available.
 - [x] 9.5 Add mutation/reconciliation tests proving failed/ambiguous/unconfirmed mutation blocks live, Local Refresh, auxiliary and further mutation until top full Refresh.

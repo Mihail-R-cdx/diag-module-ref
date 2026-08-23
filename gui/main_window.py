@@ -384,6 +384,10 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_cloudlink_live = {}
         self._room_matrix_live = {}
         self._room_dmp_live = {}
+        self._room_live_retirements = {}
+        self._room_live_cleanup_timers = {}
+        self._room_live_successful_contexts = set()
+        self.room_live_cleanup_timeout_ms = 5000
         self.room_interaction_coordinator = RoomInteractionCoordinator(
             bindings_for_model=self._room_interaction_bindings_for_model,
             credential_context_revision=lambda: self.__dict__.get("_equipment_room_credential_context_revision", 0),
@@ -779,11 +783,11 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _on_room_row_expanded(self, record_id):
         coordinator = self.__dict__.get("room_interaction_coordinator")
-        session = self.__dict__.get("room_diagnostic_session")
-        if session is not None and session.expanded_record_id != record_id:
-            self._close_room_child_presentations(
-                except_record_id=record_id,
-            )
+        # The widget updates ``expanded_record_id`` before publishing this
+        # signal and suppresses the programmatic collapse signal for the old
+        # row.  Expansion is therefore the ownership boundary: every child
+        # presentation except the newly current exact row loses authority.
+        self._close_room_child_presentations(except_record_id=record_id)
         if coordinator is not None:
             coordinator.expand(record_id)
 
@@ -941,18 +945,8 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _cancel_room_interaction(self, context):
         if context.kind is RoomInteractionKind.LIVE:
-            cloudlink = self._room_cloudlink_live.pop(context, None)
-            if cloudlink is not None:
-                meter, session = cloudlink
-                meter.stop()
-                session.invalidate_context()
-                session.shutdown(wait=False)
-            matrix = self._room_matrix_live.pop(context, None)
-            if matrix is not None:
-                matrix.shutdown()
-            dmp = self._room_dmp_live.pop(context, None)
-            if dmp is not None:
-                dmp[1].cancel()
+            if self._retire_room_live_owner(context):
+                return
             timer = self._room_live_timers.pop(context, None)
             if timer is not None:
                 timer.stop()
@@ -970,6 +964,62 @@ class VCSDiagnosticApp(QMainWindow):
             self.room_diagnostic_controller.cancel_local_refresh(context)
         elif context.kind is RoomInteractionKind.AUXILIARY_READ:
             self.room_call_log_controller.cancel(context)
+
+    def _retire_room_live_owner(self, context, *, after_cleanup=None):
+        """Publish model cancellation and wait for the physical owner boundary."""
+        if context in self._room_live_retirements:
+            return True
+        cloudlink = self._room_cloudlink_live.pop(context, None)
+        matrix = self._room_matrix_live.pop(context, None)
+        dmp = self._room_dmp_live.pop(context, None)
+        if cloudlink is None and matrix is None and dmp is None:
+            return False
+        self._room_live_retirements[context] = after_cleanup
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(
+            lambda current=context: self._finish_room_live_owner_cleanup(
+                current, timed_out=True
+            )
+        )
+        self._room_live_cleanup_timers[context] = timer
+        timer.start(self.room_live_cleanup_timeout_ms)
+        if cloudlink is not None:
+            meter, session = cloudlink
+            meter.stop()
+            session.invalidate_context()
+            session.shutdown(wait=False)
+        if matrix is not None:
+            matrix.shutdown()
+        if dmp is not None:
+            dmp[1].cancel()
+        return True
+
+    def _finish_room_live_owner_cleanup(self, context, *, timed_out=False):
+        """Accept exactly one physical-complete or bounded-abandonment event."""
+        if context not in self._room_live_retirements:
+            return
+        after_cleanup = self._room_live_retirements.pop(context)
+        timer = self._room_live_cleanup_timers.pop(context, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is None or coordinator.active_context != context:
+            self._room_credential_attempts.pop(context, None)
+            self._room_live_successful_contexts.discard(context)
+            return
+        if timed_out:
+            self._room_credential_attempts.pop(context, None)
+            self._room_live_successful_contexts.discard(context)
+            coordinator.cleanup_finished(context, timed_out=True)
+            return
+        if after_cleanup is not None and not coordinator.is_retiring(context):
+            after_cleanup()
+            return
+        self._room_credential_attempts.pop(context, None)
+        self._room_live_successful_contexts.discard(context)
+        coordinator.cleanup_finished(context, timed_out=False)
 
     def _start_room_periodic_live(self, context):
         timer = QTimer(self)
@@ -995,12 +1045,17 @@ class VCSDiagnosticApp(QMainWindow):
         session = InteractiveSessionController(self)
         meter = CloudLinkMicrophoneMeter(self, session=session)
         self._room_cloudlink_live[context] = (meter, session)
-        meter.sample.connect(
-            lambda sample, current=context: self._accept_room_live_sample(current, sample)
+        meter.accepted.connect(
+            lambda sample, evidence, current=context:
+            self._accept_room_live_sample(current, sample, evidence)
         )
         meter.terminal.connect(
             lambda outcome, current=context, index=candidate_index:
             self._accept_room_cloudlink_terminal(current, outcome, index)
+        )
+        session.signals.shutdown_finished.connect(
+            lambda _evidence, current=context:
+            self._finish_room_live_owner_cleanup(current)
         )
         profile = self.get_device_connection_profile(
             context.diagnostic_model, context.ip_address
@@ -1013,21 +1068,78 @@ class VCSDiagnosticApp(QMainWindow):
             generation=generation, token=context.interaction_generation,
         )
 
-    def _accept_room_live_sample(self, context, sample):
-        coordinator = self.__dict__.get("room_interaction_coordinator")
-        if coordinator is None or coordinator.active_context != context:
-            return
+    def _accept_room_live_sample(self, context, sample, evidence=None):
         session = self.__dict__.get("room_diagnostic_session")
         row = session.row_for(context.record_id) if session is not None else None
         snapshot = dict(row.accepted_snapshot or {}) if row is not None else {}
         snapshot["live_microphone"] = dict(sample)
-        coordinator.complete(context, success=True, data=snapshot)
+        profile = evidence.get("connection_profile") if isinstance(evidence, Mapping) else None
+        self._accept_room_model_live_success(
+            context,
+            snapshot,
+            connection_profile=profile,
+        )
+
+    def _accept_room_model_live_success(
+        self,
+        context,
+        data,
+        *,
+        connection_profile=None,
+    ):
+        """Persist accepted exact-attempt evidence before presenting LIVE data."""
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is None or not coordinator.accepts_context(context):
+            return False
+        attempt = self._room_credential_attempts.get(context)
+        if attempt is None:
+            return False
+        _candidates, candidate_index, _command = attempt
+        if context not in self._room_live_successful_contexts:
+            self.set_current_credential_index(
+                context.diagnostic_model,
+                candidate_index,
+                context.ip_address,
+            )
+            if isinstance(connection_profile, Mapping) and connection_profile:
+                self.set_device_connection_profile(
+                    context.diagnostic_model,
+                    dict(connection_profile),
+                    context.ip_address,
+                )
+            self._room_live_successful_contexts.add(context)
+        coordinator.complete(context, success=True, data=data)
+        return True
+
+    def _retry_room_model_live_authentication(self, context, candidate_index):
+        """Advance only after the rejected owner has physically retired."""
+        attempt = self._room_credential_attempts.get(context)
+        if attempt is None or context in self._room_live_successful_contexts:
+            return False
+        candidates, current_index, command = attempt
+        if current_index != candidate_index or candidate_index + 1 >= len(candidates):
+            return False
+
+        def start_next():
+            self._start_room_credential_attempt(
+                context,
+                command=command,
+                candidate_index=candidate_index + 1,
+            )
+
+        return self._retire_room_live_owner(context, after_cleanup=start_next)
 
     def _accept_room_cloudlink_terminal(self, context, outcome, candidate_index):
         category = outcome.get("category") if isinstance(outcome, Mapping) else None
         if category == "authentication_error":
-            self._on_room_local_refresh_finished(
-                context, False, RoomAuthenticationRejected(candidate_index), False, None
+            if self._retry_room_model_live_authentication(context, candidate_index):
+                return
+            self._room_credential_attempts.pop(context, None)
+            self.room_interaction_coordinator.complete(
+                context,
+                success=False,
+                connection_lost=True,
+                warning="Credentials отклонены",
             )
             return
         self._on_room_local_refresh_finished(
@@ -1053,18 +1165,26 @@ class VCSDiagnosticApp(QMainWindow):
             lambda error, _handle, current=context, index=candidate_index:
             self._accept_room_matrix_terminal(current, error, index)
         )
+        controller.cleanupFinished.connect(
+            lambda _cleanup_context, current=context:
+            self._finish_room_live_owner_cleanup(current)
+        )
         controller.request_full_refresh(context.ip_address, (credential,), 0)
 
     def _accept_room_matrix_result(self, context, data):
-        coordinator = self.__dict__.get("room_interaction_coordinator")
-        if coordinator is not None and coordinator.active_context == context:
-            coordinator.complete(context, success=True, data=dict(data or {}))
+        self._accept_room_model_live_success(context, dict(data or {}))
 
     def _accept_room_matrix_terminal(self, context, error, candidate_index):
         category = error[0] if error else None
         if category == "authentication_error":
-            self._on_room_local_refresh_finished(
-                context, False, RoomAuthenticationRejected(candidate_index), False, None
+            if self._retry_room_model_live_authentication(context, candidate_index):
+                return
+            self._room_credential_attempts.pop(context, None)
+            self.room_interaction_coordinator.complete(
+                context,
+                success=False,
+                connection_lost=True,
+                warning="Credentials отклонены",
             )
             return
         self._on_room_local_refresh_finished(
@@ -1088,18 +1208,31 @@ class VCSDiagnosticApp(QMainWindow):
             lambda error, current=context, index=candidate_index:
             self._accept_room_dmp_live_error(current, error, index)
         )
+        worker.signals.finished.connect(
+            lambda current=context: self._finish_room_live_owner_cleanup(current)
+        )
         QThreadPool.globalInstance().start(worker)
 
     def _accept_room_dmp_live_result(self, context, data):
-        coordinator = self.__dict__.get("room_interaction_coordinator")
-        if coordinator is not None and coordinator.active_context == context:
-            coordinator.complete(context, success=True, data=dict(data or {}))
+        snapshot = dict(data or {})
+        profile = snapshot.get("connection_profile")
+        self._accept_room_model_live_success(
+            context,
+            snapshot,
+            connection_profile=profile,
+        )
 
     def _accept_room_dmp_live_error(self, context, error, candidate_index):
         category = error[0] if error else None
         if category == CodecFailureCategory.AUTHENTICATION.value:
-            self._on_room_local_refresh_finished(
-                context, False, RoomAuthenticationRejected(candidate_index), False, None
+            if self._retry_room_model_live_authentication(context, candidate_index):
+                return
+            self._room_credential_attempts.pop(context, None)
+            self.room_interaction_coordinator.complete(
+                context,
+                success=False,
+                connection_lost=True,
+                warning="Credentials отклонены",
             )
             return
         self._on_room_local_refresh_finished(
