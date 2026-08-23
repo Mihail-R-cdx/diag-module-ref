@@ -93,7 +93,7 @@ def _room_entry(
     credentialless_allowed: bool = False,
     call_log: bool = False,
     pdu_mutation: bool = False,
-    periodic_live: bool = False,
+    live_binding_key: str | None = None,
 ) -> DiagnosticDispatchEntry:
     """Build the one registry entry used by both room phases.
 
@@ -108,7 +108,7 @@ def _room_entry(
         room_adapter_key,
         credentialless_allowed=credentialless_allowed,
         local_refresh_binding_key="room_one_shot_refresh",
-        live_binding_key="room_periodic_live" if periodic_live else None,
+        live_binding_key=live_binding_key,
         auxiliary_binding_key="room_codec_call_log" if call_log else None,
         mutation_binding_key="room_pdu_mutation" if pdu_mutation else None,
         reconciliation_binding_key="room_one_shot_refresh" if pdu_mutation else None,
@@ -119,14 +119,14 @@ def _room_entry(
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
     _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True),
     _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True),
-    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, periodic_live=True),
-    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, periodic_live=True),
+    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live"),
+    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live"),
     _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True),
-    _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", periodic_live=True),
+    _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live"),
     _room_entry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot", pdu_mutation=True),
     _room_entry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True, pdu_mutation=True),
     _room_entry("Biamp Tesira Forte CI", "audio_dsp", "biamp_tesira_forte_ci", "biamp_one_shot"),
-    _room_entry("Extron DMP 64 Plus", "audio_dsp", "dmp_polling_controller", "dmp_one_shot", periodic_live=True),
+    _room_entry("Extron DMP 64 Plus", "audio_dsp", "dmp_polling_controller", "dmp_one_shot", live_binding_key="dmp_room_live"),
 )
 
 

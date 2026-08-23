@@ -690,7 +690,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         row = session.row_for("dmp")
         row.status = DeviceRowStatus.CONNECTED
         row.accepted_snapshot = {"device_info": {"model": "DMP"}}
-        window._start_room_periodic_live = Mock()
+        window._start_room_dmp_live = Mock()
         window._start_room_local_refresh = Mock()
         window.room_diagnostic_session = session
         window.room_interaction_coordinator.bind_session(session)
@@ -705,6 +705,52 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertFalse(window.password_btn.isEnabled())
         self.assertFalse(window.refresh_btn.isEnabled())
         self.assertTrue(window.room_diagnostic_tree._interaction_locked)
+
+    def test_room_live_tick_hands_selected_credential_to_the_network_owner(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        context = RoomInteractionContext(
+            "snapshot", 4, "cloud", "CloudLink Bar 310", "192.0.2.64", 3, 9, 0,
+            RoomInteractionKind.LIVE,
+        )
+        window.device_credentials[context.diagnostic_model] = [
+            {"username": "operator", "password": "secret"}
+        ]
+        window.room_interaction_coordinator._active = context
+        window._start_room_cloudlink_live_attempt = Mock()
+
+        window._run_room_live_tick(context)
+
+        window._start_room_cloudlink_live_attempt.assert_called_once_with(
+            context,
+            {"username": "operator", "password": "secret"}, 0,
+        )
+
+    def test_post_cycle_problem_updates_persistent_connection_status_without_time_change(self):
+        from gui.diagnostic_dispatch import room_model_capabilities
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        device = record("codec")
+        session = build_room_session(
+            inventory=inventory(device),
+            source=resolve_room_source(inventory(device), device.ip_address, room_model_capabilities()),
+            generation=12,
+            capabilities=room_model_capabilities(),
+        )
+        session.status = RoomCycleStatus.COMPLETE
+        session.post_cycle_problem = True
+        window.room_diagnostic_session = session
+        previous = object()
+        window.last_update_time = previous
+
+        window._on_room_diagnostic_updated(session)
+
+        self.assertEqual("Есть проблемы с соединением", window.room_diagnostic_tree.global_status.text())
+        self.assertIs(previous, window.last_update_time)
 
     @classmethod
     def setUpClass(cls):

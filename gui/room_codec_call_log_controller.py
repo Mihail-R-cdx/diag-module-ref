@@ -27,6 +27,7 @@ class _CallLogRun:
     terminal: tuple[bool, Any, bool, str | None] | None = None
     cancelled: bool = False
     cleanup_started: bool = False
+    successful_evidence: dict[str, Any] | None = None
 
 
 class _CleanupWorker(QRunnable):
@@ -65,6 +66,7 @@ class RoomCodecCallLogController(QObject):
         self.cleanup_timeout_seconds = cleanup_timeout_seconds
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
         self._runs: dict[RoomInteractionContext, _CallLogRun] = {}
+        self._successful_evidence: dict[RoomInteractionContext, dict[str, Any]] = {}
         self.cleanupCompleted.connect(self._accept_cleanup)
 
     def start(
@@ -121,9 +123,21 @@ class RoomCodecCallLogController(QObject):
         run.cancelled = True
         self._begin_cleanup(context, run)
 
+    def take_success_evidence(self, context: RoomInteractionContext) -> dict[str, Any] | None:
+        """Return non-secret success evidence accepted for one exact context."""
+        return self._successful_evidence.pop(context, None)
+
     def _accept_result(self, context: RoomInteractionContext, payload: dict) -> None:
         if context not in self._runs:
             return
+        run = self._runs[context]
+        profile = payload.get("connection_profile")
+        candidate_index = payload.get("credential_index")
+        if isinstance(profile, Mapping) and isinstance(candidate_index, int):
+            run.successful_evidence = {
+                "candidate_index": candidate_index,
+                "connection_profile": dict(profile),
+            }
         self._finish(context, True, payload.get("value"), False, None)
 
     def _accept_error(self, context: RoomInteractionContext, payload: dict) -> None:
@@ -175,4 +189,6 @@ class RoomCodecCallLogController(QObject):
             success = False
             connection_lost = True
             warning = "Не удалось завершить соединение"
+        if success and run.successful_evidence is not None:
+            self._successful_evidence[context] = run.successful_evidence
         self.operationFinished.emit(context, success, data, connection_lost, warning)

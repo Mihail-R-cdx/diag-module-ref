@@ -478,6 +478,23 @@ class CredentialConfigurationFlowTests(unittest.TestCase):
         self.assertTrue(inserted)
         self.assertEqual(2, window.get_current_credential_index("Huawei TE40", "192.0.2.10"))
 
+    def test_saving_already_preferred_credential_is_a_context_preserving_noop(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        credential = {"username": "operator", "password": "secret"}
+        window.device_credentials["Huawei TE40"] = [dict(credential)]
+        window._on_credential_configuration_changed = Mock()
+
+        inserted = window.configure_credential_candidate(
+            "Huawei TE40", "192.0.2.10", credential
+        )
+
+        self.assertFalse(inserted)
+        self.assertEqual([credential], window.device_credentials["Huawei TE40"])
+        window._on_credential_configuration_changed.assert_not_called()
+
     def test_candidate_reorder_preserves_multiple_ip_success_identities(self):
         from gui.main_window import VCSDiagnosticApp
 

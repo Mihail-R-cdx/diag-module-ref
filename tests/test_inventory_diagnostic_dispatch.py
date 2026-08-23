@@ -103,7 +103,9 @@ class DispatchRegistryTests(unittest.TestCase):
         self.assertEqual("room_codec_call_log", entries["Huawei TE40"].auxiliary_binding_key)
         self.assertEqual("room_pdu_mutation", entries["Aten PE8208AV"].mutation_binding_key)
         self.assertEqual("room_one_shot_refresh", entries["Aten PE8208AV"].reconciliation_binding_key)
-        self.assertEqual("room_periodic_live", entries["Extron DMP 64 Plus"].live_binding_key)
+        self.assertEqual("dmp_room_live", entries["Extron DMP 64 Plus"].live_binding_key)
+        self.assertEqual("cloudlink_room_live", entries["CloudLink Bar 310"].live_binding_key)
+        self.assertEqual("matrix_room_live", entries["Extron IN1804"].live_binding_key)
 
 
 class ExactModelResolverTests(unittest.TestCase):
