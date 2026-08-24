@@ -80,6 +80,6 @@
 - [x] 10.1 Run `./openspec.cmd validate room-device-interaction-lifecycle --strict` during architecture and implementation work.
 - [x] 10.2 Independent architectural review approved the architecture at `ebc96586868d80af86a7178623e1d6ee100c3260` before production implementation.
 - [x] 10.3 Implementation session adds focused regression coverage, runs strict validation and required tests, creates a focused commit, and pushes the feature branch without self-approving.
-- [ ] 10.4 Independent validation runs in a clean detached worktree from the current published remote feature HEAD and re-runs all required checks without fixing its own findings.
-- [ ] 10.5 Because this change removes requirements from `pdu-room-codec-enrichment`, independent validation performs the required disposable archive-applicability check before `READY FOR ARCHIVE`.
-- [ ] 10.6 Archive only after a permitting independent verdict; then run `./openspec.cmd validate --all --strict`, full offline tests, Git diff checks, review archive/root-spec diff, create/push the dedicated archive commit, and stop before merge unless the user explicitly authorizes it.
+- [x] 10.4 Independent validation runs in a clean detached worktree from the current published remote feature HEAD and re-runs all required checks without fixing its own findings.
+- [x] 10.5 Because this change removes requirements from `pdu-room-codec-enrichment`, independent validation performs the required disposable archive-applicability check before `READY FOR ARCHIVE`.
+- [x] 10.6 Archive only after a permitting independent verdict; then run `./openspec.cmd validate --all --strict`, full offline tests, Git diff checks, review archive/root-spec diff, create/push the dedicated archive commit, and stop before merge unless the user explicitly authorizes it.
