@@ -32,6 +32,14 @@ class DiagnosticDispatchEntry:
     presentation_capability: str = "presentation_only"
     requires_credentials: bool = True
     credentialless_allowed: bool = False
+    # These optional keys name composition bindings.  Keeping them on the
+    # exact model entry prevents room mode from growing parallel model lists.
+    live_binding_key: str | None = None
+    local_refresh_binding_key: str | None = None
+    auxiliary_binding_key: str | None = None
+    mutation_binding_key: str | None = None
+    reconciliation_binding_key: str | None = None
+    cleanup_binding_key: str | None = None
 
     def room_capability(self) -> RoomModelCapability:
         return RoomModelCapability(
@@ -76,17 +84,49 @@ class ModelResolutionResult:
         return self.status is ModelResolutionStatus.RESOLVED and self.entry is not None
 
 
+def _room_entry(
+    diagnostic_model: str,
+    screen_key: str,
+    lifecycle_route: str,
+    room_adapter_key: str,
+    *,
+    credentialless_allowed: bool = False,
+    call_log: bool = False,
+    pdu_mutation: bool = False,
+    live_binding_key: str | None = None,
+) -> DiagnosticDispatchEntry:
+    """Build the one registry entry used by both room phases.
+
+    Every currently supported row offers only the safe read-only local
+    refresh.  Live polling, auxiliary reads and mutation remain undeclared
+    until model-specific adapters with their own cleanup contracts exist.
+    """
+    return DiagnosticDispatchEntry(
+        diagnostic_model,
+        screen_key,
+        lifecycle_route,
+        room_adapter_key,
+        credentialless_allowed=credentialless_allowed,
+        local_refresh_binding_key="room_one_shot_refresh",
+        live_binding_key=live_binding_key,
+        auxiliary_binding_key="room_codec_call_log" if call_log else None,
+        mutation_binding_key="room_pdu_mutation" if pdu_mutation else None,
+        reconciliation_binding_key="room_one_shot_refresh" if pdu_mutation else None,
+        cleanup_binding_key="room_one_shot_cleanup",
+    )
+
+
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
-    DiagnosticDispatchEntry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot"),
-    DiagnosticDispatchEntry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot"),
-    DiagnosticDispatchEntry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot"),
-    DiagnosticDispatchEntry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot"),
-    DiagnosticDispatchEntry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot"),
-    DiagnosticDispatchEntry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot"),
-    DiagnosticDispatchEntry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot"),
-    DiagnosticDispatchEntry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True),
-    DiagnosticDispatchEntry("Biamp Tesira Forte CI", "audio_dsp", "biamp_tesira_forte_ci", "biamp_one_shot"),
-    DiagnosticDispatchEntry("Extron DMP 64 Plus", "audio_dsp", "dmp_polling_controller", "dmp_one_shot"),
+    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True),
+    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True),
+    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live"),
+    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live"),
+    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True),
+    _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live"),
+    _room_entry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot", pdu_mutation=True),
+    _room_entry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True, pdu_mutation=True),
+    _room_entry("Biamp Tesira Forte CI", "audio_dsp", "biamp_tesira_forte_ci", "biamp_one_shot"),
+    _room_entry("Extron DMP 64 Plus", "audio_dsp", "dmp_polling_controller", "dmp_one_shot", live_binding_key="dmp_room_live"),
 )
 
 
@@ -114,6 +154,7 @@ def validate_dispatch_registry(
     registered_screens: set[str] | frozenset[str],
     page_models_by_screen: dict[str, tuple[str, ...]],
     available_room_adapter_keys: set[str] | frozenset[str] | None = None,
+    available_room_interaction_binding_keys: set[str] | frozenset[str] | None = None,
 ) -> None:
     seen: set[str] = set()
     for entry in DISPATCH_REGISTRY:
@@ -141,6 +182,24 @@ def validate_dispatch_registry(
             raise ValueError(
                 f"Dispatch model {entry.diagnostic_model} is not registered on {entry.screen_key}"
             )
+        interaction_keys = (
+            entry.live_binding_key,
+            entry.local_refresh_binding_key,
+            entry.auxiliary_binding_key,
+            entry.mutation_binding_key,
+            entry.reconciliation_binding_key,
+        )
+        declared_interaction = tuple(key for key in interaction_keys if key)
+        if declared_interaction and not entry.cleanup_binding_key:
+            raise ValueError(
+                f"Dispatch interaction capability has no cleanup binding: {entry.diagnostic_model}"
+            )
+        if available_room_interaction_binding_keys is not None:
+            for key in (*declared_interaction, entry.cleanup_binding_key):
+                if key and key not in available_room_interaction_binding_keys:
+                    raise ValueError(
+                        f"Dispatch interaction binding is not bound: {entry.diagnostic_model}"
+                    )
 
 
 def resolve_exact_model_for_ip(

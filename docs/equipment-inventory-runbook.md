@@ -9,19 +9,15 @@ ChatGPT sessions, and local Codex sessions.
 The normative contracts remain the current root OpenSpec specifications:
 
 - `openspec/specs/equipment-inventory-snapshot/spec.md`
-- `openspec/specs/pdu-room-codec-enrichment/spec.md`, when that capability is
-  present on the current branch
 - the related root specifications for application composition, request
   lifecycle, credentials, and device diagnostics
 
-When the second root specification is not yet present on a branch, read the
-current active or archived `pdu-room-codec-enrichment` change instead. If this
-runbook conflicts with an approved OpenSpec specification, the OpenSpec
-specification wins.
+If this runbook conflicts with an approved OpenSpec specification, the
+OpenSpec specification wins.
 
-Any change to source-column mapping, canonical schema, identity authority,
-ambiguity handling, PDU-to-room resolution, codec selection, or enrichment
-lifecycle requires a semantic OpenSpec change before production implementation.
+Any change to source-column mapping, canonical schema, identity authority or
+ambiguity handling requires a semantic OpenSpec change before production
+implementation.
 
 ## Data flow
 
@@ -74,18 +70,16 @@ They must not be committed to Git. Tests use synthetic inventory only.
 core/equipment_inventory.py
 tools/import_equipment_inventory.py
 core/room_context.py
-core/related_codec_status.py
 gui/equipment_pages.py
 gui/diagnostic_dispatch.py
 gui/device_model_fallback_dialog.py
 gui/main_window.py
-gui/pdu_room_codec_enrichment.py
 gui/pdu_controller.py
 gui/screens/pdu_screen.py
 tests/test_equipment_inventory.py
 tests/test_inventory_diagnostic_dispatch.py
 tests/test_inventory_credential_configuration.py
-tests/test_pdu_room_codec_enrichment.py
+tests/test_pdu_room_codec_removal.py
 tests/test_equipment_room_context_gui.py
 ```
 
@@ -581,8 +575,8 @@ Schema v4 exposes `switch_ip_address` and `switch_port` as passive record
 attributes only. The runtime inventory keeps the same indexes and public
 queries. Do not add runtime indexes or public queries by switch IP or switch
 port in this change. Diagnostic dispatch, credential configuration, room
-context, PDU-to-room-to-codec enrichment, handlers, controllers, workers,
-transports, and device I/O ignore the switch fields.
+context, handlers, controllers, workers, transports, and device I/O ignore
+the switch fields.
 
 Every normal query returns a tuple containing zero, one, or many records.
 The inventory layer preserves multiplicity and does not classify it as
@@ -846,128 +840,12 @@ INVALID_SNAPSHOT
 No failed load may publish partial records, indexes, or an
 `EquipmentInventory` instance.
 
-## PDU to room to codec resolution
+## Retired PDU-to-codec enrichment
 
-Resolution starts only after a current successful user-initiated PDU refresh
-has been accepted by `PDUController`.
-
-A mutation reconciliation refresh, stale callback, PDU error, progress event,
-or completion without accepted success must not start enrichment.
-
-The exact resolution sequence is:
-
-```text
-1. Receive the accepted current PDU IP and exact accepted PDU model.
-2. Call inventory.find_by_ip(pdu_ip).
-3. Require exactly one total IP match.
-4. Require the accepted PDU model to be Aten PE8208AV or Extron IPL T PCS4i.
-5. Require the one inventory record diagnostic_model to be in that closed PDU set.
-6. Require the inventory diagnostic_model to exactly equal the accepted PDU model.
-7. Require non-null authoritative room_id.
-8. Call inventory.find_room_equipment(room_id) for display consistency evidence.
-9. Call inventory.find_by_room_and_kind(room_id, "video_codec").
-10. Require exactly one codec record.
-11. Require non-null canonical codec ip_address.
-12. Require an exact supported codec diagnostic_model.
-13. Bind the result to the inventory snapshot and accepted PDU context.
-14. Run an independent read-only codec-status operation.
-15. Render only accepted current non-secret presentation on PDUScreen.
-```
-
-Duplicate IP ambiguity is evaluated before model inspection. If two records
-share the accepted PDU IP, the result remains `AMBIGUOUS_PDU_IP`.
-
-Room name never replaces room ID. When one `room_id` has multiple distinct room
-names, no name is selected; a safe `ROOM_NAME_CONFLICT` warning is exposed and
-resolution continues by `room_id`.
-
-## Resolution statuses
-
-```text
-INVENTORY_UNAVAILABLE
-PDU_NOT_FOUND
-AMBIGUOUS_PDU_IP
-PDU_MODEL_UNSUPPORTED
-PDU_MODEL_MISMATCH
-ROOM_UNRESOLVED
-CODEC_NOT_FOUND
-AMBIGUOUS_CODEC
-CODEC_IP_MISSING
-CODEC_UNSUPPORTED
-RESOLVED
-```
-
-These statuses are application resolution outcomes. They are not emitted by the
-inventory query layer itself.
-
-## Supported related-codec models
-
-Automatic related-codec diagnostics use exact canonical `diagnostic_model`
-values only:
-
-```text
-Huawei TE20
-Huawei TE40
-CloudLink Bar 310
-CloudLink Box 310
-Polycom RPG 310
-```
-
-Do not choose a handler from `source_model`, manufacturer substrings, similar
-text, source row order, or a first matching record.
-
-## Related-codec operation boundary
-
-Automatic related-codec diagnostics are read-only and obtain only narrow
-normalized status such as:
-
-```text
-call_status
-presentation_status
-```
-
-They must not issue Wake, volume, mute, SIP update, call placement, call
-termination, presentation control, or any other state-changing command.
-
-The operation uses an independent serialized `InteractiveSessionController` or
-equivalent lane. It must not reuse:
-
-```text
-CodecScreen.interactive_controller
-generic _active_request
-global current_worker
-```
-
-A user-selected codec context and an automatically resolved related codec must
-remain independent.
-
-## Generation and stale-work safety
-
-Every accepted PDU refresh creates a distinct enrichment generation, including
-a repeat refresh for the same PDU and the same resolved codec.
-
-Required order:
-
-```text
-new enrichment generation
-    -> dedicated session invalidate_context()
-    -> resolve inventory and codec context
-    -> activate dedicated codec context
-    -> submit one read-only status operation
-```
-
-A stale queued operation must be dropped before handler acquisition and before
-network I/O. A stale in-flight result must not:
-
-- update the GUI;
-- restore old room or codec values;
-- persist a credential index;
-- persist a connection profile;
-- change PDU lifecycle state.
-
-Starting a new or repeat PDU refresh, changing PDU model/IP/credential context,
-explicit invalidation, or shutdown must supersede old enrichment immediately,
-without waiting for replacement success.
+PDU pages no longer resolve, poll, or display a related codec.  Room membership
+and per-device diagnostics are owned by the room diagnostic session instead.
+Do not restore a PDU-triggered codec lookup, a hidden codec worker, or a
+related-codec presentation block without a new approved OpenSpec change.
 
 ## Credential and transport rules
 
@@ -986,28 +864,12 @@ A supported saved connection profile is tried first. Credential index and
 profile are persisted only after an accepted current complete success. Stale,
 partial, resolution-only, unsupported, and failed outcomes persist nothing.
 
-## PDU result independence
+## Equipment-page room context
 
-Inventory and related-codec enrichment are optional contextual diagnostics.
-Their failure must not convert an accepted PDU success into a PDU failure.
-
-Enrichment failure must not:
-
-- clear accepted PDU device or outlet data;
-- disable valid PDU controls;
-- change PDU refresh or mutation authority;
-- trigger PDU retry or reconciliation;
-- open an automatic modal connection error.
-
-Related-room failures are rendered safely and inline.
-
-## Non-PDU room context
-
-Every registered non-PDU equipment page is routed through the centralized
-equipment-page registry in `gui/equipment_pages.py` and receives the same
-shared room-information block at the bottom of the page. PDU pages are excluded
-only by explicit registry classification because they keep the dedicated PDU
-room/related-codec block.
+Every registered equipment page is routed through the centralized
+equipment-page registry in `gui/equipment_pages.py` and may receive the shared
+room-information block at the bottom of the page according to its registry
+classification. PDU pages have no dedicated related-codec block.
 
 Non-PDU room context is application-owned and independent from device
 diagnostic success. A new room-context generation is created when model,
@@ -1045,7 +907,7 @@ Before any inventory-related task:
 1. Read `RULES.md`.
 2. Read this runbook.
 3. Read the current root OpenSpec inventory specification.
-4. Read the current PDU-room-codec specification or active/archived change when relevant.
+4. Read the applicable current OpenSpec specification or active change.
 5. Verify the current GitHub branch, PR, and `master`; do not rely on old session memory.
 6. Preserve zero/one/many semantics and authoritative identity rules.
 7. Use only synthetic fixtures.

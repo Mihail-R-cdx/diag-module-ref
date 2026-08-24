@@ -155,11 +155,10 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(3, len(screen.findChildren(SectionCard)))
+        self.assertEqual(2, len(screen.findChildren(SectionCard)))
         content_layout = screen.content.layout()
         self.assertIs(content_layout.itemAt(0).widget(), screen.info_group)
         self.assertIs(content_layout.itemAt(1).widget(), screen.outlets_group)
-        self.assertIs(content_layout.itemAt(2).widget(), screen.related_group)
         self.assertNotIn("status", screen.info_rows)
         self.assertNotIn("status", screen.info_labels)
         self.assertTrue(screen.info_rows["firmware"].isHidden())
@@ -191,62 +190,12 @@ class DeviceScreensOffscreenTest(unittest.TestCase):
         self.assertEqual([], self.parent_widget.pdu_commands)
         self.assertEqual("", screen.outlets_table.styleSheet())
 
-    def test_pdu_related_block_is_simplified_and_compact_only_locally(self):
+    def test_pdu_has_no_related_codec_block(self):
         from gui.screens.pdu_screen import PDUScreen
 
         screen = self._track(PDUScreen(self.parent_widget))
-        screen.set_related_room_codec(
-            {
-                "resolution_status": "RESOLVED",
-                "codec_diagnostic_status": "SUCCESS",
-                "room_id": "ROOM-1",
-                "room_name": "Room One",
-                "codec_diagnostic_model": "Huawei TE20",
-                "codec_ip_address": "192.0.2.20",
-                "call_status": "Connected",
-                "presentation_status": "Start",
-            }
-        )
-
-        self.assertNotIn("resolution_status", screen.related_rows)
-        self.assertNotIn("room_id", screen.related_rows)
-        self.assertEqual(
-            {
-                "microphone_level",
-                "room_vip",
-                "codec_diagnostic_status",
-                "room_name",
-                "codec_diagnostic_model",
-                "codec_ip_address",
-                "call_status",
-                "presentation_status",
-            },
-            set(screen.related_rows),
-        )
-        self.assertEqual("—", screen.related_rows["room_vip"].value_display.text())
-        self.assertEqual(
-            "SUCCESS",
-            screen.related_rows["codec_diagnostic_status"].value_display.text(),
-        )
-        self.assertEqual("Room One", screen.related_rows["room_name"].value_display.text())
-        self.assertEqual("Huawei TE20", screen.related_rows["codec_diagnostic_model"].value_display.text())
-        self.assertEqual("192.0.2.20", screen.related_rows["codec_ip_address"].value_display.text())
-        self.assertEqual("Connected", screen.related_rows["call_status"].value_display.text())
-        self.assertEqual("Start", screen.related_rows["presentation_status"].value_display.text())
-
-        self.assertEqual("compact", screen.related_group.property("density"))
-        for row in screen.related_rows.values():
-            self.assertEqual("compact", row.property("density"))
-            self.assertEqual("compact", row.name_label.property("parameterDensity"))
-            self.assertEqual("compact", row.value_display.property("density"))
-            self.assertEqual("compact", row.value_display.property("parameterDensity"))
-            self.assertLess(
-                row.layout().contentsMargins().top(),
-                screen.info_rows["model"].layout().contentsMargins().top(),
-            )
-        self.assertIsNone(screen.info_group.property("density"))
-        self.assertIsNone(screen.info_rows["model"].property("density"))
-        self.assertIsNone(screen.info_rows["model"].value_display.property("density"))
+        self.assertFalse(hasattr(screen, "related_group"))
+        self.assertFalse(hasattr(screen, "set_related_room_codec"))
 
     def test_pdu_firmware_row_visibility_tracks_model_authority(self):
         from gui.screens.pdu_screen import PDUScreen

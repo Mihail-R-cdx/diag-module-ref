@@ -464,7 +464,7 @@ class PDUControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(1, len(started))
         self.window.set_ui_state.assert_not_called()
 
-    def test_accepted_user_refresh_publishes_room_codec_context(self):
+    def test_accepted_user_refresh_never_publishes_legacy_room_codec_context(self):
         accepted = []
         superseded = []
         self.window.pdu_controller._accepted_refresh_callback = accepted.append
@@ -476,8 +476,7 @@ class PDUControllerLifecycleTests(unittest.TestCase):
             self.window.screens["pdu"].refresh()
             worker = started[-1]
 
-        self.assertEqual(1, len(superseded))
-        self.assertEqual("user_refresh_started", superseded[0].reason)
+        self.assertEqual([], superseded)
         self.window.on_pdu_refresh_result(
             {
                 "device_info": {"model": "IPL T PCS4i"},
@@ -488,9 +487,7 @@ class PDUControllerLifecycleTests(unittest.TestCase):
             worker.descriptor,
         )
 
-        self.assertEqual(1, len(accepted))
-        self.assertEqual(worker.descriptor.operation_id, accepted[0].refresh_operation_id)
-        self.assertEqual("192.0.2.44", accepted[0].ip_address)
+        self.assertEqual([], accepted)
 
     def test_reconciliation_refresh_does_not_publish_enrichment_trigger(self):
         accepted = []

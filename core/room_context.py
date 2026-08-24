@@ -1,4 +1,4 @@
-"""Pure equipment room and related codec resolution."""
+"""Pure equipment-to-room resolution."""
 
 from __future__ import annotations
 
@@ -6,17 +6,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 from core.equipment_inventory import EquipmentInventory, EquipmentRecord
-
-
-SUPPORTED_RELATED_CODEC_MODELS = frozenset(
-    {
-        "Huawei TE20",
-        "Huawei TE40",
-        "CloudLink Bar 310",
-        "CloudLink Box 310",
-        "Polycom RPG 310",
-    }
-)
 
 
 class RoomResolutionStatus(str, Enum):
@@ -35,9 +24,6 @@ class RoomResolutionStatus(str, Enum):
 
 ROOM_NAME_CONFLICT = "ROOM_NAME_CONFLICT"
 ROOM_VIP_CONFLICT = "ROOM_VIP_CONFLICT"
-SUPPORTED_PDU_CONTEXT_MODELS = frozenset({"Aten PE8208AV", "Extron IPL T PCS4i"})
-
-
 class RoomVipStatus(str, Enum):
     UNRESOLVED = "UNRESOLVED"
     NO_DATA = "NO_DATA"
@@ -72,41 +58,8 @@ class EquipmentRoomResolutionResult:
         return self.status is RoomResolutionStatus.RESOLVED and self.context is not None
 
 
-@dataclass(frozen=True)
-class RoomContext:
-    snapshot_id: str
-    pdu_record_id: str
-    pdu_model: str | None
-    pdu_ip_address: str
-    room_id: str
-    room_name: str | None
-    room_vip_status: RoomVipStatus
-    codec_record_id: str
-    codec_source_model: str | None
-    codec_diagnostic_model: str
-    codec_ip_address: str
-
-
-@dataclass(frozen=True)
-class RoomResolutionResult:
-    status: RoomResolutionStatus
-    context: RoomContext | None = None
-    warnings: tuple[str, ...] = ()
-    safe_message: str | None = None
-    room_id: str | None = None
-    room_name: str | None = None
-    codec_source_model: str | None = None
-    codec_diagnostic_model: str | None = None
-    codec_ip_address: str | None = None
-    room_vip_status: RoomVipStatus | None = None
-
-    @property
-    def resolved(self) -> bool:
-        return self.status is RoomResolutionStatus.RESOLVED and self.context is not None
-
-
 class RoomContextResolver:
-    """Resolve exact equipment room and PDU-room-codec context without side effects."""
+    """Resolve exact equipment room context without side effects."""
 
     def resolve_equipment_room_context(
         self,
@@ -134,115 +87,6 @@ class RoomContextResolver:
             resolution,
             equipment_ip_address,
         )
-
-    def resolve_related_codec(
-        self,
-        inventory: EquipmentInventory | None,
-        pdu_ip_address: str,
-        pdu_model: str | None = None,
-    ) -> RoomResolutionResult:
-        if inventory is None:
-            return RoomResolutionResult(
-                RoomResolutionStatus.INVENTORY_UNAVAILABLE,
-                safe_message="Equipment inventory is unavailable.",
-            )
-        if pdu_model not in SUPPORTED_PDU_CONTEXT_MODELS:
-            return RoomResolutionResult(RoomResolutionStatus.PDU_MODEL_UNSUPPORTED)
-
-        pdu_resolution = _resolve_record_by_ip(
-            inventory,
-            pdu_ip_address,
-            not_found_status=RoomResolutionStatus.PDU_NOT_FOUND,
-            ambiguous_status=RoomResolutionStatus.AMBIGUOUS_PDU_IP,
-        )
-        if isinstance(pdu_resolution, EquipmentRoomResolutionResult):
-            return _as_pdu_resolution(pdu_resolution)
-
-        pdu_record = pdu_resolution
-        if (
-            pdu_record.diagnostic_model not in SUPPORTED_PDU_CONTEXT_MODELS
-            or pdu_record.diagnostic_model != pdu_model
-        ):
-            return RoomResolutionResult(RoomResolutionStatus.PDU_MODEL_MISMATCH)
-
-        room_resolution = _resolve_room_context_for_record(
-            inventory,
-            pdu_record,
-            pdu_ip_address,
-        )
-        if not room_resolution.resolved:
-            return _as_pdu_resolution(room_resolution)
-        room_context = room_resolution.context
-        assert room_context is not None
-        warnings = room_resolution.warnings
-        codec_records = tuple(
-            inventory.find_by_room_and_kind(room_context.room_id, "video_codec")
-        )
-        if not codec_records:
-            return RoomResolutionResult(
-                RoomResolutionStatus.CODEC_NOT_FOUND,
-                warnings=warnings,
-                room_id=room_context.room_id,
-                room_name=room_context.room_name,
-                room_vip_status=room_context.room_vip_status,
-            )
-        if len(codec_records) > 1:
-            return RoomResolutionResult(
-                RoomResolutionStatus.AMBIGUOUS_CODEC,
-                warnings=warnings,
-                room_id=room_context.room_id,
-                room_name=room_context.room_name,
-                room_vip_status=room_context.room_vip_status,
-            )
-
-        codec_record = codec_records[0]
-        if not codec_record.ip_address:
-            return RoomResolutionResult(
-                RoomResolutionStatus.CODEC_IP_MISSING,
-                warnings=warnings,
-                room_id=room_context.room_id,
-                room_name=room_context.room_name,
-                room_vip_status=room_context.room_vip_status,
-                codec_source_model=codec_record.source_model,
-                codec_diagnostic_model=codec_record.diagnostic_model,
-            )
-        if codec_record.diagnostic_model not in SUPPORTED_RELATED_CODEC_MODELS:
-            return RoomResolutionResult(
-                RoomResolutionStatus.CODEC_UNSUPPORTED,
-                warnings=warnings,
-                room_id=room_context.room_id,
-                room_name=room_context.room_name,
-                room_vip_status=room_context.room_vip_status,
-                codec_source_model=codec_record.source_model,
-                codec_diagnostic_model=codec_record.diagnostic_model,
-                codec_ip_address=codec_record.ip_address,
-            )
-
-        context = RoomContext(
-            snapshot_id=inventory.metadata.snapshot_id,
-            pdu_record_id=pdu_record.record_id,
-            pdu_model=pdu_record.diagnostic_model,
-            pdu_ip_address=pdu_record.ip_address or pdu_ip_address,
-            room_id=room_context.room_id,
-            room_name=room_context.room_name,
-            room_vip_status=room_context.room_vip_status,
-            codec_record_id=codec_record.record_id,
-            codec_source_model=codec_record.source_model,
-            codec_diagnostic_model=codec_record.diagnostic_model,
-            codec_ip_address=codec_record.ip_address,
-        )
-        return RoomResolutionResult(
-            RoomResolutionStatus.RESOLVED,
-            context=context,
-            warnings=warnings,
-            room_id=context.room_id,
-            room_name=context.room_name,
-            room_vip_status=context.room_vip_status,
-            codec_source_model=context.codec_source_model,
-            codec_diagnostic_model=context.codec_diagnostic_model,
-            codec_ip_address=context.codec_ip_address,
-        )
-
 
 def aggregate_room_vip(records: tuple[EquipmentRecord, ...]) -> RoomVipStatus:
     if not records:
@@ -325,19 +169,6 @@ def _resolve_room_context_for_record(
         room_id=context.room_id,
         room_name=context.room_name,
         room_vip_status=context.room_vip_status,
-    )
-
-
-def _as_pdu_resolution(
-    resolution: EquipmentRoomResolutionResult,
-) -> RoomResolutionResult:
-    return RoomResolutionResult(
-        status=resolution.status,
-        warnings=resolution.warnings,
-        safe_message=resolution.safe_message,
-        room_id=resolution.room_id,
-        room_name=resolution.room_name,
-        room_vip_status=resolution.room_vip_status,
     )
 
 

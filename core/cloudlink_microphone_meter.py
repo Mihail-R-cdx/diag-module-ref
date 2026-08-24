@@ -16,6 +16,7 @@ class CloudLinkMicrophoneMeter(QObject):
     """Owns one optional one-second polling lifecycle and never persists login state."""
 
     sample = pyqtSignal(dict)
+    accepted = pyqtSignal(dict, dict)
     terminal = pyqtSignal(dict)
 
     def __init__(self, parent: QObject | None = None, *, session: InteractiveSessionController | None = None):
@@ -76,7 +77,14 @@ class CloudLinkMicrophoneMeter(QObject):
     def _on_result(self, payload: dict) -> None:
         if self._matches(payload):
             value = payload.get("value")
-            self._finish_cycle(value if isinstance(value, dict) else {"available": False, "raw_level": None, "fraction": None})
+            evidence = {
+                "credential_index": payload.get("credential_index"),
+                "connection_profile": dict(payload.get("connection_profile") or {}),
+            }
+            self._finish_cycle(
+                value if isinstance(value, dict) else {"available": False, "raw_level": None, "fraction": None},
+                success_evidence=evidence,
+            )
 
     def _on_error(self, payload: dict) -> None:
         if self._matches(payload):
@@ -101,6 +109,7 @@ class CloudLinkMicrophoneMeter(QObject):
         value: dict,
         terminal: bool = False,
         terminal_category: str | None = None,
+        success_evidence: dict | None = None,
     ) -> None:
         self._in_flight = False
         if not self._active:
@@ -110,6 +119,11 @@ class CloudLinkMicrophoneMeter(QObject):
         # callback after their authoritative context has been replaced.
         presentation["_meter_generation"] = self._generation
         presentation["_meter_token"] = self._token
+        if success_evidence is not None:
+            # This focused signal carries only non-secret accepted connection
+            # evidence from the session owner.  The presentation sample stays
+            # unchanged for existing consumers.
+            self.accepted.emit(presentation, dict(success_evidence))
         self.sample.emit(presentation)
         if terminal:
             self._active = False
