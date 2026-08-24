@@ -32,7 +32,7 @@ from gui.equipment_pages import EQUIPMENT_PAGE_REGISTRY
 from gui.ui_states import UIState
 
 
-def record(record_id, *, ip_address="192.0.2.10", diagnostic_model="Huawei TE40", device_kind="other"):
+def record(record_id, *, ip_address="192.0.2.10", diagnostic_model="Huawei TE40", device_kind="other", room_id=None):
     return EquipmentRecord(
         record_id=record_id,
         source_model="Synthetic",
@@ -40,7 +40,7 @@ def record(record_id, *, ip_address="192.0.2.10", diagnostic_model="Huawei TE40"
         ip_address=ip_address,
         mac_address=None,
         serial_number=None,
-        room_id="ROOM-1",
+        room_id=room_id,
         room_name="Room",
         device_kind=device_kind,
         room_vip=None,
@@ -83,6 +83,17 @@ class DispatchRegistryTests(unittest.TestCase):
         for entry in dispatch_entries():
             self.assertNotIn("password", entry.__dict__)
             self.assertNotIn("handler", entry.__dict__)
+
+    def test_registry_rejects_unbound_room_adapter_key(self):
+        with self.assertRaisesRegex(ValueError, "room adapter is not bound"):
+            validate_dispatch_registry(
+                registered_screens={"codec", "matrix", "pdu", "audio_dsp"},
+                page_models_by_screen={
+                    registration.screen_key: registration.device_models
+                    for registration in EQUIPMENT_PAGE_REGISTRY
+                },
+                available_room_adapter_keys={"codec_one_shot"},
+            )
 
 
 class ExactModelResolverTests(unittest.TestCase):

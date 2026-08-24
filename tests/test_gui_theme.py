@@ -132,7 +132,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         QApplication.processEvents()
 
         self.assertEqual((950, 1000), (self.window.width(), self.window.height()))
-        self.assertEqual(5, self.window.screen_container.count())
+        self.assertEqual(6, self.window.screen_container.count())
         self.assertIs(self.window.placeholder_widget, self.window.screen_container.currentWidget())
         self.assertEqual("Никогда", self.window.time_display.text())
         self.assertFalse(hasattr(self.window, "device_combo"))

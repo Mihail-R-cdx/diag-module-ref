@@ -32,7 +32,7 @@ class HuaweiTE20Worker(QRunnable):
     """Специализированный worker для Huawei TE20."""
 
     def __init__(self, ip_address: str, port: int = 80, username: str = None,
-                 password: str = None, preferred_profile: dict = None):
+                 password: str = None, preferred_profile: dict = None, *, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -43,6 +43,7 @@ class HuaweiTE20Worker(QRunnable):
         self.creds_list = []
         self.current_idx = 0
         self.preferred_profile = dict(preferred_profile) if preferred_profile else None
+        self.is_current = is_current or (lambda: True)
 
     def _emit(self, signal, *args) -> bool:
         try:
@@ -82,6 +83,8 @@ class HuaweiTE20Worker(QRunnable):
         handler = None
 
         try:
+            if not self.is_current():
+                return
             if not self.username or not self.password:
                 raise AuthenticationError("Credentials are required for Huawei TE20 before connecting.")
             self._log(f"[session] start {self.ip_address}")
@@ -93,6 +96,8 @@ class HuaweiTE20Worker(QRunnable):
             unique_profiles = self._build_unique_profiles()
             last_connection_error = None
             for index, profile in enumerate(unique_profiles, start=1):
+                if not self.is_current():
+                    return
                 self._emit(
                     self.signals.status,
                     f"Подключаюсь к устройству ({profile['label']}, {index}/{len(unique_profiles)})..."
@@ -105,6 +110,8 @@ class HuaweiTE20Worker(QRunnable):
                     f"(use_ssl={profile['use_ssl']}, port={profile['port']})"
                 )
 
+                if not self.is_current():
+                    return
                 current_handler = HuaweiTE20Handler(
                     ip_address=self.ip_address,
                     port=profile["port"],
@@ -117,6 +124,8 @@ class HuaweiTE20Worker(QRunnable):
                 )
 
                 try:
+                    if not self.is_current():
+                        return
                     if current_handler.connect():
                         handler = current_handler
                         print(f"[TE20] Подключение успешно через {profile['label']}")
@@ -159,6 +168,8 @@ class HuaweiTE20Worker(QRunnable):
             self._log("[status] collecting device status")
 
             print("Вызываю handler.get_status()...")
+            if not self.is_current():
+                return
             raw_data = handler.get_status()
             print(f"get_status() вернул: {redact_data(raw_data, self._secrets())}")
             self._log(f"[status] raw keys: {', '.join(sorted(raw_data.keys())) if raw_data else 'none'}")

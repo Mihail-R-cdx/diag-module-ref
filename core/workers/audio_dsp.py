@@ -11,7 +11,7 @@ from core.workers.common import WorkerSignals, _emit_error, _worker_secrets
 class BiampTesiraForteCIWorker(QRunnable):
     """Read-only worker for Biamp Tesira Forte CI audio-DSP signal status."""
 
-    def __init__(self, ip_address: str, username: str = None, password: str = None):
+    def __init__(self, ip_address: str, username: str = None, password: str = None, *, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.username = username
@@ -20,6 +20,7 @@ class BiampTesiraForteCIWorker(QRunnable):
         self.creds_list = []
         self.current_idx = 0
         self.device_name = "Biamp Tesira Forte CI"
+        self.is_current = is_current or (lambda: True)
 
     @pyqtSlot()
     def run(self):
@@ -27,6 +28,8 @@ class BiampTesiraForteCIWorker(QRunnable):
 
         handler = None
         try:
+            if not self.is_current():
+                return
             if not self.username or not self.password:
                 raise AuthenticationError(
                     "Credentials are required for Biamp Tesira Forte CI before connecting."
@@ -42,11 +45,15 @@ class BiampTesiraForteCIWorker(QRunnable):
                 username=self.username,
                 password=self.password,
             )
+            if not self.is_current():
+                return
             handler.connect()
             self.signals.connected.emit()
 
             self.signals.status.emit("Получение источников сигнала...")
             self.signals.progress.emit(55)
+            if not self.is_current():
+                return
             raw_data = handler.get_status()
 
             self.signals.status.emit("Обработка данных Biamp...")

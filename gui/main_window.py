@@ -22,8 +22,12 @@ from .diagnostic_dispatch import (
     dispatch_entry_for_model,
     dispatch_model_names,
     resolve_exact_model_for_ip,
+    room_model_capabilities,
     validate_dispatch_registry,
 )
+from .room_diagnostic_controller import RoomDiagnosticController
+from .room_diagnostic_tree import RoomDiagnosticTreeWidget
+from .room_one_shot_adapters import room_adapter_keys
 from .device_model_fallback_dialog import DeviceModelFallbackDialog
 from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
 from .pdu_controller import PDUController
@@ -43,6 +47,11 @@ from core.equipment_inventory import (
     normalize_ip_address,
 )
 from core.room_context import RoomContextResolver, RoomResolutionStatus
+from core.room_diagnostic_tree import (
+    RoomSourceStatus,
+    build_room_session,
+    resolve_room_source,
+)
 from core.switch_connection_context import SwitchConnectionResolver
 from core.worker import (
     HuaweiTE40Worker,
@@ -342,6 +351,15 @@ class VCSDiagnosticApp(QMainWindow):
         self.button_log_path = os.path.join(self.button_log_dir, "button_clicks.log")
         
         self.init_ui()
+        self.room_diagnostic_controller = RoomDiagnosticController(
+            candidate_provider=self._room_credential_candidates,
+            ping=self._ping_device_address,
+            persist_success=self._persist_room_credential_success,
+            starting_index=self._room_credential_start_index,
+            parent=self,
+        )
+        self.room_diagnostic_controller.sessionUpdated.connect(self._on_room_diagnostic_updated)
+        self.room_diagnostic_controller.sessionFinished.connect(self._on_room_diagnostic_finished)
         self.update_timer.setInterval(30000)
         self.update_timer.timeout.connect(self.update_time_display)
         self.update_timer.start()
@@ -427,6 +445,7 @@ class VCSDiagnosticApp(QMainWindow):
                 registration.screen_key: registration.device_models
                 for registration in self.equipment_page_registry
             },
+            available_room_adapter_keys=room_adapter_keys(),
         )
         
         # Добавляем экраны в контейнер
@@ -436,6 +455,8 @@ class VCSDiagnosticApp(QMainWindow):
         # 3. Создаем страницу-заглушку с надписью "Обновите данные"
         self.placeholder_widget = self.create_placeholder_widget()
         self.screen_container.addWidget(self.placeholder_widget)
+        self.room_diagnostic_tree = RoomDiagnosticTreeWidget(self)
+        self.screen_container.addWidget(self.room_diagnostic_tree)
         
         # Показываем заглушку
         self.screen_container.setCurrentWidget(self.placeholder_widget)
@@ -538,6 +559,7 @@ class VCSDiagnosticApp(QMainWindow):
         # diagnostic can be started so queued meter work loses its session
         # generation before handler acquisition or I/O.
         VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
+        self._clear_room_diagnostic_session(reason)
         self._invalidate_equipment_switch_context(reason)
         self._diagnostic_action_generation += 1
         self._credential_action_generation += 1
@@ -545,6 +567,75 @@ class VCSDiagnosticApp(QMainWindow):
         self._active_credential_configuration_context = None
         self._active_diagnostic_model_context = None
         self.__dict__.setdefault("_current_action_dialog_bindings", {}).clear()
+
+    def _clear_room_diagnostic_session(self, _reason="context_changed"):
+        controller = self.__dict__.get("room_diagnostic_controller")
+        if controller is not None:
+            controller.supersede()
+        self.__dict__["room_diagnostic_session"] = None
+        if hasattr(self, "room_diagnostic_tree"):
+            self.room_diagnostic_tree.tree.clear()
+        if hasattr(self, "debug_btn"):
+            self.debug_btn.setEnabled(True)
+
+    def _room_credential_candidates(self, device_name, ip_address):
+        if self._is_pdu_device(device_name):
+            return tuple(self._resolve_pdu_attempt_credentials(device_name, ip_address) or ())
+        return tuple(self.device_credentials.get(device_name) or ())
+
+    def _room_credential_start_index(self, device_name, ip_address, candidates):
+        return self.get_valid_current_credential_index(device_name, candidates, ip_address)
+
+    def _persist_room_credential_success(self, evidence):
+        session = self.__dict__.get("room_diagnostic_session")
+        if session is None or session.identity != evidence.session_identity:
+            return
+        # The orchestrator holds `authority_lock` while calling this method;
+        # invalidate/supersede cannot interleave this currentness check and write.
+        if not session.is_current(evidence.session_identity, session.row_for(evidence.record_id), evidence.operation_token):
+            return
+        self.set_current_credential_index(
+            evidence.diagnostic_model,
+            evidence.candidate_index,
+            evidence.ip_address,
+        )
+
+    def _start_room_diagnostic_session(self, source_resolution, generation):
+        session = build_room_session(
+            inventory=self.equipment_inventory,
+            source=source_resolution,
+            generation=generation,
+            capabilities=room_model_capabilities(),
+        )
+        self.room_diagnostic_session = session
+        self.room_diagnostic_tree.render(session)
+        self.screen_container.setCurrentWidget(self.room_diagnostic_tree)
+        self.ip_entry.setEnabled(False)
+        self.password_btn.setEnabled(False)
+        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setText("Опрос...")
+        self.debug_btn.setEnabled(False)
+        self.set_ui_state(UIState.LOADING, session.status.value)
+        self.room_diagnostic_controller.start(session)
+
+    def _on_room_diagnostic_finished(self, session):
+        if session is not self.__dict__.get("room_diagnostic_session"):
+            return
+        self.room_diagnostic_tree.render(session)
+        self.ip_entry.setEnabled(True)
+        self.password_btn.setEnabled(True)
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("Обновить данные")
+        # MIH-7 keeps debug unavailable for the entire established room session.
+        self.debug_btn.setEnabled(False)
+        self.last_update_time = datetime.datetime.now()
+        self.update_time_display()
+        terminal = UIState.CONNECTED if session.status.value == "Опрос завершён" else UIState.REQUEST_ERROR
+        self.set_ui_state(terminal, session.status.value)
+
+    def _on_room_diagnostic_updated(self, session):
+        if session is self.__dict__.get("room_diagnostic_session"):
+            self.room_diagnostic_tree.render(session)
 
     def _restore_refresh_button(self):
         if hasattr(self, "refresh_btn"):
@@ -2515,6 +2606,23 @@ class VCSDiagnosticApp(QMainWindow):
                 entry=entry,
             ) if entry is not None else None
         else:
+            room_source = resolve_room_source(
+                self.equipment_inventory,
+                ip_address,
+                room_model_capabilities(),
+            )
+            if room_source.status is RoomSourceStatus.ROOM:
+                self._start_room_diagnostic_session(room_source, generation)
+                return
+            if room_source.status not in {
+                RoomSourceStatus.INVENTORY_UNAVAILABLE,
+                RoomSourceStatus.LEGACY_SINGLE_DEVICE,
+            }:
+                self.set_ui_state(
+                    UIState.REQUEST_ERROR,
+                    room_source.safe_reason or "Диагностика для этого IP недоступна.",
+                )
+                return
             resolution = self._resolve_model_for_action(
                 DiagnosticActionPurpose.DIAGNOSTIC_START,
                 ip_address,
@@ -3660,6 +3768,20 @@ class VCSDiagnosticApp(QMainWindow):
         """Показать диалог ввода логина и пароля."""
         normalized_ip = self._normalized_current_ip_or_warn()
         if normalized_ip is None:
+            return
+        room_source = resolve_room_source(
+            self.equipment_inventory,
+            normalized_ip,
+            room_model_capabilities(),
+        )
+        if (
+            room_source.status is not RoomSourceStatus.INVENTORY_UNAVAILABLE
+            and room_source.capability is None
+        ):
+            self.set_ui_state(
+                UIState.REQUEST_ERROR,
+                room_source.safe_reason or "Диагностическая модель устройства не поддерживается.",
+            )
             return
         generation = self._next_action_generation(
             DiagnosticActionPurpose.CREDENTIAL_CONFIGURATION

@@ -26,7 +26,7 @@ class HuaweiTE40Worker(QRunnable):
 
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
-                 preferred_profile: dict = None):
+                 preferred_profile: dict = None, *, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -37,12 +37,15 @@ class HuaweiTE40Worker(QRunnable):
         self.current_idx = 0
         self.device_name = "Huawei TE40"
         self.preferred_profile = dict(preferred_profile) if preferred_profile else None
+        self.is_current = is_current or (lambda: True)
 
     @pyqtSlot()
     def run(self):
         handler = None
         succeeded = False
         try:
+            if not self.is_current():
+                return
             if not self.username or not self.password:
                 raise AuthenticationError("Credentials are required for Huawei TE40 before connecting.")
             self.signals.status.emit("Начинаю подключение...")
@@ -59,6 +62,8 @@ class HuaweiTE40Worker(QRunnable):
             )
             last_error = None
             for ordinal, profile in enumerate(profiles, start=1):
+                if not self.is_current():
+                    return
                 handler = HuaweiTE40Handler(
                     ip_address=self.ip_address,
                     port=profile["port"],
@@ -73,6 +78,8 @@ class HuaweiTE40Worker(QRunnable):
                     f"[connect] attempt {ordinal}/{len(profiles)} via {profile['label']}"
                 )
                 try:
+                    if not self.is_current():
+                        return
                     if handler.connect():
                         self.signals.terminal_log.emit(
                             f"[connect] success via {profile['label']}"
@@ -110,6 +117,8 @@ class HuaweiTE40Worker(QRunnable):
             self.signals.progress.emit(50)
 
             print("Вызываю handler.get_status()...")
+            if not self.is_current():
+                return
             raw_data = redact_data(handler.get_status(), _worker_secrets(self))
             print(f"get_status() вернул: {raw_data}")
 
@@ -225,7 +234,7 @@ class HuaweiBar310Worker(QRunnable):
 
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
-                 creds_list: list = None, assigned_model: str = "CloudLink Bar 310"):
+                 creds_list: list = None, assigned_model: str = "CloudLink Bar 310", *, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -239,6 +248,7 @@ class HuaweiBar310Worker(QRunnable):
         self.assigned_model = assigned_model
         self.device_name = assigned_model
         self.expected_identity = cloudlink_310_display_identity(assigned_model)
+        self.is_current = is_current or (lambda: True)
 
     @staticmethod
     def _validate_raw_status(raw_data, expected_identity="Huawei CloudLink Bar 310"):
@@ -262,6 +272,8 @@ class HuaweiBar310Worker(QRunnable):
 
         handler = None
         try:
+            if not self.is_current():
+                return
             if not self.username or not self.password:
                 raise AuthenticationError(
                     'Credentials are required for CloudLink Bar 310 before connecting.'
@@ -271,6 +283,8 @@ class HuaweiBar310Worker(QRunnable):
             self.signals.status.emit("Подключение к устройству...")
             self.signals.progress.emit(10)
 
+            if not self.is_current():
+                return
             handler = CloudLinkBar310Handler(
                 ip_address=self.ip_address,
                 port=self.port,
@@ -284,12 +298,16 @@ class HuaweiBar310Worker(QRunnable):
             )
 
             self.signals.progress.emit(30)
+            if not self.is_current():
+                return
             handler.connect()
 
             self.signals.connected.emit()
             self.signals.status.emit("Получаю данные...")
             self.signals.progress.emit(50)
 
+            if not self.is_current():
+                return
             raw_data = handler.get_status()
             self._validate_raw_status(raw_data, self.expected_identity)
 
@@ -340,7 +358,7 @@ class PolycomRPG310Worker(QRunnable):
     """Специализированный Worker для Polycom RealPresence Group 310"""
 
     def __init__(self, ip_address: str, port: int = 443,
-                 username: str = None, password: str = None):
+                 username: str = None, password: str = None, *, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -350,11 +368,14 @@ class PolycomRPG310Worker(QRunnable):
         self.creds_list = []
         self.current_idx = 0
         self.device_name = "Polycom RPG 310"
+        self.is_current = is_current or (lambda: True)
 
     @pyqtSlot()
     def run(self):
         handler = None
         try:
+            if not self.is_current():
+                return
             if not self.username or not self.password:
                 raise AuthenticationError("Credentials are required for Polycom RPG 310 before connecting.")
             self.signals.status.emit("Начинаю подключение к Polycom RPG 310...")
@@ -367,6 +388,8 @@ class PolycomRPG310Worker(QRunnable):
             # Импортируем обработчик
             from handlers.polycom.rpg310 import PolycomRPG310Handler
 
+            if not self.is_current():
+                return
             handler = PolycomRPG310Handler(
                 ip_address=self.ip_address,
                 port=self.port,
@@ -379,6 +402,8 @@ class PolycomRPG310Worker(QRunnable):
             self.signals.progress.emit(30)
 
             # connect() already raises AuthenticationError on failure
+            if not self.is_current():
+                return
             handler.connect()
 
             self.signals.connected.emit()
@@ -388,6 +413,8 @@ class PolycomRPG310Worker(QRunnable):
             self.signals.progress.emit(45)
 
             print("Вызываю handler.get_https_status()...")
+            if not self.is_current():
+                return
             raw_data = handler.get_https_status()
             print(
                 "get_https_status() вернул поля:",
@@ -411,6 +438,8 @@ class PolycomRPG310Worker(QRunnable):
 
             self.signals.status.emit("Подключение по SSH для дополнительных параметров...")
             self.signals.progress.emit(68)
+            if not self.is_current():
+                return
             handler._populate_cli_status(
                 raw_data,
                 progress_callback=self.signals.progress.emit,
