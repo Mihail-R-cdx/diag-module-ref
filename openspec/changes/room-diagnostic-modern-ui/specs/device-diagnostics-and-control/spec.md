@@ -30,7 +30,7 @@ When an existing parser/handler exposes only a string-valued call state, its exa
 
 The projection SHALL reuse already accepted diagnostic/post-cycle codec evidence. Creating or updating `CallActivity` SHALL NOT add a new codec request, timer, worker, handler/session acquisition, credential attempt, retry lane, or mutation.
 
-For `diagnostic-ui-presentation`, a relevant call-capable room codec row SHALL mean a row whose exact unified model registration declares the required bound call-activity projection. Runtime presence or absence of a `CallActivity` field SHALL NOT decide whether a registered baseline codec participates, and presentation SHALL NOT keep a parallel model list.
+For `diagnostic-ui-presentation`, a relevant call-capable room codec row SHALL mean a row whose exact unified model registration declares the required bound call-activity projection. Runtime presence or absence of a `CallActivity` field SHALL NOT decide whether a registered baseline codec participates, and presentation SHALL NOT keep a parallel model list. A relevant row with missing, stale, failed, contradictory, or unrecognized current evidence remains relevant and SHALL contribute `CallActivity.UNKNOWN` rather than disappearing from aggregation.
 
 Application startup/composition validation SHALL fail closed when a codec registration required by this contract omits its call-activity binding or references a binding unavailable to composition. A required model SHALL NOT be silently excluded from room busy aggregation.
 
@@ -47,6 +47,15 @@ Application startup/composition validation SHALL fail closed when a codec regist
 - **WHEN** application registry/composition validation runs
 - **THEN** validation fails closed
 - **AND** the model cannot silently disappear from room busy aggregation
+
+#### Scenario: Bound codec remains applicable when evidence is missing
+
+- **GIVEN** an exact room codec registration declares the required available call-activity binding
+- **AND** current call evidence is missing, stale, failed, contradictory, or unrecognized
+- **WHEN** room call activity is projected
+- **THEN** the codec remains applicable to aggregation
+- **AND** its typed contribution is `CallActivity.UNKNOWN`
+- **AND** runtime field absence does not make the codec irrelevant
 
 #### Scenario: Exact-model active call becomes typed ACTIVE
 
