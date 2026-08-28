@@ -47,15 +47,16 @@ git diff --cached --check
 
 - [ ] 5.1 Implement the upper-left room card with room name, address, VIP, warranty, and occupancy rows.
 - [ ] 5.2 Keep warranty explicitly unimplemented as data in this change and render `Гарантия: Нет данных`; do not infer warranty or change inventory schema for it.
-- [ ] 5.3 Add a model-neutral application-owned `CallActivity.ACTIVE / INACTIVE / UNKNOWN` projection for each exact codec model whose current call state contributes to occupancy. Model-specific parser/adapter normalization may use explicit exact-model mappings from existing protocol/normalized evidence, but shared room/GUI code must not parse localized/protocol strings or use substring heuristics; unrecognized/missing/stale evidence becomes `UNKNOWN`.
-- [ ] 5.4 Derive `Занятость` only from current non-stale typed activity already owned by exact room codec rows: any current `ACTIVE` -> `Занято`; every other case, including all `INACTIVE`, -> `Нет данных`. Do not display `Свободно` in this change and do not add an occupancy-specific network poll, worker, timer, handler/session acquisition, credential flow, or booking/calendar source.
-- [ ] 5.5 Add a local hover tooltip/popup on the occupancy row/value with meaning equivalent to `Занятость определяется по текущему состоянию звонка кодека.`; opening it must perform zero device I/O.
-- [ ] 5.6 If a room-card refresh icon is included, wire it only as an alias of top full Refresh.
-- [ ] 5.7 Implement the upper-right network-connections tree with peer width to the room card at baseline (`0.9:1` to `1.1:1`).
-- [ ] 5.8 Preserve canonical network evidence for all states: known switch IP+known port; known switch IP+missing port; missing switch IP+known port. Unknown-switch/known-port evidence must render under a record-bound `Коммутатор не определён` branch and must not be grouped into invented switch identity.
-- [ ] 5.9 Populate known-switch parent `Порт` as a deterministic display summary of child attachment evidence: collect non-null child ports in canonical child order, de-duplicate by first occurrence, render zero as `Нет данных`, one as the exact port, many as comma-separated exact ports. Keep exact port/no-data on every child and never treat parent summary as canonical switch state.
-- [ ] 5.10 If no switch/port evidence exists, render `Нет данных о сетевых подключениях`.
-- [ ] 5.11 Do not implement or fabricate `Нет подключенных устройств` in this change. This is an explicit product decision; a future approved room-level switch inventory source/schema is required before unattached switches become data-driven.
+- [ ] 5.3 Extend the existing unified exact `DiagnosticDispatchEntry`/application model registration (or equivalent single registry) with a call-activity normalization binding. The current baseline codec entries `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310` SHALL each declare an available binding because their approved diagnostic snapshots expose call-state evidence. Do not introduce `OCCUPANCY_SUPPORTED_MODELS` or another parallel model list; startup/composition validation must fail closed if any required exact entry lacks its binding.
+- [ ] 5.4 Implement model-neutral application-owned `CallActivity.ACTIVE / INACTIVE / UNKNOWN` normalization behind those exact registry bindings. Model-specific parser/adapter normalization may use explicit exact-model mappings from existing protocol/normalized evidence, but shared room/GUI code must not parse localized/protocol strings or use substring heuristics; unrecognized/missing/stale evidence becomes `UNKNOWN`.
+- [ ] 5.5 Derive `Занятость` only from current non-stale typed activity already owned by exact room codec rows: any current `ACTIVE` -> `Занято`; every other case, including all `INACTIVE`, -> `Нет данных`. Do not display `Свободно` in this change and do not add an occupancy-specific network poll, worker, timer, handler/session acquisition, credential flow, or booking/calendar source.
+- [ ] 5.6 Add a local hover tooltip/popup on the occupancy row/value with meaning equivalent to `Занятость определяется по текущему состоянию звонка кодека.`; opening it must perform zero device I/O.
+- [ ] 5.7 If a room-card refresh icon is included, wire it only as an alias of top full Refresh.
+- [ ] 5.8 Implement the upper-right network-connections tree with peer width to the room card at baseline (`0.9:1` to `1.1:1`).
+- [ ] 5.9 Preserve canonical network evidence for all states: known switch IP+known port; known switch IP+missing port; missing switch IP+known port. Unknown-switch/known-port evidence must render under a record-bound `Коммутатор не определён` branch and must not be grouped into invented switch identity.
+- [ ] 5.10 Populate known-switch parent `Порт` as a deterministic display summary of child attachment evidence: collect non-null child ports in canonical child order, de-duplicate by first occurrence, render zero as `Нет данных`, one as the exact port, many as comma-separated exact ports. Keep exact port/no-data on every child and never treat parent summary as canonical switch state.
+- [ ] 5.11 If no switch/port evidence exists, render `Нет данных о сетевых подключениях`.
+- [ ] 5.12 Do not implement or fabricate `Нет подключенных устройств` in this change. This is an explicit product decision; a future approved room-level switch inventory source/schema is required before unattached switches become data-driven.
 
 ## 6. Equipment accordion and device presentations
 
@@ -76,14 +77,14 @@ git diff --cached --check
 - [ ] 7.4 Test direct room-name entry creates no synthetic source record and uses canonical row ordering.
 - [ ] 7.5 Test IP entry still opens the complete room and retains source-first ordering.
 - [ ] 7.6 Regression-test unavailable-inventory IP diagnostic start automatically opens existing model fallback and that `Пароль` retains unavailable-inventory credential-configuration fallback; valid-inventory zero/many/unmapped remains no-fallback.
-- [ ] 7.7 Test target-search edits supersede/retire current room interaction under existing lifecycle rules and clear selected-room presentation.
+- [ ] 7.7 Test the complete target-search lock/supersession migration: editing in allowed idle/live state invalidates current room authority; active/retiring Local Refresh disables target-search editing; active/retiring `AUXILIARY_READ` disables target-search editing while top full Refresh remains the supersession action; confirmed mutation/reconciliation keeps target-search locked; raw search/initial source IP never substitutes for the exact expanded-row target.
 - [ ] 7.8 Test common row statuses remain understandable without color alone and one-row accordion behavior remains deterministic.
 - [ ] 7.9 Test future placeholder controls are disabled and cannot emit application/network intents.
 - [ ] 7.10 Test Matrix route clicks still cross only the Matrix intent boundary; restyling must not introduce direct handler calls.
 - [ ] 7.11 Test audio meter restyling preserves authoritative dBFS/live data and does not move network work to the Qt GUI thread.
 - [ ] 7.12 Test theme starts dark on each new application instance, is not persisted, and does not materially change geometry at a fixed baseline window.
 - [ ] 7.13 Test warranty remains explicit `Нет данных` and is not inferred from schema-v4/device data.
-- [ ] 7.14 For every exact codec model whose call state contributes to occupancy, test explicit model normalization for known active evidence -> `ACTIVE`, known no-call evidence -> `INACTIVE`, and missing/stale/unrecognized evidence -> `UNKNOWN`; prove shared room/GUI code has no string/substring classification path.
+- [ ] 7.14 Test unified-registry call-activity coverage explicitly for all five current exact codec identities: `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310`. For each, cover known active evidence -> `ACTIVE`, known no-call evidence -> `INACTIVE`, and missing/stale/unrecognized evidence -> `UNKNOWN`; prove a missing/unavailable required binding fails registry/composition validation and prove shared room/GUI code has no model list or string/substring classification path.
 - [ ] 7.15 Test occupancy projection: any current `ACTIVE` -> `Занято`; all-`INACTIVE`, `UNKNOWN`, missing, stale, or failed evidence without an `ACTIVE` -> `Нет данных`; accepted typed activity updates refresh the presentation without occupancy-specific I/O; hover explanation is local-only.
 - [ ] 7.16 Test network presentation retains known port when switch IP is missing, shows safe no-data for missing child port when switch IP is known, never groups unknown-switch records by port, and never fabricates unattached switches.
 - [ ] 7.17 Test parent port summary for zero/one/many/repeated child ports and prove it is presentation-only while child ports remain exact.
@@ -97,7 +98,7 @@ git diff --cached --check
 
 ## 9. Implementation verification and publication
 
-- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, room session ordering, typed call-activity normalization, busy occupancy projection, shell/theme, network partial evidence/parent summary, accordion, and all four device presentation families.
+- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, room session ordering, complete target-search lifecycle lock matrix, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, shell/theme, network partial evidence/parent summary, accordion, and all four device presentation families.
 - [ ] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts.
 - [ ] 9.3 Run:
 
@@ -115,7 +116,7 @@ git diff --cached --check
 
 - [ ] 10.1 Fetch current remote state and record current `master`, PR Draft/state/base/head, and `origin/agent/room-diagnostic-modern-ui` SHA.
 - [ ] 10.2 Create a separate clean detached worktree from exact `origin/agent/room-diagnostic-modern-ui`; verify local HEAD equals recorded remote SHA and worktree is clean.
-- [ ] 10.3 Independently review implementation against every approved contract, with special attention to fallback preservation, selected-room visibility/currentness, exact-model typed call-activity normalization, no shared string heuristics, busy-only occupancy/no extra I/O, parent-port summary semantics, partial network evidence, no-widget network authority, no hidden future-control I/O, and unchanged credential/mutation safety.
+- [ ] 10.3 Independently review implementation against every approved contract, with special attention to fallback preservation, selected-room visibility/currentness, complete target-search lock/supersession inheritance across Local Refresh/AUXILIARY_READ/mutation, exact-row target authority, unified-registry call-activity bindings for all five baseline codecs, fail-fast missing-binding validation, exact-model typed normalization, no shared string/model-list heuristics, busy-only occupancy/no extra I/O, parent-port summary semantics, partial network evidence, no-widget network authority, no hidden future-control I/O, and unchanged credential/mutation safety.
 - [ ] 10.4 Rerun fresh focused and full offline tests, strict change/all OpenSpec validation, `git diff --check`, and `git diff --cached --check`.
 - [ ] 10.5 Repeat the baseline dark/light manual visual acceptance in the independent detached worktree/environment where GUI launch is available; if GUI launch is unavailable, report that limitation rather than claiming visual acceptance.
 - [ ] 10.6 Perform the mandatory disposable archive-applicability check because this change modifies root requirements and adds a new root capability. Do not run archive on the primary feature branch for this check.
