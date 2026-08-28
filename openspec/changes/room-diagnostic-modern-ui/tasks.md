@@ -46,12 +46,15 @@ git diff --cached --check
 ## 5. Room upper presentation
 
 - [ ] 5.1 Implement the upper-left room card with room name, address, VIP, warranty, and occupancy rows.
-- [ ] 5.2 Populate only current authoritative name/address/VIP. Render warranty and occupancy as `Нет данных`; do not infer values or change inventory schema in this change.
-- [ ] 5.3 If a room-card refresh icon is included, wire it only as an alias of top full Refresh.
-- [ ] 5.4 Implement the upper-right network-connections tree with peer width to the room card at baseline (`0.9:1` to `1.1:1`).
-- [ ] 5.5 Preserve canonical network evidence for all states: known switch IP+known port; known switch IP+missing port; missing switch IP+known port. Unknown-switch/known-port evidence must render under a record-bound `Коммутатор не определён` branch and must not be grouped into invented switch identity.
-- [ ] 5.6 Define parent `Порт` cells as not-applicable (`—`); attachment port belongs only to the exact device child. If no switch/port evidence exists, render `Нет данных о сетевых подключениях`.
-- [ ] 5.7 Do not implement or fabricate the product-reference `Нет подключенных устройств` state in this change. It is explicitly deferred until a future approved room-level switch inventory source/schema can prove an unattached switch.
+- [ ] 5.2 Keep warranty explicitly unimplemented as data in this change and render `Гарантия: Нет данных`; do not infer warranty or change inventory schema for it.
+- [ ] 5.3 Derive `Занятость` only from current non-stale accepted normalized call-state evidence already owned by exact room codec rows: any proven active call -> `Занято`; all relevant current codec evidence proves no active call -> `Свободно`; incomplete/unknown evidence -> `Нет данных`. Do not add an occupancy-specific network poll, worker, timer, handler/session acquisition, credential flow, or booking/calendar source.
+- [ ] 5.4 Add a local hover tooltip/popup on the occupancy row/value with meaning equivalent to `Занятость определяется по текущему состоянию звонка кодека.`; opening it must perform zero device I/O.
+- [ ] 5.5 If a room-card refresh icon is included, wire it only as an alias of top full Refresh.
+- [ ] 5.6 Implement the upper-right network-connections tree with peer width to the room card at baseline (`0.9:1` to `1.1:1`).
+- [ ] 5.7 Preserve canonical network evidence for all states: known switch IP+known port; known switch IP+missing port; missing switch IP+known port. Unknown-switch/known-port evidence must render under a record-bound `Коммутатор не определён` branch and must not be grouped into invented switch identity.
+- [ ] 5.8 Populate known-switch parent `Порт` as a deterministic display summary of child attachment evidence: collect non-null child ports in canonical child order, de-duplicate by first occurrence, render zero as `Нет данных`, one as the exact port, many as comma-separated exact ports. Keep exact port/no-data on every child and never treat parent summary as canonical switch state.
+- [ ] 5.9 If no switch/port evidence exists, render `Нет данных о сетевых подключениях`.
+- [ ] 5.10 Do not implement or fabricate `Нет подключенных устройств` in this change. This is an explicit product decision; a future approved room-level switch inventory source/schema is required before unattached switches become data-driven.
 
 ## 6. Equipment accordion and device presentations
 
@@ -78,19 +81,21 @@ git diff --cached --check
 - [ ] 7.10 Test Matrix route clicks still cross only the Matrix intent boundary; restyling must not introduce direct handler calls.
 - [ ] 7.11 Test audio meter restyling preserves authoritative dBFS/live data and does not move network work to the Qt GUI thread.
 - [ ] 7.12 Test theme starts dark on each new application instance, is not persisted, and does not materially change geometry at a fixed baseline window.
-- [ ] 7.13 Test warranty/occupancy display never derives non-authoritative values from current schema-v4 records.
-- [ ] 7.14 Test network presentation retains known port when switch IP is missing, shows safe no-data for missing port when switch IP is known, never groups unknown-switch records by port, and never fabricates unattached switches.
+- [ ] 7.13 Test warranty remains explicit `Нет данных` and is not inferred from schema-v4/device data.
+- [ ] 7.14 Test occupancy derivation: active accepted call -> `Занято`; all relevant current accepted no-call evidence -> `Свободно`; missing/stale/failed evidence without a proven active call -> `Нет данных`; accepted call-state updates refresh the presentation without occupancy-specific I/O; hover explanation is local-only.
+- [ ] 7.15 Test network presentation retains known port when switch IP is missing, shows safe no-data for missing child port when switch IP is known, never groups unknown-switch records by port, and never fabricates unattached switches.
+- [ ] 7.16 Test parent port summary for zero/one/many/repeated child ports and prove it is presentation-only while child ports remain exact.
 
 ## 8. Manual visual acceptance
 
 - [ ] 8.1 Launch the GUI as a detached process per `RULES.md`; use a `1440 x 900` logical-pixel baseline window in representative room mode.
-- [ ] 8.2 Capture local, non-committed dark-theme screenshots and verify: toolbar/search dominance, visible selected-room cue, room/network peer-card ratio, spacing/radius scale, `52-64 px` equipment-row density, grouped expanded-card hierarchy, audio-meter geometry, and Matrix column hierarchy.
-- [ ] 8.3 Toggle to light mode at the same window size, capture local non-committed screenshots, and verify the same geometry/hierarchy with readable primary/secondary/disabled/focus/status states.
+- [ ] 8.2 Capture local, non-committed dark-theme screenshots and verify: toolbar/search dominance, visible selected-room cue, room/network peer-card ratio, room occupancy row, switch-parent port summary, spacing/radius scale, `52-64 px` equipment-row density, grouped expanded-card hierarchy, audio-meter geometry, and Matrix column hierarchy. Manually hover `Занятость` and verify its explanatory popup.
+- [ ] 8.3 Toggle to light mode at the same window size, capture local non-committed screenshots, and verify the same geometry/hierarchy with readable primary/secondary/disabled/focus/status states and the same occupancy/network semantics.
 - [ ] 8.4 Record the manual acceptance result in the implementation session report; screenshots remain local validation aids and SHALL NOT be committed unless the user explicitly requests tracked evidence.
 
 ## 9. Implementation verification and publication
 
-- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, room session ordering, shell/theme, network partial evidence, accordion, and all four device presentation families.
+- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, room session ordering, derived occupancy, shell/theme, network partial evidence/parent summary, accordion, and all four device presentation families.
 - [ ] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts.
 - [ ] 9.3 Run:
 
@@ -108,7 +113,7 @@ git diff --cached --check
 
 - [ ] 10.1 Fetch current remote state and record current `master`, PR Draft/state/base/head, and `origin/agent/room-diagnostic-modern-ui` SHA.
 - [ ] 10.2 Create a separate clean detached worktree from exact `origin/agent/room-diagnostic-modern-ui`; verify local HEAD equals recorded remote SHA and worktree is clean.
-- [ ] 10.3 Independently review implementation against every approved contract, with special attention to fallback preservation, selected-room visibility/currentness, partial network evidence, no-widget network authority, no hidden future-control I/O, and unchanged credential/mutation safety.
+- [ ] 10.3 Independently review implementation against every approved contract, with special attention to fallback preservation, selected-room visibility/currentness, occupancy derivation/no extra I/O, parent-port summary semantics, partial network evidence, no-widget network authority, no hidden future-control I/O, and unchanged credential/mutation safety.
 - [ ] 10.4 Rerun fresh focused and full offline tests, strict change/all OpenSpec validation, `git diff --check`, and `git diff --cached --check`.
 - [ ] 10.5 Repeat the baseline dark/light manual visual acceptance in the independent detached worktree/environment where GUI launch is available; if GUI launch is unavailable, report that limitation rather than claiming visual acceptance.
 - [ ] 10.6 Perform the mandatory disposable archive-applicability check because this change modifies root requirements and adds a new root capability. Do not run archive on the primary feature branch for this check.

@@ -51,22 +51,63 @@ The selected-room cue SHALL be visually subordinate to the raw search editor but
 - **AND** the selected-room cue displays that result's exact deterministic selection label
 - **AND** the cue maps to the same current canonical room ID used by application authority
 
-### Requirement: Room summary card has permanent room-information slots
+### Requirement: Room summary card derives occupancy only from accepted codec call state
 
 The room-summary card SHALL permanently include presentation slots for room name, room address, VIP, warranty, and occupancy. Current canonical `room_name`, `room_address`, and `room_vip` SHALL use the room metadata authority defined by `room-equipment-diagnostics`.
 
-Because canonical schema v4 does not contain authoritative warranty or occupancy fields, this change SHALL render `Гарантия: Нет данных` and `Занятость: Нет данных` and SHALL NOT infer those values from unrelated inventory columns, timestamps, device data, room text, or local UI state.
+Warranty data is explicitly deferred from this change by product decision. Because canonical schema v4 contains no authoritative warranty field, the permanent row SHALL render `Гарантия: Нет данных` and SHALL NOT infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state.
+
+Occupancy SHALL NOT be an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL be a presentation-only derivation from the latest current non-stale accepted normalized codec call-state evidence already owned by exact room-row application state:
+
+```text
+at least one current accepted room codec call state proves an active call
+    -> `Занято`
+
+no current accepted room codec call state proves an active call
+AND every relevant call-capable codec row has current accepted evidence proving no active call
+    -> `Свободно`
+
+otherwise
+    -> `Нет данных`
+```
+
+A relevant call-capable codec row is a room codec record whose existing normalized diagnostic presentation contract exposes call state. Implementation SHALL reuse existing exact-model/row capability and accepted data authority and SHALL NOT introduce a second parallel list of occupancy-supported models.
+
+The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts a new current normalized call-state value. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
+
+Hovering the `Занятость` row/value SHALL show a local tooltip or equivalent non-modal explanatory popup whose meaning is equivalent to: `Занятость определяется по текущему состоянию звонка кодека.` The tooltip SHALL perform no device I/O and SHALL NOT imply that occupancy comes from a room-booking/calendar system.
 
 VIP true SHALL have a clear badge/indicator in addition to textual/accessibility meaning. VIP false/null SHALL not be rendered as VIP true.
 
 At baseline size the room identity/name is the strongest text inside the card; address/warranty/occupancy are secondary rows. A room-card refresh icon MAY be present to match the visual hierarchy, but if actionable it SHALL be only an alias of the existing top full Refresh intent.
 
-#### Scenario: Warranty authority is absent
+#### Scenario: Active codec call marks the room busy
 
-- **GIVEN** current schema-v4 room data is loaded
-- **WHEN** the room summary renders
-- **THEN** warranty and occupancy remain visible as permanent rows
-- **AND** both use the safe no-data presentation rather than invented values
+- **GIVEN** a current room codec row has non-stale accepted call-state evidence proving an active call
+- **WHEN** the room summary is rendered or that accepted call state changes
+- **THEN** occupancy is displayed as `Занято`
+- **AND** no additional occupancy-specific network request is started
+
+#### Scenario: Current codec evidence proves no active call
+
+- **GIVEN** every relevant call-capable codec row has current accepted call-state evidence
+- **AND** none of those states indicates an active call
+- **WHEN** the room summary is rendered
+- **THEN** occupancy is displayed as `Свободно`
+
+#### Scenario: Occupancy evidence is incomplete
+
+- **GIVEN** no active call is currently proven
+- **AND** at least one relevant call-capable codec row has unavailable, failed, stale, or otherwise non-current call-state evidence
+- **WHEN** the room summary is rendered
+- **THEN** occupancy is displayed as `Нет данных`
+- **AND** the GUI does not guess that the room is free
+
+#### Scenario: Occupancy explanation is available on hover
+
+- **WHEN** the operator hovers the occupancy row or value
+- **THEN** a local explanatory tooltip/popup states that occupancy is derived from the current codec call state
+- **AND** opening the explanation performs no device I/O
 
 ### Requirement: Network card preserves all available canonical connection evidence
 
@@ -97,21 +138,40 @@ Records with unknown switch IP but known port SHALL NOT be grouped together mere
 
 For an authoritative switch-IP parent, attached room-equipment children SHALL be ordered by canonical `record_id`, SHALL display the existing safe device/model label, and SHALL display canonical `switch_port` or the safe no-data value.
 
-The parent `Порт` column SHALL display `—` (or an equivalent not-applicable cue), because schema v4 defines `switch_port` as the equipment attachment port, not as an attribute of the switch parent. Port evidence belongs on the exact equipment child row.
+The parent `Порт` column SHALL be a presentation summary of child attachment-port evidence rather than a new switch property. For each authoritative switch-IP parent, collect non-null canonical child `switch_port` values in child `record_id` order and de-duplicate by first occurrence:
+
+```text
+zero known child ports     -> `Нет данных`
+one unique known port      -> that exact port, e.g. `Gi1/0/5`
+multiple unique ports      -> comma-separated exact values in deterministic child order
+```
+
+Each expanded child SHALL still display its own exact canonical `switch_port` or `Нет данных`. The summary SHALL NOT be persisted as canonical data and SHALL NOT be used as switch identity or device-routing authority.
+
+For a record-bound `Коммутатор не определён` evidence branch with a known canonical port, the branch-level `Порт` cell MAY repeat that exact port as a presentation summary because the branch is bound to one exact record; its child still displays the same exact evidence.
 
 A user-friendly switch name MAY be shown only from safe unique current canonical display evidence for that exact switch IP. Otherwise a generic `Коммутатор (<IP>)` style label SHALL be used.
 
 If the room contains no presentable switch-IP or port evidence at all, the card SHALL show a safe empty state equivalent to `Нет данных о сетевых подключениях` rather than an invented topology.
 
-The supplied product direction includes an eventual `Нет подключенных устройств` state for a known room switch. Current schema v4 cannot authoritatively establish a room switch with zero attached room equipment. Therefore that runtime state is explicitly DEFERRED from this change: implementation SHALL NOT fabricate it, and acceptance of this change SHALL NOT require an empty-switch node. A future reviewed source/schema change must establish room-level switch inventory authority before `Нет подключенных устройств` becomes a reachable data-driven state.
+By explicit product decision, room switches with zero attached canonical equipment are not implemented in this change. Current schema v4 cannot authoritatively establish such a switch, so implementation SHALL NOT fabricate it and acceptance SHALL NOT require the `Нет подключенных устройств` runtime state. A future reviewed source/schema change is required before that state becomes data-driven.
 
 #### Scenario: Two room devices share a switch
 
 - **GIVEN** two room records contain the same non-null canonical `switch_ip_address`
+- **AND** their canonical ports are `Gi1/0/5` and `Gi1/0/6`
 - **WHEN** the network tree is rendered
 - **THEN** one switch parent is shown for that IP
 - **AND** both attached devices appear as deterministic children with their canonical ports
-- **AND** the parent Port column is not populated from either child's attachment port
+- **AND** the parent Port summary displays `Gi1/0/5, Gi1/0/6`
+- **AND** that summary does not become canonical switch state
+
+#### Scenario: Parent port summary de-duplicates repeated child evidence
+
+- **GIVEN** several children under one exact switch IP contain the same non-null canonical port text
+- **WHEN** the parent summary is rendered
+- **THEN** the repeated port appears once according to first child occurrence
+- **AND** every child still retains its own exact port presentation
 
 #### Scenario: Known port with missing switch IP is not lost
 
@@ -120,12 +180,12 @@ The supplied product direction includes an eventual `Нет подключенн
 - **THEN** the known port remains visible under a `Коммутатор не определён` evidence branch bound to that exact record
 - **AND** no switch IP or shared switch identity is guessed
 
-#### Scenario: Empty switch state is deferred honestly
+#### Scenario: Empty switch state is explicitly out of current scope
 
 - **GIVEN** no canonical room record/evidence establishes an unattached switch node
 - **WHEN** the network card renders
 - **THEN** the GUI does not fabricate a switch solely to display `Нет подключенных устройств`
-- **AND** the absence of that state is accepted as an explicit current-data limitation of this change
+- **AND** acceptance does not require that state in this change
 
 ### Requirement: Equipment rows share one non-color accordion header contract
 

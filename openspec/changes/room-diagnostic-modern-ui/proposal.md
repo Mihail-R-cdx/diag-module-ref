@@ -10,12 +10,9 @@ The change preserves existing fallback semantics. For a valid IP target with una
 
 Room-name results remain exact `room_id` authorities even when human-readable names collide. Autocomplete uses deterministic display-only disambiguation, preferably room address, and a neutral deterministic result discriminator if name/address are still identical. The operator's raw query remains unchanged, while a separate visible selected-room cue shows which exact current result is selected.
 
-Repository inspection also shows two current data-boundary limitations that this GUI change must not hide:
+Current schema v4 has no warranty or occupancy columns. By explicit product decision, warranty data is not implemented in this change and its permanent GUI row remains `Нет данных`. Occupancy is implemented without changing inventory: the room card derives it from current accepted non-stale normalized codec call-state evidence already owned by exact room-row application state. A proven active call renders `Занято`; a proven all-clear current call state renders `Свободно`; incomplete/unknown evidence renders `Нет данных`. Hovering the occupancy row explains that it is derived from the codec call state. This derivation creates no occupancy-specific network request or booking/calendar authority.
 
-- canonical inventory schema v4 has `room_name`, `room_address`, `room_vip`, `switch_ip_address`, and `switch_port`, but it has no authoritative warranty or occupancy fields;
-- current canonical network enrichment associates each equipment record with optional switch IP/port evidence, but it does not represent an authoritative room-level set of empty switches.
-
-Therefore warranty/occupancy remain permanent safe no-data rows in this change. The network tree preserves every available canonical switch/port evidence state, including known port with unknown switch IP, without inventing shared switch identity. The product-reference state `Нет подключенных устройств` is explicitly deferred: current schema v4 cannot prove an unattached room switch, so this change does not fabricate or require that runtime state. A separate future reviewed source/schema change is required to make it authoritative.
+Current canonical network enrichment associates each equipment record with optional switch IP/port evidence, but it does not represent an authoritative room-level set of empty switches. By explicit product decision, unattached/empty switches and the `Нет подключенных устройств` runtime state are not implemented in this change. Existing child port evidence is nevertheless summarized on each known switch parent for the visual `Порт` column without inventing a canonical switch-port property.
 
 Change base: `7e9fd4720d682c232e69179df7cc825afd29bd1d` (`master`).
 
@@ -39,14 +36,14 @@ Change base: `7e9fd4720d682c232e69179df7cc825afd29bd1d` (`master`).
   - room equipment accordion below;
   - explicit spacing/radius/typography/icon scales;
   - bottom room status/last-update presentation retained.
-- Make the room card permanently present in room mode with room name, address, VIP, warranty, and occupancy rows. Current authoritative name/address/VIP are populated from inventory. Warranty and occupancy remain explicit `Нет данных` placeholders in this change because schema v4 has no authority for them.
+- Make the room card permanently present in room mode with room name, address, VIP, warranty, and occupancy rows. Current authoritative name/address/VIP are populated from inventory. Warranty remains `Нет данных` by explicit scope decision. Occupancy is derived from current accepted codec call state as `Занято` / `Свободно` / safe `Нет данных`; hover shows a local explanation that occupancy comes from the codec call parameter/state.
 - Render network connections as a switch/device tree that preserves all current canonical evidence:
   - known switch IP + known port -> exact switch parent and child port;
   - known switch IP + missing port -> exact switch parent and child `Нет данных`;
   - missing switch IP + known port -> record-bound `Коммутатор не определён` evidence branch retaining the port;
   - both missing -> no fabricated topology evidence.
-  Parent Port cells are not populated from child attachment ports.
-- Explicitly defer authoritative empty-switch presentation (`Нет подключенных устройств`) until a future source/schema change can prove a room switch with zero attached room equipment.
+- Populate the parent `Порт` column only as a deterministic display summary of non-null child attachment ports: zero -> `Нет данных`, one -> exact port, many -> comma-separated unique exact ports in child order. Children retain exact individual ports; parent summary is never canonical authority.
+- Explicitly defer authoritative empty-switch presentation (`Нет подключенных устройств`) by product decision until a future source/schema change can prove a room switch with zero attached room equipment.
 - Standardize every equipment top-level row as an accordion header equivalent to `expand -> class icon -> model label -> status icon/text -> IP -> overflow menu`, with baseline collapsed row height `52-64 px` and non-color status meaning.
 - Restyle expanded device presentations while preserving existing application/controller ownership:
   - audio DSP: vertical segmented dBFS meters with defined relative geometry, selected-channel emphasis, reserved disabled gain/mute controls;
@@ -74,7 +71,13 @@ operator types target query
             -> selected-room cue + hidden exact room_id authority
     -> Enter / top Refresh starts diagnostics only after one authoritative target exists
     -> room mode
-        upper room card + network tree
+        room card
+            -> name/address/VIP from room authority
+            -> warranty = `Нет данных`
+            -> occupancy derived from accepted codec call state
+        network tree
+            -> exact child attachment evidence
+            -> parent port display summary
         -> deterministic equipment accordion
         -> existing sequential acquisition
         -> existing exact-row post-cycle interaction lifecycle
@@ -84,7 +87,7 @@ operator types target query
 
 ### New Capabilities
 
-- `diagnostic-ui-presentation`: self-contained room shell visual contract, semantic themes, selected-room cue, room/network cards, common equipment-row contract, device-specific expanded presentation, and disabled future-control placeholders.
+- `diagnostic-ui-presentation`: self-contained room shell visual contract, semantic themes, selected-room cue, room/network cards, derived occupancy presentation, switch-parent port summary, common equipment-row contract, device-specific expanded presentation, and disabled future-control placeholders.
 
 ### Modified Capabilities
 
@@ -95,6 +98,6 @@ operator types target query
 
 ## Impact
 
-Implementation is expected to refactor the Qt shell and room presentation, extend the runtime inventory query boundary with an immutable room-search projection/index, add explicit search-selection application state and visible selection presentation, extend room session construction to support an optional source record, preserve partial network evidence, and add focused GUI/presentation regression coverage plus manual dark/light baseline visual acceptance.
+Implementation is expected to refactor the Qt shell and room presentation, extend the runtime inventory query boundary with an immutable room-search projection/index, add explicit search-selection application state and visible selection presentation, extend room session construction to support an optional source record, derive occupancy from existing accepted codec call state, preserve/summarize partial network evidence, and add focused GUI/presentation regression coverage plus manual dark/light baseline visual acceptance.
 
-The change must not redesign credential storage or fallback, move network ownership into widgets, add new protocol commands, perform network I/O on the Qt GUI thread, change automatic room queue sequencing, introduce fuzzy model dispatch, persist the selected theme, invent warranty/occupancy values, fabricate switch identity, or change inventory schema v4. Populating warranty/occupancy or representing room switches with zero attached canonical devices requires a separate reviewed inventory/source-authority change.
+The change must not redesign credential storage or fallback, move network ownership into widgets, add new protocol commands, perform network I/O on the Qt GUI thread, change automatic room queue sequencing, introduce fuzzy model dispatch, persist the selected theme, invent warranty values, create an independent occupancy/booking source, fabricate switch identity or empty switches, or change inventory schema v4.
