@@ -74,7 +74,7 @@ For explicit room-name entry, no source record exists. Each display field indepe
 
 If no usable canonical value exists, the presentation SHALL use a safe no-data value. The room session SHALL NOT compare same-room `room_name`, `room_address`, or `room_vip` values to select a majority, emit a conflict merely for differing display metadata, or replace authoritative `room_id` identity. Boolean `false` SHALL be treated as a meaningful non-null VIP value.
 
-Warranty and occupancy are not canonical schema-v4 room fields and therefore are not room identity/display authority under this requirement. A GUI MAY reserve those labels, but it SHALL NOT derive non-authoritative values for them under this change.
+Warranty and occupancy are not canonical schema-v4 room fields and therefore are not room identity/display authority under this requirement. Warranty SHALL NOT be derived from non-authoritative values in this change. Occupancy MAY be derived only as presentation state under the typed codec call-activity contract defined by `diagnostic-ui-presentation` and `device-diagnostics-and-control`; such derived occupancy SHALL NOT become canonical room metadata, room identity, inventory state, or booking/calendar authority.
 
 #### Scenario: IP source record carries the room address
 
@@ -97,3 +97,10 @@ Warranty and occupancy are not canonical schema-v4 room fields and therefore are
 - **WHEN** canonical room records contain usable room name/address/VIP values
 - **THEN** each display field independently uses the first usable value in canonical record order
 - **AND** no record becomes synthetic source authority
+
+#### Scenario: Derived occupancy is not room metadata authority
+
+- **GIVEN** the room presentation receives a typed current codec call-activity projection
+- **WHEN** `diagnostic-ui-presentation` derives the visible occupancy row
+- **THEN** that value remains presentation-only
+- **AND** it does not modify canonical room metadata, inventory identity, or booking state

@@ -45,35 +45,35 @@ The selected-room cue SHALL be visually subordinate to the raw search editor but
 
 #### Scenario: Duplicate room names are selected safely
 
-- **GIVEN** autocomplete contains several visibly distinguishable results whose room names are identical
+- **GIVEN** autocomplete contains several visibly distinguishishable results whose room names are identical
 - **WHEN** the operator selects one result
 - **THEN** the raw search text remains unchanged
 - **AND** the selected-room cue displays that result's exact deterministic selection label
 - **AND** the cue maps to the same current canonical room ID used by application authority
 
-### Requirement: Room summary card derives occupancy only from accepted codec call state
+### Requirement: Room summary card derives busy indication only from typed codec call activity
 
 The room-summary card SHALL permanently include presentation slots for room name, room address, VIP, warranty, and occupancy. Current canonical `room_name`, `room_address`, and `room_vip` SHALL use the room metadata authority defined by `room-equipment-diagnostics`.
 
 Warranty data is explicitly deferred from this change by product decision. Because canonical schema v4 contains no authoritative warranty field, the permanent row SHALL render `Гарантия: Нет данных` and SHALL NOT infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state.
 
-Occupancy SHALL NOT be an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL be a presentation-only derivation from the latest current non-stale accepted normalized codec call-state evidence already owned by exact room-row application state:
+Occupancy SHALL NOT be an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL consume only current non-stale model-neutral `CallActivity` evidence produced under `device-diagnostics-and-control`; the room presentation SHALL NOT parse model-specific or localized call-status strings.
+
+The current product decision defines only a positive busy indication:
 
 ```text
-at least one current accepted room codec call state proves an active call
+at least one current accepted relevant room codec has CallActivity.ACTIVE
     -> `Занято`
-
-no current accepted room codec call state proves an active call
-AND every relevant call-capable codec row has current accepted evidence proving no active call
-    -> `Свободно`
 
 otherwise
     -> `Нет данных`
 ```
 
-A relevant call-capable codec row is a room codec record whose existing normalized diagnostic presentation contract exposes call state. Implementation SHALL reuse existing exact-model/row capability and accepted data authority and SHALL NOT introduce a second parallel list of occupancy-supported models.
+`CallActivity.INACTIVE` is intentionally not presented as `Свободно` in this change because absence of a codec call does not establish physical room availability. `CallActivity.UNKNOWN`, missing/stale/failed call evidence, or a room with no relevant typed call evidence likewise renders `Нет данных`.
 
-The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts a new current normalized call-state value. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
+A relevant call-capable codec row is a room codec record for which the existing exact-model diagnostic normalization publishes `CallActivity`. Implementation SHALL reuse exact-model/row capability and accepted data authority and SHALL NOT introduce a second parallel list of occupancy-supported models.
+
+The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts a new current typed `CallActivity` value. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
 
 Hovering the `Занятость` row/value SHALL show a local tooltip or equivalent non-modal explanatory popup whose meaning is equivalent to: `Занятость определяется по текущему состоянию звонка кодека.` The tooltip SHALL perform no device I/O and SHALL NOT imply that occupancy comes from a room-booking/calendar system.
 
@@ -81,24 +81,24 @@ VIP true SHALL have a clear badge/indicator in addition to textual/accessibility
 
 At baseline size the room identity/name is the strongest text inside the card; address/warranty/occupancy are secondary rows. A room-card refresh icon MAY be present to match the visual hierarchy, but if actionable it SHALL be only an alias of the existing top full Refresh intent.
 
-#### Scenario: Active codec call marks the room busy
+#### Scenario: Typed active codec call marks the room busy
 
-- **GIVEN** a current room codec row has non-stale accepted call-state evidence proving an active call
-- **WHEN** the room summary is rendered or that accepted call state changes
+- **GIVEN** a current room codec row has non-stale accepted `CallActivity.ACTIVE`
+- **WHEN** the room summary is rendered or that accepted typed activity changes
 - **THEN** occupancy is displayed as `Занято`
 - **AND** no additional occupancy-specific network request is started
 
-#### Scenario: Current codec evidence proves no active call
+#### Scenario: Typed inactive evidence does not claim physical availability
 
-- **GIVEN** every relevant call-capable codec row has current accepted call-state evidence
-- **AND** none of those states indicates an active call
+- **GIVEN** every relevant current room codec publishes `CallActivity.INACTIVE`
 - **WHEN** the room summary is rendered
-- **THEN** occupancy is displayed as `Свободно`
+- **THEN** occupancy is displayed as `Нет данных`
+- **AND** the GUI does not claim `Свободно`
 
 #### Scenario: Occupancy evidence is incomplete
 
-- **GIVEN** no active call is currently proven
-- **AND** at least one relevant call-capable codec row has unavailable, failed, stale, or otherwise non-current call-state evidence
+- **GIVEN** no relevant current room codec publishes `CallActivity.ACTIVE`
+- **AND** call activity is unknown, missing, stale, failed, or absent for one or more relevant rows
 - **WHEN** the room summary is rendered
 - **THEN** occupancy is displayed as `Нет данных`
 - **AND** the GUI does not guess that the room is free

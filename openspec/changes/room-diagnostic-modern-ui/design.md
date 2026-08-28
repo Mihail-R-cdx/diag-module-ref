@@ -10,7 +10,7 @@ Current `master` at change creation is `7e9fd4720d682c232e69179df7cc825afd29bd1d
 - post-cycle live/read/mutation work is serialized and bound to the exact expanded record;
 - widgets emit intent and do not own credentials, handlers, retry/fallback, sessions, or stale-operation authority.
 
-The existing runtime inventory schema v4 exposes `room_name`, `room_address`, `room_vip`, `switch_ip_address`, and `switch_port`. It does not expose warranty or occupancy. Warranty is explicitly deferred by product decision. Occupancy in this change is not added to inventory: it is a presentation-only derivation from current accepted codec call-state evidence already held in exact room-row application state. The optional network workbook is reconciled MAC-only into per-equipment switch IP/port fields; it does not currently publish an authoritative room-level switch inventory capable of proving that a switch with no attached room equipment exists, and empty-switch presentation is explicitly deferred by product decision.
+The existing runtime inventory schema v4 exposes `room_name`, `room_address`, `room_vip`, `switch_ip_address`, and `switch_port`. It does not expose warranty or occupancy. Warranty is explicitly deferred by product decision. Occupancy in this change is not added to inventory or booking data: the visible busy indication is a presentation-only projection from current accepted typed codec `CallActivity` evidence already held in exact room-row application state. The optional network workbook is reconciled MAC-only into per-equipment switch IP/port fields; it does not currently publish an authoritative room-level switch inventory capable of proving that a switch with no attached room equipment exists, and empty-switch presentation is explicitly deferred by product decision.
 
 The GUI change therefore has two layers:
 
@@ -27,7 +27,7 @@ The original product screenshots are design inputs but are not repository author
 - Make direct room-name selection authoritative by canonical `room_id`, not by a fabricated source device.
 - Preserve the full current fail-closed IP multiplicity, diagnostic fallback, credential fallback, and network-safety rules.
 - Present room metadata and all available canonical network topology evidence prominently above the equipment tree.
-- Derive the room `Занятость` presentation from existing accepted codec call state without introducing a booking source or occupancy-specific device I/O.
+- Derive only the room `Занято` indication from existing accepted typed codec call activity, without introducing a booking source, string heuristics, or occupancy-specific device I/O.
 - Preserve the tree/accordion information architecture with exactly one expanded device.
 - Give codec, PDU, Matrix, and audio DSP data a coherent card-based visual system.
 - Preserve current Matrix/PDU/codec/audio interactive capability boundaries.
@@ -38,7 +38,9 @@ The original product screenshots are design inputs but are not repository author
 
 - No inventory schema v5.
 - No warranty source or warranty-data implementation in this change; `Гарантия` remains a visible `Нет данных` row.
-- No booking/calendar integration and no independent occupancy poll/source; occupancy is derived only from existing accepted codec call-state evidence.
+- No booking/calendar integration and no independent occupancy poll/source.
+- No claim that `CallActivity.INACTIVE` means the physical room is free; `Свободно` is not emitted by this change.
+- No shared room-GUI parsing of model-specific/localized call-state strings.
 - No new authoritative room-level switch source and no data-driven unattached-switch/`Нет подключенных устройств` state in this change.
 - No protocol implementation for controls that are currently unsupported.
 - No direct handler/controller calls from new Qt widgets.
@@ -169,7 +171,7 @@ room-name entry:
 
 Same-room duplicate-IP ambiguity and all row eligibility rules remain unchanged.
 
-### 6. Shared room metadata and derived occupancy
+### 6. Shared room metadata and typed call-activity busy projection
 
 Room identity always remains exact canonical `room_id` and is not shown as operator-facing identity.
 
@@ -184,9 +186,11 @@ The room card also contains `Гарантия` and `Занятость` rows.
 
 `Гарантия` is intentionally not implemented as data in this change and renders `Нет данных`. No inventory/schema expansion or inference is allowed for warranty here.
 
-`Занятость` is derived from current accepted non-stale normalized codec call-state evidence already present in exact room-row application state. At least one proven active call makes the room `Занято`. `Свободно` is shown only when every relevant call-capable codec row has current accepted evidence proving no active call. Otherwise the safe presentation is `Нет данных`. This is presentation-only derivation: it creates no occupancy-specific network operation, timer, worker, handler/session acquisition, or credential flow.
+Each relevant exact codec model projects its current accepted call evidence to application-owned `CallActivity.ACTIVE`, `CallActivity.INACTIVE`, or `CallActivity.UNKNOWN` before room aggregation. Model-specific parser/adapter normalization owns any mapping from protocol or legacy normalized values; shared room/presentation code never classifies localized or protocol strings. Unrecognized/missing/stale evidence becomes `UNKNOWN`.
 
-The occupancy row/value exposes a local hover tooltip/popup equivalent to `Занятость определяется по текущему состоянию звонка кодека.` It does not claim booking/calendar authority.
+`Занятость` renders `Занято` when at least one current relevant room codec has `CallActivity.ACTIVE`. Every other case, including all codecs being `INACTIVE`, renders `Нет данных`. The change intentionally does not render `Свободно`, because a codec not being in a call does not prove physical room availability.
+
+This projection is presentation-only: it creates no occupancy-specific network operation, timer, worker, handler/session acquisition, or credential flow. The occupancy row/value exposes a local hover tooltip/popup equivalent to `Занятость определяется по текущему состоянию звонка кодека.` It does not claim booking/calendar authority.
 
 ### 7. Self-contained visual scale
 
@@ -225,7 +229,7 @@ left:  room summary
 right: network connections
 ```
 
-The room summary displays room icon + room name + VIP badge (when true), address, warranty, and occupancy. Room identity/name is strongest; the remaining rows are secondary. Warranty remains `Нет данных` in this change. Occupancy uses the accepted codec-call derivation defined above and exposes its explanatory hover tooltip.
+The room summary displays room icon + room name + VIP badge (when true), address, warranty, and occupancy. Room identity/name is strongest; the remaining rows are secondary. Warranty remains `Нет данных` in this change. Occupancy uses the typed codec-call busy projection defined above and exposes its explanatory hover tooltip.
 
 A room-card refresh icon, if implemented, is an alias of top full Refresh and never creates a second refresh lane.
 
@@ -335,7 +339,8 @@ A supported unique IP record with `room_id = null` retains the existing legacy s
 - **Partial-room-name ambiguity:** explicit selection, display address, neutral deterministic discriminator, and separate visible selected-room cue.
 - **Stale autocomplete selection:** query revision + inventory snapshot identity; cue clears with authority.
 - **Fallback regression:** full existing unavailable-inventory diagnostic and credential-configuration fallback semantics are restated in the modified shell requirement.
-- **Occupancy freshness/authority:** only current accepted non-stale codec call-state evidence can drive `Занято`/`Свободно`; incomplete evidence degrades to `Нет данных` rather than guessing. No booking semantics are implied.
+- **Call-activity normalization drift:** exact-model normalization produces typed `ACTIVE/INACTIVE/UNKNOWN`; room presentation never owns string heuristics and unrecognized evidence fails to `UNKNOWN`.
+- **Occupancy semantics:** only `ACTIVE` drives `Занято`; `INACTIVE` does not claim physical availability and therefore still displays `Нет данных`.
 - **Warranty gap:** explicitly user-approved as not implemented; the visible row remains `Нет данных`.
 - **Partial network evidence loss:** all three meaningful partial combinations are specified; known port is never discarded merely because switch IP is missing.
 - **Switch parent port semantics:** parent value is only a deterministic summary of child attachment evidence, never canonical switch authority.
@@ -355,7 +360,7 @@ git diff --check
 git diff --cached --check
 ```
 
-Implementation validation must include focused search/presentation tests plus the full offline test suite.
+Implementation validation must include focused search/presentation tests plus typed call-activity normalization tests for every exact codec model whose call state contributes to room occupancy, and the full offline test suite.
 
 Manual visual acceptance is mandatory during implementation validation: launch the GUI detached per `RULES.md`, set the window to the baseline `1440 x 900`, capture local non-committed screenshots for dark and light room mode, and compare them against the repository-local proportion/hierarchy contract. The check must explicitly inspect upper-card peer width, toolbar/search dominance, row density, occupancy display/tooltip, switch-parent port summary, expanded card hierarchy, audio-meter geometry, Matrix column hierarchy, and geometry stability across theme switch. These screenshots are local validation aids and SHALL NOT become tracked evidence unless separately requested.
 
