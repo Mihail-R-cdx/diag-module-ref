@@ -55,9 +55,9 @@ The selected-room cue SHALL be visually subordinate to the raw search editor but
 
 The room-summary card SHALL permanently include presentation slots for room name, room address, VIP, warranty, and occupancy. Current canonical `room_name`, `room_address`, and `room_vip` SHALL use the room metadata authority defined by `room-equipment-diagnostics`.
 
-Warranty data is explicitly deferred from this change by product decision. Because canonical schema v4 contains no authoritative warranty field, the permanent row SHALL render `Гарантия: Нет данных` and SHALL NOT infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state.
+The confirmed product decision for this change is that real warranty data is not implemented yet. This scope decision is independent of the current schema limitation. Because canonical schema v4 contains no authoritative warranty field, the permanent row SHALL render `Гарантия: Нет данных` and SHALL NOT infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state. A future reviewed change may add an authoritative warranty source/schema mapping.
 
-Occupancy SHALL NOT be an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL consume only current non-stale model-neutral `CallActivity` evidence produced under `device-diagnostics-and-control`; the room presentation SHALL NOT parse model-specific or localized call-status strings.
+The confirmed product meaning of the operator-facing `Занятость` row in this change is **busy by current VKS call**, not physical room occupancy and not booking/calendar occupancy. Occupancy SHALL NOT become an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL consume only current model-neutral `CallActivity` evidence produced under `device-diagnostics-and-control`; the room presentation SHALL NOT parse model-specific or localized call-status strings.
 
 The current product decision defines only a positive busy indication:
 
@@ -69,11 +69,11 @@ otherwise
     -> `Нет данных`
 ```
 
-`CallActivity.INACTIVE` is intentionally not presented as `Свободно` in this change because absence of a codec call does not establish physical room availability. `CallActivity.UNKNOWN`, missing/stale/failed call evidence, or a room with no relevant typed call evidence likewise renders `Нет данных`.
+`CallActivity.INACTIVE` is intentionally not presented as `Свободно` in this change because absence of a codec call does not establish physical room availability. `CallActivity.UNKNOWN`, missing/stale/failed call evidence, or a room with no current active call likewise renders `Нет данных`.
 
-A relevant call-capable codec row is a room codec record for which the existing exact-model diagnostic normalization publishes `CallActivity`. Implementation SHALL reuse exact-model/row capability and accepted data authority and SHALL NOT introduce a second parallel list of occupancy-supported models.
+A relevant call-capable codec row is defined exclusively by capability authority: its exact unified application model registration declares the required available call-activity normalization/projection binding defined by `device-diagnostics-and-control`. Runtime presence or absence of a `CallActivity` field or call-status payload SHALL NOT decide applicability. A registry-relevant row whose current evidence is missing, stale, failed, contradictory, or unrecognized remains relevant and contributes `CallActivity.UNKNOWN`; it SHALL NOT silently disappear from aggregation. Presentation SHALL NOT keep a second occupancy-supported model list.
 
-The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts a new current typed `CallActivity` value. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
+The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts new current typed call-activity evidence/currentness. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
 
 Hovering the `Занятость` row/value SHALL show a local tooltip or equivalent non-modal explanatory popup whose meaning is equivalent to: `Занятость определяется по текущему состоянию звонка кодека.` The tooltip SHALL perform no device I/O and SHALL NOT imply that occupancy comes from a room-booking/calendar system.
 
@@ -83,22 +83,31 @@ At baseline size the room identity/name is the strongest text inside the card; a
 
 #### Scenario: Typed active codec call marks the room busy
 
-- **GIVEN** a current room codec row has non-stale accepted `CallActivity.ACTIVE`
+- **GIVEN** a registry-relevant current room codec row has non-stale accepted `CallActivity.ACTIVE`
 - **WHEN** the room summary is rendered or that accepted typed activity changes
 - **THEN** occupancy is displayed as `Занято`
 - **AND** no additional occupancy-specific network request is started
 
 #### Scenario: Typed inactive evidence does not claim physical availability
 
-- **GIVEN** every relevant current room codec publishes `CallActivity.INACTIVE`
+- **GIVEN** every registry-relevant current room codec has current accepted `CallActivity.INACTIVE`
 - **WHEN** the room summary is rendered
 - **THEN** occupancy is displayed as `Нет данных`
 - **AND** the GUI does not claim `Свободно`
 
+#### Scenario: Registry-relevant codec remains relevant without usable evidence
+
+- **GIVEN** a room codec exact registration declares the required call-activity binding
+- **AND** its current call evidence is missing, stale, failed, contradictory, or unrecognized
+- **WHEN** occupancy is aggregated
+- **THEN** that codec remains a relevant row
+- **AND** its contribution is `CallActivity.UNKNOWN`
+- **AND** runtime field absence does not remove it from applicability
+
 #### Scenario: Occupancy evidence is incomplete
 
-- **GIVEN** no relevant current room codec publishes `CallActivity.ACTIVE`
-- **AND** call activity is unknown, missing, stale, failed, or absent for one or more relevant rows
+- **GIVEN** no registry-relevant current room codec has `CallActivity.ACTIVE`
+- **AND** call activity is `UNKNOWN`, missing, stale, failed, or otherwise unusable for one or more registry-relevant rows
 - **WHEN** the room summary is rendered
 - **THEN** occupancy is displayed as `Нет данных`
 - **AND** the GUI does not guess that the room is free
@@ -154,7 +163,7 @@ A user-friendly switch name MAY be shown only from safe unique current canonical
 
 If the room contains no presentable switch-IP or port evidence at all, the card SHALL show a safe empty state equivalent to `Нет данных о сетевых подключениях` rather than an invented topology.
 
-By explicit product decision, room switches with zero attached canonical equipment are not implemented in this change. Current schema v4 cannot authoritatively establish such a switch, so implementation SHALL NOT fabricate it and acceptance SHALL NOT require the `Нет подключенных устройств` runtime state. A future reviewed source/schema change is required before that state becomes data-driven.
+The confirmed product decision for this change is that room switches with zero attached canonical equipment are not implemented now. This is an intentional scope decision, not an inference from schema v4. Current schema v4 also cannot authoritatively establish such a switch, so implementation SHALL NOT fabricate it and acceptance SHALL NOT require the `Нет подключенных устройств` runtime state. A future reviewed source/schema change is required before that state becomes data-driven.
 
 #### Scenario: Two room devices share a switch
 
@@ -182,8 +191,8 @@ By explicit product decision, room switches with zero attached canonical equipme
 
 #### Scenario: Empty switch state is explicitly out of current scope
 
-- **GIVEN** no canonical room record/evidence establishes an unattached switch node
-- **WHEN** the network card renders
+- **GIVEN** the confirmed product scope defers room switches with zero attached canonical equipment
+- **WHEN** no canonical room record/evidence establishes an unattached switch node
 - **THEN** the GUI does not fabricate a switch solely to display `Нет подключенных устройств`
 - **AND** acceptance does not require that state in this change
 
