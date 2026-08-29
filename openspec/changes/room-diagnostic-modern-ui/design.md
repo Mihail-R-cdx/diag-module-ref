@@ -12,12 +12,14 @@ Current `master` at change creation is `7e9fd4720d682c232e69179df7cc825afd29bd1d
 
 The existing runtime inventory schema v4 exposes `room_name`, `room_address`, `room_vip`, `switch_ip_address`, and `switch_port`. It does not expose warranty or occupancy. Three product decisions are explicitly confirmed for this change rather than inferred from those schema gaps: real warranty data is not implemented and the visible row remains `Нет данных`; the user-visible `Занятость` row means only busy-by-current-VKS-call and is not physical/calendar occupancy; and room switches with zero attached canonical equipment are deferred until a future room-level switch authority exists. The optional network workbook is reconciled MAC-only into per-equipment switch IP/port fields and cannot currently prove an unattached room switch.
 
-The GUI change therefore has two layers:
+This change is deliberately a **common room UI foundation**, not a bundle of four device-family redesigns. It has two layers:
 
 1. a real application behavior change for target search and direct room selection;
-2. a presentation redesign that reuses existing device/application lifecycles and deliberately keeps future unsupported controls disabled.
+2. a common shell/presentation foundation that reuses the existing supported Audio DSP, Matrix/IN1804, codec, and PDU expanded presentations inside the room accordion without redesigning their family-specific interiors.
 
-The original product screenshots are design inputs but are not repository authority. This design and `diagnostic-ui-presentation/spec.md` therefore encode enough relative geometry and hierarchy for a clean Codex/reviewer session to implement and evaluate the target without needing those screenshots.
+Detailed expanded-screen redesigns are deferred to later semantic OpenSpec changes after this foundation is merged to `master`. The expected follow-up boundaries are equivalent to `audio-diagnostic-modern-ui`, `matrix-diagnostic-modern-ui`, `codec-diagnostic-modern-ui`, and `pdu-diagnostic-modern-ui`.
+
+The original product screenshots are design inputs but are not repository authority. This design and `diagnostic-ui-presentation/spec.md` therefore encode enough relative geometry and hierarchy for a clean Codex/reviewer session to implement and evaluate the **foundation shell** without needing those screenshots.
 
 ## Goals
 
@@ -29,10 +31,9 @@ The original product screenshots are design inputs but are not repository author
 - Present room metadata and all available canonical network topology evidence prominently above the equipment tree.
 - Derive only the room `Занято` busy-by-call indication from existing accepted typed codec call activity, without introducing a booking source, string heuristics, or occupancy-specific device I/O.
 - Preserve the tree/accordion information architecture with exactly one expanded device.
-- Give codec, PDU, Matrix, and audio DSP data a coherent card-based visual system.
-- Preserve current Matrix/PDU/codec/audio interactive capability boundaries.
-- Make dark and light themes semantic, centralized, geometry-stable, and session-only.
-- Keep the approved reference proportions and visual hierarchy without requiring pixel-identical reproduction.
+- Define one common equipment-row/header and shell visual system while keeping current device-family expanded presentations functional and presentation-only.
+- Make dark and light themes semantic, centralized, geometry-stable, and session-only for the common shell.
+- Keep approved foundation proportions and visual hierarchy without requiring pixel-identical reproduction.
 
 ## Non-Goals
 
@@ -43,6 +44,11 @@ The original product screenshots are design inputs but are not repository author
 - No shared room-GUI parsing of model-specific/localized call-state strings.
 - No runtime inference of call-activity applicability from payload/field presence; the unified exact-model registry remains authority.
 - No new authoritative room-level switch source and no data-driven unattached-switch/`Нет подключенных устройств` state in this change by confirmed product decision.
+- No Audio DSP family-specific redesign: no new segmented-meter geometry contract, selected-channel visual redesign, or new gain/mute placeholder layout in this change.
+- No Matrix/IN1804 family-specific redesign: no new per-input visual table/column hierarchy contract in this change.
+- No codec family-specific grouped-card redesign in this change.
+- No PDU family-specific grouped-card/outlet redesign in this change.
+- No new screen-specific reference-only controls merely to match deferred screenshots.
 - No protocol implementation for controls that are currently unsupported.
 - No direct handler/controller calls from new Qt widgets.
 - No persistent theme preference.
@@ -197,9 +203,9 @@ Every registry-relevant exact codec projects its current accepted call evidence 
 
 This projection is presentation-only: it creates no occupancy-specific network operation, timer, worker, handler/session acquisition, or credential flow. The occupancy row/value exposes a local hover tooltip/popup equivalent to `Занятость определяется по текущему состоянию звонка кодека.` It does not claim booking/calendar authority.
 
-### 7. Self-contained visual scale
+### 7. Self-contained foundation visual scale
 
-The normative visual acceptance baseline is `1440 x 900` logical pixels. The minimum supported window is `1180 x 720`. Below baseline width/height, controlled reflow and vertical scrolling are permitted; required controls must remain reachable.
+The normative visual acceptance baseline is `1440 x 900` logical pixels. The minimum supported window is `1180 x 720`. Below baseline width/height, controlled reflow and vertical scrolling are permitted; required foundation controls must remain reachable.
 
 At baseline the common scale is:
 
@@ -223,7 +229,7 @@ The search area including selected-room cue occupies approximately 45-60% of usa
 
 The upper room and network cards are peers: aligned tops, approximately equal width, ratio within `0.9:1` to `1.1:1` at baseline. They must not degenerate into one full-width card plus one narrow sidebar.
 
-Theme changes at a fixed window size must preserve this geometry and hierarchy.
+Theme changes at a fixed window size must preserve this common shell/card/row geometry and hierarchy. No family-specific Audio/Matrix/codec/PDU internal geometry is defined by this change.
 
 ### 8. Upper room area
 
@@ -287,57 +293,50 @@ At baseline, collapsed rows are `52-64 px` high. Model text receives the largest
 
 Status is never conveyed by color alone. Exactly one equipment row may be expanded. Expanding another collapses the previous row without changing automatic queue order.
 
-### 11. Expanded device cards remain presentation boundaries
+The overflow action exposes only current application-authorized actions. If the current foundation does not have a valid action for that row/context, overflow remains disabled/non-actionable; it does not create a new device I/O path.
 
-Expanded content is rebuilt/projected from exact per-record state. New layouts do not own handlers, credentials, sessions, timers, fallback cursors, or request generations.
+### 11. Existing device-family expanded presentations remain compatible and out of redesign scope
 
-At baseline, where a primary data card sits beside a secondary action/status card, use approximately `55-65% / 35-45%` width with `12-20 px` gaps. Full-width tables/meter groups may sit below. Below minimum supported width, reflow vertically rather than hiding controls.
+When a row is expanded, its content remains a projection of the exact row's accepted per-record state through the existing supported Audio DSP, Matrix/IN1804, codec, or PDU presentation path. The foundation MAY add only the minimum container/theme adaptation required to mount that current presentation inside the common accordion and keep it reachable at supported window sizes.
 
-Future placeholders are allowed only if disabled and incapable of emitting network/application mutation intent, starting workers/timers, or faking success.
+This change SHALL NOT define or implement a new family-specific internal composition for those views. In particular it does not introduce new Audio segmented-meter geometry, Matrix table columns, codec grouped cards, PDU grouped cards, or new screen-specific placeholder controls. Those details belong to later dedicated OpenSpec changes.
 
-### 12. Audio DSP visual contract
+Existing supported controls remain connected through their current non-secret application intent/controller boundaries and current lifecycle/capability gates. Existing Matrix routing, PDU mutation/reconciliation, codec live/auxiliary operations, and Audio DSP meter acquisition are preserved. No compatibility adaptation may make a widget authoritative for credentials, handler/session ownership, request freshness, fallback cursors, exact-row identity, or device I/O.
 
-Audio DSP expanded presentation uses separate input/source and output/destination groups, vertical segmented dBFS meters, semantic green/yellow/orange zones, numeric dBFS text, selected-channel emphasis, and reserved disabled `+ / - / value / Mute` controls.
+If a current family presentation cannot fit the new accordion without a minimal structural wrapper/reparenting change, the implementation must preserve its existing semantics and interaction boundary; it must not opportunistically redesign the screen while performing that integration.
 
-At baseline an ordinary meter is `16-22 px` wide and `180-240 px` tall with `10-16 px` between channels. The selected-channel control strip uses approximately `32-40 px` control height. These geometry rules do not change the underlying numeric value or polling lifecycle.
-
-### 13. Matrix visual contract
-
-Matrix/IN1804 uses one per-input table with:
-
-```text
-input number      8-12%
-signal            16-20%
-HDCP              16-20%
-input name        30-40%
-route/current     18-24%
-```
-
-Localized-text adjustment is allowed, but input name stays the widest semantic column and number stays compact. Existing routing remains interactive through the current non-secret Matrix intent boundary.
-
-### 14. Codec and PDU visual contract
-
-Codec and PDU expanded views use grouped bordered cards: primary identity/status, device-specific live/read data, and secondary actions. Where adjacent summary/action cards are used, actions/status occupy about `35-45%`, primary information the remainder. PDU outlet tables and comparable main data tables may occupy full-width rows below.
-
-Existing supported actions remain real under current lifecycle rules. Reference-only generic reboot/volume/gain/mute controls remain disabled until separate capabilities exist.
-
-### 15. Theme lifecycle
+### 12. Theme lifecycle
 
 Dark mode is the startup default on every process launch. The sun/moon control toggles dark/light semantic palettes only for the current process; nothing persists.
 
-At the same window size theme switching must not intentionally resize/reflow toolbar, cards, rows, meters, or tables. Both themes preserve primary/secondary hierarchy, disabled-state clarity, focus indication, borders, and text/status distinguishability.
+At the same window size theme switching must not intentionally resize/reflow the common toolbar, upper cards, or common equipment rows. Both themes preserve primary/secondary hierarchy, disabled-state clarity, focus indication, borders, and text/status distinguishability.
+
+For the reused existing expanded device presentations, foundation theme integration is compatibility-only: required text/controls must remain readable and usable in both themes, but this change does not impose their final family-specific modern visual design.
 
 Theme change is presentation-only: no generation invalidation, live restart, refresh, credential change, or device I/O.
 
-### 16. Search edits reuse existing supersession safety
+### 13. Search edits reuse existing supersession safety
 
 The target-search editor replaces the source-IP editor as the context-changing control. Editing after room completion immediately invalidates current room/live/pending-start authority and clears room/tree/cache presentation under existing bounded cleanup rules. Editing alone starts no device I/O.
 
 During lifecycle states where source-IP editing is currently blocked, target-search editing is blocked instead. Top full Refresh repeats target resolution from current inventory and current unchanged selected-room context; stale selection is never reused.
 
-### 17. Legacy no-room mode remains compatible
+### 14. Legacy no-room mode remains compatible
 
 A supported unique IP record with `room_id = null` retains the existing legacy single-device diagnostic/interactive path. The modern toolbar/theme applies globally, but no synthetic room card, room network tree, or room equipment accordion is created solely to satisfy the new room layout.
+
+## Follow-up device-family changes
+
+After this foundation reaches `master`, create separate OpenSpec changes for the family-specific presentation redesigns rather than stacking them on the unarchived foundation branch:
+
+```text
+audio-diagnostic-modern-ui
+matrix-diagnostic-modern-ui
+codec-diagnostic-modern-ui
+pdu-diagnostic-modern-ui
+```
+
+Each follow-up change must define its own repository-local visual contract, lifecycle impact, regression coverage, manual acceptance, independent validation, archive applicability, and merge boundary. The common shell/accordion contracts from this foundation are upstream dependencies, not duplicated architecture.
 
 ## Risks / Trade-offs
 
@@ -351,8 +350,8 @@ A supported unique IP record with `room_id = null` retains the existing legacy s
 - **Partial network evidence loss:** all three meaningful partial combinations are specified; known port is never discarded merely because switch IP is missing.
 - **Switch parent port semantics:** parent value is only a deterministic summary of child attachment evidence, never canonical switch authority.
 - **Empty-switch reference gap:** explicitly user-approved as deferred rather than simulated from nonexistent authority.
-- **Visual drift across clean sessions:** repository-local baseline geometry, typography, icon, meter, table, and card proportion contract plus manual screenshot acceptance.
-- **Future controls mistaken for working:** disabled with zero intent/I/O regression coverage.
+- **Foundation/family scope creep:** implementation may be tempted to redesign individual screens while integrating them into the accordion. The non-goal and compatibility-only requirement make that a contract violation; family redesigns are separate changes.
+- **Theme compatibility with legacy family views:** both themes must keep reused content readable/usable, but final family visual polish is deliberately postponed.
 - **Theme QSS duplication:** centralized semantic token/palette generation.
 
 ## Validation Strategy
@@ -366,8 +365,8 @@ git diff --check
 git diff --cached --check
 ```
 
-Implementation validation must include focused search/presentation tests plus unified-registry applicability and typed call-activity normalization tests for every required exact codec model, including evidence-missing -> `UNKNOWN` while relevance is retained, and the full offline test suite.
+Implementation validation must include focused target-search, direct-room, shell/theme, room-card, network-card, common-row/accordion, unified-registry applicability, and typed call-activity normalization tests, plus compatibility regression tests proving the existing Audio DSP, Matrix/IN1804, codec, and PDU presentation/interaction boundaries remain usable and do not gain direct network authority. Run the full required offline suite with fresh counts.
 
-Manual visual acceptance is mandatory during implementation validation: launch the GUI detached per `RULES.md`, set the window to the baseline `1440 x 900`, capture local non-committed screenshots for dark and light room mode, and compare them against the repository-local proportion/hierarchy contract. The check must explicitly inspect upper-card peer width, toolbar/search dominance, row density, occupancy display/tooltip, switch-parent port summary, expanded card hierarchy, audio-meter geometry, Matrix column hierarchy, and geometry stability across theme switch. These screenshots are local validation aids and SHALL NOT become tracked evidence unless separately requested.
+Manual visual acceptance is mandatory during implementation validation: launch the GUI detached per `RULES.md`, set the window to the baseline `1440 x 900`, capture local non-committed dark/light room-mode screenshots, and compare them against the repository-local **foundation** proportion/hierarchy contract. The check must explicitly inspect toolbar/search dominance, selected-room cue, room/network peer-card width, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common row density, one-row accordion behavior, and geometry stability across theme switch. It must also verify that each reused current family presentation remains reachable/readable inside the accordion, but it SHALL NOT judge deferred Audio meter geometry, Matrix column hierarchy, codec card layout, or PDU card layout as acceptance criteria for this change.
 
 Because this change adds a new root capability and modifies existing root requirements, independent validation must perform the disposable archive-applicability check from current `origin/agent/room-diagnostic-modern-ui` before `READY FOR ARCHIVE`.
