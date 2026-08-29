@@ -1,6 +1,6 @@
 ## 1. Architecture and validation
 
-- [x] 1.1 Capture the approved foundation product decisions: IP-or-room search, direct `room_id` authority, room/network upper cards, common accordion row, reuse of existing device-family expanded presentations, disabled/non-actionable unauthorized common actions, dark/light toggle, and application title.
+- [x] 1.1 Capture the approved foundation product decisions: IP-or-room search, direct `room_id` authority, room/network upper cards, common accordion row, reuse of current room-mode exact-row device-family presentations, disabled/non-actionable unauthorized common actions, dark/light toggle, and application title.
 - [x] 1.2 Confirm current `master`, current `RULES.md`, inventory runbook, relevant root specs, and current GUI/inventory boundaries before authoring the change.
 - [ ] 1.3 Re-review the narrowed foundation architecture against current `master` and resolve all CRITICAL/HIGH/MEDIUM findings without changing production code.
 - [ ] 1.4 Run repository-local architecture validation on the current published foundation architecture HEAD:
@@ -44,7 +44,7 @@ git diff --cached --check
 - [ ] 4.3 Extend central theme tokens to dark and light palettes without per-widget persistence logic.
 - [ ] 4.4 Start every process in dark mode and add a sun/moon session-only theme toggle.
 - [ ] 4.5 Prove theme switching does not change target context, room generation, credentials, live/session ownership, device I/O, or materially reflow the common toolbar/upper-card/equipment-row geometry at a fixed window size.
-- [ ] 4.6 Keep reused existing device-family expanded content readable/usable in both themes as a compatibility requirement, without redesigning its family-specific layout.
+- [ ] 4.6 Keep reused current room-mode device-family expanded content readable/usable in both themes as a compatibility requirement, without substituting standalone screens or redesigning family-specific layout.
 
 ## 5. Room upper presentation
 
@@ -65,10 +65,10 @@ git diff --cached --check
 
 - [ ] 6.1 Standardize room row headers as `chevron -> class icon -> model -> status cue/text -> IP -> overflow`, baseline collapsed height `52-64 px`, with non-color status cues.
 - [ ] 6.2 Preserve one-expanded-row accordion behavior, exact-row presentation binding, and queue-order independence from accordion selection.
-- [ ] 6.3 Integrate existing supported Audio DSP, Matrix/IN1804, codec, and PDU expanded presentations into the common accordion using only the minimum wrapper/reparenting/theme compatibility required. Do not redesign their family-specific internal layout in this change.
-- [ ] 6.4 Preserve existing application intent/controller boundaries for reused family content: Matrix routing, PDU mutation/reconciliation, codec live/auxiliary operations, and Audio DSP live/meter acquisition must not gain direct widget handler/session/network ownership.
+- [ ] 6.3 Integrate the current **room-mode exact-row** Audio DSP, Matrix/IN1804, codec, and PDU presentation/interaction surfaces into the common accordion using only the minimum wrapper/reparenting/theme compatibility required. Do not substitute a standalone/single-device screen merely because it belongs to the same family, and do not redesign family-specific internal layout in this change.
+- [ ] 6.4 Preserve only application intents/capabilities already present in the current room-mode surface and declared by the unified exact-model registry/current room lifecycle. Matrix keeps its current room live/local-refresh behavior and remains read-only for routing; PDU mutation/reconciliation, codec live/auxiliary operations, and Audio DSP live/meter acquisition retain their existing room-mode gates. Do not promote standalone-only controls/signals/capabilities or give any reused widget direct handler/session/network ownership.
 - [ ] 6.5 Keep overflow/common actions disabled or non-actionable when the current lifecycle does not authorize an action. Do not add new screen-specific gain/mute/reboot/card/table/meter placeholder controls solely to match deferred family redesign references.
-- [ ] 6.6 Treat any Audio DSP segmented-meter redesign, Matrix column-layout redesign, codec grouped-card redesign, or PDU grouped-card/outlet redesign as out of scope and leave it for a later dedicated OpenSpec change.
+- [ ] 6.6 Treat any Audio DSP segmented-meter redesign, Matrix column-layout or interactive room-routing redesign, codec grouped-card redesign, or PDU grouped-card/outlet redesign as out of scope and leave it for a later dedicated OpenSpec change.
 
 ## 7. Regression coverage
 
@@ -81,29 +81,29 @@ git diff --cached --check
 - [ ] 7.7 Test the complete target-search lock/supersession migration: active automatic room cycle disables target-search editing; editing in allowed idle/live state invalidates current room authority; active/retiring Local Refresh disables target-search editing; active/retiring `AUXILIARY_READ` disables target-search editing while top full Refresh remains the approved supersession action where specified; confirmed mutation/reconciliation keeps target-search locked; raw search/initial source IP never substitutes for the exact expanded-row target.
 - [ ] 7.8 Test Full Refresh for both entry modes, including stale room-name selection invalidation, no old-tree resurrection after failed re-resolution, and source-less fully-collapsed accordion reset.
 - [ ] 7.9 Test common row statuses remain understandable without color alone and one-row accordion behavior remains deterministic.
-- [ ] 7.10 Test each existing supported family presentation can be opened inside the new accordion and remains bound to exact per-record state without gaining direct credentials/handler/session/network authority.
-- [ ] 7.11 Regression-test existing Matrix routing still crosses only its existing non-secret intent/controller boundary from the reused view.
-- [ ] 7.12 Regression-test existing Audio DSP live/meter updates remain application-owned and do not move network work to the Qt GUI thread merely because the view is mounted in the new shell.
-- [ ] 7.13 Regression-test existing codec auxiliary/live and PDU mutation/reconciliation paths retain their approved exact-row lifecycle gates inside the new accordion.
-- [ ] 7.14 Test theme starts dark on each new application instance, is not persisted, does not materially change common foundation geometry at a fixed baseline window, and keeps reused family content readable/usable.
+- [ ] 7.10 Test each current room-mode supported family presentation can be opened inside the new accordion and remains bound to exact per-record state without substituting a standalone/single-device screen or gaining direct credentials/handler/session/network authority.
+- [ ] 7.11 Regression-test that the current room Matrix presentation remains exact-row and read-only for routing; existing Matrix room live/local-refresh lifecycle remains unchanged; foundation introduces no Matrix route-mutation intent, no registry mutation binding, and does not wire standalone `MatrixScreen.routeRequested` into the room accordion.
+- [ ] 7.12 Regression-test existing room-mode Audio DSP live/meter updates remain application-owned and do not move network work to the Qt GUI thread merely because the view is mounted in the new shell.
+- [ ] 7.13 Regression-test existing room-mode codec auxiliary/live and PDU mutation/reconciliation paths retain their approved exact-row lifecycle gates inside the new accordion.
+- [ ] 7.14 Test theme starts dark on each new application instance, is not persisted, does not materially change common foundation geometry at a fixed baseline window, and keeps reused room-mode family content readable/usable.
 - [ ] 7.15 Test warranty remains explicit `Нет данных` and is not inferred from schema-v4/device data.
 - [ ] 7.16 Test unified-registry call-activity coverage explicitly for all five current exact codec identities: `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310`. For each, cover known active evidence -> `ACTIVE`, known no-call evidence -> `INACTIVE`, and missing/stale/unrecognized evidence -> `UNKNOWN`; prove a missing/unavailable required binding fails registry/composition validation and prove shared room/GUI code has no model list or string/substring classification path.
 - [ ] 7.17 Test occupancy projection: any current `ACTIVE` -> `Занято`; all-`INACTIVE`, `UNKNOWN`, missing, stale, or failed evidence without an `ACTIVE` -> `Нет данных`; accepted typed activity updates refresh the presentation without occupancy-specific I/O; hover explanation is local-only.
 - [ ] 7.18 Test network presentation retains known port when switch IP is missing, shows safe no-data for missing child port when switch IP is known, never groups unknown-switch records by port, and never fabricates unattached switches.
 - [ ] 7.19 Test parent port summary for zero/one/many/repeated child ports and prove it is presentation-only while child ports remain exact.
-- [ ] 7.20 Add a scope guard regression/review assertion that this implementation does not introduce the deferred Audio segmented-meter layout, Matrix new column hierarchy, codec grouped-card redesign, PDU grouped-card redesign, or new screen-specific reference-only controls.
+- [ ] 7.20 Add a scope-guard regression/review assertion that this implementation does not introduce the deferred Audio segmented-meter layout, Matrix new column hierarchy or room route-mutation capability, codec grouped-card redesign, PDU grouped-card redesign, new screen-specific reference-only controls, or promotion of standalone/single-device controls into room mode.
 
 ## 8. Manual visual acceptance
 
 - [ ] 8.1 Launch the GUI as a detached process per `RULES.md`; use a `1440 x 900` logical-pixel baseline window in representative room mode.
-- [ ] 8.2 Capture local, non-committed dark-theme screenshots and verify only the foundation criteria: toolbar/search dominance, visible selected-room cue, room/network peer-card ratio, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common equipment-row density, one-row accordion behavior, and reachability/readability of reused existing expanded family content.
-- [ ] 8.3 Toggle to light mode at the same window size, capture local non-committed screenshots, and verify the same common foundation geometry/hierarchy with readable primary/secondary/disabled/focus/status states and readable/usable reused expanded content.
-- [ ] 8.4 Do NOT evaluate deferred Audio meter geometry, Matrix column hierarchy, codec grouped-card layout, or PDU grouped-card layout as acceptance criteria for this change.
+- [ ] 8.2 Capture local, non-committed dark-theme screenshots and verify only the foundation criteria: toolbar/search dominance, visible selected-room cue, room/network peer-card ratio, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common equipment-row density, one-row accordion behavior, and reachability/readability of reused current room-mode expanded family content.
+- [ ] 8.3 Toggle to light mode at the same window size, capture local non-committed screenshots, and verify the same common foundation geometry/hierarchy with readable primary/secondary/disabled/focus/status states and readable/usable reused current room-mode expanded content.
+- [ ] 8.4 Do NOT evaluate deferred Audio meter geometry, Matrix column hierarchy/interactive room routing, codec grouped-card layout, or PDU grouped-card layout as acceptance criteria for this change.
 - [ ] 8.5 Record the manual foundation acceptance result in the implementation session report; screenshots remain local validation aids and SHALL NOT be committed unless the user explicitly requests tracked evidence.
 
 ## 9. Implementation verification and publication
 
-- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, and reused family-boundary compatibility.
+- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, current room-mode family-boundary compatibility, and the Matrix read-only/no-route-promotion guard.
 - [ ] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts.
 - [ ] 9.3 Run:
 
@@ -121,7 +121,7 @@ git diff --cached --check
 
 - [ ] 10.1 Fetch current remote state and record current `master`, PR Draft/state/base/head, and `origin/agent/room-diagnostic-modern-ui` SHA.
 - [ ] 10.2 Create a separate clean detached worktree from exact `origin/agent/room-diagnostic-modern-ui`; verify local HEAD equals recorded remote SHA and worktree is clean.
-- [ ] 10.3 Independently review implementation against every approved foundation contract, with special attention to fallback preservation, selected-room visibility/currentness, source-less Full Refresh/accordion rules, complete target-search lock/supersession inheritance across automatic cycle/Local Refresh/AUXILIARY_READ/mutation, exact-row target authority, unified-registry call-activity bindings for all five baseline codecs, fail-fast missing-binding validation, exact-model typed normalization, no shared string/model-list heuristics, busy-only occupancy/no extra I/O, parent-port summary semantics, partial network evidence, no-widget network authority, and absence of deferred device-family redesign scope creep.
+- [ ] 10.3 Independently review implementation against every approved foundation contract, with special attention to fallback preservation, selected-room visibility/currentness, source-less Full Refresh/accordion rules, complete target-search lock/supersession inheritance across automatic cycle/Local Refresh/AUXILIARY_READ/mutation, exact-row target authority, unified-registry call-activity bindings for all five baseline codecs, fail-fast missing-binding validation, exact-model typed normalization, no shared string/model-list heuristics, busy-only occupancy/no extra I/O, parent-port summary semantics, partial network evidence, no-widget network authority, current room-mode-only family reuse, Matrix read-only/no-route-promotion, and absence of deferred device-family redesign scope creep.
 - [ ] 10.4 Rerun fresh focused and full offline tests, strict change/all OpenSpec validation, `git diff --check`, and `git diff --cached --check`.
 - [ ] 10.5 Repeat the foundation dark/light manual visual acceptance in the independent detached worktree/environment where GUI launch is available; if GUI launch is unavailable, report that limitation rather than claiming visual acceptance. Do not score deferred family-specific redesign criteria.
 - [ ] 10.6 Perform the mandatory disposable archive-applicability check because this change modifies root requirements and adds a new root capability. Do not run archive on the primary feature branch for this check.
