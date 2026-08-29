@@ -202,6 +202,28 @@ class RoomDiagnosticTreeWidget(QWidget):
         """Block accordion changes while an exclusive row operation owns I/O."""
         self._interaction_locked = locked
 
+    def clear_presentation(self) -> None:
+        """Forget displayed room data when application authority is revoked.
+
+        This is intentionally presentation-only: it neither resolves inventory nor
+        starts, stops, or otherwise owns device I/O.
+        """
+        self._changing = True
+        try:
+            self.tree.clear()
+            self.network_tree.clear()
+            self.room_header.clear()
+            self.occupancy_label.clear()
+            self.global_status.clear()
+            self._by_record.clear()
+            self._session = None
+            self._active_interaction = None
+            self._active_interaction_retiring = False
+            self._interaction_locked = False
+        finally:
+            self._changing = False
+        self.tree.setEnabled(True)
+
     def set_active_interaction(self, context, *, retiring: bool = False) -> None:
         """Render controls from coordinator authority, never widget identity."""
         self._active_interaction = context

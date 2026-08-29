@@ -36,6 +36,10 @@ _CALL_ACTIVITY_BY_BINDING: dict[str, dict[str, CallActivity]] = {
     },
 }
 
+_CALL_ACTIVITY_BY_TOKEN: dict[str, CallActivity] = {
+    activity.value: activity for activity in CallActivity
+}
+
 
 def call_activity_binding_keys() -> frozenset[str]:
     """Return the composition-visible normalizer bindings from one registry."""
@@ -54,15 +58,17 @@ def call_activity_from_model_evidence(binding_key: str | None, evidence: Any) ->
 def publish_call_activity_evidence(
     snapshot: dict[str, Any], *, binding_key: str, evidence: Any
 ) -> None:
-    """Attach non-display, typed call evidence to an accepted parser snapshot."""
+    """Attach a transport-safe, non-display evidence token to a snapshot."""
     snapshot[CALL_ACTIVITY_EVIDENCE_KEY] = call_activity_from_model_evidence(
         binding_key, evidence
-    )
+    ).value
 
 
 def normalize_call_activity(binding_key: str | None, snapshot: Any) -> CallActivity:
-    """Read typed evidence only; missing, stale or unrecognized data is unknown."""
+    """Read exact transport evidence only; unknown-by-default at the UI boundary."""
     if binding_key not in _CALL_ACTIVITY_BY_BINDING or not isinstance(snapshot, Mapping):
         return CallActivity.UNKNOWN
     evidence = snapshot.get(CALL_ACTIVITY_EVIDENCE_KEY)
-    return evidence if isinstance(evidence, CallActivity) else CallActivity.UNKNOWN
+    if not isinstance(evidence, str):
+        return CallActivity.UNKNOWN
+    return _CALL_ACTIVITY_BY_TOKEN.get(evidence, CallActivity.UNKNOWN)

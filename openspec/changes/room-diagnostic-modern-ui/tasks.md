@@ -104,7 +104,7 @@ git diff --cached --check
 ## 9. Implementation verification and publication
 
 - [x] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, current room-mode family-boundary compatibility, and the Matrix read-only/no-route-promotion guard.
-- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py" -v`: 802 tests, OK.)
+- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py" -v`: 805 tests in 123.619s, OK.)
 - [x] 9.3 Run:
 
 ```powershell
@@ -115,7 +115,7 @@ git diff --cached --check
 ```
 
 - [x] 9.4 Synchronize implementation evidence/tasks only with commands actually executed on the current implementation HEAD.
-- [ ] 9.5 Create one focused implementation commit and push `agent/room-diagnostic-modern-ui`; implementation session must not issue independent `APPROVE`.
+- [x] 9.5 Create one focused implementation commit and push `agent/room-diagnostic-modern-ui`; implementation session must not issue independent `APPROVE`.
 
 ## 10. Independent validation
 

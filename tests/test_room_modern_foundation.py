@@ -13,7 +13,12 @@ from core.call_activity import (
     normalize_call_activity,
 )
 from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
-from core.room_diagnostic_tree import DeviceRowStatus, RoomModelCapability, build_room_session_from_room
+from core.room_diagnostic_tree import (
+    DeviceRowStatus,
+    RoomDiagnosticOrchestrator,
+    RoomModelCapability,
+    build_room_session_from_room,
+)
 from gui.diagnostic_dispatch import dispatch_entries, validate_dispatch_registry
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -71,13 +76,8 @@ class RoomSearchTests(unittest.TestCase):
 
 
 class CallActivityTests(unittest.TestCase):
-    def test_registry_has_every_required_exact_binding(self):
-        required = {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"}
-        entries = {entry.diagnostic_model: entry for entry in dispatch_entries()}
-        self.assertTrue(all(entries[name].call_activity_capability for name in required))
-        self.assertTrue(all(entries[name].call_activity_binding_key for name in required))
-
-    def test_production_parser_outputs_publish_typed_evidence_for_every_codec(self):
+    @staticmethod
+    def _codec_cases():
         from core.parser import (
             HuaweiBar310DataParser,
             HuaweiTE20DataParser,
@@ -85,7 +85,7 @@ class CallActivityTests(unittest.TestCase):
             PolycomDataParser,
         )
 
-        cases = (
+        return (
             ("Huawei TE20", "huawei_call_activity", HuaweiTE20DataParser.parse_raw_data, {}, "Calling", "No Call"),
             ("Huawei TE40", "huawei_call_activity", HuaweiTE40DataParser.parse_raw_data, {}, "Calling", "No Call"),
             (
@@ -100,7 +100,15 @@ class CallActivityTests(unittest.TestCase):
             ),
             ("Polycom RPG 310", "polycom_call_activity", PolycomDataParser.parse_raw_data, {}, "Active", "No Call"),
         )
-        for model, binding, parser, common, active, inactive in cases:
+
+    def test_registry_has_every_required_exact_binding(self):
+        required = {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"}
+        entries = {entry.diagnostic_model: entry for entry in dispatch_entries()}
+        self.assertTrue(all(entries[name].call_activity_capability for name in required))
+        self.assertTrue(all(entries[name].call_activity_binding_key for name in required))
+
+    def test_production_parser_outputs_publish_typed_evidence_for_every_codec(self):
+        for model, binding, parser, common, active, inactive in self._codec_cases():
             with self.subTest(model=model, state="active"):
                 parsed = parser({**common, "call_status": active})
                 self.assertIn(CALL_ACTIVITY_EVIDENCE_KEY, parsed)
@@ -114,6 +122,60 @@ class CallActivityTests(unittest.TestCase):
             with self.subTest(model=model, state="unrecognized"):
                 parsed = parser({**common, "call_status": "Unexpected state"})
                 self.assertIs(CallActivity.UNKNOWN, normalize_call_activity(binding, parsed))
+
+    def test_redacted_worker_adapter_pipeline_preserves_exact_activity_tokens_for_every_codec(self):
+        """Exercise the public worker boundary, where enums become ordinary strings."""
+        from core.redaction import redact_data
+        from core.workers.common import WorkerSignals
+        from gui.room_one_shot_adapters import WorkerOneShotAdapter
+
+        for model, binding, parser, common, active, inactive in self._codec_cases():
+            for state, raw, expected in (
+                ("active", active, CallActivity.ACTIVE),
+                ("inactive", inactive, CallActivity.INACTIVE),
+                ("missing", None, CallActivity.UNKNOWN),
+                ("unrecognized", "Unexpected state", CallActivity.UNKNOWN),
+            ):
+                with self.subTest(model=model, state=state):
+                    raw_snapshot = parser({**common, **({"call_status": raw} if raw is not None else {})})
+                    transport_snapshot = redact_data(raw_snapshot)
+                    if raw is None:
+                        self.assertNotIn(CALL_ACTIVITY_EVIDENCE_KEY, transport_snapshot)
+                    else:
+                        self.assertEqual(expected.value, transport_snapshot[CALL_ACTIVITY_EVIDENCE_KEY])
+                        self.assertIs(type(transport_snapshot[CALL_ACTIVITY_EVIDENCE_KEY]), str)
+
+                    class ParsedWorker:
+                        def __init__(self):
+                            self.signals = WorkerSignals()
+
+                        def run(self):
+                            self.signals.result.emit(transport_snapshot)
+
+                    inv = inventory(record("codec", room_id="room", name="Room", ip="192.0.2.10", model=model))
+                    capabilities = {
+                        model: RoomModelCapability(
+                            model, "codec", "route", "codec_one_shot", call_activity_binding_key=binding
+                        )
+                    }
+                    session = build_room_session_from_room(
+                        inventory=inv, room_id="room", generation=1, capabilities=capabilities
+                    )
+                    RoomDiagnosticOrchestrator(
+                        adapters={"codec_one_shot": WorkerOneShotAdapter(lambda _context: ParsedWorker())},
+                        credential_candidates=lambda *_: ({"username": "operator"},),
+                        ping=lambda _ip: True,
+                    ).run(session)
+                    row = session.row_for("codec")
+                    self.assertEqual(DeviceRowStatus.CONNECTED, row.status)
+                    self.assertIs(expected, row.call_activity)
+
+        entries = {entry.diagnostic_model: entry for entry in dispatch_entries()}
+        self.assertEqual(
+            entries["CloudLink Bar 310"].call_activity_binding_key,
+            entries["CloudLink Box 310"].call_activity_binding_key,
+        )
+        self.assertIsNot(entries["CloudLink Bar 310"], entries["CloudLink Box 310"])
 
     def test_room_normalizer_never_interprets_display_strings(self):
         self.assertIs(
@@ -224,27 +286,86 @@ class RoomPresentationTests(unittest.TestCase):
     def test_failed_room_resolution_clears_old_room_authority_without_erasing_query(self):
         from gui.main_window import VCSDiagnosticApp
 
-        old_inventory = inventory(record("A", room_id="old", name="Old room", ip="192.0.2.10"))
+        old_inventory = inventory(
+            record("A", room_id="old", name="Old room", ip="192.0.2.10", switch="10.0.0.1", port="Gi1/0/1")
+        )
         with patch("gui.main_window.load_equipment_inventory", return_value=old_inventory):
             window = VCSDiagnosticApp()
         self.addCleanup(window.deleteLater)
         window.ip_entry.setText("No matching room")
-        old_session = build_room_session_from_room(
-            inventory=old_inventory,
-            room_id="old",
-            generation=1,
-            capabilities={"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")},
-        )
-        window.room_diagnostic_session = old_session
-        window.room_interaction_coordinator.bind_session(old_session)
+        self._seed_old_room_presentation(window, old_inventory)
         with patch.object(window, "_start_selected_room_diagnostic_session") as start:
             window.refresh_data()
 
         self.assertEqual("No matching room", window.ip_entry.text())
-        self.assertIsNone(window.room_diagnostic_session)
-        self.assertIsNone(window.room_interaction_coordinator.active_context)
+        self._assert_room_presentation_cleared(window)
         self.assertIsNone(window._selected_room_result)
         self.assertTrue(window.selected_room_cue.isHidden())
+        start.assert_not_called()
+
+    def _seed_old_room_presentation(self, window, old_inventory):
+        old_session = build_room_session_from_room(
+            inventory=old_inventory,
+            room_id=old_inventory.records[0].room_id,
+            generation=1,
+            capabilities={
+                "Huawei TE40": RoomModelCapability(
+                    "Huawei TE40", "codec", "route", "adapter", call_activity_binding_key="huawei_call_activity"
+                )
+            },
+        )
+        old_session.rows[0].status = DeviceRowStatus.CONNECTED
+        old_session.rows[0].call_activity = CallActivity.ACTIVE
+        window.room_diagnostic_session = old_session
+        window.room_interaction_coordinator.bind_session(old_session)
+        window.room_diagnostic_tree.render(old_session)
+        self.assertTrue(window.room_diagnostic_tree.room_header.text())
+        self.assertTrue(window.room_diagnostic_tree.occupancy_label.text())
+        self.assertTrue(window.room_diagnostic_tree.global_status.text())
+        self.assertGreater(window.room_diagnostic_tree.tree.topLevelItemCount(), 0)
+        self.assertGreater(window.room_diagnostic_tree.network_tree.topLevelItemCount(), 0)
+
+    def _assert_room_presentation_cleared(self, window):
+        tree = window.room_diagnostic_tree
+        self.assertIsNone(window.room_diagnostic_session)
+        self.assertIsNone(window.room_interaction_coordinator.active_context)
+        self.assertIsNone(tree._session)
+        self.assertEqual("", tree.room_header.text())
+        self.assertEqual("", tree.occupancy_label.text())
+        self.assertEqual("", tree.global_status.text())
+        self.assertEqual(0, tree.tree.topLevelItemCount())
+        self.assertEqual(0, tree.network_tree.topLevelItemCount())
+
+    def test_room_presentation_is_cleared_when_room_search_is_unavailable(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        old_inventory = inventory(record("A", room_id="old", name="Old room", ip="192.0.2.10"))
+        with patch("gui.main_window.load_equipment_inventory", return_value=old_inventory):
+            window = VCSDiagnosticApp()
+        self.addCleanup(window.deleteLater)
+        window.ip_entry.setText("Room")
+        self._seed_old_room_presentation(window, old_inventory)
+        window.equipment_inventory = None
+        with patch.object(window, "_start_selected_room_diagnostic_session") as start:
+            window.refresh_data()
+        self._assert_room_presentation_cleared(window)
+        start.assert_not_called()
+
+    def test_room_presentation_is_cleared_when_selected_room_disappears(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        old_inventory = inventory(record("A", room_id="old", name="Old room", ip="192.0.2.10"))
+        with patch("gui.main_window.load_equipment_inventory", return_value=old_inventory):
+            window = VCSDiagnosticApp()
+        self.addCleanup(window.deleteLater)
+        window.ip_entry.setText("Old")
+        window._on_room_completer_activated(window._room_completer_model.index(0, 0))
+        self._seed_old_room_presentation(window, old_inventory)
+        window.equipment_inventory = inventory(record("B", room_id="other", name="Other room", ip="192.0.2.20"))
+        with patch.object(window, "_start_selected_room_diagnostic_session") as start:
+            window.refresh_data()
+        self._assert_room_presentation_cleared(window)
+        self.assertIsNone(window._selected_room_result)
         start.assert_not_called()
 
     def test_stale_multi_room_selection_is_cleared_before_start(self):
@@ -259,6 +380,7 @@ class RoomPresentationTests(unittest.TestCase):
         self.addCleanup(window.deleteLater)
         window.ip_entry.setText("Room")
         window._on_room_completer_activated(window._room_completer_model.index(0, 0))
+        self._seed_old_room_presentation(window, initial)
         window.equipment_inventory = EquipmentInventory.from_records(
             (
                 record("B", room_id="r2", name="Room", address="Two", ip="192.0.2.2"),
@@ -270,6 +392,7 @@ class RoomPresentationTests(unittest.TestCase):
             window.refresh_data()
 
         self.assertEqual("Room", window.ip_entry.text())
+        self._assert_room_presentation_cleared(window)
         self.assertIsNone(window._selected_room_result)
         self.assertTrue(window.selected_room_cue.isHidden())
         start.assert_not_called()

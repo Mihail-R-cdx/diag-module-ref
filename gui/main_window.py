@@ -712,8 +712,7 @@ class VCSDiagnosticApp(QMainWindow):
             controller.supersede()
         self.__dict__["room_diagnostic_session"] = None
         if hasattr(self, "room_diagnostic_tree"):
-            self.room_diagnostic_tree.set_interaction_locked(False)
-            self.room_diagnostic_tree.tree.clear()
+            self.room_diagnostic_tree.clear_presentation()
         if hasattr(self, "debug_btn"):
             self.debug_btn.setEnabled(True)
 
