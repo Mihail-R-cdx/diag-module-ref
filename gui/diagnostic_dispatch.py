@@ -40,6 +40,7 @@ class DiagnosticDispatchEntry:
     mutation_binding_key: str | None = None
     reconciliation_binding_key: str | None = None
     cleanup_binding_key: str | None = None
+    call_activity_binding_key: str | None = None
 
     def room_capability(self) -> RoomModelCapability:
         return RoomModelCapability(
@@ -50,6 +51,7 @@ class DiagnosticDispatchEntry:
             presentation_capability=self.presentation_capability,
             requires_credentials=self.requires_credentials,
             credentialless_allowed=self.credentialless_allowed,
+            call_activity_binding_key=self.call_activity_binding_key,
         )
 
 
@@ -94,6 +96,7 @@ def _room_entry(
     call_log: bool = False,
     pdu_mutation: bool = False,
     live_binding_key: str | None = None,
+    call_activity_binding_key: str | None = None,
 ) -> DiagnosticDispatchEntry:
     """Build the one registry entry used by both room phases.
 
@@ -113,15 +116,16 @@ def _room_entry(
         mutation_binding_key="room_pdu_mutation" if pdu_mutation else None,
         reconciliation_binding_key="room_one_shot_refresh" if pdu_mutation else None,
         cleanup_binding_key="room_one_shot_cleanup",
+        call_activity_binding_key=call_activity_binding_key,
     )
 
 
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
-    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True),
-    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True),
-    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live"),
-    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live"),
-    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True),
+    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity"),
+    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity"),
+    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity"),
+    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity"),
+    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True, call_activity_binding_key="polycom_call_activity"),
     _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live"),
     _room_entry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot", pdu_mutation=True),
     _room_entry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True, pdu_mutation=True),
@@ -155,6 +159,7 @@ def validate_dispatch_registry(
     page_models_by_screen: dict[str, tuple[str, ...]],
     available_room_adapter_keys: set[str] | frozenset[str] | None = None,
     available_room_interaction_binding_keys: set[str] | frozenset[str] | None = None,
+    available_call_activity_binding_keys: set[str] | frozenset[str] | None = None,
 ) -> None:
     seen: set[str] = set()
     for entry in DISPATCH_REGISTRY:
@@ -200,6 +205,13 @@ def validate_dispatch_registry(
                     raise ValueError(
                         f"Dispatch interaction binding is not bound: {entry.diagnostic_model}"
                     )
+        if entry.screen_key == "codec" and entry.diagnostic_model in {
+            "Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"
+        } and not entry.call_activity_binding_key:
+            raise ValueError(f"Dispatch call-activity binding is missing: {entry.diagnostic_model}")
+        if (available_call_activity_binding_keys is not None and entry.call_activity_binding_key
+                and entry.call_activity_binding_key not in available_call_activity_binding_keys):
+            raise ValueError(f"Dispatch call-activity binding is not bound: {entry.diagnostic_model}")
 
 
 def resolve_exact_model_for_ip(

@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QFormLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtWidgets import QFormLayout, QHeaderView, QHBoxLayout, QLabel, QPushButton, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard
 
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession
 from core.room_interaction import RoomInteractionKind
+from core.call_activity import CallActivity
 
 
 class RoomDiagnosticTreeWidget(QWidget):
@@ -28,20 +30,45 @@ class RoomDiagnosticTreeWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("roomDiagnosticTree")
         layout = QVBoxLayout(self)
-        self.room_header = QLabel(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+        upper = QWidget(self)
+        upper_layout = QHBoxLayout(upper)
+        upper_layout.setContentsMargins(0, 0, 0, 0)
+        upper_layout.setSpacing(16)
+        self.room_card = SectionCard("Комната", "⌂", upper)
+        self.room_header = QLabel(self.room_card)
         self.room_header.setObjectName("roomDiagnosticHeader")
+        self.room_header.setWordWrap(True)
+        self.occupancy_label = QLabel(self.room_card)
+        self.occupancy_label.setObjectName("roomOccupancy")
+        self.occupancy_label.setToolTip("Занятость определяется по текущему состоянию звонка кодека.")
+        self.room_card.body_layout.addWidget(self.room_header)
+        self.room_card.body_layout.addWidget(self.occupancy_label)
+        self.network_card = SectionCard("Сетевые подключения", "⌁", upper)
+        self.network_tree = QTreeWidget(self.network_card)
+        self.network_tree.setObjectName("roomNetworkConnections")
+        self.network_tree.setColumnCount(2)
+        self.network_tree.setHeaderLabels(("Коммутатор (IP) / Устройства", "Порт"))
+        self.network_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.network_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.network_card.body_layout.addWidget(self.network_tree)
+        upper_layout.addWidget(self.room_card, 1)
+        upper_layout.addWidget(self.network_card, 1)
+        layout.addWidget(upper)
         self.global_status = QLabel(self)
         self.global_status.setObjectName("roomDiagnosticGlobalStatus")
         self.tree = QTreeWidget(self)
         self.tree.setObjectName("roomDiagnosticRows")
-        self.tree.setColumnCount(3)
-        self.tree.setHeaderLabels(("Оборудование", "IP", "Статус"))
-        self.tree.header().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.tree.header().setStretchLastSection(True)
+        self.tree.setColumnCount(5)
+        self.tree.setHeaderLabels(("", "Устройство", "Статус", "IP", "⋯"))
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        for column in (2, 3, 4):
+            self.tree.header().setSectionResizeMode(column, QHeaderView.ResizeToContents)
         self.tree.itemExpanded.connect(self._accordion_expanded)
         self.tree.itemCollapsed.connect(self._accordion_collapsed)
         self.tree.itemClicked.connect(self._accordion_clicked)
-        layout.addWidget(self.room_header)
         layout.addWidget(self.global_status)
         layout.addWidget(self.tree, 1)
         self._by_record: dict[str, QTreeWidgetItem] = {}
@@ -61,12 +88,14 @@ class RoomDiagnosticTreeWidget(QWidget):
         try:
             vip = "ДА" if session.room_vip is True else "НЕТ" if session.room_vip is False else "НЕТ ДАННЫХ"
             self.room_header.setText(
-                f"Название комнаты: {session.room_name or '—'}\n"
-                f"Адрес: {session.room_address or '—'}\nVIP: {vip}"
+                f"<b>{session.room_name or '—'}</b><br>Адрес: {session.room_address or '—'}<br>VIP: {vip}<br>Гарантия: Нет данных"
             )
             self.global_status.setText(
                 "Есть проблемы с соединением" if session.post_cycle_problem else session.status.value
             )
+            occupied = any(row.call_activity is CallActivity.ACTIVE and not row.stale for row in session.rows)
+            self.occupancy_label.setText(f"Занятость: {'Занято' if occupied else 'Нет данных'}")
+            self._render_network(session)
             self.tree.clear()
             self._by_record.clear()
             for row in session.rows:
@@ -98,16 +127,20 @@ class RoomDiagnosticTreeWidget(QWidget):
                         }
                     )
                 )
-                item = QTreeWidgetItem((row.model_label, row.ip_address or "—", row.status.value))
+                item = QTreeWidgetItem(("›", row.model_label, row.status.value, row.ip_address or "—", "⋯"))
+                item.setSizeHint(0, QSize(0, 56))
+                item.setIcon(0, self._device_icon(row))
+                item.setText(2, f"{self._status_cue(row)}  {row.status.value}")
+                item.setForeground(2, QBrush(self._status_color(row)))
+                if not self._is_expandable(row):
+                    item.setDisabled(True)
                 item.setData(0, Qt.UserRole, row.record_id)
                 item.setData(0, Qt.UserRole + 1, self._is_expandable(row))
                 if self._is_expandable(row):
-                    projection = QTreeWidgetItem(("", "", ""))
+                    projection = QTreeWidgetItem(("", "", "", "", ""))
                     projection.setFirstColumnSpanned(True)
                     projection.setFlags(projection.flags() & ~Qt.ItemIsSelectable)
                     item.addChild(projection)
-                else:
-                    item.setText(2, row.status.value)
                 self.tree.addTopLevelItem(item)
                 if self._is_expandable(row):
                     self.tree.setItemWidget(
@@ -140,6 +173,31 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._changing = False
         self.tree.setEnabled(not self._interaction_locked)
 
+    def _render_network(self, session: RoomDiagnosticSession) -> None:
+        self.network_tree.clear()
+        known: dict[str, list] = {}
+        unknown: list = []
+        for record in sorted(session.records, key=lambda item: item.record_id):
+            if record.switch_ip_address is None and record.switch_port is None:
+                continue
+            if record.switch_ip_address is None:
+                unknown.append(record)
+            else:
+                known.setdefault(record.switch_ip_address, []).append(record)
+        for switch_ip, records in sorted(known.items()):
+            ports = list(dict.fromkeys(record.switch_port for record in records if record.switch_port is not None))
+            parent = QTreeWidgetItem((f"Коммутатор ({switch_ip})", ", ".join(ports) or "Нет данных"))
+            self.network_tree.addTopLevelItem(parent)
+            for record in records:
+                parent.addChild(QTreeWidgetItem((record.diagnostic_model or record.source_model or record.record_id, record.switch_port or "Нет данных")))
+        for record in unknown:
+            parent = QTreeWidgetItem(("Коммутатор не определён", record.switch_port or "Нет данных"))
+            parent.addChild(QTreeWidgetItem((record.diagnostic_model or record.source_model or record.record_id, record.switch_port or "Нет данных")))
+            self.network_tree.addTopLevelItem(parent)
+        if self.network_tree.topLevelItemCount() == 0:
+            self.network_tree.addTopLevelItem(QTreeWidgetItem(("Нет данных о сетевых подключениях", "")))
+        self.network_tree.expandAll()
+
     def set_interaction_locked(self, locked: bool) -> None:
         """Block accordion changes while an exclusive row operation owns I/O."""
         self._interaction_locked = locked
@@ -159,6 +217,36 @@ class RoomDiagnosticTreeWidget(QWidget):
                 DeviceRowStatus.AMBIGUOUS_IP,
             }
         )
+
+    def _device_icon(self, row):
+        screen = row.capability.screen_key if row.capability is not None else ""
+        pixmap = {
+            "codec": QStyle.SP_MediaPlay,
+            "matrix": QStyle.SP_ComputerIcon,
+            "pdu": QStyle.SP_DriveFDIcon,
+            "audio_dsp": QStyle.SP_MediaVolume,
+        }.get(screen, QStyle.SP_FileIcon)
+        return self.style().standardIcon(pixmap)
+
+    @staticmethod
+    def _status_cue(row) -> str:
+        if row.status is DeviceRowStatus.CONNECTED:
+            return "✓"
+        if row.status in {DeviceRowStatus.FAILED, DeviceRowStatus.DEGRADED}:
+            return "!"
+        if row.status in {DeviceRowStatus.UNSUPPORTED, DeviceRowStatus.MISSING_IP, DeviceRowStatus.AMBIGUOUS_IP}:
+            return "—"
+        return "…"
+
+    @staticmethod
+    def _status_color(row):
+        if row.status is DeviceRowStatus.CONNECTED:
+            return QColor("#24A85A")
+        if row.status in {DeviceRowStatus.FAILED, DeviceRowStatus.DEGRADED}:
+            return QColor("#E05260")
+        if row.status in {DeviceRowStatus.UNSUPPORTED, DeviceRowStatus.MISSING_IP, DeviceRowStatus.AMBIGUOUS_IP}:
+            return QColor("#6F7B8A")
+        return QColor("#F59E0B")
 
     @staticmethod
     def _projection_text(row) -> str:
@@ -380,7 +468,16 @@ class RoomReadOnlyPresentation(QWidget):
             "network_speed", "Статус звонка", "Статус презентации",
         ))
 
-    def _build_pdu(self, layout, data, row, *, request_mutation=None, mutation_allowed=True) -> None:
+    def _build_pdu(
+        self,
+        layout,
+        data,
+        row,
+        *,
+        request_mutation=None,
+        mutation_allowed=True,
+        live_here=False,
+    ) -> None:
         source = dict(data.get("device_info") or {}) if isinstance(data, Mapping) else {}
         if isinstance(data, Mapping):
             source.update({

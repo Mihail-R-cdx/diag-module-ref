@@ -18,6 +18,7 @@ from core.room_diagnostic_tree import (
     RoomCycleStatus,
     RoomDiagnosticSession,
 )
+from core.call_activity import normalize_call_activity
 
 
 class RoomInteractionKind(str, Enum):
@@ -213,6 +214,7 @@ class RoomInteractionCoordinator:
         row = session.row_for(context.record_id)
         if context.kind is RoomInteractionKind.LIVE and success:
             row.accepted_snapshot = data
+            row.call_activity = normalize_call_activity(row.capability.call_activity_binding_key if row.capability else None, data)
             row.partial_data = None
             row.stale = False
             row.network_actions_enabled = True
@@ -234,6 +236,7 @@ class RoomInteractionCoordinator:
             return
         if context.kind is RoomInteractionKind.RECONCILIATION and success:
             row.accepted_snapshot = data
+            row.call_activity = normalize_call_activity(row.capability.call_activity_binding_key if row.capability else None, data)
             row.partial_data = None
             row.stale = False
             row.unconfirmed_after_command = False
@@ -242,6 +245,7 @@ class RoomInteractionCoordinator:
             row.status = DeviceRowStatus.CONNECTED
         elif context.kind is RoomInteractionKind.LOCAL_REFRESH and success:
             row.accepted_snapshot = data
+            row.call_activity = normalize_call_activity(row.capability.call_activity_binding_key if row.capability else None, data)
             row.partial_data = None
             row.stale = False
             row.network_actions_enabled = True

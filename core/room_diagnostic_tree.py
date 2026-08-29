@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from core.equipment_inventory import EquipmentInventory, EquipmentRecord, normalize_ip_address
 from core.exceptions import AuthenticationError
+from core.call_activity import CallActivity, normalize_call_activity
 
 
 class RoomSourceStatus(str, Enum):
@@ -75,14 +76,15 @@ class RoomModelCapability:
     presentation_capability: str = "presentation_only"
     requires_credentials: bool = True
     credentialless_allowed: bool = False
+    call_activity_binding_key: str | None = None
 
 
 @dataclass(frozen=True)
 class RoomDiagnosticSessionIdentity:
     inventory_snapshot_id: str
     room_generation: int
-    normalized_source_ip: str
-    source_record_id: str
+    normalized_source_ip: str | None
+    source_record_id: str | None
     room_id: str
 
 
@@ -110,6 +112,7 @@ class DeviceRowState:
     interaction_blocked: bool = False
     unconfirmed_after_command: bool = False
     last_safe_operation_error: str | None = None
+    call_activity: CallActivity = CallActivity.UNKNOWN
 
     @property
     def eligible(self) -> bool:
@@ -127,6 +130,7 @@ class RoomDiagnosticSession:
     room_address: str | None
     room_vip: bool | None
     rows: list[DeviceRowState]
+    records: tuple[EquipmentRecord, ...] = ()
     status: RoomCycleStatus = RoomCycleStatus.ACTIVE
     completion_timestamp: Any | None = None
     active_record_id: str | None = None
@@ -250,14 +254,40 @@ def build_room_session(
         room_address=_display_value(source_record, canonical_records, "room_address"),
         room_vip=_display_value(source_record, canonical_records, "room_vip"),
         rows=rows,
+        records=ordered,
         expanded_record_id=source_record.record_id if rows and rows[0].eligible else None,
     )
 
 
-def _display_value(source: EquipmentRecord, records: tuple[EquipmentRecord, ...], name: str) -> Any | None:
-    value = getattr(source, name)
-    if value is not None and (not isinstance(value, str) or value.strip()):
-        return value
+def build_room_session_from_room(
+    *,
+    inventory: EquipmentInventory,
+    room_id: str,
+    generation: int,
+    capabilities: Mapping[str, RoomModelCapability],
+) -> RoomDiagnosticSession:
+    """Build a source-less session for a selected canonical room id."""
+    canonical_records = tuple(sorted(inventory.find_room_equipment(room_id), key=lambda record: record.record_id))
+    if not canonical_records:
+        raise ValueError("The selected room no longer exists.")
+    duplicate_ips = {record.ip_address for record in canonical_records if record.ip_address and sum(other.ip_address == record.ip_address for other in canonical_records) > 1}
+    rows = [_row_state(record, capabilities.get(record.diagnostic_model or ""), duplicate_ips) for record in canonical_records]
+    return RoomDiagnosticSession(
+        identity=RoomDiagnosticSessionIdentity(inventory.metadata.snapshot_id, generation, None, None, room_id),
+        room_name=_display_value(None, canonical_records, "room_name"),
+        room_address=_display_value(None, canonical_records, "room_address"),
+        room_vip=_display_value(None, canonical_records, "room_vip"),
+        rows=rows,
+        records=canonical_records,
+        expanded_record_id=None,
+    )
+
+
+def _display_value(source: EquipmentRecord | None, records: tuple[EquipmentRecord, ...], name: str) -> Any | None:
+    if source is not None:
+        value = getattr(source, name)
+        if value is not None and (not isinstance(value, str) or value.strip()):
+            return value
     for record in records:
         value = getattr(record, name)
         if value is not None and (not isinstance(value, str) or value.strip()):
@@ -373,6 +403,9 @@ class RoomDiagnosticOrchestrator:
                         row.partial_data = event.data
                     elif event.kind in {OneShotEventKind.USABLE_SUCCESS, OneShotEventKind.USABLE_SUCCESS_WITH_WARNING}:
                         row.accepted_snapshot = event.data
+                        row.call_activity = normalize_call_activity(
+                            capability.call_activity_binding_key, event.data
+                        )
                         row.status = DeviceRowStatus.CONNECTED
                         if event.warning:
                             row.warnings.append(event.warning)

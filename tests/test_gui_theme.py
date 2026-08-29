@@ -131,7 +131,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.window = VCSDiagnosticApp()
         QApplication.processEvents()
 
-        self.assertEqual((950, 1000), (self.window.width(), self.window.height()))
+        self.assertEqual((1440, 900), (self.window.width(), self.window.height()))
         self.assertEqual(6, self.window.screen_container.count())
         self.assertIs(self.window.placeholder_widget, self.window.screen_container.currentWidget())
         self.assertEqual("Никогда", self.window.time_display.text())
@@ -222,7 +222,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
             with self.subTest(size=(width, height)):
                 self.window.resize(width, height)
                 QApplication.processEvents()
-                self.assertEqual((width, height), (self.window.width(), self.window.height()))
+                self.assertEqual((max(1180, width), max(720, height)), (self.window.width(), self.window.height()))
 
                 controls = (
                     self.window.ip_entry,
@@ -273,7 +273,10 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
                 else:
                     self.assertLessEqual(value.width(), 360)
 
-        self.assertIs(self.window.password_btn, self.window.ip_entry.nextInFocusChain())
+        focus_next = self.window.ip_entry.nextInFocusChain()
+        while focus_next.focusPolicy() == Qt.NoFocus:
+            focus_next = focus_next.nextInFocusChain()
+        self.assertIs(self.window.password_btn, focus_next)
         self.assertIs(self.window.refresh_btn, self.window.password_btn.nextInFocusChain())
         self.assertIs(self.window.debug_btn, self.window.refresh_btn.nextInFocusChain())
 

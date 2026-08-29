@@ -16,12 +16,12 @@ git diff --cached --check
 
 ## 2. Target search and inventory query
 
-- [ ] 2.1 Add an immutable room-name search projection/query to `EquipmentInventory` without changing canonical schema v4.
-- [ ] 2.2 Cover Unicode NFC/trim/casefold substring matching, room-id deduplication, conflicting names inside one room ID, zero/one/many matches, and deterministic result ordering.
-- [ ] 2.3 Derive deterministic room result labels from canonical display name plus first usable room address; when distinct room IDs still collide, append a neutral deterministic display-only `Вариант N` discriminator without exposing it as identity.
-- [ ] 2.4 Replace permanent IP-only input composition with IP-or-room target classification while preserving the operator's raw query text.
-- [ ] 2.5 Implement autocomplete/dropdown selection for multi-match room queries plus a separate visible selected-room cue; typing and selection alone must perform zero device network I/O.
-- [ ] 2.6 Ensure editing the raw query clears the selected-room cue, invalidates stale selection/current room authority, and increments request/currentness generation before replacement I/O.
+- [x] 2.1 Add an immutable room-name search projection/query to `EquipmentInventory` without changing canonical schema v4.
+- [x] 2.2 Cover Unicode NFC/trim/casefold substring matching, room-id deduplication, conflicting names inside one room ID, zero/one/many matches, and deterministic result ordering.
+- [x] 2.3 Derive deterministic room result labels from canonical display name plus first usable room address; when distinct room IDs still collide, append a neutral deterministic display-only `Вариант N` discriminator without exposing it as identity.
+- [x] 2.4 Replace permanent IP-only input composition with IP-or-room target classification while preserving the operator's raw query text.
+- [x] 2.5 Implement autocomplete/dropdown selection for multi-match room queries plus a separate visible selected-room cue; typing and selection alone must perform zero device network I/O.
+- [x] 2.6 Ensure editing the raw query clears the selected-room cue, invalidates stale selection/current room authority, and increments request/currentness generation before replacement I/O.
 - [ ] 2.7 Keep valid-inventory IP zero/one/many/unmapped semantics unchanged and preserve legacy supported no-room single-device behavior.
 - [ ] 2.8 Preserve unavailable-inventory IP diagnostic fallback exactly: diagnostic start automatically opens the existing fail-closed model fallback and requires a new explicit model selection + `Подключиться` confirmation.
 - [ ] 2.9 Keep room-name search fail-closed when inventory is unavailable; do not invoke diagnostic or credential fallback for a room-name query.
@@ -29,42 +29,42 @@ git diff --cached --check
 
 ## 3. Direct room-name session composition
 
-- [ ] 3.1 Allow room session construction with an exact selected `room_id` and no source record.
-- [ ] 3.2 Preserve IP-entry source-first membership ordering; use pure canonical `record_id` ordering for direct room-name entry.
+- [x] 3.1 Allow room session construction with an exact selected `room_id` and no source record.
+- [x] 3.2 Preserve IP-entry source-first membership ordering; use pure canonical `record_id` ordering for direct room-name entry.
 - [ ] 3.3 Preserve same-room duplicate-IP ambiguity, row eligibility, exact-model registry authority, credential planning, one-shot adapter boundaries, and strictly sequential automatic I/O.
-- [ ] 3.4 Resolve shared room name/address/VIP source-first for IP entry and canonical-first for source-less room entry.
-- [ ] 3.5 Verify selected room authority remains bound to current inventory snapshot/query revision and repeated Refresh uses only the room identified by the visible current-selection cue while that selection remains current.
+- [x] 3.4 Resolve shared room name/address/VIP source-first for IP entry and canonical-first for source-less room entry.
+- [x] 3.5 Verify selected room authority remains bound to current inventory snapshot/query revision and repeated Refresh uses only the room identified by the visible current-selection cue while that selection remains current.
 - [ ] 3.6 Implement the approved two-branch top full Refresh contract: IP mode re-resolves the current IP; room-name mode recomputes candidates/revalidates current selection; failed re-resolution does not resurrect the previous room tree/cache/selection.
-- [ ] 3.7 Preserve deterministic accordion initialization: IP mode keeps source-row behavior; source-less room-name mode starts fully collapsed; full Refresh clears old selection and reapplies the new entry-mode rule.
+- [x] 3.7 Preserve deterministic accordion initialization: IP mode keeps source-row behavior; source-less room-name mode starts fully collapsed; full Refresh clears old selection and reapplies the new entry-mode rule.
 
 ## 4. Application shell and themes
 
-- [ ] 4.1 Set the user-visible window title to `Диагностический модуль`.
-- [ ] 4.2 Build the top toolbar/search layout using semantic components with baseline control height `44-56 px`; search + selection cue should consume roughly 45-60% of baseline toolbar width.
-- [ ] 4.3 Extend central theme tokens to dark and light palettes without per-widget persistence logic.
-- [ ] 4.4 Start every process in dark mode and add a sun/moon session-only theme toggle.
+- [x] 4.1 Set the user-visible window title to `Диагностический модуль`.
+- [x] 4.2 Build the top toolbar/search layout using semantic components with baseline control height `44-56 px`; search + selection cue should consume roughly 45-60% of baseline toolbar width.
+- [x] 4.3 Extend central theme tokens to dark and light palettes without per-widget persistence logic.
+- [x] 4.4 Start every process in dark mode and add a sun/moon session-only theme toggle.
 - [ ] 4.5 Prove theme switching does not change target context, room generation, credentials, live/session ownership, device I/O, or materially reflow the common toolbar/upper-card/equipment-row geometry at a fixed window size.
 - [ ] 4.6 Keep reused current room-mode device-family expanded content readable/usable in both themes as a compatibility requirement, without substituting standalone screens or redesigning family-specific layout.
 
 ## 5. Room upper presentation
 
-- [ ] 5.1 Implement the upper-left room card with room name, address, VIP, warranty, and occupancy rows.
-- [ ] 5.2 Keep warranty explicitly unimplemented as data in this change and render `Гарантия: Нет данных`; do not infer warranty or change inventory schema for it.
-- [ ] 5.3 Extend the existing unified exact `DiagnosticDispatchEntry`/application model registration (or equivalent single registry) with a call-activity normalization binding. The current baseline codec entries `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310` SHALL each declare an available binding because their approved diagnostic snapshots expose call-state evidence. Do not introduce `OCCUPANCY_SUPPORTED_MODELS` or another parallel model list; startup/composition validation must fail closed if any required exact entry lacks its binding.
-- [ ] 5.4 Implement model-neutral application-owned `CallActivity.ACTIVE / INACTIVE / UNKNOWN` normalization behind those exact registry bindings. Model-specific parser/adapter normalization may use explicit exact-model mappings from existing protocol/normalized evidence, but shared room/GUI code must not parse localized/protocol strings or use substring heuristics; unrecognized/missing/stale evidence becomes `UNKNOWN`.
-- [ ] 5.5 Derive `Занятость` only from current non-stale typed activity already owned by exact room codec rows: any current `ACTIVE` -> `Занято`; every other case, including all `INACTIVE`, -> `Нет данных`. Do not display `Свободно` in this change and do not add an occupancy-specific network poll, worker, timer, handler/session acquisition, credential flow, or booking/calendar source.
-- [ ] 5.6 Add a local hover tooltip/popup on the occupancy row/value with meaning equivalent to `Занятость определяется по текущему состоянию звонка кодека.`; opening it must perform zero device I/O.
+- [x] 5.1 Implement the upper-left room card with room name, address, VIP, warranty, and occupancy rows.
+- [x] 5.2 Keep warranty explicitly unimplemented as data in this change and render `Гарантия: Нет данных`; do not infer warranty or change inventory schema for it.
+- [x] 5.3 Extend the existing unified exact `DiagnosticDispatchEntry`/application model registration (or equivalent single registry) with a call-activity normalization binding. The current baseline codec entries `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310` SHALL each declare an available binding because their approved diagnostic snapshots expose call-state evidence. Do not introduce `OCCUPANCY_SUPPORTED_MODELS` or another parallel model list; startup/composition validation must fail closed if any required exact entry lacks its binding.
+- [x] 5.4 Implement model-neutral application-owned `CallActivity.ACTIVE / INACTIVE / UNKNOWN` normalization behind those exact registry bindings. Model-specific parser/adapter normalization may use explicit exact-model mappings from existing protocol/normalized evidence, but shared room/GUI code must not parse localized/protocol strings or use substring heuristics; unrecognized/missing/stale evidence becomes `UNKNOWN`.
+- [x] 5.5 Derive `Занятость` only from current non-stale typed activity already owned by exact room codec rows: any current `ACTIVE` -> `Занято`; every other case, including all `INACTIVE`, -> `Нет данных`. Do not display `Свободно` in this change and do not add an occupancy-specific network poll, worker, timer, handler/session acquisition, credential flow, or booking/calendar source.
+- [x] 5.6 Add a local hover tooltip/popup on the occupancy row/value with meaning equivalent to `Занятость определяется по текущему состоянию звонка кодека.`; opening it must perform zero device I/O.
 - [ ] 5.7 If a room-card refresh icon is included, wire it only as an alias of top full Refresh.
-- [ ] 5.8 Implement the upper-right network-connections tree with peer width to the room card at baseline (`0.9:1` to `1.1:1`).
-- [ ] 5.9 Preserve canonical network evidence for all states: known switch IP+known port; known switch IP+missing port; missing switch IP+known port. Unknown-switch/known-port evidence must render under a record-bound `Коммутатор не определён` branch and must not be grouped into invented switch identity.
-- [ ] 5.10 Populate known-switch parent `Порт` as a deterministic display summary of child attachment evidence: collect non-null child ports in canonical child order, de-duplicate by first occurrence, render zero as `Нет данных`, one as the exact port, many as comma-separated exact ports. Keep exact port/no-data on every child and never treat parent summary as canonical switch state.
-- [ ] 5.11 If no switch/port evidence exists, render `Нет данных о сетевых подключениях`.
-- [ ] 5.12 Do not implement or fabricate `Нет подключенных устройств` in this change. This is an explicit product decision; a future approved room-level switch inventory source/schema is required before unattached switches become data-driven.
+- [x] 5.8 Implement the upper-right network-connections tree with peer width to the room card at baseline (`0.9:1` to `1.1:1`).
+- [x] 5.9 Preserve canonical network evidence for all states: known switch IP+known port; known switch IP+missing port; missing switch IP+known port. Unknown-switch/known-port evidence must render under a record-bound `Коммутатор не определён` branch and must not be grouped into invented switch identity.
+- [x] 5.10 Populate known-switch parent `Порт` as a deterministic display summary of child attachment evidence: collect non-null child ports in canonical child order, de-duplicate by first occurrence, render zero as `Нет данных`, one as the exact port, many as comma-separated exact ports. Keep exact port/no-data on every child and never treat parent summary as canonical switch state.
+- [x] 5.11 If no switch/port evidence exists, render `Нет данных о сетевых подключениях`.
+- [x] 5.12 Do not implement or fabricate `Нет подключенных устройств` in this change. This is an explicit product decision; a future approved room-level switch inventory source/schema is required before unattached switches become data-driven.
 
 ## 6. Common equipment accordion foundation
 
-- [ ] 6.1 Standardize room row headers as `chevron -> class icon -> model -> status cue/text -> IP -> overflow`, baseline collapsed height `52-64 px`, with non-color status cues.
-- [ ] 6.2 Preserve one-expanded-row accordion behavior, exact-row presentation binding, and queue-order independence from accordion selection.
+- [x] 6.1 Standardize room row headers as `chevron -> class icon -> model -> status cue/text -> IP -> overflow`, baseline collapsed height `52-64 px`, with non-color status cues.
+- [x] 6.2 Preserve one-expanded-row accordion behavior, exact-row presentation binding, and queue-order independence from accordion selection.
 - [ ] 6.3 Integrate the current **room-mode exact-row** Audio DSP, Matrix/IN1804, codec, and PDU presentation/interaction surfaces into the common accordion using only the minimum wrapper/reparenting/theme compatibility required. Do not substitute a standalone/single-device screen merely because it belongs to the same family, and do not redesign family-specific internal layout in this change.
 - [ ] 6.4 Preserve only application intents/capabilities already present in the current room-mode surface and declared by the unified exact-model registry/current room lifecycle. Matrix keeps its current room live/local-refresh behavior and remains read-only for routing; PDU mutation/reconciliation, codec live/auxiliary operations, and Audio DSP live/meter acquisition retain their existing room-mode gates. Do not promote standalone-only controls/signals/capabilities or give any reused widget direct handler/session/network ownership.
 - [ ] 6.5 Keep overflow/common actions disabled or non-actionable when the current lifecycle does not authorize an action. Do not add new screen-specific gain/mute/reboot/card/table/meter placeholder controls solely to match deferred family redesign references.
@@ -103,9 +103,9 @@ git diff --cached --check
 
 ## 9. Implementation verification and publication
 
-- [ ] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, current room-mode family-boundary compatibility, and the Matrix read-only/no-route-promotion guard.
-- [ ] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts.
-- [ ] 9.3 Run:
+- [x] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, current room-mode family-boundary compatibility, and the Matrix read-only/no-route-promotion guard.
+- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`python -m unittest discover -s tests -p "test_*.py" -v`: 795 tests, 104.282s, OK.)
+- [x] 9.3 Run:
 
 ```powershell
 .\openspec.cmd validate room-diagnostic-modern-ui --strict
@@ -114,7 +114,7 @@ git diff --check
 git diff --cached --check
 ```
 
-- [ ] 9.4 Synchronize implementation evidence/tasks only with commands actually executed on the current implementation HEAD.
+- [x] 9.4 Synchronize implementation evidence/tasks only with commands actually executed on the current implementation HEAD.
 - [ ] 9.5 Create one focused implementation commit and push `agent/room-diagnostic-modern-ui`; implementation session must not issue independent `APPROVE`.
 
 ## 10. Independent validation

@@ -33,6 +33,17 @@ COLORS = {
     "focus": "#78A7FF",
 }
 
+DARK_COLORS = dict(COLORS)
+LIGHT_COLORS = {
+    "background": "#F4F6F8", "surface": "#FFFFFF", "surface_raised": "#F0F3F6",
+    "surface_hover": "#E7EDF5", "border": "#CBD5E1", "border_strong": "#94A3B8",
+    "primary": "#2563EB", "primary_hover": "#1D4ED8", "primary_pressed": "#1E40AF",
+    "success": "#16803B", "success_hover": "#117A34", "success_pressed": "#0E642B",
+    "danger": "#C82D3D", "danger_hover": "#B91C2C", "danger_pressed": "#991B2A", "warning": "#B45309",
+    "text_primary": "#172033", "text_secondary": "#475569", "text_muted": "#64748B",
+    "text_on_accent": "#FFFFFF", "focus": "#2563EB",
+}
+
 SPACING = {
     "xxs": 2,
     "xs": 4,
@@ -488,8 +499,12 @@ def build_stylesheet() -> str:
     """
 
 
-def apply_theme(target) -> None:
+def apply_theme(target, theme: str = "dark") -> None:
     """Apply the shared palette and QSS to a QApplication or QWidget."""
+    if theme not in {"dark", "light"}:
+        raise ValueError(f"Unsupported theme: {theme}")
+    COLORS.clear()
+    COLORS.update(DARK_COLORS if theme == "dark" else LIGHT_COLORS)
     target.setPalette(create_palette())
     target.setStyleSheet(build_stylesheet())
     if isinstance(target, QWidget):
