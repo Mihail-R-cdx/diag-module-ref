@@ -40,6 +40,7 @@ class DiagnosticDispatchEntry:
     mutation_binding_key: str | None = None
     reconciliation_binding_key: str | None = None
     cleanup_binding_key: str | None = None
+    call_activity_capability: bool = False
     call_activity_binding_key: str | None = None
 
     def room_capability(self) -> RoomModelCapability:
@@ -116,6 +117,7 @@ def _room_entry(
         mutation_binding_key="room_pdu_mutation" if pdu_mutation else None,
         reconciliation_binding_key="room_one_shot_refresh" if pdu_mutation else None,
         cleanup_binding_key="room_one_shot_cleanup",
+        call_activity_capability=call_activity_binding_key is not None,
         call_activity_binding_key=call_activity_binding_key,
     )
 
@@ -205,11 +207,11 @@ def validate_dispatch_registry(
                     raise ValueError(
                         f"Dispatch interaction binding is not bound: {entry.diagnostic_model}"
                     )
-        if entry.screen_key == "codec" and entry.diagnostic_model in {
-            "Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"
-        } and not entry.call_activity_binding_key:
+        if entry.call_activity_capability and not entry.call_activity_binding_key:
             raise ValueError(f"Dispatch call-activity binding is missing: {entry.diagnostic_model}")
-        if (available_call_activity_binding_keys is not None and entry.call_activity_binding_key
+        if entry.call_activity_binding_key and not entry.call_activity_capability:
+            raise ValueError(f"Dispatch call-activity capability is missing: {entry.diagnostic_model}")
+        if (available_call_activity_binding_keys is not None and entry.call_activity_capability
                 and entry.call_activity_binding_key not in available_call_activity_binding_keys):
             raise ValueError(f"Dispatch call-activity binding is not bound: {entry.diagnostic_model}")
 

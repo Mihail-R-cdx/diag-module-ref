@@ -308,13 +308,16 @@ class RoomInteractionCoordinator:
         self._notify()
 
     def defer_global_refresh(self, callback: Callable[[], None]) -> bool:
-        """Retire read-only auxiliary authority before beginning a new room cycle.
+        """Retire read-only authority before beginning a new room cycle.
 
         The callback is deliberately invoked only from ``cleanup_finished``.
         This makes top Refresh a non-blocking supersession boundary rather than
         permitting a new room worker to overlap a still-closing child session.
         """
-        if self._active is None or self._active.kind is not RoomInteractionKind.AUXILIARY_READ:
+        if self._active is None or self._active.kind not in {
+            RoomInteractionKind.AUXILIARY_READ,
+            RoomInteractionKind.LIVE,
+        }:
             return False
         self._pending_global_refresh = callback
         self._pending_operation = None

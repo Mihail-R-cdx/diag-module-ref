@@ -148,6 +148,30 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         )
         self.assertTrue(self.window.update_timer.isActive())
 
+    def test_top_toolbar_controls_have_foundation_geometry_at_1440x900(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        self.window = VCSDiagnosticApp()
+        self.window.resize(1440, 900)
+        self.window.show()
+        QApplication.processEvents()
+
+        controls = (
+            self.window.ip_entry,
+            self.window.password_btn,
+            self.window.refresh_btn,
+            self.window.debug_btn,
+            self.window.theme_btn,
+        )
+        for control in controls:
+            with self.subTest(control=control.objectName()):
+                self.assertGreaterEqual(control.height(), 44)
+                self.assertLessEqual(control.height(), 56)
+        for index, left in enumerate(controls):
+            for right in controls[index + 1:]:
+                self.assertFalse(left.geometry().intersects(right.geometry()))
+        self.assertGreater(self.window.ip_entry.width(), self.window.refresh_btn.width())
+
     def test_window_frame_starts_at_available_screen_top(self):
         from gui.main_window import VCSDiagnosticApp
 

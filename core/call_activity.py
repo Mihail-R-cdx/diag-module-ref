@@ -1,4 +1,4 @@
-"""Exact-model call evidence normalization used by room presentation only."""
+"""Typed call evidence shared by exact-model parsers and room presentation."""
 
 from __future__ import annotations
 
@@ -12,36 +12,57 @@ class CallActivity(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-_CALL_ACTIVITY_BY_BINDING = {
+CALL_ACTIVITY_EVIDENCE_KEY = "_room_call_activity"
+
+
+_CALL_ACTIVITY_BY_BINDING: dict[str, dict[str, CallActivity]] = {
     "huawei_call_activity": {
-        "calling": CallActivity.ACTIVE,
-        "connected": CallActivity.ACTIVE,
-        "no call": CallActivity.INACTIVE,
-        "disconnected": CallActivity.INACTIVE,
-        "нет звонка": CallActivity.INACTIVE,
-        "вызов": CallActivity.ACTIVE,
-        "отключен": CallActivity.INACTIVE,
+        "Calling": CallActivity.ACTIVE,
+        "Connected": CallActivity.ACTIVE,
+        "No Call": CallActivity.INACTIVE,
+        "Disconnected": CallActivity.INACTIVE,
     },
     "cloudlink_call_activity": {
-        "calling": CallActivity.ACTIVE,
-        "connected": CallActivity.ACTIVE,
-        "no call": CallActivity.INACTIVE,
-        "disconnected": CallActivity.INACTIVE,
+        "Calling": CallActivity.ACTIVE,
+        "Connected": CallActivity.ACTIVE,
+        "No Call": CallActivity.INACTIVE,
+        "Disconnected": CallActivity.INACTIVE,
     },
     "polycom_call_activity": {
-        "active": CallActivity.ACTIVE,
-        "no call": CallActivity.INACTIVE,
-        "inactive": CallActivity.INACTIVE,
+        "Active": CallActivity.ACTIVE,
+        "Incoming": CallActivity.ACTIVE,
+        "No Call": CallActivity.INACTIVE,
+        "Ended": CallActivity.INACTIVE,
     },
 }
 
 
+def call_activity_binding_keys() -> frozenset[str]:
+    """Return the composition-visible normalizer bindings from one registry."""
+    return frozenset(_CALL_ACTIVITY_BY_BINDING)
+
+
+def call_activity_from_model_evidence(binding_key: str | None, evidence: Any) -> CallActivity:
+    """Classify machine-readable evidence in the exact model parser/adapter."""
+    if not isinstance(evidence, str):
+        return CallActivity.UNKNOWN
+    return _CALL_ACTIVITY_BY_BINDING.get(binding_key or "", {}).get(
+        evidence, CallActivity.UNKNOWN
+    )
+
+
+def publish_call_activity_evidence(
+    snapshot: dict[str, Any], *, binding_key: str, evidence: Any
+) -> None:
+    """Attach non-display, typed call evidence to an accepted parser snapshot."""
+    snapshot[CALL_ACTIVITY_EVIDENCE_KEY] = call_activity_from_model_evidence(
+        binding_key, evidence
+    )
+
+
 def normalize_call_activity(binding_key: str | None, snapshot: Any) -> CallActivity:
-    """Normalize already accepted exact-model evidence; unknown is deliberately safe."""
-    if not isinstance(snapshot, Mapping):
+    """Read typed evidence only; missing, stale or unrecognized data is unknown."""
+    if binding_key not in _CALL_ACTIVITY_BY_BINDING or not isinstance(snapshot, Mapping):
         return CallActivity.UNKNOWN
-    value = snapshot.get("call_status")
-    if not isinstance(value, str):
-        return CallActivity.UNKNOWN
-    normalized = value.strip().casefold()
-    return _CALL_ACTIVITY_BY_BINDING.get(binding_key, {}).get(normalized, CallActivity.UNKNOWN)
+    evidence = snapshot.get(CALL_ACTIVITY_EVIDENCE_KEY)
+    return evidence if isinstance(evidence, CallActivity) else CallActivity.UNKNOWN

@@ -65,6 +65,8 @@ RADII = {
 SIZES = {
     "control_height": 40,
     "control_height_compact": 32,
+    "toolbar_control_min_height": 44,
+    "toolbar_control_max_height": 56,
     "scrollbar": 10,
     "border": 1,
     "focus_border": 1,
@@ -343,6 +345,11 @@ def build_stylesheet() -> str:
         }}
         QLineEdit[uiRole="valueDisplay"] {{
             background-color: {c["surface_raised"]};
+        }}
+        QLineEdit[toolbarControl="true"],
+        QPushButton[toolbarControl="true"] {{
+            min-height: {s["toolbar_control_min_height"]}px;
+            max-height: {s["toolbar_control_max_height"]}px;
         }}
         QLineEdit[uiRole="valueDisplay"][density="compact"] {{
             min-height: {s["control_height_compact"] - 2}px;

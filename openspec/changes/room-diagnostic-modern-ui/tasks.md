@@ -34,7 +34,7 @@ git diff --cached --check
 - [ ] 3.3 Preserve same-room duplicate-IP ambiguity, row eligibility, exact-model registry authority, credential planning, one-shot adapter boundaries, and strictly sequential automatic I/O.
 - [x] 3.4 Resolve shared room name/address/VIP source-first for IP entry and canonical-first for source-less room entry.
 - [x] 3.5 Verify selected room authority remains bound to current inventory snapshot/query revision and repeated Refresh uses only the room identified by the visible current-selection cue while that selection remains current.
-- [ ] 3.6 Implement the approved two-branch top full Refresh contract: IP mode re-resolves the current IP; room-name mode recomputes candidates/revalidates current selection; failed re-resolution does not resurrect the previous room tree/cache/selection.
+- [x] 3.6 Implement the approved two-branch top full Refresh contract: IP mode re-resolves the current IP; room-name mode recomputes candidates/revalidates current selection; failed re-resolution does not resurrect the previous room tree/cache/selection.
 - [x] 3.7 Preserve deterministic accordion initialization: IP mode keeps source-row behavior; source-less room-name mode starts fully collapsed; full Refresh clears old selection and reapplies the new entry-mode rule.
 
 ## 4. Application shell and themes
@@ -87,7 +87,7 @@ git diff --cached --check
 - [ ] 7.13 Regression-test existing room-mode codec auxiliary/live and PDU mutation/reconciliation paths retain their approved exact-row lifecycle gates inside the new accordion.
 - [ ] 7.14 Test theme starts dark on each new application instance, is not persisted, does not materially change common foundation geometry at a fixed baseline window, and keeps reused room-mode family content readable/usable.
 - [ ] 7.15 Test warranty remains explicit `Нет данных` and is not inferred from schema-v4/device data.
-- [ ] 7.16 Test unified-registry call-activity coverage explicitly for all five current exact codec identities: `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310`. For each, cover known active evidence -> `ACTIVE`, known no-call evidence -> `INACTIVE`, and missing/stale/unrecognized evidence -> `UNKNOWN`; prove a missing/unavailable required binding fails registry/composition validation and prove shared room/GUI code has no model list or string/substring classification path.
+- [x] 7.16 Test unified-registry call-activity coverage explicitly for all five current exact codec identities: `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310`. For each, cover known active evidence -> `ACTIVE`, known no-call evidence -> `INACTIVE`, and missing/stale/unrecognized evidence -> `UNKNOWN`; prove a missing/unavailable required binding fails registry/composition validation and prove shared room/GUI code has no model list or string/substring classification path.
 - [ ] 7.17 Test occupancy projection: any current `ACTIVE` -> `Занято`; all-`INACTIVE`, `UNKNOWN`, missing, stale, or failed evidence without an `ACTIVE` -> `Нет данных`; accepted typed activity updates refresh the presentation without occupancy-specific I/O; hover explanation is local-only.
 - [ ] 7.18 Test network presentation retains known port when switch IP is missing, shows safe no-data for missing child port when switch IP is known, never groups unknown-switch records by port, and never fabricates unattached switches.
 - [ ] 7.19 Test parent port summary for zero/one/many/repeated child ports and prove it is presentation-only while child ports remain exact.
@@ -104,7 +104,7 @@ git diff --cached --check
 ## 9. Implementation verification and publication
 
 - [x] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, current room-mode family-boundary compatibility, and the Matrix read-only/no-route-promotion guard.
-- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`python -m unittest discover -s tests -p "test_*.py" -v`: 795 tests, 104.282s, OK.)
+- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py" -v`: 802 tests, OK.)
 - [x] 9.3 Run:
 
 ```powershell

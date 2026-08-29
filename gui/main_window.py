@@ -61,6 +61,7 @@ from core.room_interaction import (
     RoomInteractionCoordinator,
     RoomInteractionKind,
 )
+from core.call_activity import call_activity_binding_keys
 from core.switch_connection_context import SwitchConnectionResolver
 from core.worker import (
     HuaweiTE40Worker,
@@ -514,11 +515,7 @@ class VCSDiagnosticApp(QMainWindow):
                 "matrix_room_live",
                 "dmp_room_live",
             },
-            available_call_activity_binding_keys={
-                "huawei_call_activity",
-                "cloudlink_call_activity",
-                "polycom_call_activity",
-            },
+            available_call_activity_binding_keys=call_activity_binding_keys(),
         )
         
         # Добавляем экраны в контейнер
@@ -626,6 +623,15 @@ class VCSDiagnosticApp(QMainWindow):
         self.theme_btn.setToolTip("Переключить светлую/тёмную тему")
         self.theme_btn.clicked.connect(self.toggle_theme)
 
+        for control in (
+            self.ip_entry,
+            self.password_btn,
+            self.refresh_btn,
+            self.debug_btn,
+            self.theme_btn,
+        ):
+            control.setProperty("toolbarControl", "true")
+
         layout.addWidget(ip_label, 0, 0)
         layout.addWidget(self.ip_entry, 1, 0)
         layout.addWidget(self.selected_room_cue, 2, 0)
@@ -646,9 +652,7 @@ class VCSDiagnosticApp(QMainWindow):
     def _on_target_query_changed(self, raw_query):
         """Refresh in-memory suggestions only; editing is a lifecycle boundary."""
         self._target_query_revision += 1
-        self._selected_room_result = None
-        self.selected_room_cue.hide()
-        self.selected_room_cue.clear()
+        self._clear_room_search_selection()
         self._room_search_results_by_label = {}
         if normalize_ip_address(raw_query.strip()) is not None or self.equipment_inventory is None:
             self._room_completer_model.setStringList([])
@@ -677,6 +681,11 @@ class VCSDiagnosticApp(QMainWindow):
         if revision != self._target_query_revision or snapshot_id != self._equipment_inventory_snapshot_context():
             return None
         return result if any(candidate.room_id == result.room_id for candidate in self.equipment_inventory.find_rooms_by_name(self.ip_entry.text())) else None
+
+    def _clear_room_search_selection(self):
+        self._selected_room_result = None
+        self.selected_room_cue.hide()
+        self.selected_room_cue.clear()
 
     def _supersede_model_actions(self, reason="context_changed"):
         # Model/IP replacement is also the authoritative boundary for the
@@ -3388,14 +3397,29 @@ class VCSDiagnosticApp(QMainWindow):
             # and bounded cleanup must finish (or be abandoned) before the
             # replacement full room generation can acquire any device I/O.
             return
+        if coordinator is not None and coordinator.has_exclusive_operation:
+            # Local refresh, mutation and reconciliation retain the existing
+            # exclusive-lane contract. They are not superseded by top Refresh.
+            return
+        # A top refresh is from-scratch once it is accepted.  This happens
+        # before either IP or room-name resolution so every failed resolution
+        # leaves no old room tree, cache, live owner or row action current.
+        # Keep a test-only explicit model injection intact; production model
+        # resolution is recomputed below from the current target and inventory.
+        VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
+        self._clear_room_diagnostic_session("full_refresh")
+        self._invalidate_equipment_switch_context("full_refresh")
+        self._supersede_pending_diagnostic_reachability("full_refresh")
         raw_target = self.ip_entry.text()
         ip_address = normalize_ip_address(raw_target.strip())
         if ip_address is None:
             if self.equipment_inventory is None:
+                self._clear_room_search_selection()
                 self.set_ui_state(UIState.REQUEST_ERROR, "Поиск комнаты недоступен: база оборудования не загружена.")
                 return
             candidates = self.equipment_inventory.find_rooms_by_name(raw_target)
             if not candidates:
+                self._clear_room_search_selection()
                 self.set_ui_state(UIState.REQUEST_ERROR, "Комната не найдена.")
                 return
             selection = self._current_room_search_selection()
@@ -3405,6 +3429,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.selected_room_cue.setText(f"Комната: {selection.selection_label}")
                 self.selected_room_cue.show()
             if selection is None:
+                self._clear_room_search_selection()
                 self.set_ui_state(UIState.REQUEST_ERROR, "Выберите комнату из списка результатов.")
                 return
             self._supersede_pending_diagnostic_reachability("new_room_name_start")
