@@ -228,28 +228,40 @@ The overflow action SHALL expose only current application-authorized actions. Wh
 
 ### Requirement: Existing expanded device presentations remain compatible and are not redesigned by this foundation
 
-Expanded Audio DSP, Matrix/IN1804, codec, and PDU content SHALL remain presentation projections of exact per-record state using the existing supported production presentation path for that family. The foundation MAY add only the minimum container/reparenting/theme compatibility needed to mount the current view in the common room accordion and keep it reachable at supported window sizes.
+For this foundation, `existing`, `current`, or `reused` device-family presentation means the **current room-mode exact-row presentation/interaction surface** for that family, as bound by the room diagnostic presentation path and the unified exact-model registry/lifecycle capabilities. A standalone or legacy single-device screen SHALL NOT be selected, embedded, or treated as room capability merely because it represents the same device family. The foundation MAY add only the minimum container/reparenting/theme compatibility needed to keep the current room-mode surface reachable at supported window sizes.
 
-This change SHALL NOT define or implement a new family-specific internal visual contract. It SHALL NOT require new Audio segmented-meter geometry, a new Matrix column hierarchy, new codec grouped cards, new PDU grouped cards, or new screen-specific reference-only controls. Those redesigns belong to separate follow-up OpenSpec changes after this foundation is merged.
+Expanded Audio DSP, Matrix/IN1804, codec, and PDU content SHALL remain projections of exact per-record state through that current room-mode surface. This change SHALL NOT define or implement a new family-specific internal visual contract. It SHALL NOT require new Audio segmented-meter geometry, a new Matrix column hierarchy, new codec grouped cards, new PDU grouped cards, or new screen-specific reference-only controls. Those redesigns belong to separate follow-up OpenSpec changes after this foundation is merged.
 
-Existing supported controls SHALL remain connected through their current non-secret application intent/controller boundaries and SHALL remain enabled only when current lifecycle/capability state permits them. Existing Matrix routing, PDU mutation/reconciliation, codec auxiliary/live behavior, and Audio DSP live/meter behavior SHALL remain governed by the current corresponding lifecycle contracts.
+Existing **room-mode** controls SHALL remain connected through their current non-secret application intent/controller boundaries and SHALL remain enabled only when current registry/lifecycle capability state permits them. The foundation SHALL NOT promote an action, control, or signal that exists only on a standalone/single-device screen into room mode. Existing room-mode PDU mutation/reconciliation, codec auxiliary/live behavior, Audio DSP live/meter behavior, and Matrix room live/local-refresh behavior SHALL remain governed by their current corresponding lifecycle contracts.
+
+For Matrix/IN1804 specifically, the foundation SHALL preserve the current room-mode read-only Matrix presentation. It SHALL preserve only the Matrix room interactions already declared by the unified exact-model registry/current room lifecycle, including the existing room live/local-refresh behavior. It SHALL NOT add a room-mode route-mutation intent or registry mutation binding, SHALL NOT wire or embed standalone `MatrixScreen.routeRequested` as a room action, and SHALL NOT treat standalone Matrix routing as an existing room capability. Any interactive/new Matrix room routing presentation belongs to the later `matrix-diagnostic-modern-ui` change.
 
 Compatibility adaptation SHALL NOT make expanded widgets authoritative for credential selection/fallback, handlers, sessions, transports, successful credential memory, stale-operation authority, request generations, exact-row identity, or direct device network I/O.
 
-#### Scenario: Existing device view opens inside the common accordion
+#### Scenario: Existing room-mode device view opens inside the common accordion
 
-- **GIVEN** an exact supported room row has an existing expanded presentation path
+- **GIVEN** an exact supported room row has a current room-mode expanded presentation path
 - **WHEN** the operator expands that row under the new common accordion
-- **THEN** the existing family presentation remains reachable and bound to that exact row state
+- **THEN** the current room-mode family presentation remains reachable and bound to that exact row state
+- **AND** no standalone/single-device screen is promoted merely because it has the same family
 - **AND** no family-specific redesign is required for acceptance of this change
 - **AND** no widget gains direct credential/session/network authority
 
-#### Scenario: Existing device action preserves its application boundary
+#### Scenario: Existing room-mode device action preserves its application boundary
 
-- **GIVEN** an existing current device-family action is authorized by its current lifecycle
+- **GIVEN** an existing current room-mode device-family action is authorized by its current unified-registry/lifecycle capability
 - **WHEN** the operator invokes it from the reused expanded presentation inside the accordion
 - **THEN** the existing application intent/controller boundary is used
-- **AND** the foundation introduces no direct handler call or parallel network lifecycle
+- **AND** the foundation introduces no direct handler call, new capability, or parallel network lifecycle
+
+#### Scenario: Matrix remains read-only in room mode under the foundation
+
+- **GIVEN** an exact `Extron IN1804` room row whose current unified-registry entry has room live/local-refresh capability but no route-mutation binding
+- **WHEN** the row is expanded in the foundation accordion
+- **THEN** the current room-mode read-only Matrix projection remains exact-row bound
+- **AND** existing Matrix room live/local-refresh behavior remains governed by the current lifecycle
+- **AND** no Matrix route-mutation intent or registry mutation binding is introduced
+- **AND** standalone `MatrixScreen.routeRequested` is not wired into the room accordion
 
 ### Requirement: Dark and light themes are semantic, foundation-geometry-stable, and session-only
 
