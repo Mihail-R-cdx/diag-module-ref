@@ -15,7 +15,7 @@ The existing runtime inventory schema v4 exposes `room_name`, `room_address`, `r
 This change is deliberately a **common room UI foundation**, not a bundle of four device-family redesigns. It has two layers:
 
 1. a real application behavior change for target search and direct room selection;
-2. a common shell/presentation foundation that reuses the existing supported Audio DSP, Matrix/IN1804, codec, and PDU expanded presentations inside the room accordion without redesigning their family-specific interiors.
+2. a common shell/presentation foundation that preserves the current **room-mode exact-row** Audio DSP, Matrix/IN1804, codec, and PDU presentation/interaction surfaces inside the room accordion without redesigning their family-specific interiors or promoting standalone/single-device capabilities.
 
 Detailed expanded-screen redesigns are deferred to later semantic OpenSpec changes after this foundation is merged to `master`. The expected follow-up boundaries are equivalent to `audio-diagnostic-modern-ui`, `matrix-diagnostic-modern-ui`, `codec-diagnostic-modern-ui`, and `pdu-diagnostic-modern-ui`.
 
@@ -31,7 +31,7 @@ The original product screenshots are design inputs but are not repository author
 - Present room metadata and all available canonical network topology evidence prominently above the equipment tree.
 - Derive only the room `Занято` busy-by-call indication from existing accepted typed codec call activity, without introducing a booking source, string heuristics, or occupancy-specific device I/O.
 - Preserve the tree/accordion information architecture with exactly one expanded device.
-- Define one common equipment-row/header and shell visual system while keeping current device-family expanded presentations functional and presentation-only.
+- Define one common equipment-row/header and shell visual system while keeping current room-mode exact-row device-family presentations functional and presentation-only.
 - Make dark and light themes semantic, centralized, geometry-stable, and session-only for the common shell.
 - Keep approved foundation proportions and visual hierarchy without requiring pixel-identical reproduction.
 
@@ -45,7 +45,8 @@ The original product screenshots are design inputs but are not repository author
 - No runtime inference of call-activity applicability from payload/field presence; the unified exact-model registry remains authority.
 - No new authoritative room-level switch source and no data-driven unattached-switch/`Нет подключенных устройств` state in this change by confirmed product decision.
 - No Audio DSP family-specific redesign: no new segmented-meter geometry contract, selected-channel visual redesign, or new gain/mute placeholder layout in this change.
-- No Matrix/IN1804 family-specific redesign: no new per-input visual table/column hierarchy contract in this change.
+- No Matrix/IN1804 family-specific redesign: no new per-input visual table/column hierarchy contract and no new room-mode route-mutation capability in this change.
+- No promotion of standalone/single-device screens, controls, signals, or capabilities into room mode merely because they belong to the same device family.
 - No codec family-specific grouped-card redesign in this change.
 - No PDU family-specific grouped-card/outlet redesign in this change.
 - No new screen-specific reference-only controls merely to match deferred screenshots.
@@ -295,15 +296,21 @@ Status is never conveyed by color alone. Exactly one equipment row may be expand
 
 The overflow action exposes only current application-authorized actions. If the current foundation does not have a valid action for that row/context, overflow remains disabled/non-actionable; it does not create a new device I/O path.
 
-### 11. Existing device-family expanded presentations remain compatible and out of redesign scope
+### 11. Current room-mode device-family presentations remain compatible and out of redesign scope
 
-When a row is expanded, its content remains a projection of the exact row's accepted per-record state through the existing supported Audio DSP, Matrix/IN1804, codec, or PDU presentation path. The foundation MAY add only the minimum container/theme adaptation required to mount that current presentation inside the common accordion and keep it reachable at supported window sizes.
+For this foundation, the terms `existing`, `current`, and `reused` device-family presentation refer specifically to the **current room-mode exact-row presentation/interaction surface** produced by the room diagnostic presentation path and permitted by the unified exact-model registry/current room lifecycle. They do not refer to an arbitrary standalone or legacy single-device screen simply because it represents the same family.
+
+When a row is expanded, its content remains a projection of that exact row's accepted per-record state through the current room-mode Audio DSP, Matrix/IN1804, codec, or PDU presentation surface. The foundation MAY add only the minimum container/theme adaptation required to keep that current room-mode surface reachable inside the common accordion at supported window sizes.
 
 This change SHALL NOT define or implement a new family-specific internal composition for those views. In particular it does not introduce new Audio segmented-meter geometry, Matrix table columns, codec grouped cards, PDU grouped cards, or new screen-specific placeholder controls. Those details belong to later dedicated OpenSpec changes.
 
-Existing supported controls remain connected through their current non-secret application intent/controller boundaries and current lifecycle/capability gates. Existing Matrix routing, PDU mutation/reconciliation, codec live/auxiliary operations, and Audio DSP meter acquisition are preserved. No compatibility adaptation may make a widget authoritative for credentials, handler/session ownership, request freshness, fallback cursors, exact-row identity, or device I/O.
+Only actions/capabilities already available in the current room-mode surface and declared by the unified exact-model registry/current room lifecycle are preserved. A standalone/single-device control, signal, or action is not a room capability and must not be promoted into room mode by foundation integration.
 
-If a current family presentation cannot fit the new accordion without a minimal structural wrapper/reparenting change, the implementation must preserve its existing semantics and interaction boundary; it must not opportunistically redesign the screen while performing that integration.
+For Matrix/IN1804, the current room-mode presentation is intentionally read-only for routing. The foundation preserves the exact-row Matrix projection and its already-declared room live/local-refresh behavior, but adds no route-mutation intent, no registry mutation binding, and no wiring of standalone `MatrixScreen.routeRequested` into the room accordion. Interactive/new Matrix room routing belongs to `matrix-diagnostic-modern-ui`.
+
+Current room-mode PDU mutation/reconciliation, codec live/auxiliary operations, and Audio DSP live/meter acquisition remain governed by their existing application intent/controller and lifecycle/capability boundaries. No compatibility adaptation may make a widget authoritative for credentials, handler/session ownership, request freshness, fallback cursors, exact-row identity, or device I/O.
+
+If a current room-mode family presentation cannot fit the new accordion without a minimal structural wrapper/reparenting change, the implementation must preserve its existing room-mode semantics and interaction boundary; it must not substitute a standalone screen or opportunistically redesign the family while performing that integration.
 
 ### 12. Theme lifecycle
 
@@ -311,7 +318,7 @@ Dark mode is the startup default on every process launch. The sun/moon control t
 
 At the same window size theme switching must not intentionally resize/reflow the common toolbar, upper cards, or common equipment rows. Both themes preserve primary/secondary hierarchy, disabled-state clarity, focus indication, borders, and text/status distinguishability.
 
-For the reused existing expanded device presentations, foundation theme integration is compatibility-only: required text/controls must remain readable and usable in both themes, but this change does not impose their final family-specific modern visual design.
+For the reused current room-mode expanded device presentations, foundation theme integration is compatibility-only: required text/controls must remain readable and usable in both themes, but this change does not impose their final family-specific modern visual design.
 
 Theme change is presentation-only: no generation invalidation, live restart, refresh, credential change, or device I/O.
 
@@ -350,8 +357,9 @@ Each follow-up change must define its own repository-local visual contract, life
 - **Partial network evidence loss:** all three meaningful partial combinations are specified; known port is never discarded merely because switch IP is missing.
 - **Switch parent port semantics:** parent value is only a deterministic summary of child attachment evidence, never canonical switch authority.
 - **Empty-switch reference gap:** explicitly user-approved as deferred rather than simulated from nonexistent authority.
-- **Foundation/family scope creep:** implementation may be tempted to redesign individual screens while integrating them into the accordion. The non-goal and compatibility-only requirement make that a contract violation; family redesigns are separate changes.
-- **Theme compatibility with legacy family views:** both themes must keep reused content readable/usable, but final family visual polish is deliberately postponed.
+- **Foundation/family scope creep:** implementation may be tempted to substitute a standalone screen or redesign individual screens while integrating them into the accordion. The room-mode-only compatibility contract makes that a violation; family redesigns and any new family capability are separate changes.
+- **Matrix capability promotion:** standalone Matrix routing exists, but current room mode has no route-mutation capability. Foundation must preserve the room read-only boundary; interactive room routing is deferred to `matrix-diagnostic-modern-ui`.
+- **Theme compatibility with legacy family views:** both themes must keep reused room-mode content readable/usable, but final family visual polish is deliberately postponed.
 - **Theme QSS duplication:** centralized semantic token/palette generation.
 
 ## Validation Strategy
@@ -365,8 +373,8 @@ git diff --check
 git diff --cached --check
 ```
 
-Implementation validation must include focused target-search, direct-room, shell/theme, room-card, network-card, common-row/accordion, unified-registry applicability, and typed call-activity normalization tests, plus compatibility regression tests proving the existing Audio DSP, Matrix/IN1804, codec, and PDU presentation/interaction boundaries remain usable and do not gain direct network authority. Run the full required offline suite with fresh counts.
+Implementation validation must include focused target-search, direct-room, shell/theme, room-card, network-card, common-row/accordion, unified-registry applicability, and typed call-activity normalization tests, plus compatibility regression tests proving the current **room-mode** Audio DSP, Matrix/IN1804, codec, and PDU presentation/interaction boundaries remain usable and do not gain direct network authority or capabilities that exist only in standalone screens. Matrix coverage must prove the current room projection remains read-only for routing, retains its existing room live/local-refresh behavior, and gains no route-mutation intent/registry binding.
 
-Manual visual acceptance is mandatory during implementation validation: launch the GUI detached per `RULES.md`, set the window to the baseline `1440 x 900`, capture local non-committed dark/light room-mode screenshots, and compare them against the repository-local **foundation** proportion/hierarchy contract. The check must explicitly inspect toolbar/search dominance, selected-room cue, room/network peer-card width, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common row density, one-row accordion behavior, and geometry stability across theme switch. It must also verify that each reused current family presentation remains reachable/readable inside the accordion, but it SHALL NOT judge deferred Audio meter geometry, Matrix column hierarchy, codec card layout, or PDU card layout as acceptance criteria for this change.
+Manual visual acceptance is mandatory during implementation validation: launch the GUI detached per `RULES.md`, set the window to the baseline `1440 x 900`, capture local non-committed dark/light room-mode screenshots, and compare them against the repository-local **foundation** proportion/hierarchy contract. The check must explicitly inspect toolbar/search dominance, selected-room cue, room/network peer-card width, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common row density, one-row accordion behavior, and geometry stability across theme switch. It must also verify that each reused current room-mode family presentation remains reachable/readable inside the accordion, but it SHALL NOT judge deferred Audio meter geometry, Matrix column hierarchy, codec card layout, or PDU card layout as acceptance criteria for this change.
 
 Because this change adds a new root capability and modifies existing root requirements, independent validation must perform the disposable archive-applicability check from current `origin/agent/room-diagnostic-modern-ui` before `READY FOR ARCHIVE`.
