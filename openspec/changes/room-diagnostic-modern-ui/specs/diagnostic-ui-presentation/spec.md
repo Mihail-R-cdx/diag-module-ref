@@ -1,12 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: Diagnostic shell follows a self-contained modern room-oriented visual contract
+### Requirement: Diagnostic shell follows a self-contained modern room-oriented foundation contract
 
-The desktop application SHALL present the user-visible title `Диагностический модуль` and SHALL use a card-based desktop layout with consistent semantic spacing, typography, borders, radii, icons, and status styling. External screenshots are product-design inputs only; implementation and review SHALL be possible from this repository-local contract without access to the original conversation images.
+The desktop application SHALL present the user-visible title `Диагностический модуль` and SHALL use a card-based desktop layout with consistent semantic spacing, typography, borders, radii, icons, and status styling. External screenshots are product-design inputs only; implementation and review SHALL be possible from this repository-local foundation contract without access to the original conversation images.
 
-The baseline visual acceptance viewport SHALL be `1440 x 900` logical pixels. The layout SHALL remain usable at a minimum `1180 x 720` logical-pixel window; below the baseline, vertical scrolling or controlled card reflow MAY occur, but target-search, top Refresh, current selected-room cue, room/network cards, and equipment accordion SHALL remain reachable.
+The baseline visual acceptance viewport SHALL be `1440 x 900` logical pixels. The layout SHALL remain usable at a minimum `1180 x 720` logical-pixel window; below the baseline, vertical scrolling or controlled card reflow MAY occur, but target-search, top Refresh, current selected-room cue, room/network cards, common equipment accordion, and expanded current device content SHALL remain reachable.
 
-At the baseline viewport the following visual scale SHALL apply:
+At the baseline viewport the following common visual scale SHALL apply:
 
 ```text
 outer content margin              20-28 px
@@ -28,7 +28,7 @@ The primary toolbar SHALL expose the single target-search field, top Refresh, ap
 
 Room mode SHALL place the room-summary card and network-connections card above the equipment accordion. At baseline width the two cards SHALL have aligned tops and approximately peer weight with a width ratio between `0.9:1` and `1.1:1`; neither card SHALL collapse into a narrow sidebar while the other occupies the full row.
 
-The visual redesign SHALL NOT make Qt widget state authoritative for target identity, credentials, request generation, handler/session ownership, or device I/O.
+This foundation contract does not define final family-specific visual geometry for Audio DSP, Matrix/IN1804, codec, or PDU expanded content. Those redesigns are deferred to dedicated follow-up OpenSpec changes. The common shell redesign SHALL NOT make Qt widget state authoritative for target identity, credentials, request generation, handler/session ownership, or device I/O.
 
 #### Scenario: Room shell is rendered at baseline size
 
@@ -36,6 +36,12 @@ The visual redesign SHALL NOT make Qt widget state authoritative for target iden
 - **THEN** the room-summary and network cards appear side by side above the equipment accordion with peer visual weight
 - **AND** the common spacing/typography/icon scale is applied
 - **AND** device/network authority remains outside the presentation widgets
+
+#### Scenario: Minimum supported window remains usable
+
+- **WHEN** the application is shown at `1180 x 720` logical pixels
+- **THEN** target-search, selected-room cue when present, top Refresh, room/network cards, equipment accordion, and current expanded device content remain reachable through controlled reflow/scrolling
+- **AND** no target or device authority changes merely because layout reflows
 
 ### Requirement: Selected room remains visibly identifiable without replacing raw search text
 
@@ -45,7 +51,7 @@ The selected-room cue SHALL be visually subordinate to the raw search editor but
 
 #### Scenario: Duplicate room names are selected safely
 
-- **GIVEN** autocomplete contains several visibly distinguishishable results whose room names are identical
+- **GIVEN** autocomplete contains several visibly distinguishable results whose room names are identical
 - **WHEN** the operator selects one result
 - **THEN** the raw search text remains unchanged
 - **AND** the selected-room cue displays that result's exact deterministic selection label
@@ -220,89 +226,40 @@ The overflow action SHALL expose only current application-authorized actions. Wh
 - **AND** only the second row owns current expanded presentation selection
 - **AND** automatic queue order is unchanged
 
-### Requirement: Expanded device presentations preserve application intent boundaries and card proportions
+### Requirement: Existing expanded device presentations remain compatible and are not redesigned by this foundation
 
-Expanded codec, PDU, Matrix, and audio DSP content SHALL be presentation projections of exact per-record state. Restyled widgets SHALL NOT own credential selection, credential fallback, handlers, sessions, transports, successful credential memory, stale-operation authority, request generations, or direct device network I/O.
+Expanded Audio DSP, Matrix/IN1804, codec, and PDU content SHALL remain presentation projections of exact per-record state using the existing supported production presentation path for that family. The foundation MAY add only the minimum container/reparenting/theme compatibility needed to mount the current view in the common room accordion and keep it reachable at supported window sizes.
 
-Existing supported controls SHALL remain connected through their current non-secret application intent/controller boundaries and SHALL remain enabled only when current lifecycle/capability state permits them.
+This change SHALL NOT define or implement a new family-specific internal visual contract. It SHALL NOT require new Audio segmented-meter geometry, a new Matrix column hierarchy, new codec grouped cards, new PDU grouped cards, or new screen-specific reference-only controls. Those redesigns belong to separate follow-up OpenSpec changes after this foundation is merged.
 
-At baseline width, expanded device content SHALL use the full accordion content width. Where a device view has a primary data area plus a secondary actions/status area, their horizontal split SHOULD remain approximately `55-65% / 35-45%`, with `12-20 px` internal card gaps. Full-width tables or meter groups MAY occupy the complete row below those cards. The layout MAY reflow vertically below the minimum supported width without changing authority or hiding required controls.
+Existing supported controls SHALL remain connected through their current non-secret application intent/controller boundaries and SHALL remain enabled only when current lifecycle/capability state permits them. Existing Matrix routing, PDU mutation/reconciliation, codec auxiliary/live behavior, and Audio DSP live/meter behavior SHALL remain governed by the current corresponding lifecycle contracts.
 
-Controls included in the visual target for capabilities not currently implemented SHALL be visibly disabled. A disabled future control SHALL NOT emit a network/mutation intent, create a worker, acquire a handler/session, start a timer, or fake a successful state change.
+Compatibility adaptation SHALL NOT make expanded widgets authoritative for credential selection/fallback, handlers, sessions, transports, successful credential memory, stale-operation authority, request generations, exact-row identity, or direct device network I/O.
 
-#### Scenario: Future reboot control is shown before capability exists
+#### Scenario: Existing device view opens inside the common accordion
 
-- **WHEN** a reference-aligned device card includes a reboot control but no approved reboot capability exists for that model/path
-- **THEN** the control is disabled
-- **AND** activating/clicking it cannot perform device I/O or change authoritative state
+- **GIVEN** an exact supported room row has an existing expanded presentation path
+- **WHEN** the operator expands that row under the new common accordion
+- **THEN** the existing family presentation remains reachable and bound to that exact row state
+- **AND** no family-specific redesign is required for acceptance of this change
+- **AND** no widget gains direct credential/session/network authority
 
-### Requirement: Audio DSP presentation uses segmented vertical level meters with defined geometry
+#### Scenario: Existing device action preserves its application boundary
 
-Audio DSP room presentation SHALL render input/source and output/destination level groups using vertical segmented meters with displayed dBFS values. Meter zones SHALL use semantic theme tokens equivalent to low/normal green, caution yellow, and high orange presentation without altering the underlying numeric dBFS value or meter lifecycle.
+- **GIVEN** an existing current device-family action is authorized by its current lifecycle
+- **WHEN** the operator invokes it from the reused expanded presentation inside the accordion
+- **THEN** the existing application intent/controller boundary is used
+- **AND** the foundation introduces no direct handler call or parallel network lifecycle
 
-At the baseline viewport, an ordinary meter SHALL be approximately `16-22 px` wide and `180-240 px` tall with `10-16 px` horizontal spacing between adjacent channels. Channel label and numeric dBFS text SHALL align below or immediately adjacent to the meter without visually exceeding the meter group's hierarchy. A selected-channel control strip SHALL reserve approximately `32-40 px` control height for gain `+`, `-`, value, and `Mute` controls.
-
-A selected channel SHALL be indicated through a border/background or another non-color-only cue. The gain/mute controls SHALL remain disabled unless a separately approved capability already authorizes the exact operation.
-
-Existing DMP/live meter acquisition SHALL remain owned by the application lifecycle and SHALL NOT move polling/network I/O into the Qt GUI thread merely to animate the new meter.
-
-#### Scenario: DMP meter value updates
-
-- **WHEN** current application-owned live/polling state supplies a new accepted dBFS value
-- **THEN** the segmented meter updates its visual segments and numeric dBFS text
-- **AND** presentation does not create an additional network poll
-
-### Requirement: Matrix presentation combines signal, HDCP, name, and routing per input with stable column hierarchy
-
-Matrix/IN1804 expanded presentation SHALL use a per-input table that combines at least input number, signal presence/state, HDCP state, input name, and current/active route indication in one row per input.
-
-At baseline table width the visual hierarchy SHOULD allocate columns approximately as follows:
-
-```text
-input number      8-12%
-signal            16-20%
-HDCP              16-20%
-input name        30-40%
-route/current     18-24%
-```
-
-Minor adjustment for localized text is permitted, but input name remains the widest semantic column and number remains compact.
-
-Existing Matrix route interaction SHALL remain available when current capability/lifecycle state permits it. A route action SHALL continue to cross the existing non-secret Matrix intent/application-controller boundary and SHALL NOT call the handler directly from the table widget.
-
-Signal, HDCP, and route state SHALL have text/non-color meaning in addition to semantic icon/color cues.
-
-#### Scenario: Operator selects a Matrix route
-
-- **WHEN** a current Matrix row is connected and routing is authorized
-- **AND** the operator selects a route in the new table presentation
-- **THEN** the widget emits only the existing non-secret route intent
-- **AND** handler/session/credential ownership remains outside the widget
-
-### Requirement: Codec and PDU expanded cards use grouped diagnostic and action surfaces
-
-Codec and PDU expanded presentation SHALL group related state into compact bordered cards/sections rather than one undifferentiated text form. General identity/status SHALL be visually primary; live/read data and tables SHALL receive the largest content area; actions SHALL remain visually distinct and secondary.
-
-At baseline width, a side action/status card when present SHOULD occupy approximately `35-45%` of an adjacent two-card row, with the primary information card occupying the remainder. PDU outlet tables and comparable device data tables SHALL be allowed full-width rows below the summary cards.
-
-Codec presentation MAY include grouped general state, call/presentation state, audio/live state, call-log entry point, and actions. PDU presentation MAY include grouped general device state, outlet table/control state, and actions. Only existing production-supported actions SHALL be actionable in this change; reference-only future actions remain disabled under the future-control contract.
-
-Existing PDU mutation/reconciliation, codec auxiliary/live behavior, and all exact-row interaction gates SHALL remain unchanged by visual restyling.
-
-#### Scenario: Existing PDU outlet action remains real
-
-- **GIVEN** a connected PDU room row whose current lifecycle permits an existing outlet action
-- **WHEN** the operator invokes that action from the restyled PDU card
-- **THEN** the existing PDU application intent/mutation lifecycle is used
-- **AND** no direct handler call is introduced by the new view
-
-### Requirement: Dark and light themes are semantic, geometry-stable, and session-only
+### Requirement: Dark and light themes are semantic, foundation-geometry-stable, and session-only
 
 The application SHALL support dark and light semantic themes. Every new process launch SHALL start in dark mode regardless of the theme used before the previous process exited.
 
 A user-visible sun/moon theme control SHALL toggle the active palette for the current process only. The application SHALL NOT persist theme choice to a file, settings store, registry, environment variable, inventory, credential file, or other durable state.
 
-Theme switching SHALL preserve the same baseline geometry, spacing scale, card hierarchy, disabled-control clarity, focus indication, and status meaning. Theme switching SHALL NOT intentionally resize/reflow cards or rows at the same window size. Both themes SHALL keep primary text, secondary text, borders, focus, status cues, and disabled controls visually distinguishable.
+Theme switching SHALL preserve the same common toolbar, upper-card, and common-row geometry, spacing scale, card hierarchy, disabled-control clarity, focus indication, and status meaning. Theme switching SHALL NOT intentionally resize/reflow those foundation regions at the same window size. Both themes SHALL keep primary text, secondary text, borders, focus, status cues, and disabled controls visually distinguishable.
+
+For reused existing expanded device presentations, foundation theme integration is compatibility-only: required text and existing controls SHALL remain readable/usable in both themes, but this change SHALL NOT impose their final family-specific modern visual design.
 
 Theme switching SHALL be presentation-only and SHALL NOT invalidate target/room generations, change credentials, stop/restart live work, submit refresh, or perform device network I/O.
 
@@ -318,5 +275,6 @@ Theme switching SHALL be presentation-only and SHALL NOT invalidate target/room 
 - **GIVEN** a connected room session exists at a fixed window size
 - **WHEN** the operator toggles the theme
 - **THEN** only visual palette/style state changes
-- **AND** room/card/row geometry remains materially unchanged
+- **AND** common shell/card/row geometry remains materially unchanged
+- **AND** reused expanded content remains readable/usable
 - **AND** room authority, live/network ownership, and accepted diagnostic caches remain unchanged
