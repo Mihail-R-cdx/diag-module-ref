@@ -113,12 +113,23 @@ class EquipmentInventoryMetadata:
 
 
 @dataclass(frozen=True)
+class RoomSearchResult:
+    """A display projection whose identity remains the canonical room id."""
+
+    room_id: str
+    display_name: str
+    display_address: str | None
+    selection_label: str
+
+
+@dataclass(frozen=True)
 class EquipmentInventory:
     metadata: EquipmentInventoryMetadata
     records: tuple[EquipmentRecord, ...]
     _by_ip: Mapping[str, tuple[EquipmentRecord, ...]]
     _by_room: Mapping[str, tuple[EquipmentRecord, ...]]
     _by_room_and_kind: Mapping[tuple[str, str], tuple[EquipmentRecord, ...]]
+    _room_search: tuple[tuple[str, tuple[str, ...], str, str | None], ...]
 
     @classmethod
     def from_records(
@@ -138,12 +149,28 @@ class EquipmentInventory:
                 by_room.setdefault(record.room_id, []).append(record)
                 by_room_kind.setdefault((record.room_id, record.device_kind), []).append(record)
 
+        room_search: list[tuple[str, tuple[str, ...], str, str | None]] = []
+        for room_id, room_records in by_room.items():
+            names = tuple(
+                name for name in (normalize_required_text(record.room_name) for record in room_records)
+                if name is not None
+            )
+            if not names:
+                continue
+            address = next(
+                (value for value in (normalize_required_text(record.room_address) for record in room_records) if value is not None),
+                None,
+            )
+            room_search.append((room_id, names, names[0], address))
+        room_search.sort(key=lambda item: (item[2].casefold(), (item[3] or "").casefold(), item[0]))
+
         return cls(
             metadata=metadata,
             records=ordered_records,
             _by_ip=_freeze_index(by_ip),
             _by_room=_freeze_index(by_room),
             _by_room_and_kind=_freeze_index(by_room_kind),
+            _room_search=tuple(room_search),
         )
 
     def find_by_ip(self, ip_address: str) -> tuple[EquipmentRecord, ...]:
@@ -163,6 +190,29 @@ class EquipmentInventory:
         if normalized_room_id is None or device_kind not in DEVICE_KINDS:
             return ()
         return self._by_room_and_kind.get((normalized_room_id, device_kind), ())
+
+    def find_rooms_by_name(self, query: str) -> tuple[RoomSearchResult, ...]:
+        """Return immutable deterministic room results without device/network I/O."""
+        normalized = normalize_required_text(query)
+        if normalized is None:
+            return ()
+        needle = normalized.casefold()
+        matches = [item for item in self._room_search if any(needle in name.casefold() for name in item[1])]
+        counts: dict[str, int] = {}
+        bases = [f"{name} — {address}" if address else name for _room, _names, name, address in matches]
+        for base in bases:
+            counts[base.casefold()] = counts.get(base.casefold(), 0) + 1
+        variants: dict[str, int] = {}
+        results: list[RoomSearchResult] = []
+        for item, base in zip(matches, bases):
+            key = base.casefold()
+            if counts[key] > 1:
+                variants[key] = variants.get(key, 0) + 1
+                label = f"{base} (Вариант {variants[key]})"
+            else:
+                label = base
+            results.append(RoomSearchResult(item[0], item[2], item[3], label))
+        return tuple(results)
 
 
 def application_root() -> Path:

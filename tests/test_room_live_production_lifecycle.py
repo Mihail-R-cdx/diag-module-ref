@@ -213,6 +213,34 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             window.room_diagnostic_controller.start_local_refresh.assert_called_once()
             self.assertNotEqual(live, window.room_interaction_coordinator.active_context)
 
+    def test_top_refresh_waits_for_cloudlink_live_cleanup_before_room_replacement(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledCloudSession), patch(
+            "gui.main_window.CloudLinkMicrophoneMeter", ControlledCloudMeter
+        ):
+            window, session = self._window_session("CloudLink Bar 310")
+            stock = _inventory(_record("new", "CloudLink Bar 310", "192.0.2.10"))
+            window.equipment_inventory = stock
+            window.ip_entry.setText("192.0.2.10")
+            # Setting the target is itself a boundary; install the current
+            # room authority after it to model a top Refresh on the same target.
+            window.room_diagnostic_session = session
+            window.room_interaction_coordinator.bind_session(session)
+            window.room_interaction_coordinator.cycle_finished(session)
+            live = window.room_interaction_coordinator.active_context
+            window._start_room_diagnostic_session = Mock()
+
+            window.refresh_data()
+            window.refresh_data()
+
+            self.assertTrue(window.room_interaction_coordinator.is_retiring(live))
+            self.assertTrue(ControlledCloudSession.instances[0].shutdown_requested)
+            window._start_room_diagnostic_session.assert_not_called()
+
+            ControlledCloudSession.instances[0].finish_cleanup()
+
+            window._start_room_diagnostic_session.assert_called_once()
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+
     def test_matrix_local_refresh_waits_for_session_owner_release(self):
         with patch("gui.main_window.MatrixController", ControlledMatrix):
             window, session = self._window_session("Extron IN1804")

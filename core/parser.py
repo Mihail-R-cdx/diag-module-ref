@@ -3,6 +3,7 @@ import datetime
 from collections.abc import Mapping, Sequence
 from typing import Dict, Any
 from core.exceptions import ParseError
+from core.call_activity import publish_call_activity_evidence
 from utils.te20_audio import format_te20_monitor_audio_level
 
 
@@ -128,6 +129,9 @@ class HuaweiTE40DataParser:
         # Статус звонка
         parsed['Статус звонка'] = HuaweiTE40DataParser._map_call_status(
             raw_data.get('call_status', 'No Call')
+        )
+        publish_call_activity_evidence(
+            parsed, binding_key="huawei_call_activity", evidence=raw_data.get('call_status')
         )
         
         # Презентация
@@ -318,6 +322,9 @@ class HuaweiTE20DataParser:
             parsed['call_status'] = raw_data['call_status']
             # Также добавляем в Статус звонка для прямого маппинга
             parsed['Статус звонка'] = raw_data['call_status']
+            publish_call_activity_evidence(
+                parsed, binding_key="huawei_call_activity", evidence=raw_data['call_status']
+            )
         
         # Режим презентации (для маппинга в Статус презентации)
         if 'presentation_local' in raw_data:
@@ -472,6 +479,9 @@ class HuaweiBar310DataParser:
         if "call_status" in raw_data and raw_data["call_status"] is not None:
             parsed["Статус звонка"] = HuaweiBar310DataParser._map_call_status(
                 raw_data["call_status"]
+            )
+            publish_call_activity_evidence(
+                parsed, binding_key="cloudlink_call_activity", evidence=raw_data["call_status"]
             )
         if "presentation" in raw_data and raw_data["presentation"] is not None:
             parsed["Режим презентации"] = HuaweiBar310DataParser._map_presentation(
@@ -645,6 +655,9 @@ class PolycomDataParser:
         # Статус звонка
         call_status = raw_data.get('call_status', 'No Call')
         parsed['Статус звонка'] = PolycomDataParser._map_call_status(call_status)
+        publish_call_activity_evidence(
+            parsed, binding_key="polycom_call_activity", evidence=raw_data.get('call_status')
+        )
         
         # Громкость
         volume = raw_data.get('speaker_volume')

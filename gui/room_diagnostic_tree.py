@@ -5,13 +5,42 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QFormLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QHeaderView, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard
 
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession
 from core.room_interaction import RoomInteractionKind
+from core.call_activity import CallActivity
+
+
+class SmoothRoomTreeWidget(QTreeWidget):
+    """Room accordion with a restrained animated wheel scroll."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.verticalScrollBar().setSingleStep(10)
+        self._scroll_animation = QPropertyAnimation(self.verticalScrollBar(), b"value", self)
+        self._scroll_animation.setDuration(260)
+        self._scroll_animation.setEasingCurve(QEasingCurve.InOutCubic)
+
+    def wheelEvent(self, event) -> None:
+        delta = event.angleDelta().y()
+        if not delta:
+            super().wheelEvent(event)
+            return
+        scroll_bar = self.verticalScrollBar()
+        steps = delta / 120
+        start = scroll_bar.value()
+        target = max(scroll_bar.minimum(), min(scroll_bar.maximum(), round(start - steps * 42)))
+        self._scroll_animation.stop()
+        self._scroll_animation.setStartValue(start)
+        self._scroll_animation.setEndValue(target)
+        self._scroll_animation.start()
+        event.accept()
 
 
 class RoomDiagnosticTreeWidget(QWidget):
@@ -28,20 +57,77 @@ class RoomDiagnosticTreeWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("roomDiagnosticTree")
         layout = QVBoxLayout(self)
-        self.room_header = QLabel(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+        upper = QWidget(self)
+        upper.setObjectName("roomDiagnosticUpperCards")
+        upper.setFixedHeight(156)
+        self.upper_cards = upper
+        upper_layout = QHBoxLayout(upper)
+        upper_layout.setContentsMargins(0, 0, 0, 0)
+        upper_layout.setSpacing(16)
+        self.room_card = SectionCard("Комната", "⌂", upper)
+        self.room_card.header_widget.setVisible(False)
+        self.room_card.body_layout.setSpacing(6)
+        self.room_name_row = QWidget(self.room_card)
+        room_name_layout = QHBoxLayout(self.room_name_row)
+        room_name_layout.setContentsMargins(0, 0, 0, 0)
+        room_name_layout.setSpacing(8)
+        self.room_name_label = QLabel(self.room_name_row)
+        self.room_name_label.setObjectName("roomName")
+        self.room_name_label.setWordWrap(True)
+        self.vip_badge = QLabel(self.room_name_row)
+        self.vip_badge.setObjectName("roomVipBadge")
+        self.vip_badge.setText("VIP")
+        self.vip_badge.setToolTip("VIP-переговорная")
+        self.vip_badge.setVisible(False)
+        room_name_layout.addWidget(self.room_name_label, 1)
+        room_name_layout.addWidget(self.vip_badge, 0, Qt.AlignTop)
+        self.room_header = QLabel(self.room_card)
         self.room_header.setObjectName("roomDiagnosticHeader")
+        self.room_header.setWordWrap(True)
+        self.room_warranty_label = QLabel(self.room_card)
+        self.room_warranty_label.setObjectName("roomWarranty")
+        self.occupancy_label = QLabel(self.room_card)
+        self.occupancy_label.setObjectName("roomOccupancy")
+        self.occupancy_label.setToolTip("Занятость определяется по текущему состоянию звонка кодека.")
+        self.room_card.body_layout.addWidget(self.room_name_row)
+        self.room_card.body_layout.addWidget(self.room_header)
+        self.room_card.body_layout.addWidget(self.room_warranty_label)
+        self.room_card.body_layout.addWidget(self.occupancy_label)
+        self.network_card = SectionCard("Сетевые подключения", "⌁", upper)
+        self.network_card.header_widget.setVisible(False)
+        self.network_tree = QTreeWidget(self.network_card)
+        self.network_tree.setObjectName("roomNetworkConnections")
+        self.network_tree.setColumnCount(2)
+        self.network_tree.setHeaderLabels(("Коммутатор (IP) / Устройства", "Порт"))
+        self.network_tree.setHeaderHidden(True)
+        self.network_tree.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.network_tree.verticalScrollBar().setSingleStep(10)
+        self.network_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.network_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.network_card.body_layout.addWidget(self.network_tree)
+        upper_layout.addWidget(self.room_card, 1)
+        upper_layout.addWidget(self.network_card, 1)
+        layout.addWidget(upper)
         self.global_status = QLabel(self)
         self.global_status.setObjectName("roomDiagnosticGlobalStatus")
-        self.tree = QTreeWidget(self)
+        self.tree = SmoothRoomTreeWidget(self)
         self.tree.setObjectName("roomDiagnosticRows")
-        self.tree.setColumnCount(3)
-        self.tree.setHeaderLabels(("Оборудование", "IP", "Статус"))
-        self.tree.header().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.tree.header().setStretchLastSection(True)
+        self.tree.setColumnCount(5)
+        self.tree.setHeaderLabels(("", "Устройство", "Статус подключения", "IP-адрес", "Действия"))
+        self.tree.setIconSize(QSize(48, 48))
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.tree.header().resizeSection(0, 76)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.tree.header().resizeSection(2, 290)
+        self.tree.header().setSectionResizeMode(3, QHeaderView.Fixed)
+        self.tree.header().resizeSection(3, 180)
+        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.tree.itemExpanded.connect(self._accordion_expanded)
         self.tree.itemCollapsed.connect(self._accordion_collapsed)
         self.tree.itemClicked.connect(self._accordion_clicked)
-        layout.addWidget(self.room_header)
         layout.addWidget(self.global_status)
         layout.addWidget(self.tree, 1)
         self._by_record: dict[str, QTreeWidgetItem] = {}
@@ -59,14 +145,16 @@ class RoomDiagnosticTreeWidget(QWidget):
         expanded_record_id = session.expanded_record_id
         self._changing = True
         try:
-            vip = "ДА" if session.room_vip is True else "НЕТ" if session.room_vip is False else "НЕТ ДАННЫХ"
-            self.room_header.setText(
-                f"Название комнаты: {session.room_name or '—'}\n"
-                f"Адрес: {session.room_address or '—'}\nVIP: {vip}"
-            )
+            self.room_name_label.setText(session.room_name or "—")
+            self.vip_badge.setVisible(session.room_vip is True)
+            self.room_header.setText(f"Адрес: {session.room_address or '—'}")
+            self.room_warranty_label.setText("Гарантия: Нет данных")
             self.global_status.setText(
                 "Есть проблемы с соединением" if session.post_cycle_problem else session.status.value
             )
+            occupied = any(row.call_activity is CallActivity.ACTIVE and not row.stale for row in session.rows)
+            self.occupancy_label.setText(f"Занятость: {'Занято' if occupied else 'Нет данных'}")
+            self._render_network(session)
             self.tree.clear()
             self._by_record.clear()
             for row in session.rows:
@@ -98,40 +186,50 @@ class RoomDiagnosticTreeWidget(QWidget):
                         }
                     )
                 )
-                item = QTreeWidgetItem((row.model_label, row.ip_address or "—", row.status.value))
+                item = QTreeWidgetItem(("", row.model_label, row.status.value, row.ip_address or "—", "⋯"))
+                item.setSizeHint(0, QSize(0, 64))
+                item.setIcon(0, self._device_icon(row))
+                item.setText(2, f"{self._status_cue(row)}  {row.status.value}")
+                item.setForeground(2, QBrush(self._status_color(row)))
+                if not self._is_expandable(row):
+                    item.setDisabled(True)
                 item.setData(0, Qt.UserRole, row.record_id)
                 item.setData(0, Qt.UserRole + 1, self._is_expandable(row))
                 if self._is_expandable(row):
-                    projection = QTreeWidgetItem(("", "", ""))
-                    projection.setFirstColumnSpanned(True)
+                    projection = QTreeWidgetItem(("", "", "", "", ""))
                     projection.setFlags(projection.flags() & ~Qt.ItemIsSelectable)
                     item.addChild(projection)
-                else:
-                    item.setText(2, row.status.value)
                 self.tree.addTopLevelItem(item)
                 if self._is_expandable(row):
+                    # Qt applies first-column spanning only after the item has
+                    # joined its view; otherwise an item widget may remain
+                    # constrained to the icon column on some platform styles.
+                    projection.setFirstColumnSpanned(True)
+                    presentation = RoomReadOnlyPresentation(
+                        row,
+                        request_local_refresh=lambda record_id=row.record_id: self.localRefreshRequested.emit(record_id),
+                        request_auxiliary=(
+                            lambda action, record_id=row.record_id: self.auxiliaryRequested.emit(record_id, action)
+                        ),
+                        request_mutation=(
+                            lambda outlet, command, record_id=row.record_id: self.pduMutationRequested.emit(record_id, outlet, command)
+                        ),
+                        request_debug=lambda record_id=row.record_id: self.debugRequested.emit(record_id),
+                        local_refresh_allowed=actions_allowed,
+                        auxiliary_allowed=actions_allowed,
+                        mutation_allowed=actions_allowed,
+                        debug_allowed=debug_allowed,
+                        live_here=live_here,
+                        parent=self.tree,
+                    )
+                    presentation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
                     self.tree.setItemWidget(
                         projection,
                         0,
-                        RoomReadOnlyPresentation(
-                            row,
-                            request_local_refresh=lambda record_id=row.record_id: self.localRefreshRequested.emit(record_id),
-                            request_auxiliary=(
-                                lambda action, record_id=row.record_id: self.auxiliaryRequested.emit(record_id, action)
-                            ),
-                            request_mutation=(
-                                lambda outlet, command, record_id=row.record_id: self.pduMutationRequested.emit(record_id, outlet, command)
-                            ),
-                            request_debug=lambda record_id=row.record_id: self.debugRequested.emit(record_id),
-                            local_refresh_allowed=actions_allowed,
-                            auxiliary_allowed=actions_allowed,
-                            mutation_allowed=actions_allowed,
-                            debug_allowed=debug_allowed,
-                            live_here=live_here,
-                            parent=self.tree,
-                        ),
+                        presentation,
                     )
                 self._by_record[row.record_id] = item
+            self.tree.doItemsLayout()
             if expanded_record_id and expanded_record_id in self._by_record:
                 item = self._by_record[expanded_record_id]
                 if item.data(0, Qt.UserRole + 1):
@@ -140,9 +238,59 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._changing = False
         self.tree.setEnabled(not self._interaction_locked)
 
+    def _render_network(self, session: RoomDiagnosticSession) -> None:
+        self.network_tree.clear()
+        known: dict[str, list] = {}
+        unknown: list = []
+        for record in sorted(session.records, key=lambda item: item.record_id):
+            if record.switch_ip_address is None and record.switch_port is None:
+                continue
+            if record.switch_ip_address is None:
+                unknown.append(record)
+            else:
+                known.setdefault(record.switch_ip_address, []).append(record)
+        for switch_ip, records in sorted(known.items()):
+            ports = list(dict.fromkeys(record.switch_port for record in records if record.switch_port is not None))
+            parent = QTreeWidgetItem((f"Коммутатор ({switch_ip})", ", ".join(ports) or "Нет данных"))
+            self.network_tree.addTopLevelItem(parent)
+            for record in records:
+                parent.addChild(QTreeWidgetItem((record.diagnostic_model or record.source_model or record.record_id, record.switch_port or "Нет данных")))
+        for record in unknown:
+            parent = QTreeWidgetItem(("Коммутатор не определён", record.switch_port or "Нет данных"))
+            parent.addChild(QTreeWidgetItem((record.diagnostic_model or record.source_model or record.record_id, record.switch_port or "Нет данных")))
+            self.network_tree.addTopLevelItem(parent)
+        if self.network_tree.topLevelItemCount() == 0:
+            self.network_tree.addTopLevelItem(QTreeWidgetItem(("Нет данных о сетевых подключениях", "")))
+        self.network_tree.expandAll()
+
     def set_interaction_locked(self, locked: bool) -> None:
         """Block accordion changes while an exclusive row operation owns I/O."""
         self._interaction_locked = locked
+
+    def clear_presentation(self) -> None:
+        """Forget displayed room data when application authority is revoked.
+
+        This is intentionally presentation-only: it neither resolves inventory nor
+        starts, stops, or otherwise owns device I/O.
+        """
+        self._changing = True
+        try:
+            self.tree.clear()
+            self.network_tree.clear()
+            self.room_name_label.clear()
+            self.vip_badge.setVisible(False)
+            self.room_header.clear()
+            self.room_warranty_label.clear()
+            self.occupancy_label.clear()
+            self.global_status.clear()
+            self._by_record.clear()
+            self._session = None
+            self._active_interaction = None
+            self._active_interaction_retiring = False
+            self._interaction_locked = False
+        finally:
+            self._changing = False
+        self.tree.setEnabled(True)
 
     def set_active_interaction(self, context, *, retiring: bool = False) -> None:
         """Render controls from coordinator authority, never widget identity."""
@@ -159,6 +307,36 @@ class RoomDiagnosticTreeWidget(QWidget):
                 DeviceRowStatus.AMBIGUOUS_IP,
             }
         )
+
+    def _device_icon(self, row):
+        screen = row.capability.screen_key if row.capability is not None else ""
+        pixmap = {
+            "codec": QStyle.SP_MediaPlay,
+            "matrix": QStyle.SP_ComputerIcon,
+            "pdu": QStyle.SP_DriveFDIcon,
+            "audio_dsp": QStyle.SP_MediaVolume,
+        }.get(screen, QStyle.SP_FileIcon)
+        return self.style().standardIcon(pixmap)
+
+    @staticmethod
+    def _status_cue(row) -> str:
+        if row.status is DeviceRowStatus.CONNECTED:
+            return "✓"
+        if row.status in {DeviceRowStatus.FAILED, DeviceRowStatus.DEGRADED}:
+            return "!"
+        if row.status in {DeviceRowStatus.UNSUPPORTED, DeviceRowStatus.MISSING_IP, DeviceRowStatus.AMBIGUOUS_IP}:
+            return "—"
+        return "…"
+
+    @staticmethod
+    def _status_color(row):
+        if row.status is DeviceRowStatus.CONNECTED:
+            return QColor("#24A85A")
+        if row.status in {DeviceRowStatus.FAILED, DeviceRowStatus.DEGRADED}:
+            return QColor("#E05260")
+        if row.status in {DeviceRowStatus.UNSUPPORTED, DeviceRowStatus.MISSING_IP, DeviceRowStatus.AMBIGUOUS_IP}:
+            return QColor("#6F7B8A")
+        return QColor("#F59E0B")
 
     @staticmethod
     def _projection_text(row) -> str:
@@ -380,7 +558,16 @@ class RoomReadOnlyPresentation(QWidget):
             "network_speed", "Статус звонка", "Статус презентации",
         ))
 
-    def _build_pdu(self, layout, data, row, *, request_mutation=None, mutation_allowed=True) -> None:
+    def _build_pdu(
+        self,
+        layout,
+        data,
+        row,
+        *,
+        request_mutation=None,
+        mutation_allowed=True,
+        live_here=False,
+    ) -> None:
         source = dict(data.get("device_info") or {}) if isinstance(data, Mapping) else {}
         if isinstance(data, Mapping):
             source.update({

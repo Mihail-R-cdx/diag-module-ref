@@ -1,6 +1,6 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QComboBox, QCompleter, QStackedWidget, QMessageBox, QInputDialog, QDialog, QDialogButtonBox, QFormLayout, QPlainTextEdit, QSizePolicy
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent, QObject, QRunnable
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent, QObject, QRunnable, QModelIndex, QStringListModel
 from PyQt5.QtGui import QColor
 from dataclasses import dataclass
 from collections.abc import Mapping
@@ -53,6 +53,7 @@ from core.room_diagnostic_tree import (
     RoomCycleStatus,
     RoomSourceStatus,
     build_room_session,
+    build_room_session_from_room,
     resolve_room_source,
 )
 from core.room_interaction import (
@@ -60,6 +61,7 @@ from core.room_interaction import (
     RoomInteractionCoordinator,
     RoomInteractionKind,
 )
+from core.call_activity import call_activity_binding_keys
 from core.switch_connection_context import SwitchConnectionResolver
 from core.worker import (
     HuaweiTE40Worker,
@@ -185,6 +187,14 @@ class RightAlignHeaderDelegate(QStyledItemDelegate):
             QStyledItemDelegate.paint(self, painter, option, index)
 
 
+class RoomSearchCompleter(QCompleter):
+    """Displays a room choice without replacing the operator's raw query."""
+
+    def pathFromIndex(self, _index):  # noqa: N802 - Qt virtual method name
+        widget = self.widget()
+        return widget.text() if widget is not None else ""
+
+
 class MatrixTerminalDialog(QDialog):
     def __init__(self, colors, parent=None):
         super().__init__(parent)
@@ -303,6 +313,9 @@ class VCSDiagnosticApp(QMainWindow):
         self._diagnostic_action_generation = 0
         self._credential_action_generation = 0
         self._fallback_dialog_generation = 0
+        self._target_query_revision = 0
+        self._selected_room_result = None
+        self._room_search_results_by_label = {}
         self._credential_dialog_generation = 0
         self._active_diagnostic_model_context = None
         self._active_credential_configuration_context = None
@@ -449,10 +462,12 @@ class VCSDiagnosticApp(QMainWindow):
             raise
     
     def init_ui(self, params=None):
+        self.setWindowTitle("Диагностический модуль")
         """Инициализация интерфейса"""
         self.setWindowTitle("Диагностический модуль ММК")
-        self.setMinimumSize(800, 700)
-        self.setGeometry(100, 0, 950, 1000)
+        self.setWindowTitle("Диагностический модуль")
+        self.setMinimumSize(1180, 720)
+        self.resize(1440, 900)
         
         # Установка темной темы
         self.set_dark_theme()
@@ -472,6 +487,10 @@ class VCSDiagnosticApp(QMainWindow):
         # 1. Панель выбора устройства и подключения
         top_panel = self.create_top_panel()
         main_layout.addWidget(top_panel)
+        self.setTabOrder(self.ip_entry, self.password_btn)
+        self.setTabOrder(self.password_btn, self.refresh_btn)
+        self.setTabOrder(self.refresh_btn, self.debug_btn)
+        self.setTabOrder(self.debug_btn, self.theme_btn)
         
         # 2. Создаем контейнер для экранов
         self.screen_container = QStackedWidget()
@@ -496,6 +515,7 @@ class VCSDiagnosticApp(QMainWindow):
                 "matrix_room_live",
                 "dmp_room_live",
             },
+            available_call_activity_binding_keys=call_activity_binding_keys(),
         )
         
         # Добавляем экраны в контейнер
@@ -550,8 +570,20 @@ class VCSDiagnosticApp(QMainWindow):
         
         self.ip_entry = QLineEdit()
         self.ip_entry.setObjectName("ipEntry")
+        self.ip_entry.setPlaceholderText("IP-адрес или название комнаты")
+        self.ip_entry.setAccessibleName("Поиск IP-адреса или комнаты")
+        self._room_completer_model = QStringListModel(self)
+        self.room_completer = RoomSearchCompleter(self._room_completer_model, self.ip_entry)
+        self.room_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.room_completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.room_completer.activated[QModelIndex].connect(self._on_room_completer_activated)
+        self.ip_entry.setCompleter(self.room_completer)
+        self.selected_room_cue = QLabel(self)
+        self.selected_room_cue.setObjectName("selectedRoomCue")
+        self.selected_room_cue.setProperty("uiRole", "secondary")
+        self.selected_room_cue.setFocusPolicy(Qt.NoFocus)
+        self.selected_room_cue.hide()
         self.ip_entry.setMinimumWidth(160)
-        self.ip_entry.setPlaceholderText("link.ru")
         self.ip_entry.setText("192.168.1.1")
         self.ip_entry.textChanged.connect(
             lambda _text: self._invalidate_pdu_context()
@@ -565,6 +597,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.ip_entry.textChanged.connect(
             lambda _text: self._supersede_model_actions("ip_changed")
         )
+        self.ip_entry.textChanged.connect(self._on_target_query_changed)
         self.ip_entry.returnPressed.connect(self.trigger_refresh_from_input)
         self.ip_entry.installEventFilter(self)
         
@@ -584,24 +617,75 @@ class VCSDiagnosticApp(QMainWindow):
         self.debug_btn.setObjectName("debugButton")
         self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
+        self.theme_btn = QPushButton("☀")
+        self.theme_btn.setObjectName("themeToggleButton")
+        self.theme_btn.setProperty("uiRole", "secondary")
+        self.theme_btn.setToolTip("Переключить светлую/тёмную тему")
+        self.theme_btn.clicked.connect(self.toggle_theme)
 
-        self.setTabOrder(self.ip_entry, self.password_btn)
-        self.setTabOrder(self.password_btn, self.refresh_btn)
-        self.setTabOrder(self.refresh_btn, self.debug_btn)
-        
+        for control in (
+            self.ip_entry,
+            self.password_btn,
+            self.refresh_btn,
+            self.debug_btn,
+            self.theme_btn,
+        ):
+            control.setProperty("toolbarControl", "true")
+
         layout.addWidget(ip_label, 0, 0)
         layout.addWidget(self.ip_entry, 1, 0)
+        layout.addWidget(self.selected_room_cue, 2, 0)
         layout.addWidget(self.password_btn, 1, 1)
         layout.addWidget(self.refresh_btn, 1, 2)
         layout.addWidget(self.debug_btn, 1, 3)
+        layout.addWidget(self.theme_btn, 1, 4)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 0)
         layout.setColumnStretch(2, 0)
         layout.setColumnStretch(3, 0)
+        layout.setColumnStretch(4, 0)
         
         group_box.setLayout(layout)
         self.connection_panel = group_box
         return group_box
+
+    def _on_target_query_changed(self, raw_query):
+        """Refresh in-memory suggestions only; editing is a lifecycle boundary."""
+        self._target_query_revision += 1
+        self._clear_room_search_selection()
+        self._room_search_results_by_label = {}
+        if normalize_ip_address(raw_query.strip()) is not None or self.equipment_inventory is None:
+            self._room_completer_model.setStringList([])
+            return
+        results = self.equipment_inventory.find_rooms_by_name(raw_query)
+        self._room_search_results_by_label = {result.selection_label: result for result in results}
+        self._room_completer_model.setStringList(list(self._room_search_results_by_label))
+
+    def _select_room_search_result(self, label):
+        result = self._room_search_results_by_label.get(label)
+        if result is None:
+            return
+        self._selected_room_result = (result, self._target_query_revision, self._equipment_inventory_snapshot_context())
+        self.selected_room_cue.setText(f"Комната: {result.selection_label}")
+        self.selected_room_cue.show()
+
+    def _on_room_completer_activated(self, index):
+        """Use the completion label as identity while preserving raw query text."""
+        self._select_room_search_result(index.data())
+
+    def _current_room_search_selection(self):
+        selection = self._selected_room_result
+        if selection is None or self.equipment_inventory is None:
+            return None
+        result, revision, snapshot_id = selection
+        if revision != self._target_query_revision or snapshot_id != self._equipment_inventory_snapshot_context():
+            return None
+        return result if any(candidate.room_id == result.room_id for candidate in self.equipment_inventory.find_rooms_by_name(self.ip_entry.text())) else None
+
+    def _clear_room_search_selection(self):
+        self._selected_room_result = None
+        self.selected_room_cue.hide()
+        self.selected_room_cue.clear()
 
     def _supersede_model_actions(self, reason="context_changed"):
         # Model/IP replacement is also the authoritative boundary for the
@@ -628,8 +712,7 @@ class VCSDiagnosticApp(QMainWindow):
             controller.supersede()
         self.__dict__["room_diagnostic_session"] = None
         if hasattr(self, "room_diagnostic_tree"):
-            self.room_diagnostic_tree.set_interaction_locked(False)
-            self.room_diagnostic_tree.tree.clear()
+            self.room_diagnostic_tree.clear_presentation()
         if hasattr(self, "debug_btn"):
             self.debug_btn.setEnabled(True)
 
@@ -670,6 +753,24 @@ class VCSDiagnosticApp(QMainWindow):
         self.password_btn.setEnabled(False)
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("Опрос...")
+        self.debug_btn.setEnabled(False)
+        self.set_ui_state(UIState.LOADING, session.status.value)
+        self.room_diagnostic_controller.start(session)
+
+    def _start_selected_room_diagnostic_session(self, room_id, generation):
+        session = build_room_session_from_room(
+            inventory=self.equipment_inventory,
+            room_id=room_id,
+            generation=generation,
+            capabilities=room_model_capabilities(),
+        )
+        self.room_diagnostic_session = session
+        self.room_interaction_coordinator.bind_session(session)
+        self.room_diagnostic_tree.render(session)
+        self.screen_container.setCurrentWidget(self.room_diagnostic_tree)
+        self.ip_entry.setEnabled(False)
+        self.password_btn.setEnabled(False)
+        self.refresh_btn.setEnabled(False)
         self.debug_btn.setEnabled(False)
         self.set_ui_state(UIState.LOADING, session.status.value)
         self.room_diagnostic_controller.start(session)
@@ -1542,7 +1643,14 @@ class VCSDiagnosticApp(QMainWindow):
         )
     def set_dark_theme(self):
         """Apply the centralized theme for direct window construction."""
-        apply_theme(self)
+        self._dark_mode = True
+        apply_theme(self, "dark")
+
+    def toggle_theme(self):
+        self._dark_mode = not getattr(self, "_dark_mode", True)
+        apply_theme(self, "dark" if self._dark_mode else "light")
+        if hasattr(self, "theme_btn"):
+            self.theme_btn.setText("☀" if self._dark_mode else "☾")
 
 
 
@@ -3288,8 +3396,44 @@ class VCSDiagnosticApp(QMainWindow):
             # and bounded cleanup must finish (or be abandoned) before the
             # replacement full room generation can acquire any device I/O.
             return
-        ip_address = self._normalized_current_ip_or_warn()
+        if coordinator is not None and coordinator.has_exclusive_operation:
+            # Local refresh, mutation and reconciliation retain the existing
+            # exclusive-lane contract. They are not superseded by top Refresh.
+            return
+        # A top refresh is from-scratch once it is accepted.  This happens
+        # before either IP or room-name resolution so every failed resolution
+        # leaves no old room tree, cache, live owner or row action current.
+        # Keep a test-only explicit model injection intact; production model
+        # resolution is recomputed below from the current target and inventory.
+        VCSDiagnosticApp._stop_cloudlink_microphone_meter(self)
+        self._clear_room_diagnostic_session("full_refresh")
+        self._invalidate_equipment_switch_context("full_refresh")
+        self._supersede_pending_diagnostic_reachability("full_refresh")
+        raw_target = self.ip_entry.text()
+        ip_address = normalize_ip_address(raw_target.strip())
         if ip_address is None:
+            if self.equipment_inventory is None:
+                self._clear_room_search_selection()
+                self.set_ui_state(UIState.REQUEST_ERROR, "Поиск комнаты недоступен: база оборудования не загружена.")
+                return
+            candidates = self.equipment_inventory.find_rooms_by_name(raw_target)
+            if not candidates:
+                self._clear_room_search_selection()
+                self.set_ui_state(UIState.REQUEST_ERROR, "Комната не найдена.")
+                return
+            selection = self._current_room_search_selection()
+            if len(candidates) == 1:
+                selection = candidates[0]
+                self._selected_room_result = (selection, self._target_query_revision, self._equipment_inventory_snapshot_context())
+                self.selected_room_cue.setText(f"Комната: {selection.selection_label}")
+                self.selected_room_cue.show()
+            if selection is None:
+                self._clear_room_search_selection()
+                self.set_ui_state(UIState.REQUEST_ERROR, "Выберите комнату из списка результатов.")
+                return
+            self._supersede_pending_diagnostic_reachability("new_room_name_start")
+            generation = self._next_action_generation(DiagnosticActionPurpose.DIAGNOSTIC_START)
+            self._start_selected_room_diagnostic_session(selection.room_id, generation)
             return
 
         self._supersede_pending_diagnostic_reachability("new_diagnostic_start")

@@ -220,6 +220,30 @@ class RoomInteractionCoordinatorTests(unittest.TestCase):
         self.assertEqual(["refresh"], started)
         self.assertEqual(DeviceRowStatus.DEGRADED, current.row_for("a").status)
 
+    def test_top_refresh_retires_live_before_starting_one_replacement(self):
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context)),
+            cancel=lambda context: calls.append(("cancel", context)),
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        current = session()
+        coordinator.bind_session(current)
+        coordinator.cycle_finished(current)
+        live = coordinator.active_context
+        replacement = []
+
+        self.assertTrue(coordinator.defer_global_refresh(lambda: replacement.append("refresh")))
+        self.assertTrue(coordinator.is_retiring(live))
+        self.assertEqual([], replacement)
+        self.assertEqual([( "live", live), ("cancel", live)], calls)
+        self.assertTrue(coordinator.defer_global_refresh(lambda: replacement.append("latest")))
+        coordinator.cleanup_finished(live)
+
+        self.assertEqual(["latest"], replacement)
+        self.assertIsNone(coordinator.active_context)
+
     def test_live_sample_cleanup_is_not_live_retirement(self):
         bindings = RoomInteractionBindings(
             live=lambda _context: None,

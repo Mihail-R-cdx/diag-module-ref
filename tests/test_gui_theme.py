@@ -131,7 +131,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.window = VCSDiagnosticApp()
         QApplication.processEvents()
 
-        self.assertEqual((950, 1000), (self.window.width(), self.window.height()))
+        self.assertEqual((1440, 900), (self.window.width(), self.window.height()))
         self.assertEqual(6, self.window.screen_container.count())
         self.assertIs(self.window.placeholder_widget, self.window.screen_container.currentWidget())
         self.assertEqual("Никогда", self.window.time_display.text())
@@ -147,6 +147,63 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
             self.window.connection_status.text(),
         )
         self.assertTrue(self.window.update_timer.isActive())
+
+    def test_top_toolbar_controls_have_foundation_geometry_at_1440x900(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        self.window = VCSDiagnosticApp()
+        self.window.resize(1440, 900)
+        self.window.show()
+        QApplication.processEvents()
+
+        controls = (
+            self.window.ip_entry,
+            self.window.password_btn,
+            self.window.refresh_btn,
+            self.window.debug_btn,
+            self.window.theme_btn,
+        )
+        for control in controls:
+            with self.subTest(control=control.objectName()):
+                self.assertGreaterEqual(control.height(), 44)
+                self.assertLessEqual(control.height(), 56)
+        for index, left in enumerate(controls):
+            for right in controls[index + 1:]:
+                self.assertFalse(left.geometry().intersects(right.geometry()))
+        self.assertGreater(self.window.ip_entry.width(), self.window.refresh_btn.width())
+
+    def test_theme_toggle_is_session_only_and_preserves_common_geometry(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        self.window = VCSDiagnosticApp()
+        self.window.resize(1440, 900)
+        self.window.show()
+        self.window.ip_entry.setText("192.0.2.10")
+        QApplication.processEvents()
+
+        controls = (
+            self.window.ip_entry,
+            self.window.password_btn,
+            self.window.refresh_btn,
+            self.window.debug_btn,
+            self.window.theme_btn,
+        )
+        before_geometry = tuple((control.objectName(), control.geometry()) for control in controls)
+        before_session = self.window.room_diagnostic_session
+        before_context = self.window.room_interaction_coordinator.active_context
+
+        self.assertTrue(self.window._dark_mode)
+        self.window.toggle_theme()
+        QApplication.processEvents()
+        self.assertFalse(self.window._dark_mode)
+        self.assertEqual("192.0.2.10", self.window.ip_entry.text())
+        self.assertIs(before_session, self.window.room_diagnostic_session)
+        self.assertIs(before_context, self.window.room_interaction_coordinator.active_context)
+        self.assertEqual(before_geometry, tuple((control.objectName(), control.geometry()) for control in controls))
+
+        self.window.toggle_theme()
+        QApplication.processEvents()
+        self.assertTrue(self.window._dark_mode)
 
     def test_window_frame_starts_at_available_screen_top(self):
         from gui.main_window import VCSDiagnosticApp
@@ -222,7 +279,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
             with self.subTest(size=(width, height)):
                 self.window.resize(width, height)
                 QApplication.processEvents()
-                self.assertEqual((width, height), (self.window.width(), self.window.height()))
+                self.assertEqual((max(1180, width), max(720, height)), (self.window.width(), self.window.height()))
 
                 controls = (
                     self.window.ip_entry,
@@ -273,7 +330,10 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
                 else:
                     self.assertLessEqual(value.width(), 360)
 
-        self.assertIs(self.window.password_btn, self.window.ip_entry.nextInFocusChain())
+        focus_next = self.window.ip_entry.nextInFocusChain()
+        while focus_next.focusPolicy() == Qt.NoFocus:
+            focus_next = focus_next.nextInFocusChain()
+        self.assertIs(self.window.password_btn, focus_next)
         self.assertIs(self.window.refresh_btn, self.window.password_btn.nextInFocusChain())
         self.assertIs(self.window.debug_btn, self.window.refresh_btn.nextInFocusChain())
 
