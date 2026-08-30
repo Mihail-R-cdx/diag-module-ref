@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from math import floor
+
 from PyQt5.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
-from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QHeaderView, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QFrame, QHeaderView, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard
 
@@ -136,12 +138,20 @@ class RoomDiagnosticTreeWidget(QWidget):
         self._active_interaction = None
         self._active_interaction_retiring = False
         self._session: RoomDiagnosticSession | None = None
+        # This is deliberately local presentation state.  It is kept above the
+        # disposable exact-row child widgets because render() rebuilds them.
+        self._audio_selection_context = None
+        self._audio_selection: tuple[str, str, str] | None = None
 
     def render(self, session: RoomDiagnosticSession) -> None:
         # `expanded_record_id` belongs to the application session.  Rendering a
         # progress callback must not replace a user's secondary selection with the
         # source row again.
         self._session = session
+        if self._audio_selection_context != session.identity:
+            self._audio_selection_context = session.identity
+            self._audio_selection = None
+        self._prune_audio_selection(session)
         expanded_record_id = session.expanded_record_id
         self._changing = True
         try:
@@ -220,6 +230,17 @@ class RoomDiagnosticTreeWidget(QWidget):
                         mutation_allowed=actions_allowed,
                         debug_allowed=debug_allowed,
                         live_here=live_here,
+                        audio_selection=(
+                            self._audio_selection[1:]
+                            if self._audio_selection is not None
+                            and self._audio_selection[0] == row.record_id
+                            else None
+                        ),
+                        audio_channel_selected=(
+                            lambda section, oid, record_id=row.record_id: self._select_audio_channel(
+                                record_id, section, oid
+                            )
+                        ),
                         parent=self.tree,
                     )
                     presentation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -285,12 +306,29 @@ class RoomDiagnosticTreeWidget(QWidget):
             self.global_status.clear()
             self._by_record.clear()
             self._session = None
+            self._audio_selection_context = None
+            self._audio_selection = None
             self._active_interaction = None
             self._active_interaction_retiring = False
             self._interaction_locked = False
         finally:
             self._changing = False
         self.tree.setEnabled(True)
+
+    def _select_audio_channel(self, record_id: str, section: str, oid: str) -> None:
+        """Remember only a safe local visual identity and rebuild its row."""
+        if self._session is None or self._audio_selection_context != self._session.identity:
+            return
+        self._audio_selection = (record_id, section, oid)
+        self.render(self._session)
+
+    def _prune_audio_selection(self, session: RoomDiagnosticSession) -> None:
+        if self._audio_selection is None:
+            return
+        record_id, section, oid = self._audio_selection
+        row = next((candidate for candidate in session.rows if candidate.record_id == record_id), None)
+        if row is None or not _audio_channel_exists(row.accepted_snapshot, section, oid):
+            self._audio_selection = None
 
     def set_active_interaction(self, context, *, retiring: bool = False) -> None:
         """Render controls from coordinator authority, never widget identity."""
@@ -465,10 +503,169 @@ def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]
     return rows
 
 
+METER_SEGMENT_COUNT = 20
+
+
+def quantize_meter_segments(normalized: Any) -> int:
+    """Return the approved 20-segment, round-half-up visual fill."""
+    try:
+        value = float(normalized)
+    except (TypeError, ValueError):
+        value = 0.0
+    value = max(0.0, min(1.0, value))
+    return floor(value * METER_SEGMENT_COUNT + 0.5)
+
+
+def meter_segment_zone(index: int) -> str:
+    """Classify a physical scale segment, independent of channel dBFS."""
+    midpoint_dbfs = -60 + (index + 0.5) * 3.6
+    if midpoint_dbfs < -18:
+        return "success"
+    if midpoint_dbfs < -6:
+        return "warning"
+    return "elevated"
+
+
+def _audio_channel_exists(snapshot: Any, section: str, oid: str) -> bool:
+    if not isinstance(snapshot, Mapping):
+        return False
+    for meter_section in snapshot.get("meter_sections") or ():
+        if not isinstance(meter_section, Mapping) or str(meter_section.get("title") or "") != section:
+            continue
+        for channel in meter_section.get("channels") or ():
+            if isinstance(channel, Mapping) and str(channel.get("oid")) == oid:
+                return True
+    return False
+
+
+class AudioDspChannelColumn(QFrame):
+    """A click-only local DMP channel projection with no device authority."""
+
+    selected = pyqtSignal(str, str)
+
+    def __init__(self, section: str, channel: Mapping[str, Any], is_selected: bool, parent=None):
+        super().__init__(parent)
+        self._section = section
+        self._oid = str(channel.get("oid"))
+        self.setObjectName("roomAudioDspChannel")
+        self.setProperty("audioSelected", is_selected)
+        self.setProperty("presentationOnly", True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumWidth(64)
+        self.setMaximumWidth(76)
+        self.setAccessibleName(
+            f"{channel.get('name') or 'Канал'}" + (", Выбрано" if is_selected else "")
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 6, 4, 6)
+        layout.setSpacing(3)
+        track = QWidget(self)
+        track.setObjectName("roomAudioDspMeterTrack")
+        track.setProperty("meterAvailable", bool(channel.get("available")))
+        track_layout = QVBoxLayout(track)
+        track_layout.setContentsMargins(0, 0, 0, 0)
+        track_layout.setSpacing(2)
+        filled = quantize_meter_segments(channel.get("normalized")) if channel.get("available") else 0
+        for index in range(METER_SEGMENT_COUNT - 1, -1, -1):
+            segment = QFrame(track)
+            segment.setObjectName("roomAudioDspMeterSegment")
+            segment.setFixedHeight(9)
+            segment.setProperty("meterFilled", index < filled)
+            segment.setProperty("meterZone", meter_segment_zone(index))
+            segment.setProperty("segmentIndex", index)
+            track_layout.addWidget(segment)
+        layout.addWidget(track, 1, Qt.AlignHCenter)
+        label = QLabel(str(channel.get("name") or "—"), self)
+        label.setObjectName("roomAudioDspChannelLabel")
+        label.setAlignment(Qt.AlignHCenter)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        value = QLabel(self)
+        value.setObjectName("roomAudioDspDbfs")
+        value.setAlignment(Qt.AlignHCenter)
+        if channel.get("available") and isinstance(channel.get("dbfs"), (int, float)):
+            value.setText(f"{channel['dbfs']} dBFS")
+        else:
+            value.setText("— dBFS")
+            detail_parts = [str(channel[key]) for key in ("outcome", "error_code") if channel.get(key) not in (None, "")]
+            if detail_parts:
+                detail = QLabel(" · ".join(detail_parts), self)
+                detail.setObjectName("roomAudioDspUnavailableDetail")
+                detail.setAlignment(Qt.AlignHCenter)
+                detail.setWordWrap(True)
+                detail.setToolTip(" · ".join(detail_parts))
+                layout.addWidget(detail)
+        layout.addWidget(value)
+        if is_selected:
+            cue = QLabel("Выбрано", self)
+            cue.setObjectName("roomAudioDspSelectionCue")
+            cue.setAlignment(Qt.AlignHCenter)
+            layout.addWidget(cue)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.selected.emit(self._section, self._oid)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class AudioDspMeterPresentation(QWidget):
+    """Focused room-only projection for accepted numeric ``meter_sections``."""
+
+    def __init__(self, snapshot: Mapping[str, Any], selection, on_select, parent=None):
+        super().__init__(parent)
+        self.setObjectName("roomAudioDspMeters")
+        self.setProperty("presentationOnly", True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        sections_layout = QHBoxLayout()
+        sections_layout.setSpacing(12)
+        for ordinal, meter_section in enumerate(snapshot.get("meter_sections") or ()):
+            if not isinstance(meter_section, Mapping):
+                continue
+            title = str(meter_section.get("title") or "Измерения")
+            card = SectionCard(title, "∿", self)
+            card.setObjectName("roomAudioDspMeterSection")
+            card.setProperty("meterSection", title)
+            channel_layout = QHBoxLayout()
+            channel_layout.setContentsMargins(0, 0, 0, 0)
+            channel_layout.setSpacing(10)
+            for channel in meter_section.get("channels") or ():
+                if not isinstance(channel, Mapping):
+                    continue
+                column = AudioDspChannelColumn(
+                    title,
+                    channel,
+                    selection == (title, str(channel.get("oid"))),
+                    card,
+                )
+                column.selected.connect(on_select)
+                channel_layout.addWidget(column)
+            channel_layout.addStretch(1)
+            card.body_layout.addLayout(channel_layout)
+            sections_layout.addWidget(card, 3 if ordinal == 0 else 2)
+        layout.addLayout(sections_layout)
+        controls = QFrame(self)
+        controls.setObjectName("roomAudioDspFutureControls")
+        controls.setProperty("presentationOnly", True)
+        controls_layout = QHBoxLayout(controls)
+        controls_layout.setContentsMargins(8, 6, 8, 6)
+        selected_label = "Выберите канал" if selection is None else "Выбранный канал"
+        controls_layout.addWidget(QLabel(selected_label, controls), 1)
+        for text, name in (("−", "roomAudioDspGainDown"), ("—", "roomAudioDspGainValue"), ("+", "roomAudioDspGainUp"), ("Mute", "roomAudioDspMute")):
+            button = QPushButton(text, controls)
+            button.setObjectName(name)
+            button.setEnabled(False)
+            controls_layout.addWidget(button)
+        layout.addWidget(controls)
+
+
 class RoomReadOnlyPresentation(QWidget):
     """Exact-row data projection with a deliberately narrow action request."""
 
-    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, parent=None):
+    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, parent=None):
         super().__init__(parent)
         self.setObjectName("roomReadOnlyPresentation")
         self.setProperty("recordId", row.record_id)
@@ -529,7 +726,16 @@ class RoomReadOnlyPresentation(QWidget):
             "audio_dsp": self._build_audio,
         }.get(screen_key)
         if builder is not None:
-            builder(layout, data, row, request_mutation=request_mutation, mutation_allowed=mutation_allowed)
+            builder_kwargs = {
+                "request_mutation": request_mutation,
+                "mutation_allowed": mutation_allowed,
+            }
+            if screen_key == "audio_dsp":
+                builder_kwargs.update(
+                    audio_selection=audio_selection,
+                    audio_channel_selected=audio_channel_selected,
+                )
+            builder(layout, data, row, **builder_kwargs)
         else:
             self._add_fields(layout, "Диагностика", data)
 
@@ -631,9 +837,14 @@ class RoomReadOnlyPresentation(QWidget):
         card.add_widget(table)
         layout.addWidget(card)
 
-    def _build_audio(self, layout, data, row, **_unused) -> None:
+    def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data
         self._add_fields(layout, "Аудио DSP", source)
+        if isinstance(data, Mapping) and data.get("meter_sections"):
+            layout.addWidget(
+                AudioDspMeterPresentation(data, audio_selection, audio_channel_selected or (lambda *_args: None), self)
+            )
+            return
         card = SectionCard("Каналы и измерения", "∿", self)
         table = QTableWidget(0, 3, card)
         table.setObjectName("roomAudioMeasurements")

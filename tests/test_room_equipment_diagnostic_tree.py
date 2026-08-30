@@ -8,7 +8,7 @@ import threading
 import time
 
 try:
-    from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -1030,7 +1030,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         cases = (
             ("pdu", {"device_info": {"model": "PDU"}, "outlets": [{"number": 1, "status": "ON", "name": "Rack"}]}, "roomPduOutlets", 1),
             ("matrix", matrix_snapshot, "roomMatrixRouting", 2),
-            ("audio_dsp", dmp_snapshot, "roomAudioMeasurements", 2),
+            ("audio_dsp", dmp_snapshot, "roomAudioDspMeters", 1),
             ("audio_dsp", biamp_snapshot, "roomAudioMeasurements", 1),
         )
         for screen_key, snapshot, object_name, rows in cases:
@@ -1038,24 +1038,26 @@ class RoomGuiCompositionTests(unittest.TestCase):
             row.accepted_snapshot = snapshot
             presentation = RoomReadOnlyPresentation(row)
             self.addCleanup(presentation.deleteLater)
-            table = presentation.findChild(QTableWidget, object_name)
-            self.assertIsNotNone(table)
-            self.assertEqual(rows, table.rowCount())
+            view = presentation.findChild(QWidget, object_name)
+            self.assertIsNotNone(view)
+            if isinstance(view, QTableWidget):
+                self.assertEqual(rows, view.rowCount())
             if screen_key == "matrix":
-                self.assertEqual("Laptop", table.item(0, 1).text())
-                self.assertIn("Present", table.item(0, 2).text())
-                self.assertIn("Authenticated", table.item(0, 3).text())
-                self.assertEqual("Активен", table.item(0, 4).text())
+                self.assertEqual("Laptop", view.item(0, 1).text())
+                self.assertIn("Present", view.item(0, 2).text())
+                self.assertIn("Authenticated", view.item(0, 3).text())
+                self.assertEqual("Активен", view.item(0, 4).text())
             elif snapshot is dmp_snapshot:
-                self.assertEqual("Inputs", table.item(0, 0).text())
-                self.assertEqual("Input 1", table.item(0, 1).text())
-                self.assertIn("-12.5 dBFS", table.item(0, 2).text())
-                self.assertIn("Недоступен", table.item(1, 2).text())
+                channels = view.findChildren(QWidget, "roomAudioDspChannel")
+                self.assertEqual(2, len(channels))
+                self.assertEqual("Input 1", channels[0].findChild(QLabel, "roomAudioDspChannelLabel").text())
+                self.assertEqual("-12.5 dBFS", channels[0].findChild(QLabel, "roomAudioDspDbfs").text())
+                self.assertEqual("— dBFS", channels[1].findChild(QLabel, "roomAudioDspDbfs").text())
             elif snapshot is biamp_snapshot:
-                self.assertEqual("Mic Inputs", table.item(0, 0).text())
-                self.assertEqual("Канал 3", table.item(0, 1).text())
-                self.assertIn("-18.0", table.item(0, 2).text())
-                self.assertIn("present", table.item(0, 2).text())
+                self.assertEqual("Mic Inputs", view.item(0, 0).text())
+                self.assertEqual("Канал 3", view.item(0, 1).text())
+                self.assertIn("-18.0", view.item(0, 2).text())
+                self.assertIn("present", view.item(0, 2).text())
 
     def test_room_pdu_presentation_emits_only_intent_after_button_click(self):
         from gui.room_diagnostic_tree import RoomReadOnlyPresentation

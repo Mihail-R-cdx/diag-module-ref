@@ -26,6 +26,7 @@ COLORS = {
     "danger_hover": "#ED6370",
     "danger_pressed": "#B83E4A",
     "warning": "#F59E0B",
+    "elevated": "#EA580C",
     "text_primary": "#F2F5F8",
     "text_secondary": "#A6B0BE",
     "text_muted": "#6F7B8A",
@@ -39,7 +40,7 @@ LIGHT_COLORS = {
     "surface_hover": "#E7EDF5", "border": "#CBD5E1", "border_strong": "#94A3B8",
     "primary": "#2563EB", "primary_hover": "#1D4ED8", "primary_pressed": "#1E40AF",
     "success": "#16803B", "success_hover": "#117A34", "success_pressed": "#0E642B",
-    "danger": "#C82D3D", "danger_hover": "#B91C2C", "danger_pressed": "#991B2A", "warning": "#B45309",
+    "danger": "#C82D3D", "danger_hover": "#B91C2C", "danger_pressed": "#991B2A", "warning": "#B45309", "elevated": "#C2410C",
     "text_primary": "#172033", "text_secondary": "#475569", "text_muted": "#64748B",
     "text_on_accent": "#FFFFFF", "focus": "#2563EB",
 }
@@ -485,6 +486,61 @@ def build_stylesheet() -> str:
         }}
         QProgressBar[meterState="unavailable"]::chunk {{
             background-color: transparent;
+        }}
+        QWidget#roomAudioDspMeters {{
+            background: transparent;
+        }}
+        QFrame#roomAudioDspChannel {{
+            background-color: {c["surface_raised"]};
+            border: 1px solid transparent;
+            border-radius: {r["md"]}px;
+        }}
+        QFrame#roomAudioDspChannel:hover {{
+            background-color: {c["surface_hover"]};
+            border-color: {c["border_strong"]};
+        }}
+        QFrame#roomAudioDspChannel[audioSelected="true"] {{
+            border: 2px solid {c["focus"]};
+        }}
+        QWidget#roomAudioDspMeterTrack {{
+            min-width: 22px;
+            max-width: 22px;
+            min-height: 218px;
+        }}
+        QFrame#roomAudioDspMeterSegment {{
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            border-radius: 2px;
+        }}
+        QFrame#roomAudioDspMeterSegment[meterFilled="true"][meterZone="success"] {{
+            background-color: {c["success"]};
+            border-color: {c["success"]};
+        }}
+        QFrame#roomAudioDspMeterSegment[meterFilled="true"][meterZone="warning"] {{
+            background-color: {c["warning"]};
+            border-color: {c["warning"]};
+        }}
+        QFrame#roomAudioDspMeterSegment[meterFilled="true"][meterZone="elevated"] {{
+            background-color: {c["elevated"]};
+            border-color: {c["elevated"]};
+        }}
+        QLabel#roomAudioDspDbfs {{
+            font-weight: {t["weight_semibold"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QLabel#roomAudioDspUnavailableDetail {{
+            color: {c["text_secondary"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QLabel#roomAudioDspSelectionCue {{
+            color: {c["focus"]};
+            font-size: {t["caption"]}pt;
+            font-weight: {t["weight_semibold"]};
+        }}
+        QFrame#roomAudioDspFutureControls {{
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            border-radius: {r["md"]}px;
         }}
         QCheckBox, QRadioButton {{
             spacing: 8px;
