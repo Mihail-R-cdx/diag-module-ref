@@ -2,8 +2,8 @@
 
 - [x] 1.1 Capture the approved foundation product decisions: IP-or-room search, direct `room_id` authority, room/network upper cards, common accordion row, reuse of current room-mode exact-row device-family presentations, disabled/non-actionable unauthorized common actions, dark/light toggle, and application title.
 - [x] 1.2 Confirm current `master`, current `RULES.md`, inventory runbook, relevant root specs, and current GUI/inventory boundaries before authoring the change.
-- [ ] 1.3 Re-review the narrowed foundation architecture against current `master` and resolve all CRITICAL/HIGH/MEDIUM findings without changing production code.
-- [ ] 1.4 Run repository-local architecture validation on the current published foundation architecture HEAD:
+- [x] 1.3 Re-review the narrowed foundation architecture against current `master` and resolve all CRITICAL/HIGH/MEDIUM findings without changing production code. (Completed in the foundation architecture review; the resulting implementation findings were resolved before `00c0a01` and no CRITICAL/HIGH/MEDIUM findings remain.)
+- [x] 1.4 Run repository-local architecture validation on the current published foundation architecture HEAD:
 
 ```powershell
 .\openspec.cmd validate room-diagnostic-modern-ui --strict
@@ -12,7 +12,9 @@ git diff --check
 git diff --cached --check
 ```
 
-- [ ] 1.5 Record exact branch/base/HEAD and fresh validation exit codes/counts before the new architectural `APPROVE`; the previous approval from the larger scope does not carry over automatically after this scope reduction.
+  Evidence (2026-08-30, `46fa8b8`): change validation exit 0; all strict validation exit 0 (17 passed, 0 failed); `git diff --check` exit 0; `git diff --cached --check` exit 0.
+
+- [x] 1.5 Record exact branch/base/HEAD and fresh validation exit codes/counts before the new architectural `APPROVE`; the previous approval from the larger scope does not carry over automatically after this scope reduction. (2026-08-30: branch `agent/room-diagnostic-modern-ui`; `origin/master` `7e9fd4720d682c232e69179df7cc825afd29bd1d`; validated HEAD `46fa8b86e8665d1764a55fdb8b4e01b54713e7f3`; focused suite exit 0, 267 tests in 37.938s; full suite exit 0, 806 tests in 95.240s; validation exit codes recorded in 1.4.)
 
 ## 2. Target search and inventory query
 
