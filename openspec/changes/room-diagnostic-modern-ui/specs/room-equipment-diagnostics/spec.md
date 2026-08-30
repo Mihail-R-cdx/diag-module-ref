@@ -35,7 +35,7 @@ For a room-name target, valid current inventory is mandatory. The application SH
 
 Manual diagnostic model fallback SHALL remain available only for the existing valid-IP case where canonical inventory is unavailable, unloadable, or corrupt under the structured inventory-load contract. Valid inventory data SHALL NOT be bypassed by model guessing. Room-name targets SHALL NOT use manual diagnostic or credential fallback.
 
-#### Scenario: Unsupported IP source still establishes its room
+#### Scenario: Unsupported source still establishes its room
 
 - **GIVEN** valid inventory contains exactly one record for the entered IP
 - **AND** that record has a non-null authoritative `room_id`
@@ -101,7 +101,7 @@ Same-room IP ambiguity SHALL be computed across all room records with non-null I
 - **THEN** every room record is present exactly once
 - **AND** supportability changes diagnostic eligibility but not tree membership
 
-#### Scenario: IP source row is ordered first
+#### Scenario: Source row is ordered first
 
 - **GIVEN** room mode was entered through a unique IP record that is not first by canonical `record_id`
 - **WHEN** the room tree is built
@@ -135,7 +135,7 @@ If no usable canonical value exists, the presentation SHALL use a safe no-data v
 
 Warranty and occupancy are not canonical schema-v4 room fields and therefore are not room identity/display authority under this requirement. Warranty SHALL NOT be derived from non-authoritative values in this change. Occupancy MAY be derived only as presentation state under the typed codec call-activity contract defined by `diagnostic-ui-presentation` and `device-diagnostics-and-control`; such derived occupancy SHALL NOT become canonical room metadata, room identity, inventory state, or booking/calendar authority.
 
-#### Scenario: IP source record carries the room address
+#### Scenario: Source record carries the room address
 
 - **GIVEN** IP-entry room mode has a source record with nonblank `room_address`
 - **AND** another room record has a different nonblank address
@@ -143,7 +143,7 @@ Warranty and occupancy are not canonical schema-v4 room fields and therefore are
 - **THEN** the source-record address is displayed
 - **AND** no address conflict is raised
 
-#### Scenario: IP source metadata is missing
+#### Scenario: Source metadata is missing
 
 - **GIVEN** IP-entry source record has null room name, address, and VIP
 - **WHEN** canonical room records contain later usable values
@@ -269,14 +269,14 @@ A new full Refresh SHALL NOT carry forward any previously expanded row or previo
 
 Automatic row success, warning, or failure during the new room cycle SHALL NOT change this user-selection state.
 
-#### Scenario: Expandable IP source starts expanded
+#### Scenario: Expandable source starts expanded
 
 - **GIVEN** a new IP-entry room session is established and the source row is supported and expandable
 - **WHEN** the tree is first presented
 - **THEN** the source row is the only initially expanded row
 - **AND** no later automatic row outcome changes expansion on the operator's behalf
 
-#### Scenario: Non-expandable IP source starts fully collapsed
+#### Scenario: Non-expandable source starts fully collapsed
 
 - **GIVEN** a new IP-entry room session is established and the source row is unsupported, missing-IP, or same-room ambiguous and therefore not expandable
 - **WHEN** the tree is first presented
@@ -290,7 +290,7 @@ Automatic row success, warning, or failure during the new room cycle SHALL NOT c
 - **THEN** no room row is initially expanded
 - **AND** no record is promoted to synthetic source or initial-selection authority
 
-#### Scenario: Full Refresh does not preserve prior selection
+#### Scenario: Full Refresh does not preserve prior secondary selection
 
 - **GIVEN** any row was expanded in the previous source-backed or source-less room generation
 - **WHEN** top full Refresh starts a new room generation
