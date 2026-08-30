@@ -221,7 +221,7 @@ body text                         10-11 pt
 secondary text                    9-10 pt
 section heading                   12-14 pt
 page heading                      18-22 pt
-row icon                          18-22 px
+common equipment-row device-class icon  48 x 48 px
 section icon                      18-24 px
 room hero icon                    28-36 px
 ```

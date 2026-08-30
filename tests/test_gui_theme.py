@@ -172,6 +172,39 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
                 self.assertFalse(left.geometry().intersects(right.geometry()))
         self.assertGreater(self.window.ip_entry.width(), self.window.refresh_btn.width())
 
+    def test_theme_toggle_is_session_only_and_preserves_common_geometry(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        self.window = VCSDiagnosticApp()
+        self.window.resize(1440, 900)
+        self.window.show()
+        self.window.ip_entry.setText("192.0.2.10")
+        QApplication.processEvents()
+
+        controls = (
+            self.window.ip_entry,
+            self.window.password_btn,
+            self.window.refresh_btn,
+            self.window.debug_btn,
+            self.window.theme_btn,
+        )
+        before_geometry = tuple((control.objectName(), control.geometry()) for control in controls)
+        before_session = self.window.room_diagnostic_session
+        before_context = self.window.room_interaction_coordinator.active_context
+
+        self.assertTrue(self.window._dark_mode)
+        self.window.toggle_theme()
+        QApplication.processEvents()
+        self.assertFalse(self.window._dark_mode)
+        self.assertEqual("192.0.2.10", self.window.ip_entry.text())
+        self.assertIs(before_session, self.window.room_diagnostic_session)
+        self.assertIs(before_context, self.window.room_interaction_coordinator.active_context)
+        self.assertEqual(before_geometry, tuple((control.objectName(), control.geometry()) for control in controls))
+
+        self.window.toggle_theme()
+        QApplication.processEvents()
+        self.assertTrue(self.window._dark_mode)
+
     def test_window_frame_starts_at_available_screen_top(self):
         from gui.main_window import VCSDiagnosticApp
 

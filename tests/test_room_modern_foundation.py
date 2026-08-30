@@ -230,6 +230,7 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertEqual("Коммутатор не определён", widget.network_tree.topLevelItem(1).text(0))
         self.assertIn("Занято", widget.occupancy_label.text())
         self.assertEqual("Room", widget.room_name_label.text())
+        self.assertEqual("Гарантия: Нет данных", widget.room_warranty_label.text())
         self.assertFalse(widget.vip_badge.isHidden())
         self.assertEqual("VIP", widget.vip_badge.text())
         self.assertNotIn("VIP:", widget.room_header.text())
