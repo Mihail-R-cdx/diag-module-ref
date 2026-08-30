@@ -4,7 +4,7 @@
 
 - [ ] 1.1 Read current `RULES.md`, current merged root OpenSpec, and confirm the change is based on current `master` after archived `room-diagnostic-modern-ui`.
 - [ ] 1.2 Reconfirm current Audio DSP source/tests before implementation: `AudioDSPScreen`, DMP canonical `meter_sections`, Biamp `signal_sources`, `DMPPollingController`, DMP worker cleanup/stale-result boundaries, and current room-mode exact-row integration.
-- [ ] 1.3 Run `..\..\..\openspec.cmd validate audio-diagnostic-modern-ui --strict` (or the equivalent repository-root `./openspec.cmd` invocation for the local shell) and complete architecture review before production implementation.
+- [ ] 1.3 From the repository root run only `./openspec.cmd validate audio-diagnostic-modern-ui --strict` (PowerShell: `.\openspec.cmd validate audio-diagnostic-modern-ui --strict`) and complete architecture review before production implementation.
 
 ## 2. Audio DSP presentation implementation
 
