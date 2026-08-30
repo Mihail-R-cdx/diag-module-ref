@@ -167,6 +167,13 @@ Theme switching is presentation-only and SHALL NOT be treated as a target/contex
 - **AND** the new full room cycle starts only under the new room generation after current target resolution
 - **AND** late auxiliary callbacks cannot update it
 
+#### Scenario: Source IP is edited after room completion
+
+- **GIVEN** room mode was entered through an IP target
+- **WHEN** the operator changes the persistent target-search text
+- **THEN** the current room interaction/tree/cache authority and any current room-name selection are invalidated immediately
+- **AND** no replacement device I/O begins until Enter/top Refresh creates a new current context
+
 #### Scenario: Target search is edited after room completion
 
 - **WHEN** the operator changes the target-search text
