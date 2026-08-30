@@ -95,16 +95,16 @@ git diff --cached --check
 
 ## 8. Manual visual acceptance
 
-- [ ] 8.1 Launch the GUI as a detached process per `RULES.md`; use a `1440 x 900` logical-pixel baseline window in representative room mode.
-- [ ] 8.2 Capture local, non-committed dark-theme screenshots and verify only the foundation criteria: toolbar/search dominance, visible selected-room cue, room/network peer-card ratio, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common equipment-row density, one-row accordion behavior, and reachability/readability of reused current room-mode expanded family content.
-- [ ] 8.3 Toggle to light mode at the same window size, capture local non-committed screenshots, and verify the same common foundation geometry/hierarchy with readable primary/secondary/disabled/focus/status states and readable/usable reused current room-mode expanded content.
-- [ ] 8.4 Do NOT evaluate deferred Audio meter geometry, Matrix column hierarchy/interactive room routing, codec grouped-card layout, or PDU grouped-card layout as acceptance criteria for this change.
-- [ ] 8.5 Record the manual foundation acceptance result in the implementation session report; screenshots remain local validation aids and SHALL NOT be committed unless the user explicitly requests tracked evidence.
+- [x] 8.1 Launch the GUI as a detached process per `RULES.md`; use a `1440 x 900` logical-pixel baseline window in representative room mode.
+- [x] 8.2 Capture local, non-committed dark-theme screenshots and verify only the foundation criteria: toolbar/search dominance, visible selected-room cue, room/network peer-card ratio, room occupancy row/tooltip, switch-parent port summary, spacing/radius scale, `52-64 px` common equipment-row density, one-row accordion behavior, and reachability/readability of reused current room-mode expanded family content.
+- [x] 8.3 Toggle to light mode at the same window size, capture local non-committed screenshots, and verify the same common foundation geometry/hierarchy with readable primary/secondary/disabled/focus/status states and readable/usable reused current room-mode expanded content.
+- [x] 8.4 Do NOT evaluate deferred Audio meter geometry, Matrix column hierarchy/interactive room routing, codec grouped-card layout, or PDU grouped-card layout as acceptance criteria for this change.
+- [x] 8.5 Record the manual foundation acceptance result in the implementation session report; screenshots remain local validation aids and SHALL NOT be committed unless the user explicitly requests tracked evidence. (2026-08-30: operator confirmed acceptance in the detached GUI.)
 
 ## 9. Implementation verification and publication
 
 - [x] 9.1 Run focused tests for inventory search, room target resolution, fallback preservation, direct room/session ordering, two-branch Full Refresh, complete target-search lifecycle lock matrix, common shell/theme, common accordion integration, unified-registry call-activity binding/validation for all five baseline codecs, typed call-activity normalization, busy occupancy projection, network partial evidence/parent summary, current room-mode family-boundary compatibility, and the Matrix read-only/no-route-promotion guard.
-- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py" -v`: 805 tests in 123.619s, OK.)
+- [x] 9.2 Run the full required offline test suite and record fresh exact counts; do not copy prior counts. (`C:\Users\Mih\AppData\Local\Programs\Python\Python312\python.exe -m unittest discover -s tests -p "test_*.py" -v`: 805 tests in 107.582s, OK.)
 - [x] 9.3 Run:
 
 ```powershell

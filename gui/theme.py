@@ -416,6 +416,19 @@ def build_stylesheet() -> str:
             padding: 8px;
             font-weight: {t["weight_semibold"]};
         }}
+        QLabel#roomName {{
+            color: {c["text_primary"]};
+            font-size: {t["body"]}pt;
+            font-weight: {t["weight_semibold"]};
+        }}
+        QLabel#roomVipBadge {{
+            color: {c["text_on_accent"]};
+            background-color: #8b5cf6;
+            border-radius: {r["pill"]}px;
+            padding: 2px 9px;
+            font-size: {t["caption"]}pt;
+            font-weight: {t["weight_semibold"]};
+        }}
         QScrollArea {{
             background: transparent;
             border: none;

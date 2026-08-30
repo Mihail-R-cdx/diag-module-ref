@@ -221,6 +221,7 @@ class RoomPresentationTests(unittest.TestCase):
         )
         caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter", call_activity_binding_key="huawei_call_activity")}
         session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
+        session.room_vip = True
         session.rows[0].call_activity = CallActivity.ACTIVE
         widget = RoomDiagnosticTreeWidget()
         self.addCleanup(widget.deleteLater)
@@ -228,11 +229,28 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertEqual("Gi1/0/1, Gi1/0/2", widget.network_tree.topLevelItem(0).text(1))
         self.assertEqual("Коммутатор не определён", widget.network_tree.topLevelItem(1).text(0))
         self.assertIn("Занято", widget.occupancy_label.text())
-        self.assertEqual(56, widget.tree.topLevelItem(0).sizeHint(0).height())
+        self.assertEqual("Room", widget.room_name_label.text())
+        self.assertFalse(widget.vip_badge.isHidden())
+        self.assertEqual("VIP", widget.vip_badge.text())
+        self.assertNotIn("VIP:", widget.room_header.text())
+        self.assertTrue(widget.room_card.header_widget.isHidden())
+        self.assertTrue(widget.network_card.header_widget.isHidden())
+        self.assertEqual(156, widget.upper_cards.height())
+        self.assertTrue(widget.network_tree.isHeaderHidden())
+        self.assertEqual(64, widget.tree.topLevelItem(0).sizeHint(0).height())
+        self.assertEqual(48, widget.tree.iconSize().width())
+        self.assertEqual("", widget.tree.topLevelItem(0).text(0))
+        self.assertEqual("Статус подключения", widget.tree.headerItem().text(2))
+        self.assertEqual(76, widget.tree.columnWidth(0))
+        self.assertEqual(290, widget.tree.columnWidth(2))
+        self.assertEqual(180, widget.tree.columnWidth(3))
+        self.assertTrue(widget.tree.topLevelItem(0).child(0).isFirstColumnSpanned())
 
         session.rows[0].stale = True
+        session.room_vip = False
         widget.render(session)
         self.assertIn("Нет данных", widget.occupancy_label.text())
+        self.assertTrue(widget.vip_badge.isHidden())
 
     def test_pdu_room_projection_opens_with_live_actions_available(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
@@ -330,6 +348,9 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertIsNone(window.room_diagnostic_session)
         self.assertIsNone(window.room_interaction_coordinator.active_context)
         self.assertIsNone(tree._session)
+        self.assertEqual("", tree.room_name_label.text())
+        self.assertTrue(tree.vip_badge.isHidden())
+        self.assertEqual("", tree.room_warranty_label.text())
         self.assertEqual("", tree.room_header.text())
         self.assertEqual("", tree.occupancy_label.text())
         self.assertEqual("", tree.global_status.text())
