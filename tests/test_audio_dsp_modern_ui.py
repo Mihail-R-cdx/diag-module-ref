@@ -6,7 +6,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -76,6 +76,10 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
         QApplication.processEvents()
         return widget
 
+    @staticmethod
+    def _current_presentation(widget):
+        return widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
+
     def test_room_exact_row_renders_ordered_twenty_segment_dmp_meters(self):
         widget = self._render(self._session())
         presentation = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
@@ -123,8 +127,9 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
         unavailable = widget.findChildren(QWidget, "roomAudioDspChannel")[6]
         self.assertEqual("— dBFS", unavailable.findChild(QWidget, "roomAudioDspDbfs").text())
         self.assertEqual(0, sum(bool(segment.property("meterFilled")) for segment in unavailable.findChildren(QWidget, "roomAudioDspMeterSegment")))
-        self.assertIn("sis_protocol_error", unavailable.findChild(QWidget, "roomAudioDspUnavailableDetail").text())
-        self.assertIn("E14", unavailable.findChild(QWidget, "roomAudioDspUnavailableDetail").text())
+        detail = unavailable.findChild(QWidget, "roomAudioDspUnavailableDetail")
+        self.assertIn("sis_protocol_error", detail.toolTip())
+        self.assertIn("E14", detail.toolTip())
 
     def test_selection_persists_only_for_current_record_and_existing_channel(self):
         session = self._session()
@@ -135,13 +140,64 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
         QApplication.processEvents()
         self.assertEqual(("dmp-record", "Inputs", "40001"), widget._audio_selection)
         self.assertTrue(any(bool(item.property("audioSelected")) for item in widget.findChildren(QWidget, "roomAudioDspChannel")))
+        self.assertEqual(
+            "Inputs · Input 2",
+            self._current_presentation(widget).findChild(QWidget, "roomAudioDspSelectedChannelContext").text(),
+        )
+        session.rows[0].accepted_snapshot["meter_sections"][0]["channels"][1]["name"] = "Input 2 current"
         widget.render(session)
         self.assertEqual(("dmp-record", "Inputs", "40001"), widget._audio_selection)
+        self.assertEqual(
+            "Inputs · Input 2 current",
+            self._current_presentation(widget).findChild(QWidget, "roomAudioDspSelectedChannelContext").text(),
+        )
         session.rows[0].accepted_snapshot["meter_sections"][0]["channels"] = []
         widget.render(session)
         self.assertIsNone(widget._audio_selection)
+        self.assertEqual(
+            "Выберите канал",
+            self._current_presentation(widget).findChild(QWidget, "roomAudioDspSelectedChannelContext").text(),
+        )
         widget.render(self._session(generation=2))
         self.assertIsNone(widget._audio_selection)
+
+    def test_invalid_current_numeric_evidence_never_fills_or_displays_a_level(self):
+        invalid_cases = (
+            ("dbfs", None),
+            ("normalized", None),
+            ("dbfs", "bad"),
+            ("normalized", "bad"),
+            ("dbfs", float("nan")),
+            ("normalized", float("inf")),
+        )
+        for field, invalid_value in invalid_cases:
+            with self.subTest(field=field, invalid_value=repr(invalid_value)):
+                snapshot = self._dmp_snapshot()
+                snapshot["meter_sections"][0]["channels"][0][field] = invalid_value
+                widget = self._render(self._session(snapshot=snapshot))
+                channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+                track = channel.findChild(QWidget, "roomAudioDspMeterTrack")
+                self.assertTrue(track.property("meterAvailable"))
+                self.assertFalse(track.property("numericMeterValid"))
+                self.assertEqual("— dBFS", channel.findChild(QWidget, "roomAudioDspDbfs").text())
+                self.assertEqual(
+                    0,
+                    sum(
+                        bool(segment.property("meterFilled"))
+                        for segment in channel.findChildren(QWidget, "roomAudioDspMeterSegment")
+                    ),
+                )
+
+    def test_all_invalid_current_meter_sections_fail_closed_to_safe_table(self):
+        snapshot = self._dmp_snapshot()
+        for section in snapshot["meter_sections"]:
+            for channel in section["channels"]:
+                channel["dbfs"] = None
+        widget = self._render(self._session(snapshot=snapshot))
+        self.assertIsNone(widget.findChild(QWidget, "roomAudioDspMeters"))
+        table = widget.findChild(QTableWidget, "roomAudioMeasurements")
+        self.assertIsNotNone(table)
+        self.assertEqual("— dBFS (valid)", table.item(0, 2).text())
 
     def test_future_controls_are_disabled_and_biamp_stays_a_table(self):
         widget = self._render(self._session())

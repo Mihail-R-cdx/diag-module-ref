@@ -43,10 +43,10 @@
 
 ## 5. Manual visual acceptance
 
-- [ ] 5.1 With controlled fixture data, inspect the expanded DMP Audio DSP **room accordion row** at `1440 x 900` in dark theme and verify room integration, Inputs/Outputs proportions, 20-segment vertical meters, labels, numeric dBFS, structured unavailable outcome detail, selected cue, and disabled controls.
-- [ ] 5.2 Repeat the same room fixture/data at `1440 x 900` in light theme and verify geometry/order/data/selection are unchanged while semantic styling remains legible.
-- [ ] 5.3 During same-context accepted meter updates, verify the selected `section` + `oid` remains selected; then supersede/replace the exact room context and verify selection clears.
-- [ ] 5.4 Inspect at `1180 x 720` and verify all room Audio DSP meter/outcome/control content remains reachable through approved reflow/scrolling.
+- [x] 5.1 Controlled local DMP room fixture inspected at `1440 x 900` dark: accordion integration, 6/4 meter cards, 20 segments, readable dBFS/zones, selected cue/context, disabled controls, and unavailable safe detail verified.
+- [x] 5.2 The same controlled fixture inspected at `1440 x 900` light: geometry/order/selection remained stable and semantic zones and disabled controls remained legible.
+- [x] 5.3 Controlled same-context update retained `Inputs` + selected OID and refreshed its visible current label; controlled generation supersession cleared selection and restored the no-selection prompt.
+- [x] 5.4 Controlled fixture inspected at `1180 x 720`: all ten channel columns, numeric values, unavailable detail, selected cue, and control strip remained reachable using the room tree scroll area.
 - [ ] 5.5 Keep screenshots local/untracked unless a separately approved workflow explicitly requires repository evidence.
 
 ## 6. Implementation validation and publication

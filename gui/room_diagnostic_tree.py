@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from math import floor
+from math import floor, isfinite
+from numbers import Real
 
 from PyQt5.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
@@ -482,12 +483,17 @@ def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]
         for channel in section.get("channels") or ():
             if not isinstance(channel, Mapping):
                 continue
-            if channel.get("available"):
+            if _has_current_numeric_meter(channel):
                 value = f"{channel.get('dbfs', '—')} dBFS"
                 if channel.get("state") not in (None, ""):
                     value += f" ({channel['state']})"
             else:
-                value = f"Недоступен ({channel.get('outcome') or 'unknown'})"
+                detail = " · ".join(
+                    str(channel[key])
+                    for key in ("outcome", "error_code")
+                    if channel.get(key) not in (None, "")
+                )
+                value = "— dBFS" + (f" ({detail})" if detail else "")
             rows.append((title, str(channel.get("name") or "—"), value))
     for source_row in source.get("signal_sources") or ():
         if not isinstance(source_row, Mapping):
@@ -516,6 +522,34 @@ def quantize_meter_segments(normalized: Any) -> int:
     return floor(value * METER_SEGMENT_COUNT + 0.5)
 
 
+def _is_finite_real(value: Any) -> bool:
+    """Accept only canonical numeric evidence, never bool/NaN/infinity."""
+    return isinstance(value, Real) and not isinstance(value, bool) and isfinite(float(value))
+
+
+def _has_current_numeric_meter(channel: Mapping[str, Any]) -> bool:
+    return (
+        channel.get("available") is True
+        and _is_finite_real(channel.get("dbfs"))
+        and _is_finite_real(channel.get("normalized"))
+    )
+
+
+def _is_numeric_meter_evidence(channel: Mapping[str, Any]) -> bool:
+    """Unavailable evidence is valid; current levels require both numeric fields."""
+    return channel.get("available") is False or _has_current_numeric_meter(channel)
+
+
+def _has_numeric_meter_presentation(snapshot: Mapping[str, Any]) -> bool:
+    for meter_section in snapshot.get("meter_sections") or ():
+        if not isinstance(meter_section, Mapping):
+            continue
+        for channel in meter_section.get("channels") or ():
+            if isinstance(channel, Mapping) and _is_numeric_meter_evidence(channel):
+                return True
+    return False
+
+
 def meter_segment_zone(index: int) -> str:
     """Classify a physical scale segment, independent of channel dBFS."""
     midpoint_dbfs = -60 + (index + 0.5) * 3.6
@@ -536,6 +570,22 @@ def _audio_channel_exists(snapshot: Any, section: str, oid: str) -> bool:
             if isinstance(channel, Mapping) and str(channel.get("oid")) == oid:
                 return True
     return False
+
+
+def _selected_audio_channel_context(snapshot: Mapping[str, Any], selection) -> str | None:
+    if selection is None:
+        return None
+    selected_section, selected_oid = selection
+    for meter_section in snapshot.get("meter_sections") or ():
+        if not isinstance(meter_section, Mapping):
+            continue
+        title = str(meter_section.get("title") or "Измерения")
+        if title != selected_section:
+            continue
+        for channel in meter_section.get("channels") or ():
+            if isinstance(channel, Mapping) and str(channel.get("oid")) == selected_oid:
+                return f"{title} · {channel.get('name') or '—'}"
+    return None
 
 
 class AudioDspChannelColumn(QFrame):
@@ -561,11 +611,13 @@ class AudioDspChannelColumn(QFrame):
         layout.setSpacing(3)
         track = QWidget(self)
         track.setObjectName("roomAudioDspMeterTrack")
-        track.setProperty("meterAvailable", bool(channel.get("available")))
+        is_current_numeric = _has_current_numeric_meter(channel)
+        track.setProperty("meterAvailable", channel.get("available") is True)
+        track.setProperty("numericMeterValid", is_current_numeric)
         track_layout = QVBoxLayout(track)
         track_layout.setContentsMargins(0, 0, 0, 0)
         track_layout.setSpacing(2)
-        filled = quantize_meter_segments(channel.get("normalized")) if channel.get("available") else 0
+        filled = quantize_meter_segments(channel.get("normalized")) if is_current_numeric else 0
         for index in range(METER_SEGMENT_COUNT - 1, -1, -1):
             segment = QFrame(track)
             segment.setObjectName("roomAudioDspMeterSegment")
@@ -583,17 +635,19 @@ class AudioDspChannelColumn(QFrame):
         value = QLabel(self)
         value.setObjectName("roomAudioDspDbfs")
         value.setAlignment(Qt.AlignHCenter)
-        if channel.get("available") and isinstance(channel.get("dbfs"), (int, float)):
+        value.setWordWrap(True)
+        if is_current_numeric:
             value.setText(f"{channel['dbfs']} dBFS")
         else:
             value.setText("— dBFS")
             detail_parts = [str(channel[key]) for key in ("outcome", "error_code") if channel.get(key) not in (None, "")]
             if detail_parts:
-                detail = QLabel(" · ".join(detail_parts), self)
+                detail_text = " · ".join(detail_parts)
+                detail = QLabel(detail_text.replace("_", "_\u200b"), self)
                 detail.setObjectName("roomAudioDspUnavailableDetail")
                 detail.setAlignment(Qt.AlignHCenter)
                 detail.setWordWrap(True)
-                detail.setToolTip(" · ".join(detail_parts))
+                detail.setToolTip(detail_text)
                 layout.addWidget(detail)
         layout.addWidget(value)
         if is_selected:
@@ -652,8 +706,10 @@ class AudioDspMeterPresentation(QWidget):
         controls.setProperty("presentationOnly", True)
         controls_layout = QHBoxLayout(controls)
         controls_layout.setContentsMargins(8, 6, 8, 6)
-        selected_label = "Выберите канал" if selection is None else "Выбранный канал"
-        controls_layout.addWidget(QLabel(selected_label, controls), 1)
+        selected_label = _selected_audio_channel_context(snapshot, selection) or "Выберите канал"
+        context = QLabel(selected_label, controls)
+        context.setObjectName("roomAudioDspSelectedChannelContext")
+        controls_layout.addWidget(context, 1)
         for text, name in (("−", "roomAudioDspGainDown"), ("—", "roomAudioDspGainValue"), ("+", "roomAudioDspGainUp"), ("Mute", "roomAudioDspMute")):
             button = QPushButton(text, controls)
             button.setObjectName(name)
@@ -840,7 +896,7 @@ class RoomReadOnlyPresentation(QWidget):
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data
         self._add_fields(layout, "Аудио DSP", source)
-        if isinstance(data, Mapping) and data.get("meter_sections"):
+        if isinstance(data, Mapping) and _has_numeric_meter_presentation(data):
             layout.addWidget(
                 AudioDspMeterPresentation(data, audio_selection, audio_channel_selected or (lambda *_args: None), self)
             )
