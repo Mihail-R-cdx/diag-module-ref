@@ -16,6 +16,14 @@ Failed, degraded, unsupported, missing-IP, and same-room ambiguous rows SHALL ex
 - **THEN** every network intent uses only the exact current row context
 - **AND** no cache, session, callback, control authority, or credential-success update crosses from one record to the other
 
+#### Scenario: Top source IP differs from expanded row
+
+- **GIVEN** room mode was entered through source record A
+- **AND** supported record B is currently expanded
+- **WHEN** a room interaction is requested
+- **THEN** the target is B's exact canonical record/model/IP context
+- **AND** neither A's resolved source IP nor the persistent raw target-search text is used as B's device target
+
 #### Scenario: Initial IP target differs from expanded row
 
 - **GIVEN** room mode was entered through an IP target that resolved source record A
