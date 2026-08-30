@@ -408,6 +408,20 @@ def build_stylesheet() -> str:
             selection-background-color: {c["primary_pressed"]};
             outline: 0;
         }}
+        QTreeView, QTreeWidget {{
+            color: {c["text_primary"]};
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            outline: 0;
+        }}
+        QTreeView::item, QTreeWidget::item {{
+            color: {c["text_primary"]};
+            background-color: {c["surface"]};
+        }}
+        QTreeView::item:selected, QTreeWidget::item:selected {{
+            color: {c["text_on_accent"]};
+            background-color: {c["primary_pressed"]};
+        }}
         QHeaderView::section {{
             color: {c["text_secondary"]};
             background-color: {c["surface_raised"]};
@@ -490,6 +504,18 @@ def build_stylesheet() -> str:
         QWidget#roomAudioDspMeters {{
             background: transparent;
         }}
+        QWidget#roomAudioDspDashboard {{
+            background: transparent;
+        }}
+        QFrame#roomAudioDspInfo,
+        QFrame#roomAudioDspQuickActions,
+        QFrame#roomAudioDspMeterSection {{
+            min-height: 244px;
+        }}
+        QFrame#roomAudioDspInfo[audioCompact="true"],
+        QFrame#roomAudioDspQuickActions[audioCompact="true"] {{
+            min-height: 118px;
+        }}
         QFrame#roomAudioDspChannel {{
             background-color: {c["surface_raised"]};
             border: 1px solid transparent;
@@ -505,7 +531,7 @@ def build_stylesheet() -> str:
         QWidget#roomAudioDspMeterTrack {{
             min-width: 22px;
             max-width: 22px;
-            min-height: 218px;
+            min-height: 146px;
         }}
         QFrame#roomAudioDspMeterSegment {{
             background-color: {c["surface"]};
@@ -537,10 +563,25 @@ def build_stylesheet() -> str:
             font-size: {t["caption"]}pt;
             font-weight: {t["weight_semibold"]};
         }}
-        QFrame#roomAudioDspFutureControls {{
+        QFrame#roomAudioDspLocalControls {{
             background-color: {c["surface"]};
-            border: 1px solid {c["border"]};
+            border: 1px solid {c["focus"]};
             border-radius: {r["md"]}px;
+        }}
+        QFrame#roomAudioDspLocalControls QPushButton {{
+            min-height: 38px;
+            padding: 4px 8px;
+        }}
+        QLabel#roomAudioDspLocalControlsTitle {{
+            color: {c["text_primary"]};
+            font-weight: {t["weight_semibold"]};
+        }}
+        QLabel#roomAudioDspInfoLabel {{
+            color: {c["text_secondary"]};
+        }}
+        QLabel#roomAudioDspInfoValue {{
+            color: {c["text_primary"]};
+            font-weight: {t["weight_semibold"]};
         }}
         QCheckBox, QRadioButton {{
             spacing: 8px;
@@ -576,12 +617,31 @@ def build_stylesheet() -> str:
 
 
 def apply_theme(target, theme: str = "dark") -> None:
-    """Apply the shared palette and QSS to a QApplication or QWidget."""
+    """Apply the shared palette and QSS to the full application or a widget."""
     if theme not in {"dark", "light"}:
         raise ValueError(f"Unsupported theme: {theme}")
     COLORS.clear()
     COLORS.update(DARK_COLORS if theme == "dark" else LIGHT_COLORS)
-    target.setPalette(create_palette())
-    target.setStyleSheet(build_stylesheet())
+    palette = create_palette()
+    stylesheet = build_stylesheet()
+    if isinstance(target, QWidget):
+        # A window-local stylesheet does not automatically refresh children
+        # created under the opposite palette.  Refresh this surface explicitly
+        # instead of repolishing unrelated windows application-wide.
+        target.setPalette(palette)
+        target.setStyleSheet(stylesheet)
+        for child in target.findChildren(QWidget):
+            child.setPalette(palette)
+            if child.objectName() == "roomDiagnosticTree":
+                # The room tree is a long-lived presentation scope.  Give it
+                # the replacement stylesheet directly so nested meter widgets
+                # cannot retain rules compiled under the prior theme.
+                child.setStyleSheet(stylesheet)
+            style = child.style()
+            style.unpolish(child)
+            style.polish(child)
+    else:
+        target.setPalette(palette)
+        target.setStyleSheet(stylesheet)
     if isinstance(target, QWidget):
         target.setAttribute(Qt.WA_StyledBackground, True)

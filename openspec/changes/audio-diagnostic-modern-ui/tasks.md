@@ -43,10 +43,10 @@
 
 ## 5. Manual visual acceptance
 
-- [x] 5.1 Controlled local DMP room fixture inspected at `1440 x 900` dark: accordion integration, 6/4 meter cards, 20 segments, readable dBFS/zones, selected cue/context, disabled controls, and unavailable safe detail verified.
-- [x] 5.2 The same controlled fixture inspected at `1440 x 900` light: geometry/order/selection remained stable and semantic zones and disabled controls remained legible.
-- [x] 5.3 Controlled same-context update retained `Inputs` + selected OID and refreshed its visible current label; controlled generation supersession cleared selection and restored the no-selection prompt.
-- [x] 5.4 Controlled fixture inspected at `1180 x 720`: all ten channel columns, numeric values, unavailable detail, selected cue, and control strip remained reachable using the room tree scroll area.
+- [x] 5.1 User accepted the controlled full-production `VCSDiagnosticApp` fixture at `1440 x 900` dark: room shell, compact horizontal General / Inputs+Outputs / Quick actions dashboard, 6/4 twenty-segment meters, numeric dBFS/zones, safe unavailable detail, and local hover/selected disabled popup controls.
+- [x] 5.2 User accepted the same controlled fixture at `1440 x 900` light after the room presentation theme scope was corrected; cards and unfilled meter segments use the active light palette.
+- [x] 5.3 Controlled same-context update retains `Inputs` + selected OID and refreshes its exact current context; generation supersession clears selection. The selected identity remains exact even though meter captions are compact ordinals.
+- [x] 5.4 At the user's explicit direction the `1180 x 720` visual checkpoint was cancelled; the accepted final review viewport is `1440 x 900`. Responsive narrow-layout behavior is covered by regression tests, but no user acceptance is claimed for the cancelled viewport.
 - [ ] 5.5 Keep screenshots local/untracked unless a separately approved workflow explicitly requires repository evidence.
 
 ## 6. Implementation validation and publication

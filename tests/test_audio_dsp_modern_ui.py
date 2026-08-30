@@ -6,6 +6,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
+    from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -90,12 +91,44 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
         self.assertEqual(["Inputs", "Outputs"], [section.property("meterSection") for section in sections])
         channels = meters.findChildren(QWidget, "roomAudioDspChannel")
         self.assertEqual(10, len(channels))
-        self.assertEqual("Input 1", channels[0].findChild(QWidget, "roomAudioDspChannelLabel").text())
-        self.assertEqual("Output 1", channels[6].findChild(QWidget, "roomAudioDspChannelLabel").text())
+        self.assertEqual("1", channels[0].findChild(QWidget, "roomAudioDspChannelLabel").text())
+        self.assertEqual("1", channels[6].findChild(QWidget, "roomAudioDspChannelLabel").text())
         first_segments = channels[0].findChildren(QWidget, "roomAudioDspMeterSegment")
         self.assertEqual(20, len(first_segments))
         self.assertEqual(2, sum(bool(segment.property("meterFilled")) for segment in first_segments))
         self.assertEqual("-41.0 dBFS", channels[0].findChild(QWidget, "roomAudioDspDbfs").text())
+
+    def test_meter_labels_are_compact_while_selection_identity_stays_exact(self):
+        from gui.room_diagnostic_tree import _audio_meter_label
+
+        self.assertEqual("1", _audio_meter_label("Inputs", "Input 1"))
+        self.assertEqual("5 / 6", _audio_meter_label("Inputs", "Input 5 / 6"))
+        self.assertEqual("4", _audio_meter_label("Outputs", "Output 4"))
+        self.assertEqual("Custom", _audio_meter_label("Inputs", "Custom"))
+
+    def test_local_controls_are_separate_disabled_popup_affordances(self):
+        widget = self._render(self._session())
+        channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+        controls = channel._local_controls
+        self.assertTrue(bool(controls.windowFlags() & Qt.Tool))
+        self.assertEqual(176, controls.width())
+        self.assertGreaterEqual(
+            controls.findChild(QPushButton, "roomAudioDspGainDown").minimumHeight(), 38
+        )
+        for name in ("roomAudioDspGainDown", "roomAudioDspGainValue", "roomAudioDspGainUp", "roomAudioDspMute"):
+            self.assertFalse(controls.findChild(QPushButton, name).isEnabled())
+
+    def test_dashboard_reflows_below_its_wide_viewport_breakpoint(self):
+        widget = self._render(self._session())
+        dashboard = widget.findChild(QWidget, "roomAudioDspDashboard")
+        dashboard.resize(1100, 600)
+        dashboard._apply_responsive_layout()
+        self.assertTrue(dashboard._compact_layout)
+        self.assertIs(dashboard._meters, dashboard._dashboard_layout.itemAtPosition(1, 0).widget())
+        dashboard.resize(1300, 600)
+        dashboard._apply_responsive_layout()
+        self.assertFalse(dashboard._compact_layout)
+        self.assertIs(dashboard._meters, dashboard._dashboard_layout.itemAtPosition(0, 1).widget())
 
     def test_quantization_clamps_and_uses_round_half_up_boundaries(self):
         from gui.room_diagnostic_tree import quantize_meter_segments

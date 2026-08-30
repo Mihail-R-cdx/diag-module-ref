@@ -1050,7 +1050,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
             elif snapshot is dmp_snapshot:
                 channels = view.findChildren(QWidget, "roomAudioDspChannel")
                 self.assertEqual(2, len(channels))
-                self.assertEqual("Input 1", channels[0].findChild(QLabel, "roomAudioDspChannelLabel").text())
+                self.assertEqual("1", channels[0].findChild(QLabel, "roomAudioDspChannelLabel").text())
                 self.assertEqual("-12.5 dBFS", channels[0].findChild(QLabel, "roomAudioDspDbfs").text())
                 self.assertEqual("— dBFS", channels[1].findChild(QLabel, "roomAudioDspDbfs").text())
             elif snapshot is biamp_snapshot:
