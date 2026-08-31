@@ -90,8 +90,8 @@
 
 - [ ] 10.1 Run focused Matrix normalization/room GUI/lifecycle tests for all changed surfaces.
 - [ ] 10.2 Run full offline test suite from implementation branch and record fresh command/counts; do not copy prior counts.
-- [ ] 10.3 Run repository-local `\.\openspec.cmd validate matrix-diagnostic-modern-ui --strict`.
-- [ ] 10.4 Run repository-local `\.\openspec.cmd validate --all --strict`.
+- [ ] 10.3 Run repository-local `.\openspec.cmd validate matrix-diagnostic-modern-ui --strict`.
+- [ ] 10.4 Run repository-local `.\openspec.cmd validate --all --strict`.
 - [ ] 10.5 Run `git diff --check` and `git diff --cached --check`.
 - [ ] 10.6 Perform local manual visual acceptance at `1440 x 900` in dark and light themes: left General information, dominant center Matrix table, right Quick actions, exact field/column order, HDCP presence-only projection, truthful no-data/UNKNOWN states, disabled reboot, and no `Открыть расширенный экран`. Screenshots remain local evidence unless explicitly requested as tracked artifacts.
 - [ ] 10.7 Create one focused implementation commit and push to feature branch only after focused/full tests and strict validation pass. Do not archive or self-approve.
@@ -100,6 +100,6 @@
 
 - [ ] 11.1 Independent validator uses a separate clean detached worktree from current `origin/agent/matrix-diagnostic-modern-ui`, proves local/remote SHA equality and clean status before/after, and independently repeats focused/full tests, strict validation, Git checks, architecture/diff review, normalization/mutation/reconciliation safety review, and visual acceptance as required.
 - [ ] 11.2 Because this change adds/modifies root-spec requirements, independent validation performs a disposable archive-applicability check on a disposable worktree/branch, not on the feature branch.
-- [ ] 11.3 Only after independent `APPROVE` / `READY FOR ARCHIVE`, archive with repository-local `\.\openspec.cmd archive matrix-diagnostic-modern-ui --yes` in the archive/completion phase.
-- [ ] 11.4 Post-archive: review archive/root-spec diff, run `\.\openspec.cmd validate --all --strict`, full offline tests, `git diff --check`, `git diff --cached --check`, and create/push a dedicated archive commit.
+- [ ] 11.3 Only after independent `APPROVE` / `READY FOR ARCHIVE`, archive with repository-local `.\openspec.cmd archive matrix-diagnostic-modern-ui --yes` in the archive/completion phase.
+- [ ] 11.4 Post-archive: review archive/root-spec diff, run `.\openspec.cmd validate --all --strict`, full offline tests, `git diff --check`, `git diff --cached --check`, and create/push a dedicated archive commit.
 - [ ] 11.5 Before merge, recheck current remote archive HEAD and current `master`. Do not mark PR ready, merge, close, or delete branches without explicit user authorization.
