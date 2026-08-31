@@ -1002,7 +1002,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         row = OrchestratorTests()._session([record("a")]).row_for("a")
         matrix_snapshot = ExtronIN1804DataParser.parse({
             "device_info": {"model": "IN1804", "temperature": 41},
-            "inputs_num": 2,
+            "inputs_num": 4,
             "outputs_num": 1,
             "input_names": ["Laptop", "Wireless"],
             "output_names": ["Display"],
@@ -1029,7 +1029,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         })
         cases = (
             ("pdu", {"device_info": {"model": "PDU"}, "outlets": [{"number": 1, "status": "ON", "name": "Rack"}]}, "roomPduOutlets", 1),
-            ("matrix", matrix_snapshot, "roomMatrixRouting", 2),
+            ("matrix", matrix_snapshot, "roomMatrixRouting", 4),
             ("audio_dsp", dmp_snapshot, "roomAudioDspMeters", 1),
             ("audio_dsp", biamp_snapshot, "roomAudioMeasurements", 1),
         )
@@ -1082,7 +1082,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
 
         snapshot = ExtronIN1804DataParser.parse({
             "device_info": {"model": "IN1804", "temperature": 40},
-            "inputs_num": 8,
+            "inputs_num": 4,
             "input_names": ["Input 1"],
             "signal_status": [],
             "input_hdcp_auth": [],
@@ -1096,7 +1096,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.addCleanup(presentation.deleteLater)
         table = presentation.findChild(QTableWidget, "roomMatrixRouting")
         self.assertIsNotNone(table)
-        self.assertEqual(8, table.rowCount())
+        self.assertEqual(4, table.rowCount())
         self.assertEqual("Нет данных", table.item(1, 1).text())
         self.assertEqual("Нет данных", table.item(0, 2).text())
         self.assertEqual("Input 1", table.item(0, 3).text())

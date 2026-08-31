@@ -190,8 +190,14 @@ class RoomDiagnosticController(QObject):
             try:
                 handler.connect()
             except AuthenticationError:
+                # A typed pre-send rejection may advance credentials only
+                # after the old handler has crossed its real release boundary.
+                handler.disconnect()
+                handler = None
                 if not cancelled.is_set():
-                    self.matrixMutationFinished.emit(context, False, RoomAuthenticationRejected(candidate_index), False, None)
+                    self.matrixMutationFinished.emit(
+                        context, False, RoomAuthenticationRejected(candidate_index), False, None
+                    )
                 return
             if cancelled.is_set():
                 return

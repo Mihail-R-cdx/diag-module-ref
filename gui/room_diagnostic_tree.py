@@ -475,6 +475,30 @@ def normalize_matrix_presentation(snapshot: Any) -> list[tuple[Any, Any, Any, An
     return rows
 
 
+class MatrixRoutingTable(QTableWidget):
+    """Room-only Matrix table with stable approved semantic proportions."""
+
+    column_ratios = (8, 19, 17, 27, 29)
+
+    def __init__(self, parent=None):
+        super().__init__(0, len(self.column_ratios), parent)
+        header = self.horizontalHeader()
+        for column in range(self.columnCount()):
+            header.setSectionResizeMode(column, QHeaderView.Fixed)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.apply_column_widths()
+
+    def apply_column_widths(self) -> None:
+        width = max(1, self.viewport().width())
+        remaining = width
+        for column, ratio in enumerate(self.column_ratios):
+            column_width = width * ratio // 100 if column < self.columnCount() - 1 else remaining
+            self.setColumnWidth(column, column_width)
+            remaining -= column_width
+
+
 def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]]:
     """Adapt DMP meters and Biamp signal sources without altering snapshots."""
     source = snapshot if isinstance(snapshot, Mapping) else {}
@@ -1120,7 +1144,7 @@ class RoomReadOnlyPresentation(QWidget):
             form.addRow(label, QLabel(str(value) if value not in (None, "") else no_data, info))
         info.body_layout.addLayout(form)
         card = SectionCard("Матрица (входы и коммутация)", "⇄", dashboard)
-        table = QTableWidget(0, 5, card)
+        table = MatrixRoutingTable(card)
         table.setObjectName("roomMatrixRouting")
         output_names = source.get("output_names")
         output_name = output_names[0] if isinstance(output_names, (tuple, list)) and output_names and output_names[0] else "Main Output"
@@ -1151,11 +1175,7 @@ class RoomReadOnlyPresentation(QWidget):
                 return
             request_matrix_route(1, values[index][0])
         table.cellClicked.connect(request_route)
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        table.apply_column_widths()
         card.add_widget(table)
         actions = SectionCard("Быстрые действия", "⚡", dashboard)
         refresh = QPushButton("Обновить статус", actions)

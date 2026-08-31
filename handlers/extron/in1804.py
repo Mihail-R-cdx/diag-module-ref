@@ -197,8 +197,18 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
         
         for i in range(self.inputs_num or 0):
             try:
-                # Only the current input HDCP *status* is room evidence.
-                # Do not turn an unavailable read into a false-like zero.
+                # Preserve the legacy diagnostic reads.  Room presentation
+                # intentionally ignores auth/output values, but standalone
+                # Matrix still consumes them.
+                result = self.send_command(f'wE{i+1}HDCP')
+                if result and result.get('success') and result.get('response'):
+                    try:
+                        input_hdcp_auth.append(int(result['response']))
+                    except (TypeError, ValueError):
+                        input_hdcp_auth.append(0)
+                else:
+                    input_hdcp_auth.append(0)
+                time.sleep(0.2)
                 result = self.send_command(f'wI{i+1}HDCP')
                 if result and result.get('success') and result.get('response'):
                     hdcp_status = result['response']
@@ -213,11 +223,20 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                 print(f"Error getting HDCP info for input {i+1}: {e}")
                 input_hdcp_auth.append(None)
                 input_hdcp_status.append(None)
+
+        output_hdcp = '0'
+        try:
+            result = self.send_command('wO1HDCP')
+            if result and result.get('success') and result.get('response'):
+                output_hdcp = result['response']
+        except Exception as e:
+            self._raise_if_fatal_failure(e)
+            print(f"Error getting output HDCP: {e}")
         
         return {
             'input_auth': input_hdcp_auth,
             'input_status': input_hdcp_status,
-            'output_status': None
+            'output_status': output_hdcp
         }
     
     def get_connections(self):

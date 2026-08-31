@@ -794,6 +794,13 @@ class PolycomDataParser:
 
 class ExtronIN1804DataParser:
     """Парсер данных для Extron IN1804"""
+
+    _MODEL_INPUT_COUNTS = {
+        "1804": 4,
+        "1806": 6,
+        "1808": 8,
+        "1608": 8,
+    }
     
     @staticmethod
     def parse(data):
@@ -812,7 +819,12 @@ class ExtronIN1804DataParser:
         
         # Параметры матрицы
         inputs_num = data.get('inputs_num')
-        parsed['inputs_num'] = inputs_num if isinstance(inputs_num, int) and inputs_num > 0 and parsed['model'] is not None else None
+        expected_inputs = ExtronIN1804DataParser._recognized_input_count(parsed['model'])
+        parsed['inputs_num'] = (
+            inputs_num
+            if isinstance(inputs_num, int) and inputs_num > 0 and inputs_num == expected_inputs
+            else None
+        )
         parsed['outputs_num'] = data.get('outputs_num', 1)
         parsed['input_names'] = data.get('input_names', [])
         parsed['output_names'] = data.get('output_names', [])
@@ -857,6 +869,16 @@ class ExtronIN1804DataParser:
         except (TypeError, ValueError):
             return None
         return True if value == 2 else False if value in {0, 1} else None
+
+    @classmethod
+    def _recognized_input_count(cls, model):
+        if not isinstance(model, str):
+            return None
+        normalized = model.casefold()
+        for token, count in cls._MODEL_INPUT_COUNTS.items():
+            if token in normalized:
+                return count
+        return None
 
 
 class AtenPDUDataParser:

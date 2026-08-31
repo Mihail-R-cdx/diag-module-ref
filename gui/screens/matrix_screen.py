@@ -159,7 +159,8 @@ class MatrixScreen(BaseScreen):
         if self.matrix_table is None:
             return
 
-        self.matrix_table.setRowCount(self.inputs_num)
+        input_count = self.inputs_num if isinstance(self.inputs_num, int) and self.inputs_num > 0 else 0
+        self.matrix_table.setRowCount(input_count)
         signal_status = (self.matrix_data or {}).get("signal_status", {})
         hdcp_statuses = (self.matrix_data or {}).get("input_hdcp_status", [])
         hdcp_auth = (self.matrix_data or {}).get("input_hdcp_auth", [])
@@ -167,7 +168,7 @@ class MatrixScreen(BaseScreen):
             "current_connection", self.current_connection
         )
 
-        for row in range(self.inputs_num):
+        for row in range(input_count):
             signal = signal_status.get(row + 1, {})
             has_signal = bool(signal.get("has_signal", False))
             self.matrix_table.setItem(
@@ -222,9 +223,10 @@ class MatrixScreen(BaseScreen):
             return
 
         self.matrix_data = data
-        self.inputs_num = data.get("inputs_num", self.inputs_num)
-        self.input_names = data.get("input_names", self.input_names)
-        self.output_names = data.get("output_names", self.output_names)
+        reported_count = data.get("inputs_num")
+        self.inputs_num = reported_count if isinstance(reported_count, int) and reported_count > 0 else 0
+        self.input_names = data.get("input_names") if isinstance(data.get("input_names"), (list, tuple)) else []
+        self.output_names = data.get("output_names") if isinstance(data.get("output_names"), (list, tuple)) else []
         self.current_connection = data.get(
             "current_connection", self.current_connection
         )
@@ -253,6 +255,8 @@ class MatrixScreen(BaseScreen):
             return
 
         input_num = row + 1
+        if not isinstance(self.inputs_num, int) or not 1 <= input_num <= self.inputs_num:
+            return
         self.routeRequested.emit(1, input_num)
 
     def update_info_panel(self):
@@ -262,7 +266,7 @@ class MatrixScreen(BaseScreen):
     def update_connection_display(self):
         if self.matrix_table is None:
             return
-        for row in range(self.inputs_num):
+        for row in range(self.inputs_num if isinstance(self.inputs_num, int) and self.inputs_num > 0 else 0):
             self.matrix_table.setItem(
                 row,
                 3,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import unittest
+from threading import Event
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -13,6 +15,7 @@ from gui.diagnostic_dispatch import dispatch_entry_for_model
 from gui.room_diagnostic_tree import normalize_matrix_presentation
 
 try:
+    from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -45,6 +48,39 @@ class MatrixNormalizationTests(unittest.TestCase):
         self.assertEqual(4, accepted["inputs_num"])
         self.assertEqual(1, accepted["current_connection"])
         self.assertEqual([True, False, False, None], accepted["hdcp_present"])
+
+    def test_only_recognized_matching_model_capability_proves_input_count(self):
+        parser = ExtronIN1804DataParser()
+        cases = (
+            (None, 8, None),
+            ("Unknown", 8, None),
+            ("Unrecognized Matrix", 8, None),
+            ("Extron IN1804", 4, 4),
+            ("Extron IN1804", 8, None),
+        )
+        for model, count, expected in cases:
+            with self.subTest(model=model, count=count):
+                data = parser.parse({"device_info": {"model": model}, "inputs_num": count})
+                self.assertEqual(expected, data["inputs_num"])
+
+    def test_handler_preserves_existing_hdcp_reads_and_status_unknown(self):
+        handler = ExtronIN1804Handler("192.0.2.4")
+        handler.inputs_num = 1
+        commands = []
+
+        def send(command, **_kwargs):
+            commands.append(command)
+            return {"success": True, "response": {"wE1HDCP": "1", "wI1HDCP": "2", "wO1HDCP": "1"}[command]}
+
+        handler.send_command = send
+        with patch("handlers.extron.in1804.time.sleep", lambda _value: None):
+            evidence = handler.get_hdcp_info()
+        self.assertEqual(["wE1HDCP", "wI1HDCP", "wO1HDCP"], commands)
+        self.assertEqual([1], evidence["input_auth"])
+        self.assertEqual(["2"], evidence["input_status"])
+        self.assertEqual("1", evidence["output_status"])
+        self.assertEqual(True, ExtronIN1804DataParser._normalize_hdcp(evidence["input_status"][0]))
+        self.assertIsNone(ExtronIN1804DataParser._normalize_hdcp(None))
 
 
 class MatrixPresentationTests(unittest.TestCase):
@@ -104,6 +140,77 @@ class MatrixPresentationTests(unittest.TestCase):
         reboot = projection.findChild(QPushButton, "roomMatrixRebootButton")
         self.assertIsNotNone(reboot)
         self.assertFalse(reboot.isEnabled())
+
+        dashboard = projection.findChild(QWidget, "roomMatrixDashboard")
+        widget.resize(1400, 800)
+        widget.show()
+        self.app.processEvents()
+        dashboard.resize(1400, 400)
+        dashboard.layout().setGeometry(dashboard.contentsRect())
+        dashboard.layout().activate()
+        info, matrix, actions = (dashboard.layout().itemAt(index).widget() for index in range(3))
+        self.assertGreater(matrix.width(), info.width())
+        self.assertGreater(matrix.width(), actions.width())
+        widths = [table.columnWidth(column) / table.viewport().width() for column in range(5)]
+        for actual, expected in zip(widths, (0.08, 0.19, 0.17, 0.27, 0.29)):
+            self.assertAlmostEqual(expected, actual, delta=0.03)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_unknown_input_count_has_no_rows_or_route_intent(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen()
+        self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"inputs_num": None, "current_connection": None})
+        self.assertEqual(0, screen.matrix_table.rowCount())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([], intents)
+        screen.update_data({"inputs_num": 4, "input_names": ["A", "B", "C", "D"], "current_connection": 2})
+        self.assertEqual(4, screen.matrix_table.rowCount())
+
+
+class MatrixMutationOrderingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if QApplication is not None:
+            cls.app = QApplication.instance() or QApplication([])
+
+    def test_pre_send_auth_rejection_is_published_after_handler_release(self):
+        from core.exceptions import AuthenticationError
+        from core.room_interaction import RoomInteractionContext, RoomInteractionKind
+        from gui.room_diagnostic_controller import RoomAuthenticationRejected, RoomDiagnosticController
+
+        events = []
+
+        class Handler:
+            def __init__(self, *_args, **_kwargs):
+                events.append(f"acquire-{len([event for event in events if event.startswith('acquire')]) + 1}")
+
+            def connect(self):
+                raise AuthenticationError("typed rejection")
+
+            def disconnect(self):
+                events.append("release")
+
+        context = RoomInteractionContext("inventory", 1, "record", "Extron IN1804", "192.0.2.4", 1, 1, 1, RoomInteractionKind.MUTATION)
+        controller = RoomDiagnosticController(candidate_provider=lambda *_: (), ping=lambda _ip: True, persist_success=lambda *_: None, starting_index=lambda *_: 0)
+        published = []
+
+        def accepted(_context, success, data, _lost, _warning):
+            events.append("published")
+            published.append((success, data))
+            Handler()  # Simulates composition acquiring candidate N+1 after the signal.
+
+        controller.matrixMutationFinished.connect(accepted)
+        with patch("gui.room_diagnostic_controller.ExtronIN1804Handler", Handler):
+            controller._run_matrix_mutation(context, {"output_num": 1, "input_num": 1}, Event(), {"username": "u", "password": "p"}, 0)
+        self.assertEqual(1, len(published))
+        self.assertFalse(published[0][0])
+        self.assertIsInstance(published[0][1], RoomAuthenticationRejected)
+        self.assertEqual(["acquire-1", "release", "published", "acquire-2"], events)
+        controller.deleteLater()
 
 
 if __name__ == "__main__":
