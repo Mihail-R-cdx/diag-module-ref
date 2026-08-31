@@ -1012,7 +1012,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
                 {"input": 2, "has_signal": False, "status": "No signal"},
             ],
             "input_hdcp_auth": ["Authenticated", "Not authenticated"],
-            "input_hdcp_status": ["Enabled", "Disabled"],
+            "input_hdcp_status": ["2", "1"],
             "output_hdcp": "Enabled",
             "connections": [1],
         })
@@ -1043,10 +1043,10 @@ class RoomGuiCompositionTests(unittest.TestCase):
             if isinstance(view, QTableWidget):
                 self.assertEqual(rows, view.rowCount())
             if screen_key == "matrix":
-                self.assertEqual("Laptop", view.item(0, 1).text())
-                self.assertIn("Present", view.item(0, 2).text())
-                self.assertIn("Authenticated", view.item(0, 3).text())
-                self.assertEqual("Активен", view.item(0, 4).text())
+                self.assertEqual("есть", view.item(0, 1).text())
+                self.assertEqual("есть", view.item(0, 2).text())
+                self.assertEqual("Laptop", view.item(0, 3).text())
+                self.assertEqual("активен", view.item(0, 4).text())
             elif snapshot is dmp_snapshot:
                 channels = view.findChildren(QWidget, "roomAudioDspChannel")
                 self.assertEqual(2, len(channels))
@@ -1097,9 +1097,9 @@ class RoomGuiCompositionTests(unittest.TestCase):
         table = presentation.findChild(QTableWidget, "roomMatrixRouting")
         self.assertIsNotNone(table)
         self.assertEqual(8, table.rowCount())
-        self.assertEqual("—", table.item(1, 1).text())
-        self.assertEqual("—", table.item(0, 2).text())
-        self.assertIn("—", table.item(0, 3).text())
+        self.assertEqual("Нет данных", table.item(1, 1).text())
+        self.assertEqual("Нет данных", table.item(0, 2).text())
+        self.assertEqual("Input 1", table.item(0, 3).text())
 
 
 if __name__ == "__main__":

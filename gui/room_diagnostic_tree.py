@@ -54,6 +54,7 @@ class RoomDiagnosticTreeWidget(QWidget):
     localRefreshRequested = pyqtSignal(str)
     auxiliaryRequested = pyqtSignal(str, str)
     pduMutationRequested = pyqtSignal(str, int, str)
+    matrixRouteRequested = pyqtSignal(str, int, int)
     debugRequested = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -224,6 +225,9 @@ class RoomDiagnosticTreeWidget(QWidget):
                         ),
                         request_mutation=(
                             lambda outlet, command, record_id=row.record_id: self.pduMutationRequested.emit(record_id, outlet, command)
+                        ),
+                        request_matrix_route=(
+                            lambda output, input_number, record_id=row.record_id: self.matrixRouteRequested.emit(record_id, output, input_number)
                         ),
                         request_debug=lambda record_id=row.record_id: self.debugRequested.emit(record_id),
                         local_refresh_allowed=actions_allowed,
@@ -445,30 +449,29 @@ def _indexed_value(values: Any, input_number: int) -> Any:
 
 
 def normalize_matrix_presentation(snapshot: Any) -> list[tuple[Any, Any, Any, Any, Any]]:
-    """Adapt the public Extron parser result to read-only table rows."""
+    """Return truthful Matrix rows in the approved semantic column order."""
     source = snapshot if isinstance(snapshot, Mapping) else {}
-    inputs = int(source.get("inputs_num", 0) or 0)
+    inputs = source.get("inputs_num")
+    if not isinstance(inputs, int) or inputs < 1:
+        return []
     names = source.get("input_names") or ()
     signals = source.get("signal_status") or {}
-    auth = source.get("input_hdcp_auth") or ()
-    status = source.get("input_hdcp_status") or ()
-    output_hdcp = source.get("output_hdcp")
+    hdcp_present = source.get("hdcp_present") or ()
     current = source.get("current_connection")
-    if isinstance(signals, Mapping):
-        numeric_signal_inputs = [int(key) for key in signals if str(key).isdigit()]
-        if numeric_signal_inputs:
-            inputs = max(inputs, max(numeric_signal_inputs))
     rows = []
     for number in range(1, inputs + 1):
         signal = _indexed_value(signals, number)
         if isinstance(signal, Mapping):
-            present = "Есть сигнал" if signal.get("has_signal") else "Нет сигнала"
-            signal_text = signal.get("status_text")
-            signal = f"{present}: {signal_text}" if signal_text else present
-        hdcp = f"Auth: {_indexed_value(auth, number)}; статус: {_indexed_value(status, number)}"
-        if output_hdcp not in (None, ""):
-            hdcp += f"; выход: {output_hdcp}"
-        rows.append((number, _indexed_value(names, number), signal, hdcp, "Активен" if current == number else "—"))
+            present = signal.get("has_signal")
+            signal = "есть" if present is True else "нет сигнала" if present is False else "Нет данных"
+        else:
+            signal = "Нет данных"
+        hdcp = _indexed_value(hdcp_present, number)
+        hdcp = "есть" if hdcp is True else "нет" if hdcp is False else "Нет данных"
+        name = _indexed_value(names, number)
+        name = name if name not in (None, "", "—") else "Нет данных"
+        route = "активен" if current == number else "не выбран" if isinstance(current, int) else "Нет данных"
+        rows.append((number, signal, hdcp, name, route))
     return rows
 
 
@@ -920,7 +923,7 @@ class AudioDspDashboardPresentation(QWidget):
 class RoomReadOnlyPresentation(QWidget):
     """Exact-row data projection with a deliberately narrow action request."""
 
-    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, parent=None):
+    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_matrix_route=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, parent=None):
         super().__init__(parent)
         self.setObjectName("roomReadOnlyPresentation")
         self.setProperty("recordId", row.record_id)
@@ -941,6 +944,7 @@ class RoomReadOnlyPresentation(QWidget):
             and isinstance(data, Mapping)
             and _has_numeric_meter_presentation(data)
         )
+        use_matrix_dashboard = screen_key == "matrix"
         audio_actions = []
         refresh_button = QPushButton("Локальный опрос", self)
         refresh_button.setObjectName("roomLocalRefreshButton")
@@ -955,7 +959,7 @@ class RoomReadOnlyPresentation(QWidget):
             refresh_button.clicked.connect(request_local_refresh)
         if use_audio_dashboard:
             audio_actions.append(refresh_button)
-        else:
+        elif not use_matrix_dashboard:
             layout.addWidget(refresh_button)
         if row.capability is not None and row.capability.screen_key == "codec":
             call_log_button = QPushButton("Журнал звонков", self)
@@ -979,7 +983,7 @@ class RoomReadOnlyPresentation(QWidget):
             debug_button.clicked.connect(request_debug)
         if use_audio_dashboard:
             audio_actions.append(debug_button)
-        else:
+        elif not use_matrix_dashboard:
             layout.addWidget(debug_button)
         if row.warnings:
             warnings = QLabel("Предупреждения: " + "; ".join(row.warnings), self)
@@ -997,6 +1001,13 @@ class RoomReadOnlyPresentation(QWidget):
                 "request_mutation": request_mutation,
                 "mutation_allowed": mutation_allowed,
             }
+            if screen_key == "matrix":
+                builder_kwargs.update(
+                    request_local_refresh=request_local_refresh,
+                    local_refresh_allowed=local_refresh_allowed,
+                    request_matrix_route=request_matrix_route,
+                    live_here=live_here,
+                )
             if screen_key == "audio_dsp":
                 builder_kwargs.update(
                     audio_selection=audio_selection,
@@ -1087,23 +1098,80 @@ class RoomReadOnlyPresentation(QWidget):
         card.add_widget(table)
         layout.addWidget(card)
 
-    def _build_matrix(self, layout, data, row, **_unused) -> None:
+    def _build_matrix(self, layout, data, row, *, request_local_refresh=None, local_refresh_allowed=True, request_matrix_route=None, live_here=False, **_unused) -> None:
         source = data if isinstance(data, Mapping) else {}
-        self._add_fields(layout, "Матрица", source, ("model", "ip_address", "temperature", "connection_protocol"))
-        card = SectionCard("Маршрутизация (только чтение)", "⇄", self)
+        dashboard = QWidget(self)
+        dashboard.setObjectName("roomMatrixDashboard")
+        dashboard_layout = QHBoxLayout(dashboard)
+        dashboard_layout.setContentsMargins(0, 0, 0, 0)
+        dashboard_layout.setSpacing(12)
+        info = SectionCard("Общая информация", "▣", dashboard)
+        form = QFormLayout()
+        no_data = "Нет данных"
+        fields = (
+            ("Модель", source.get("model")),
+            ("MAC-адрес", source.get("mac_address")),
+            ("Серийный номер", source.get("serial_number")),
+            ("Версия прошивки", source.get("firmware")),
+            ("Температура", source.get("temperature")),
+            ("Время работы", source.get("uptime")),
+        )
+        for label, value in fields:
+            form.addRow(label, QLabel(str(value) if value not in (None, "") else no_data, info))
+        info.body_layout.addLayout(form)
+        card = SectionCard("Матрица (входы и коммутация)", "⇄", dashboard)
         table = QTableWidget(0, 5, card)
         table.setObjectName("roomMatrixRouting")
-        table.setHorizontalHeaderLabels(("Вход", "Название", "Сигнал", "HDCP", "Маршрут"))
+        output_names = source.get("output_names")
+        output_name = output_names[0] if isinstance(output_names, (tuple, list)) and output_names and output_names[0] else "Main Output"
+        table.setHorizontalHeaderLabels(("№", "Сигнал", "HDCP", "Входы", str(output_name)))
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.setSelectionMode(QTableWidget.NoSelection)
         table.verticalHeader().setVisible(False)
+        route_allowed = (
+            bool(request_matrix_route)
+            and row.status is DeviceRowStatus.CONNECTED
+            and (row.network_actions_enabled or live_here)
+            and not row.interaction_blocked
+            and isinstance(source.get("inputs_num"), int)
+        )
         for values in normalize_matrix_presentation(source):
             index = table.rowCount()
             table.insertRow(index)
             for column, value in enumerate(values):
                 table.setItem(index, column, QTableWidgetItem(str(value)))
+            if route_allowed and values[4] == "не выбран":
+                route_item = table.item(index, 4)
+                route_item.setToolTip("Выбрать вход для Main Output")
+        def request_route(index, column):
+            if column != 4 or not route_allowed:
+                return
+            values = normalize_matrix_presentation(source)
+            if not (0 <= index < len(values)) or values[index][4] != "не выбран":
+                return
+            request_matrix_route(1, values[index][0])
+        table.cellClicked.connect(request_route)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         card.add_widget(table)
-        layout.addWidget(card)
+        actions = SectionCard("Быстрые действия", "⚡", dashboard)
+        refresh = QPushButton("Обновить статус", actions)
+        refresh.setObjectName("roomMatrixRefreshButton")
+        refresh.setEnabled(bool(request_local_refresh) and local_refresh_allowed and row.status is DeviceRowStatus.CONNECTED and (row.network_actions_enabled or live_here) and not row.interaction_blocked)
+        if request_local_refresh is not None:
+            refresh.clicked.connect(request_local_refresh)
+        reboot = QPushButton("Перезагрузить устройство", actions)
+        reboot.setObjectName("roomMatrixRebootButton")
+        reboot.setEnabled(False)
+        actions.add_widget(refresh)
+        actions.add_widget(reboot)
+        dashboard_layout.addWidget(info, 25)
+        dashboard_layout.addWidget(card, 53)
+        dashboard_layout.addWidget(actions, 22)
+        layout.addWidget(dashboard)
 
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_actions=(), **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data

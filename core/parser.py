@@ -805,11 +805,14 @@ class ExtronIN1804DataParser:
         
         # Основная информация
         device_info = data.get('device_info', {})
-        parsed['model'] = device_info.get('model', 'Unknown')
-        parsed['temperature'] = device_info.get('temperature', 0)
+        model = device_info.get('model') if isinstance(device_info, Mapping) else None
+        parsed['model'] = model if isinstance(model, str) and model.strip() and model.casefold() != 'unknown' else None
+        temperature = device_info.get('temperature') if isinstance(device_info, Mapping) else None
+        parsed['temperature'] = temperature if isinstance(temperature, (int, float)) and not isinstance(temperature, bool) else None
         
         # Параметры матрицы
-        parsed['inputs_num'] = data.get('inputs_num', 8)
+        inputs_num = data.get('inputs_num')
+        parsed['inputs_num'] = inputs_num if isinstance(inputs_num, int) and inputs_num > 0 and parsed['model'] is not None else None
         parsed['outputs_num'] = data.get('outputs_num', 1)
         parsed['input_names'] = data.get('input_names', [])
         parsed['output_names'] = data.get('output_names', [])
@@ -820,21 +823,40 @@ class ExtronIN1804DataParser:
         parsed['signal_status'] = {}
         for status in signal_status:
             input_num = status.get('input')
-            parsed['signal_status'][input_num] = {
-                'has_signal': status.get('has_signal', False),
-                'status_text': status.get('status', 'Unknown')
-            }
+            if isinstance(input_num, int) and parsed['inputs_num'] is not None and 1 <= input_num <= parsed['inputs_num']:
+                present = status.get('has_signal')
+                parsed['signal_status'][input_num] = {
+                    'has_signal': present if isinstance(present, bool) else None,
+                    'status_text': status.get('status')
+                }
         
         # HDCP информация
         parsed['input_hdcp_auth'] = data.get('input_hdcp_auth', [])
         parsed['input_hdcp_status'] = data.get('input_hdcp_status', [])
+        parsed['hdcp_present'] = [
+            ExtronIN1804DataParser._normalize_hdcp(value)
+            for value in (parsed['input_hdcp_status'] if isinstance(parsed['input_hdcp_status'], (list, tuple)) else ())
+        ]
         parsed['output_hdcp'] = data.get('output_hdcp', '')
         
         # Коммутации
         connections = data.get('connections', [])
-        parsed['current_connection'] = connections[0] if connections else 1
+        connection = connections[0] if isinstance(connections, (list, tuple)) and len(connections) == 1 else None
+        parsed['current_connection'] = (
+            connection
+            if isinstance(connection, int) and parsed['inputs_num'] is not None and 1 <= connection <= parsed['inputs_num']
+            else None
+        )
         
         return parsed
+
+    @staticmethod
+    def _normalize_hdcp(raw):
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            return None
+        return True if value == 2 else False if value in {0, 1} else None
 
 
 class AtenPDUDataParser:

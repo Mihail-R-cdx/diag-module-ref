@@ -8,6 +8,7 @@ from PyQt5.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
 
 from core.exceptions import AuthenticationError
 from core.pdu import PDUOperationDescriptor, execute_pdu_command
+from handlers.extron.in1804 import ExtronIN1804Handler
 from core.room_interaction import RoomInteractionContext
 from core.room_diagnostic_tree import (
     OneShotAttemptContext,
@@ -71,6 +72,16 @@ class _RoomPDUMutationWorker(QRunnable):
         self.controller._run_pdu_mutation(self.context, self.command, self.cancelled, self.credential, self.candidate_index)
 
 
+class _RoomMatrixMutationWorker(QRunnable):
+    def __init__(self, controller, context, command, cancelled, credential, candidate_index):
+        super().__init__()
+        self.controller, self.context, self.command = controller, context, command
+        self.cancelled, self.credential, self.candidate_index = cancelled, credential, candidate_index
+
+    def run(self):
+        self.controller._run_matrix_mutation(self.context, self.command, self.cancelled, self.credential, self.candidate_index)
+
+
 class RoomAuthenticationRejected:
     """Typed pre-delivery authentication result; never derived from text."""
 
@@ -86,6 +97,7 @@ class RoomDiagnosticController(QObject):
     localRefreshFinished = pyqtSignal(object, bool, object, bool, object)
     localRefreshCleanupFinished = pyqtSignal(object, bool)
     pduMutationFinished = pyqtSignal(object, bool, object, bool, object)
+    matrixMutationFinished = pyqtSignal(object, bool, object, bool, object)
 
     def __init__(
         self,
@@ -108,6 +120,7 @@ class RoomDiagnosticController(QObject):
         self._active_session: RoomDiagnosticSession | None = None
         self._local_refresh_cancellations: dict[RoomInteractionContext, threading.Event] = {}
         self._pdu_mutation_cancellations: dict[RoomInteractionContext, threading.Event] = {}
+        self._matrix_mutation_cancellations: dict[RoomInteractionContext, threading.Event] = {}
         self._signals = _RoomCycleSignals()
         self._signals.updated.connect(self._accept_update)
         self._signals.finished.connect(self._accept_finished)
@@ -146,6 +159,64 @@ class RoomDiagnosticController(QObject):
         cancelled = self._pdu_mutation_cancellations.get(context)
         if cancelled is not None:
             cancelled.set()
+
+    def start_matrix_mutation(self, context: RoomInteractionContext, command, *, credential=None, candidate_index: int | None = None) -> None:
+        cancelled = threading.Event()
+        self._matrix_mutation_cancellations[context] = cancelled
+        self._thread_pool.start(_RoomMatrixMutationWorker(self, context, command, cancelled, credential, candidate_index))
+
+    def cancel_matrix_mutation(self, context: RoomInteractionContext) -> None:
+        cancelled = self._matrix_mutation_cancellations.get(context)
+        if cancelled is not None:
+            cancelled.set()
+
+    def _run_matrix_mutation(self, context, command, cancelled, credential=None, candidate_index=None):
+        """Perform exactly one room-bound Matrix route send off the GUI thread."""
+        handler = None
+        command_invoked = False
+        try:
+            entry = dispatch_entry_for_model(context.diagnostic_model)
+            if entry is None or entry.mutation_binding_key != "matrix_room_route":
+                raise ValueError("Matrix routing is unavailable")
+            if not isinstance(command, dict) or command.get("output_num") != 1:
+                raise ValueError("Некорректная команда Matrix")
+            input_num = command.get("input_num")
+            if not isinstance(input_num, int) or input_num < 1 or credential is None or cancelled.is_set():
+                raise ValueError("Matrix route is not actionable")
+            # The currentness gate precedes both handler acquisition and send.
+            handler = ExtronIN1804Handler(context.ip_address, username=credential.get("username"), password=credential.get("password"))
+            if cancelled.is_set():
+                return
+            try:
+                handler.connect()
+            except AuthenticationError:
+                if not cancelled.is_set():
+                    self.matrixMutationFinished.emit(context, False, RoomAuthenticationRejected(candidate_index), False, None)
+                return
+            if cancelled.is_set():
+                return
+            # From this point a transport failure can follow delivery; never
+            # treat it as a pre-delivery authentication retry opportunity.
+            command_invoked = True
+            handler.set_connection(1, input_num)
+            if cancelled.is_set():
+                return
+            # The mutation owner must release the transport before its ACK can
+            # advance the coordinator into read-only reconciliation.
+            handler.disconnect()
+            handler = None
+            # ACK is deliberately not cache evidence; coordinator reconciles.
+            self.matrixMutationFinished.emit(context, True, {"input_num": input_num}, False, None)
+        except Exception:
+            # Any error after an attempted send is ambiguous and cannot retry.
+            message = "Состояние Matrix после команды не подтверждено" if command_invoked else "Не удалось выполнить коммутацию Matrix"
+            self.matrixMutationFinished.emit(context, False, None, True, message)
+        finally:
+            if handler is not None:
+                try:
+                    handler.disconnect()
+                except Exception:
+                    pass
 
     def _run_pdu_mutation(self, context: RoomInteractionContext, command, cancelled: threading.Event, credential=None, candidate_index: int | None = None) -> None:
         if not isinstance(command, dict):
@@ -259,6 +330,7 @@ class RoomDiagnosticController(QObject):
     def forget_local_refresh(self, context: RoomInteractionContext) -> None:
         self._local_refresh_cancellations.pop(context, None)
         self._pdu_mutation_cancellations.pop(context, None)
+        self._matrix_mutation_cancellations.pop(context, None)
 
     def _run_session(self, session: RoomDiagnosticSession) -> None:
         orchestrator = RoomDiagnosticOrchestrator(

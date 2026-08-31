@@ -132,6 +132,7 @@ class MatrixHandlerSecurityTests(unittest.TestCase):
         handler.socket = object()
         handler.authenticated = True
         handler._connected = True
+        handler.inputs_num = 4
         sent = []
         handler._send_bytes = sent.append
         handler._recv_bytes = lambda _size: b""
@@ -151,6 +152,7 @@ class MatrixHandlerSecurityTests(unittest.TestCase):
         handler.socket = object()
         handler.authenticated = True
         handler._connected = True
+        handler.inputs_num = 4
         sent = []
         responses = iter((b"Password:", b"Password:"))
         handler._send_bytes = sent.append
@@ -172,6 +174,7 @@ class MatrixHandlerSecurityTests(unittest.TestCase):
         handler.socket = object()
         handler.authenticated = True
         handler._connected = True
+        handler.inputs_num = 4
         sent = []
         responses = iter((b"Password:", b"In1 All\r\n"))
         handler._send_bytes = sent.append
@@ -232,6 +235,7 @@ class MatrixHandlerSecurityTests(unittest.TestCase):
         handler.socket = object()
         handler.authenticated = True
         handler._connected = True
+        handler.inputs_num = 4
         sent = []
         handler._send_bytes = sent.append
         handler._read_response = lambda: b"!\r\nIn1 All\r\n"
