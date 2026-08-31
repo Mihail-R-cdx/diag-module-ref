@@ -93,6 +93,8 @@ Each row SHALL use only accepted current exact-row evidence through deterministi
 
 If accepted evidence does not establish a field, the row SHALL display `Нет данных` or the foundation safe no-data equivalent. On the current change base, absence of authoritative Matrix MAC, serial, firmware, or uptime evidence is expected and SHALL NOT cause new protocol reads under MIH-11.
 
+For existing model/temperature reads, normalized absent/`None` is no-data. A local `Unknown` model sentinel is not display evidence. Numeric temperature `0` is displayable only when successful current device evidence actually established zero; a failed/missing/malformed read normalized to `None` SHALL display `Нет данных` rather than `0`.
+
 #### Scenario: Current Matrix snapshot lacks reference-only information fields
 
 - **GIVEN** accepted current Matrix evidence contains model and temperature but no MAC, serial, firmware, or uptime
@@ -100,6 +102,20 @@ If accepted evidence does not establish a field, the row SHALL display `Нет �
 - **THEN** model and temperature render from accepted evidence
 - **AND** MAC, serial, firmware, and uptime render truthful no-data values
 - **AND** presentation issues no additional Matrix request to fill them
+
+#### Scenario: Failed model and temperature evidence remains no-data
+
+- **GIVEN** current Matrix normalization has no accepted model evidence and no accepted temperature evidence
+- **WHEN** the General information card renders
+- **THEN** both `Модель` and `Температура` show `Нет данных`
+- **AND** local `Unknown` or synthetic numeric zero is not rendered as device evidence
+
+#### Scenario: Real zero temperature remains visible
+
+- **GIVEN** accepted current Matrix evidence contains temperature numeric zero from a successful current device response
+- **WHEN** the General information card renders
+- **THEN** `Температура` renders that zero value
+- **AND** it is not replaced with `Нет данных`
 
 ### Requirement: Matrix input table uses proven data-driven rows and the approved column order
 
@@ -143,7 +159,7 @@ If accepted input count is UNKNOWN, the Matrix presentation SHALL NOT fabricate 
 
 For each accepted input row, signal state SHALL distinguish confirmed presence, confirmed absence, and unknown. A confirmed present signal SHALL use a positive non-color cue and text equivalent to `есть`; confirmed absence SHALL use text equivalent to `нет сигнала`; missing/unknown evidence SHALL use `Нет данных` or equivalent. Color MAY reinforce but SHALL NOT be the only meaning.
 
-The `HDCP` column SHALL represent only the normalized **current input HDCP-presence flag**:
+The `HDCP` column SHALL represent only the normalized **current input HDCP-presence flag**. Its raw existing input-HDCP-status mapping is owned by `device-diagnostics-and-control` and is deterministic (`2 -> True`, `1 -> False`, `0 -> False`, unusable evidence -> `None`). Presentation SHALL map only that normalized value:
 
 ```text
 hdcp_present == True  -> non-color cue + `есть`

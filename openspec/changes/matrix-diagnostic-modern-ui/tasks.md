@@ -5,21 +5,23 @@
 - [ ] 1.1 Before implementation, reread current `RULES.md`, current `master`, this approved change, relevant root specs, and current Matrix room/standalone source/tests. Confirm implementation is based on the approved remote HEAD rather than an older local branch/report.
 - [ ] 1.2 Reconfirm the normative target is the expanded exact-row Matrix presentation inside `RoomDiagnosticTreeWidget`; standalone `MatrixScreen` remains a separate lifecycle/surface and is not promoted into room authority.
 - [ ] 1.3 Reconfirm current authoritative Matrix evidence fields and preserve `Нет данных` for reference-layout slots without accepted MAC/serial/firmware/uptime evidence. Do not add new SIS reads for those fields.
-- [ ] 1.4 Reconfirm MIH-11 explicitly includes normalization-only corrections for existing Matrix input-count, connection, and input-HDCP-status reads; legacy defaults must not become route authority.
+- [ ] 1.4 Reconfirm MIH-11 explicitly includes normalization-only corrections for existing Matrix input-count, model/temperature, exact current-input response grammar, and input-HDCP-status reads; legacy defaults must not become accepted device or route authority.
 
 ## 2. Fail-closed Matrix normalization
 
 - [ ] 2.1 Remove authoritative use of legacy eight-input defaults. Publish/accept `inputs_num` only when existing model/capability evidence proves the current count; otherwise preserve UNKNOWN/absent count.
 - [ ] 2.2 Ensure per-input arrays produced only from an unproven fallback count cannot make those ordinals actionable for room routing.
-- [ ] 2.3 Correct existing connection normalization so empty, failed, malformed, ambiguous, or out-of-range readback yields `current_connection = None`/UNKNOWN; never substitute input 1.
-- [ ] 2.4 Parse connection response through reviewed protocol structure rather than concatenating unrelated digits into a synthetic input ordinal.
-- [ ] 2.5 Add a normalized per-input tri-state `hdcp_present` (or equivalent approved representation) derived from the existing input HDCP-status read only: present=True, absent=False, failure/malformed/unrecognized=None.
-- [ ] 2.6 Do not use input HDCP authorization/configuration or output HDCP state as the room HDCP-column authority. Do not add a new HDCP-version read.
+- [ ] 2.3 Normalize General-information model fail-closed: successful non-empty current model read may be accepted; failed/missing/unusable evidence and local `Unknown` convenience sentinel become `None`/absent rather than device-reported data.
+- [ ] 2.4 Normalize temperature fail-closed: failed/missing/malformed read becomes `None`/absent and never synthetic zero; preserve a real numeric zero only when it was actually parsed from a successful current response.
+- [ ] 2.5 Correct existing connection normalization so empty, failed, malformed, ambiguous, extra-payload, or out-of-range readback yields `current_connection = None`/UNKNOWN; never substitute input 1.
+- [ ] 2.6 Implement exact existing-`!` response grammar after normal framing: optionally strip one exact echo line `!`, then accept exactly one untagged ordinal-only response `N` or one tagged/verbose `In<N> All` response; require one in-range ordinal. Echo-only, extra payload, multiple candidates/numeric tokens, partial matches, unrelated digits, and out-of-range values remain UNKNOWN.
+- [ ] 2.7 Add normalized per-input tri-state `hdcp_present` (or equivalent approved representation) derived from the existing input HDCP-status read only with exact raw mapping `2 -> True`, `1 -> False`, `0 -> False`, and missing/failed/malformed/unrecognized -> `None`.
+- [ ] 2.8 Do not use input HDCP authorization/configuration or output HDCP state as the room HDCP-column authority. Do not add a new HDCP-version read.
 
 ## 3. Matrix presentation layout
 
 - [ ] 3.1 Build/extract a presentation-only Matrix dashboard for the room exact-row path with baseline card order: `Общая информация` -> `Матрица (входы и коммутация)` -> `Быстрые действия`.
-- [ ] 3.2 Render General information rows in exact order: `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, `Время работы`; use accepted evidence only and safe no-data presentation for missing fields.
+- [ ] 3.2 Render General information rows in exact order: `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, `Время работы`; use accepted evidence only and safe no-data presentation for missing fields. In particular, normalized model/temperature `None` is `Нет данных`, while a successfully device-reported numeric temperature zero remains `0` rather than no-data.
 - [ ] 3.3 Replace the current room Matrix table presentation with exact column order: compact input ordinal, `Сигнал`, `HDCP`, `Входы`, accepted output-1 name / `Main Output` fallback.
 - [ ] 3.4 Use only proven accepted current input count/order; add regression coverage proving the presentation neither hard-codes nor falls back to eight rows when count is unknown.
 - [ ] 3.5 Preserve non-color text/cue meaning for signal, HDCP presence, active route, non-selected route, and no-data states.
@@ -61,26 +63,28 @@
 
 - [ ] 8.1 Preserve requested input identity across mutation-to-reconciliation handoff as non-secret exact-operation evidence.
 - [ ] 8.2 Run reconciliation through current exact-row read-only Matrix acquisition/currentness authority; do not reuse stale standalone/global Matrix target.
-- [ ] 8.3 Accept reconciliation success only when fail-closed normalized current readback establishes `current_connection == requested input_num`.
-- [ ] 8.4 Explicitly prove requested Input 1 is **not** confirmed by empty, failed, malformed, ambiguous, out-of-range, or otherwise UNKNOWN readback.
+- [ ] 8.3 Accept reconciliation success only when fail-closed normalized current readback matches one exact accepted `!` response family and establishes `current_connection == requested input_num`.
+- [ ] 8.4 Explicitly prove requested Input 1 is **not** confirmed by empty, failed, malformed, ambiguous, extra-payload, out-of-range, outside-grammar, or otherwise UNKNOWN readback.
 - [ ] 8.5 On readback mismatch/UNKNOWN or unconfirmed final state, keep prior cache only as stale/unconfirmed presentation, block row network actions/live, and require top full Refresh according to existing room mutation contract.
 - [ ] 8.6 On confirmed reconciliation, atomically replace row accepted Matrix snapshot and permit normal eligible lifecycle/live only after currentness/cleanup checks.
 
 ## 9. Focused regression coverage
 
-- [ ] 9.1 Normalization tests: missing/unrecognized model/count does not become eight accepted inputs; empty connection evidence does not become input 1; malformed/non-parseable route response remains UNKNOWN; out-of-range route remains UNKNOWN.
-- [ ] 9.2 HDCP normalization tests: recognized present/absent become True/False; failed/malformed/unrecognized input HDCP status becomes UNKNOWN and not false.
-- [ ] 9.3 Presentation tests: three-card order, General information field order, no-data slots, exact table column order, proven data-driven input count, dynamic output header, signal/HDCP-presence/route non-color states.
-- [ ] 9.4 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent.
-- [ ] 9.5 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current/unproven-input rows emit/accept no route mutation.
-- [ ] 9.6 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
-- [ ] 9.7 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
-- [ ] 9.8 Mutation tests: live retirement before send, stale pre-acquisition rejection, structured pre-delivery auth fallback, at-most-one send after command invocation, no string-based fallback/replay.
-- [ ] 9.9 Reconciliation tests: ACK does not update cache; matching truthful readback accepts route; mismatching/UNKNOWN readback blocks/unconfirms; requested Input 1 with empty/malformed readback is never accepted; late stale callbacks cannot update replacement context.
-- [ ] 9.10 Regression tests: existing PDU mutation/reconciliation remains unchanged.
-- [ ] 9.11 Regression tests: existing Matrix room live/local Refresh remains unchanged.
-- [ ] 9.12 Regression tests: standalone MatrixScreen/MatrixController routing remains functional and separate from room exact-row authority, subject to removal of fabricated normalization defaults.
-- [ ] 9.13 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
+- [ ] 9.1 Input-count normalization tests: missing/unrecognized model/count does not become eight accepted inputs and unproven ordinals remain non-actionable.
+- [ ] 9.2 General-info normalization tests: failed/missing model does not publish `Unknown`; failed/missing/malformed temperature becomes UNKNOWN rather than zero; a successful device-reported numeric zero remains accepted zero.
+- [ ] 9.3 Current-input grammar tests: accept untagged ordinal-only `N`, tagged/verbose `In<N> All`, exact echo `!` + each accepted form; reject echo-only, extra/multiple payloads, multiple numeric candidates, unrelated numeric text, partial matches, and out-of-range ordinals.
+- [ ] 9.4 HDCP normalization tests: raw status `2/1/0` becomes `True/False/False`; failed/malformed/unrecognized input HDCP status becomes UNKNOWN and not false.
+- [ ] 9.5 Presentation tests: three-card order, General information field order, no-data slots, exact table column order, proven data-driven input count, dynamic output header, signal/HDCP-presence/route non-color states.
+- [ ] 9.6 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent.
+- [ ] 9.7 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current/unproven-input rows emit/accept no route mutation.
+- [ ] 9.8 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
+- [ ] 9.9 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
+- [ ] 9.10 Mutation tests: live retirement before send, stale pre-acquisition rejection, structured pre-delivery auth fallback, at-most-one send after command invocation, no string-based fallback/replay.
+- [ ] 9.11 Reconciliation tests: ACK does not update cache; matching truthful exact-grammar readback accepts route; mismatching/UNKNOWN readback blocks/unconfirms; requested Input 1 with empty/malformed/ambiguous/outside-grammar readback is never accepted; late stale callbacks cannot update replacement context.
+- [ ] 9.12 Regression tests: existing PDU mutation/reconciliation remains unchanged.
+- [ ] 9.13 Regression tests: existing Matrix room live/local Refresh remains unchanged.
+- [ ] 9.14 Regression tests: standalone MatrixScreen/MatrixController routing remains functional and separate from room exact-row authority, subject to removal of fabricated normalization defaults.
+- [ ] 9.15 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
 
 ## 10. Implementation validation
 

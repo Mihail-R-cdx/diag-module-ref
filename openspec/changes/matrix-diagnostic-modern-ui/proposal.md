@@ -8,7 +8,7 @@ Current `master` renders the expanded room Matrix row through `RoomDiagnosticTre
 
 The accepted Matrix visual target is a compact three-area layout inside the existing expanded room row: a narrow `Общая информация` card on the left, a dominant central `Матрица (входы и коммутация)` table, and a narrow `Быстрые действия` card on the right. Field placement and hierarchy SHALL follow that approved reference without requiring pixel-perfect reproduction or access to the original image during implementation/review.
 
-MIH-11 also makes room Matrix routing interactive. That requires the Matrix snapshot consumed by presentation and reconciliation to be truthful. Current legacy normalization can synthesize `inputs_num = 8`, can turn missing/malformed connection evidence into `current_connection = 1`, and can collapse failed/unknown HDCP reads into false-like zero values. Those defaults are safe only as legacy presentation conveniences; they are not acceptable authority for a state-changing room route. MIH-11 therefore includes a minimum fail-closed normalization correction for existing IN1804 reads, without adding new SIS commands.
+MIH-11 also makes room Matrix routing interactive. That requires the Matrix snapshot consumed by presentation and reconciliation to be truthful. Current legacy normalization can synthesize `inputs_num = 8`, can turn missing/malformed connection evidence into `current_connection = 1`, can collapse failed/unknown HDCP reads into false-like zero values, and can expose no-evidence device information as `Unknown` model or `0` temperature. Those defaults are safe only as legacy presentation conveniences; they are not acceptable current device authority. MIH-11 therefore includes a minimum fail-closed normalization correction for existing IN1804 reads, without adding new SIS commands.
 
 ## What Changes
 
@@ -18,7 +18,7 @@ MIH-11 also makes room Matrix routing interactive. That requires the Matrix snap
   2. `Матрица (входы и коммутация)` (dominant);
   3. `Быстрые действия` (narrow).
 - In `Общая информация`, reserve rows in the approved visual order: `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, `Время работы`.
-- Do not add protocol reads merely to fill those rows. On the current change base, absent MAC/serial/firmware/uptime evidence renders `Нет данных` or the common safe no-data equivalent.
+- Do not add protocol reads merely to fill those rows. On the current change base, absent MAC/serial/firmware/uptime evidence renders `Нет данных` or the common safe no-data equivalent. Existing model/temperature reads also become fail-closed: missing/failed model -> no-data rather than local `Unknown`; missing/failed/malformed temperature -> no-data rather than synthetic zero; a real reported numeric zero remains valid.
 - Replace the current room Matrix table hierarchy with the reference order:
   - compact input ordinal;
   - `Сигнал`;
@@ -27,13 +27,14 @@ MIH-11 also makes room Matrix routing interactive. That requires the Matrix snap
   - output column using accepted output name, falling back to `Main Output`.
 - Render only a **proven accepted current input count/order**. The reference's example row count is not authority and SHALL NOT hard-code eight inputs. Legacy constructor/parser default `8` SHALL NOT become accepted evidence when input count/model capability is unproven.
 - Correct existing Matrix normalization, without new SIS reads, so empty/malformed/unknown route evidence yields `current_connection = None`/UNKNOWN rather than input 1, and unproven input count remains unknown rather than eight.
-- Normalize the per-input HDCP **presence flag** as tri-state evidence: confirmed present -> present, confirmed absent -> absent, failed/malformed/unrecognized -> unknown. The room `HDCP` column SHALL show only `есть`, `нет`, or `Нет данных`; it SHALL NOT show `2.2`, `1.4`, another version token, the HDCP authorization configuration value, or output HDCP status.
+- Make current-input `!` parsing explicit rather than heuristic: after normal framing and optional removal of one exact `!` echo line, accept exactly one ordinal-only untagged response or one exact `In<N> All` tagged/verbose response; require exactly one in-range ordinal; extra payload, multiple numeric candidates, unrelated digits, partial matches, echo-only, or out-of-range values are UNKNOWN.
+- Normalize existing per-input HDCP status with exact tri-state semantics: raw `2 -> True`, `1 -> False`, `0 -> False`, and failed/missing/malformed/unrecognized -> `None`. The room `HDCP` column SHALL show only `есть`, `нет`, or `Нет данных`; it SHALL NOT show `2.2`, `1.4`, another version token, the HDCP authorization configuration value, or output HDCP status.
 - Preserve non-color text/cue meaning for signal, HDCP presence, and route state.
 - Make non-active output cells actionable only when the exact current Matrix row is connected, current, unblocked, has proven accepted input authority, and its unified registration declares the MIH-11 Matrix room mutation/reconciliation bindings.
 - Clicking an actionable output-1 cell produces only a non-secret exact-row route intent. After **explicit operator confirmation**, application composition submits it through the existing serialized room mutation lifecycle; the presentation never calls `ExtronIN1804Handler` or `MatrixController` directly.
 - Add exact Matrix room mutation/reconciliation bindings to the unified model registration; do not create a parallel Matrix model/capability list.
 - Preserve application-owned credential selection/fallback. A structured authentication rejection proven before route delivery may advance to the next approved candidate after cleanup. Once route send was attempted or may have been delivered, no automatic replay or credential advance is permitted.
-- Treat route ACK/transport success as non-authoritative. Mandatory reconciliation reads the exact current Matrix row and confirms success only when truthful normalized `current_connection == requested input`. UNKNOWN/missing/malformed readback can never confirm the mutation.
+- Treat route ACK/transport success as non-authoritative. Mandatory reconciliation reads the exact current Matrix row and confirms success only when truthful normalized `current_connection == requested input` from one exact accepted `!` response family. UNKNOWN/missing/malformed/ambiguous readback can never confirm the mutation.
 - Map `Обновить статус` in Quick actions to the existing exact-row Local Refresh intent.
 - Keep `Перезагрузить устройство` as a visible disabled/non-actionable reference-layout placeholder because current approved Extron IN1804 capability has no reboot mutation.
 - **Do not render `Открыть расширенный экран` at all in MIH-11.** There is no enabled control, disabled placeholder, navigation intent, or acceptance requirement for it. Standalone `MatrixScreen` remains a separate existing surface.
@@ -44,7 +45,7 @@ MIH-11 also makes room Matrix routing interactive. That requires the Matrix snap
 ### Changed capabilities
 
 - `diagnostic-ui-presentation`: adds the final Matrix/IN1804 family-specific expanded visual contract and supersedes the foundation's temporary read-only Matrix room presentation for MIH-11.
-- `device-diagnostics-and-control`: tightens existing Extron IN1804 normalization for the already-read input count, route readback, and HDCP input-status evidence so missing/failed/malformed data remains UNKNOWN instead of becoming fabricated routing authority.
+- `device-diagnostics-and-control`: tightens existing Extron IN1804 normalization for the already-read input count, device-info model/temperature, exact current-input response grammar, route readback, and HDCP input-status evidence so missing/failed/malformed data remains UNKNOWN instead of becoming fabricated authority.
 
 ### New room interaction specialization
 
@@ -79,9 +80,9 @@ Quick actions            18-22%
 
 Within the central table, the input number remains compact and the input-name/output columns receive the largest semantic width. Exact pixel values are presentation tuning; required order/hierarchy and absence of baseline horizontal clipping are normative.
 
-The approved general-information rows are layout slots, not permission to fabricate data. Current Matrix acquisition does not authoritatively provide MAC, serial, firmware, or uptime; those rows remain truthful no-data presentation in MIH-11. A later reviewed diagnostic-data change may add source support without changing this visual slot order.
+The approved general-information rows are layout slots, not permission to fabricate data. Current Matrix acquisition does not authoritatively provide MAC, serial, firmware, or uptime; those rows remain truthful no-data presentation in MIH-11. Model/temperature remain existing reads, but only successful current values are accepted; local `Unknown`/synthetic `0` defaults are no-data, while a genuinely reported numeric zero remains a real temperature.
 
-The `HDCP` column is deliberately **not a version column**. It is a current per-input HDCP-presence projection only: `есть`, `нет`, or `Нет данных`.
+The `HDCP` column is deliberately **not a version column**. It is a current per-input HDCP-presence projection only: `есть`, `нет`, or `Нет данных`. Existing status `0` is a confirmed `нет` because no source/sink means no current HDCP; acquisition failure is separately `Нет данных`.
 
 ## Interaction boundary
 
@@ -129,7 +130,7 @@ The normative implementation target is the current room-mode exact-row surface a
 - `gui/room_diagnostic_tree.py` for Matrix presentation/view-model and room-safe Matrix route intent signal;
 - `gui/diagnostic_dispatch.py` for exact Extron IN1804 mutation/reconciliation binding declaration;
 - `gui/main_window.py` for composition-owned confirmation, Matrix room mutation binding, credential attempt ownership, and reconciliation wiring;
-- `handlers/extron/in1804.py` and `core/parser.py` for **normalization-only corrections of existing reads**: remove fabricated input-count/route defaults and preserve HDCP unknown vs absent; no new SIS commands are authorized;
+- `handlers/extron/in1804.py` and `core/parser.py` for **normalization-only corrections of existing reads**: remove fabricated input-count/route/model/temperature defaults, implement exact current-input response grammar, and preserve HDCP unknown vs confirmed absence with raw `2/1/0 -> True/False/False`; no new SIS commands are authorized;
 - a focused background Matrix room route adapter/controller extension where needed to execute one exact-context state-changing send outside the GUI thread;
 - focused Matrix room presentation/normalization/lifecycle regression tests;
 - `gui/theme.py` only if Matrix-specific semantic presentation tokens are required.
@@ -151,8 +152,8 @@ Architecture review SHALL verify the visual hierarchy against this self-containe
 
 Implementation validation SHALL include:
 
-- focused Matrix normalization tests for unproven input count, empty/malformed connection response, current-connection UNKNOWN, and HDCP present/absent/unknown;
-- explicit regression proving a requested Input 1 route cannot reconcile successfully when route readback is empty, malformed, failed, or unknown;
+- focused Matrix normalization tests for unproven input count; model/temperature no-evidence behavior; exact untagged/tagged/echo current-input response forms; malformed/multiple-token/out-of-range connection responses; current-connection UNKNOWN; and exact HDCP raw-status mapping `2/1/0 -> True/False/False` plus unknown failures;
+- explicit regression proving a requested Input 1 route cannot reconcile successfully when route readback is empty, malformed, ambiguous, failed, outside exact grammar, or unknown;
 - focused Matrix room presentation tests for field order, card order, dynamic proven input count, output naming, signal/HDCP-presence/route non-color states, dark/light rendering, and safe no-data slots;
 - focused Matrix route-intent tests proving no direct widget I/O;
 - registry tests proving Extron IN1804 declares exactly approved room mutation/reconciliation binding and no parallel model list exists;

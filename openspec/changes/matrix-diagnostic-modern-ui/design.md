@@ -9,7 +9,7 @@ Current `master` has three Matrix concerns that must remain separated:
 1. **Accepted Matrix evidence**
    - `ExtronIN1804Handler.get_full_status()` collects existing device/routing evidence.
    - `ExtronIN1804DataParser.parse()` publishes normalized Matrix data.
-   - Current legacy behavior is not fully fail-closed: constructor/parser defaults can synthesize eight inputs or input 1, and failed HDCP reads can collapse to zero.
+   - Current legacy behavior is not fully fail-closed: constructor/parser defaults can synthesize eight inputs or input 1, failed HDCP reads can collapse to zero, and missing device-info reads can appear as `Unknown` model or `0` temperature.
 
 2. **Standalone Matrix lifecycle**
    - `MatrixScreen` owns standalone presentation and emits `routeRequested`.
@@ -95,6 +95,8 @@ Deterministic accepted-key aliases may map existing accepted evidence to those s
 
 On the change base, MAC, serial, firmware, and uptime are not authoritative Matrix evidence. MIH-11 does not add new protocol reads to fill them.
 
+Existing model and temperature reads are allowed, but their normalization is fail closed: failed/missing/unusable model evidence becomes `None` rather than a local `Unknown` sentinel; failed/missing/malformed temperature becomes `None` rather than a convenience zero. A real numeric zero is displayed only when a successful current temperature response actually establishes zero.
+
 ## Decision 4: Table order is normative and rows require proven input authority
 
 The central table semantic order is:
@@ -130,9 +132,17 @@ MIH-11 explicitly includes normalization-only corrections in `handlers/extron/in
 - constructor or parser default `8` is not device evidence;
 - per-input arrays produced only from an unproven legacy default cannot authorize table rows or route intents.
 
+### Model and temperature
+
+- successful current model read with a non-empty device value -> accepted model value;
+- failed/missing/unusable model read or local `Unknown` sentinel -> `None`;
+- successful current temperature read with one parseable numeric measurement -> accepted numeric temperature;
+- failed/missing/malformed temperature read -> `None`;
+- numeric zero is valid only when actually parsed from a successful current response; zero must never be injected as a no-evidence default.
+
 ### Current connection
 
-`current_connection` is an optional accepted input ordinal. It is established only by a successfully parsed existing connection readback that identifies one valid input within the proven accepted input range.
+`current_connection` is an optional accepted input ordinal. It is established only by a successfully parsed existing `!` connection readback that identifies one valid input within the proven accepted input range.
 
 ```text
 valid parse + valid input -> N
@@ -144,21 +154,29 @@ failed read               -> None / UNKNOWN
 
 `get_connections()` SHALL NOT append input 1 when the response contains no parseable route. `ExtronIN1804DataParser.parse()` SHALL NOT use input 1 when the connection list is empty.
 
-A route readback parser SHALL parse the protocol response intentionally rather than concatenate unrelated digits into a synthetic input number.
+The existing `!` response grammar is normative rather than heuristic. After ordinary transport framing/CR/LF normalization, one exact echo line consisting only of `!` MAY be removed. Exactly one remaining response is allowed and it must match one of these families:
+
+```text
+untagged:       N          # decimal ordinal only; Extron manual notation X!]
+tagged/verbose: In<N> All
+```
+
+`N` must be exactly one decimal ordinal within the proven accepted input range. Echo-only, additional payload lines, multiple candidate payloads, partial matches, multiple numeric candidates, unrelated numeric text, or out-of-range ordinals normalize to UNKNOWN. The parser does not search a response for arbitrary digits and does not concatenate digits from unrelated fields.
 
 ### HDCP presence
 
 The room column represents current **input HDCP presence**, not HDCP version, input authorization configuration, or output HDCP state.
 
-A dedicated normalized per-input tri-state projection SHALL be derived from the existing input HDCP status read:
+A dedicated normalized per-input tri-state projection SHALL be derived from the existing input HDCP status read using this exact mapping:
 
 ```text
-recognized present -> True
-recognized absent  -> False
-failed/malformed/unrecognized/missing -> None
+raw 2 -> True   # HDCP present
+raw 1 -> False  # source/sink detected, HDCP absent
+raw 0 -> False  # no source/sink detected, therefore no current HDCP
+other / failed / malformed / unrecognized / missing -> None
 ```
 
-Failure must never be collapsed into false merely to fill the table. Existing `input_hdcp_auth` configuration and `output_hdcp` evidence are not presentation authority for this column.
+Status `0` is confirmed current absence of HDCP, not failed evidence; the separate Signal column remains responsible for showing that no source is detected. Failure must never be collapsed into false merely to fill the table. Existing `input_hdcp_auth` configuration and `output_hdcp` evidence are not presentation authority for this column.
 
 ## Decision 6: Signal, HDCP presence, and route cells preserve non-color meaning
 
@@ -239,7 +257,7 @@ Reconciliation performs current exact-row read-only Matrix acquisition. Success 
 current_connection == requested input_num
 ```
 
-A different input, `None`, malformed/failed evidence, or other UNKNOWN result fails reconciliation unconfirmed. This rule is especially important for requested Input 1: no legacy default may convert missing readback into confirmation.
+The readback must match one exact allowed `!` response family after optional exact echo stripping. A different input, `None`, malformed/ambiguous/failed evidence, extra payload, unrelated digits, out-of-range value, or other UNKNOWN result fails reconciliation unconfirmed. This rule is especially important for requested Input 1: no legacy default may convert missing readback into confirmation.
 
 On failed/unconfirmed reconciliation, prior cache is stale/unconfirmed, row network actions/live remain blocked, and top full Refresh is required. On confirmed reconciliation, the full accepted snapshot may atomically replace row cache; eligible live resumes only after cleanup/currentness checks.
 
@@ -276,9 +294,9 @@ Standalone `MatrixScreen`/`MatrixController` routing remains separate. Tightened
 | Structured auth rejection before delivery | candidate may advance after cleanup |
 | Route send ACK/success | start reconciliation; cache unchanged |
 | Route send ambiguous/unknown outcome | blocked/unconfirmed; no replay/fallback; full Refresh required |
-| Reconciliation reads requested input | accept new full snapshot; normal lifecycle may resume |
+| Reconciliation reads requested input through one exact allowed `!` response | accept new full snapshot; normal lifecycle may resume |
 | Reconciliation reads different input | blocked/unconfirmed; prior cache stale; full Refresh required |
-| Reconciliation has empty/malformed/UNKNOWN route evidence | blocked/unconfirmed; never synthesize Input 1; full Refresh required |
+| Reconciliation has empty/malformed/ambiguous/extra-payload/UNKNOWN route evidence | blocked/unconfirmed; never synthesize Input 1; full Refresh required |
 | Late callback from superseded context | ignored |
 
 ## Testing strategy
@@ -286,17 +304,19 @@ Standalone `MatrixScreen`/`MatrixController` routing remains separate. Tightened
 ### Normalization
 
 - missing/unrecognized model/count does not become 8 accepted inputs;
+- failed/missing model does not publish local `Unknown` as device evidence;
+- failed/malformed/missing temperature does not become numeric zero, while successfully reported numeric zero remains valid;
 - empty connection list normalizes `current_connection` to UNKNOWN, not 1;
-- successful connection response without a parseable input normalizes to UNKNOWN;
-- out-of-range connection normalizes to UNKNOWN;
-- requested Input 1 plus failed/empty/malformed readback cannot reconcile successfully;
-- HDCP input presence has present/absent/unknown states;
-- HDCP read failure/malformed response does not become `нет`.
+- `!` grammar accepts untagged ordinal-only response, tagged/verbose `In<N> All`, and exact-echo + either valid response;
+- echo-only, multiple payloads/numeric candidates, unrelated digits, partial matches, and out-of-range routes normalize to UNKNOWN;
+- requested Input 1 plus failed/empty/malformed/ambiguous readback cannot reconcile successfully;
+- input HDCP raw `2/1/0` maps exactly to `True/False/False`;
+- HDCP read failure/malformed/unrecognized response maps to UNKNOWN and does not become `нет`.
 
 ### Presentation
 
 - exact three-card order at baseline;
-- general-info row order and no-data behavior;
+- general-info row order and no-data behavior, including model/temperature no-evidence semantics;
 - data-driven **proven** input count; no hard-coded/default eight;
 - exact table column order and dynamic output header;
 - signal + non-color cue;
@@ -323,7 +343,7 @@ Standalone `MatrixScreen`/`MatrixController` routing remains separate. Tightened
 - after route send invocation no automatic replay/candidate advance;
 - at most one route send per confirmed mutation attempt;
 - ACK does not update accepted route state;
-- reconciliation must match requested input from truthful normalized evidence;
+- reconciliation must match requested input from truthful normalized evidence and exact accepted response grammar;
 - mismatch/UNKNOWN blocks row and requires full Refresh;
 - stale callbacks cannot update replacement context.
 
@@ -346,6 +366,7 @@ At `1440 x 900` in dark and light themes verify:
 - Signal, HDCP, input name, and output columns readable without baseline clipping;
 - HDCP is presence-only and never shows a version;
 - route state understandable without color;
+- failed/missing General-information evidence renders `Нет данных` rather than convenience sentinels/defaults;
 - reboot visibly disabled;
 - `Открыть расширенный экран` is absent;
 - shared foundation header/room/network regions remain unchanged.
