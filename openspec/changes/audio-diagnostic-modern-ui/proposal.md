@@ -20,7 +20,7 @@ This change isolates that family-specific visual work from Matrix, codec, and PD
 - Add local selected-channel presentation with a non-color selection cue. Selection SHALL survive accepted updates for the same current exact room context while the same `section` + `oid` still exists, and SHALL clear on context supersession or channel disappearance.
 - Use compact ordinal channel captions above the meters and exact dBFS evidence below them. The captions improve density but do not replace exact `section` + `oid` selection identity.
 - Show gain `-`, current gain value, gain `+`, and `Mute` only in local controls visually associated with the hovered channel or the selected/pinned channel; no permanent full-width control strip is part of the accepted dashboard. On the current change base these controls are disabled presentation placeholders because no approved exact-row Audio DSP gain/mute mutation capability exists.
-- Permit only a widget-owned, single-shot presentation timer used to hide/reposition the local control popup. It performs no device I/O and is not a polling, retry, session, acquisition, or mutation timer.
+- Permit only a widget-owned, single-shot presentation timer used to defer showing, hiding, or repositioning the local control popup. It is disposable local UI state: it performs no device I/O, emits no application/room interaction intent, and neither owns nor changes room/record authority, request generation/currentness, accepted diagnostic evidence, or application/device state. It is not a polling, retry, recovery, credential, session, acquisition, or mutation timer.
 - Limit Quick actions to already-approved, existing safe local actions, or to a truthful non-actionable empty state; do not invent a mutation capability.
 - Keep current non-meter Audio DSP evidence honest: existing Biamp Tesira Forte CI `signal_sources` values remain represented as safe source/value evidence and are not fabricated into dBFS meters.
 - Keep dark/light theme geometry stable; theme changes affect styling only and do not restart Audio DSP acquisition or alter row authority.
@@ -53,7 +53,7 @@ This change does not redefine or take ownership of:
 - No Matrix/IN1804, codec, or PDU visual redesign.
 - No new DMP or Biamp protocol commands.
 - No gain or mute mutation implementation.
-- No new polling timer, polling worker, handler/session lane, credential retry lane, or GUI-thread network I/O. A widget-owned single-shot timer solely for local-popup presentation is permitted.
+- No new polling, acquisition, retry/recovery, credential, handler/session lifecycle, or mutation timer; no polling worker, handler/session lane, credential retry lane, or GUI-thread network I/O. A widget-owned single-shot timer solely for deferred local-popup show/hide/reposition presentation is permitted, but it cannot create I/O or intent, start a worker or session, select credentials, drive acquisition/retry/recovery/mutation, or become any application/device authority.
 - No conversion of Biamp boolean/arbitrary source values into invented dBFS evidence.
 - No promotion or embedding of standalone `AudioDSPScreen` as room capability.
 - No change to the common accordion header, one-expanded-row rule, target-search, room/network cards, or application title.

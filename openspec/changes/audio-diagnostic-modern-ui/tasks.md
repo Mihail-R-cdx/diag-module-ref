@@ -5,7 +5,7 @@
 - [x] 1.1 Read current `RULES.md`, current merged root OpenSpec, and confirm the change is based on current `master` after archived `room-diagnostic-modern-ui`.
 - [x] 1.2 Reconfirm the real room Audio DSP source/tests before implementation: `RoomDiagnosticTreeWidget`, `RoomReadOnlyPresentation._build_audio()`, `normalize_audio_dsp_presentation`, DMP canonical `meter_sections`, Biamp `signal_sources`, unified registry `dmp_one_shot` / `dmp_room_live`, and existing stale-result/cleanup boundaries. Treat standalone `AudioDSPScreen` / `DMPPollingController` only as a separate secondary surface/lifecycle.
 - [x] 1.3 From the repository root run only `./openspec.cmd validate audio-diagnostic-modern-ui --strict` (PowerShell: `.\openspec.cmd validate audio-diagnostic-modern-ui --strict`) and complete architecture review before production implementation.
-- [x] 1.4 Amend the active OpenSpec artifacts after the user-approved implementation visual refinement: record the accepted `1440 x 900` dashboard, compact ordinal captions, local hover/selected-pinned disabled controls, safe Quick actions, and the narrowly presentation-only popup timer without changing lifecycle authority or claiming the cancelled `1180 x 720` manual review.
+- [x] 1.4 Amend the active OpenSpec artifacts after the user-approved implementation visual refinement: record the accepted `1440 x 900` dashboard, compact ordinal captions, local hover/selected-pinned disabled controls, safe Quick actions, and the narrowly permitted widget-owned single-shot popup timer for deferred show/hide/reposition only, without changing lifecycle authority or claiming the cancelled `1180 x 720` manual review.
 
 ## 2. Room Audio DSP presentation implementation
 
@@ -22,7 +22,7 @@
 
 ## 3. Lifecycle and authority preservation
 
-- [x] 3.1 Prove channel select/deselect, meter repaint/animation, hover/focus, resize/reflow, theme toggle, and pure presentation rebuilds perform no device I/O and do not start workers, lifecycle/polling timers, handlers, sessions, credential attempts, retries, or mutations. A widget-owned single-shot timer may only defer hiding/repositioning the local controls and must remain presentation-only.
+- [x] 3.1 Prove channel select/deselect, meter repaint/animation, hover/focus, resize/reflow, theme toggle, and pure presentation rebuilds perform no device I/O and do not start workers, polling/lifecycle, acquisition, retry/recovery, credential, or mutation timers, handlers, sessions, credential attempts, retries, or mutations. A widget-owned single-shot timer may only defer local-control show/hide/reposition and must remain disposable presentation state: no I/O or interaction intent; no worker/session or credential action; no acquisition/polling/retry/recovery/mutation driver; and no room/record, currentness, accepted-evidence, or application/device authority.
 - [x] 3.2 Prove room DMP automatic acquisition remains `dmp_one_shot`, room live interaction remains `dmp_room_live`, and standalone `DMPPollingController` is not promoted into room mode or treated as room callback authority.
 - [x] 3.3 Prove stale/superseded room DMP callbacks cannot update a replacement Audio DSP exact row/context and cannot restore stale selected-channel state.
 - [x] 3.4 Prove row expand/collapse does not create, leak, or duplicate room DMP live/session ownership and does not alter common accordion acquisition order.

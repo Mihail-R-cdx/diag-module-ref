@@ -192,7 +192,7 @@ The following events are presentation-only and SHALL perform zero device I/O by 
 - dark/light theme toggle;
 - resize, reflow, or scrolling.
 
-The Audio DSP room view SHALL NOT create a polling or lifecycle `QTimer`, worker, controller, handler/session, credential plan, retry lane, or mutation lane. A focused widget MAY own a single-shot `QTimer` solely to defer hiding or repositioning its local control popup, provided it performs no device I/O, emits no room interaction intent, starts no worker/session, and does not drive acquisition, retry, or mutation.
+The Audio DSP room view SHALL NOT create a polling, acquisition, retry/recovery, credential, handler/session lifecycle, or mutation `QTimer`; nor SHALL it create a worker, controller, handler/session, credential plan, retry lane, or mutation lane. A focused widget MAY own a single-shot `QTimer` solely to defer showing, hiding, or repositioning its local control popup. This timer is disposable widget-owned presentation state only: it SHALL perform no device/network I/O, emit no application/room interaction intent, start no worker or handler/session, acquire or choose credentials, drive acquisition, polling, retry/recovery, or mutation, alter room/record authority, alter request generation/currentness, alter accepted diagnostic evidence, or become application/device state authority.
 
 Existing application-owned room generation/record/credential/currentness checks remain authority for accepting or rejecting room callbacks. A stale room snapshot cannot update a replacement Audio DSP view or restore stale channel selection.
 

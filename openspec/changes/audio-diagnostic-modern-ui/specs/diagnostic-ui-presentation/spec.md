@@ -109,7 +109,9 @@ Because current room rendering may rebuild child presentation widgets, selected-
 - **GIVEN** an expanded current Audio DSP row with no selected channel
 - **WHEN** the operator selects one meter channel
 - **THEN** that channel receives an explicit non-color selection cue
-- **AND** no worker, timer, handler, session, credential attempt, retry, room interaction intent, or device command is started by selection
+- **AND** selection starts no polling/lifecycle, acquisition, retry/recovery, credential, or mutation timer; no worker, handler/session, credential attempt, room interaction intent, or device command
+- **AND** selection MAY indirectly schedule the permitted widget-owned single-shot presentation timer solely to defer showing, hiding, or repositioning local controls
+- **AND** that timer remains disposable local UI state and does not perform I/O, emit interaction intent, start a worker/session, select credentials, drive acquisition/polling/retry/recovery/mutation, alter room/record authority, request generation/currentness, accepted evidence, or application/device state authority
 - **AND** room acquisition order and exact-row authority remain unchanged
 
 #### Scenario: Same-context accepted snapshot preserves selected channel
@@ -187,7 +189,7 @@ The following presentation events SHALL perform zero device network I/O by thems
 - dark/light theme toggle;
 - resize, reflow, or scrolling.
 
-Presentation SHALL NOT create a polling or lifecycle `QTimer`, worker, controller, handler/session, credential plan, retry lane, or mutation lane merely to drive the modern visual design. A focused presentation widget MAY own a single-shot `QTimer` solely to defer hiding or repositioning its local controls, provided the timer performs no device I/O, emits no room interaction intent, starts no worker/session, and does not drive acquisition, retry, or mutation.
+Presentation SHALL NOT create a polling, acquisition, retry/recovery, credential, handler/session lifecycle, or mutation `QTimer`; nor a worker, controller, handler/session, credential plan, retry lane, or mutation lane merely to drive the modern visual design. A focused presentation widget MAY own a single-shot `QTimer` solely to defer showing, hiding, or repositioning its local controls. This timer is disposable widget-owned presentation state only: it SHALL perform no device/network I/O, emit no application/room interaction intent, start no worker or handler/session, acquire or choose credentials, drive acquisition, polling, retry/recovery, or mutation, alter room/record authority, alter request generation/currentness, alter accepted diagnostic evidence, or become application/device state authority.
 
 Existing application-owned room generation/record/credential/currentness checks SHALL remain authority for accepting callbacks. A stale snapshot from a superseded room context SHALL NOT update the replacement Audio DSP presentation, selected-channel state, credential memory, or lifecycle state.
 
