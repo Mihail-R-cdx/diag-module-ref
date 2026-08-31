@@ -29,25 +29,9 @@ When the current accepted exact-row Audio DSP presentation receives numeric `met
 
 For the current change base, Extron DMP 64 Plus provides deterministic `Inputs` and `Outputs` meter sections with six input channels and four output channels. Presentation SHALL preserve accepted section/channel order and SHALL NOT sort by value, availability, outcome, color zone, or local selection.
 
-At the foundation baseline viewport (`1440 x 900` logical pixels), Inputs and Outputs SHALL appear as peer section cards in one horizontal meter area where width permits, with approximate meter-area proportions:
+At the accepted baseline viewport (`1440 x 900` logical pixels), the Audio DSP content SHALL form a compact dashboard with a narrow General information card, a dominant central meter area, and a narrow Quick actions card. Inputs and Outputs SHALL appear as peer section cards in one horizontal central meter area where width permits; Inputs receive more width than Outputs because the accepted DMP payload contains six Inputs and four Outputs.
 
-```text
-Inputs / sources           55-62%
-Outputs / destinations     38-45%
-```
-
-Each numeric meter channel SHALL use these baseline proportions:
-
-```text
-channel column width       56-76 px
-active meter track width   18-28 px
-meter track height         180-240 px
-segment count              20
-segment gap                2-3 px
-channel-to-channel gap     8-14 px
-channel label              1-2 compact lines below meter
-numeric dBFS               directly below/adjacent to meter
-```
+Each numeric meter channel SHALL have a compact ordinal caption above its meter and visible numeric dBFS evidence below it. The caption SHALL omit the repeated `Input` or `Output` prefix, while exact `section` + `oid` remains the channel identity. Exact pixel sizes, gaps, and card ratios are presentation tuning rather than a normative contract. Each meter SHALL have exactly 20 segments and retain deterministic order, visible numeric evidence, and supported-size reachability.
 
 The visual scale SHALL correspond to `-60 dBFS` through `+12 dBFS`. Accepted numeric `dbfs` SHALL remain visibly operator-readable and authoritative as evidence. Accepted `normalized` SHALL be used only for meter fill.
 
@@ -144,9 +128,9 @@ Because current room rendering may rebuild child presentation widgets, selected-
 - **THEN** the old local channel selection is cleared
 - **AND** a stale callback cannot restore it as current selection
 
-### Requirement: Audio DSP future gain and mute controls remain disabled placeholders until separately authorized
+### Requirement: Audio DSP future gain and mute controls remain local disabled placeholders until separately authorized
 
-The modern room Audio DSP presentation SHALL reserve a selected-channel control strip containing a channel context/label, gain decrement `-`, current gain/value, gain increment `+`, and `Mute`. The strip SHALL remain visually associated with the expanded Audio DSP row rather than the global toolbar.
+The modern room Audio DSP presentation SHALL expose local controls visually associated with a hovered channel or a selected/pinned channel. They contain a channel context/label, gain decrement `-`, current gain/value, gain increment `+`, and `Mute`; a permanent full-width selected-channel control strip is not part of the accepted dashboard.
 
 On the current change base there is no approved exact-row Audio DSP gain/mute mutation binding. Therefore:
 
@@ -164,10 +148,21 @@ Enabling any of these controls requires a later approved capability defining exa
 #### Scenario: Selected channel exposes only disabled future controls
 
 - **GIVEN** a current room Audio DSP meter channel is locally selected
-- **WHEN** the future control strip is shown
+- **WHEN** the local future controls are shown
 - **THEN** `-`, `+`, and `Mute` are disabled/non-actionable
 - **AND** current gain/value is shown as `—` or equivalent no-data text when no authoritative field exists
 - **AND** interacting with the disabled presentation starts no device I/O or mutation intent
+
+### Requirement: Audio DSP Quick actions remain truthful to existing safe room capability
+
+The narrow Audio DSP Quick actions card SHALL contain only already-approved existing safe local room actions supplied by the current room presentation. It SHALL NOT add, imply, or enable an Audio DSP gain/mute or other device mutation capability. When no approved action is supplied, it SHALL show a truthful non-actionable empty state.
+
+#### Scenario: Quick actions do not fabricate a capability
+
+- **GIVEN** an expanded Audio DSP room row has no approved local action supplied to its presentation
+- **WHEN** the Audio DSP dashboard renders
+- **THEN** its Quick actions card shows a truthful non-actionable empty state
+- **AND** no new device request, mutation intent, worker, or session is created
 
 ### Requirement: Audio DSP redesign preserves room lifecycle bindings and stale-operation boundaries
 
@@ -192,7 +187,7 @@ The following presentation events SHALL perform zero device network I/O by thems
 - dark/light theme toggle;
 - resize, reflow, or scrolling.
 
-Presentation SHALL NOT create another polling `QTimer`, worker, controller, handler/session, credential plan, retry lane, or mutation lane merely to drive the modern visual design.
+Presentation SHALL NOT create a polling or lifecycle `QTimer`, worker, controller, handler/session, credential plan, retry lane, or mutation lane merely to drive the modern visual design. A focused presentation widget MAY own a single-shot `QTimer` solely to defer hiding or repositioning its local controls, provided the timer performs no device I/O, emits no room interaction intent, starts no worker/session, and does not drive acquisition, retry, or mutation.
 
 Existing application-owned room generation/record/credential/currentness checks SHALL remain authority for accepting callbacks. A stale snapshot from a superseded room context SHALL NOT update the replacement Audio DSP presentation, selected-channel state, credential memory, or lifecycle state.
 
@@ -239,7 +234,7 @@ The safe source/value presentation MAY remain tabular/card-based. If no numeric 
 
 ### Requirement: Modern room Audio DSP content remains usable in foundation themes and supported sizes
 
-The Audio DSP redesign SHALL inherit the foundation baseline viewport of `1440 x 900` and minimum supported window of `1180 x 720` logical pixels. At baseline width the numeric Inputs and Outputs cards SHALL be side by side with approved relative proportions. At narrower supported widths, controlled reflow MAY stack the meter cards vertically or use existing expanded-content scrolling, provided all current channels, numeric values, secondary diagnostic outcome detail, selection cue, and disabled control strip remain reachable.
+The Audio DSP redesign SHALL inherit the foundation baseline viewport of `1440 x 900` and minimum supported window of `1180 x 720` logical pixels. At baseline width it SHALL show the accepted dashboard hierarchy: narrow General information, dominant central Inputs/Outputs meter area, and narrow Quick actions. Inputs and Outputs cards SHALL be side by side in the central area. At narrower supported widths, controlled reflow MAY place auxiliary cards above the meter area, stack the meter cards vertically, or use existing expanded-content scrolling, provided all current channels, numeric values, secondary diagnostic outcome detail, selection cue, and disabled local controls remain reachable.
 
 Responsive behavior SHALL NOT change channel identity, order, accepted numeric/structured evidence, selected exact channel, or device lifecycle authority. Channel labels SHALL remain visible rather than existing solely as hover tooltips.
 
@@ -249,11 +244,11 @@ Dark and light themes SHALL preserve equivalent geometry, channel order, evidenc
 
 - **GIVEN** the same accepted current room DMP meter snapshot
 - **WHEN** the expanded Audio DSP row is rendered at `1440 x 900` in dark theme and then light theme
-- **THEN** Inputs/Outputs grouping, channel order, segment count, meter dimensions, numeric dBFS, structured outcome detail, disabled-control state, and selected identity remain equivalent
+- **THEN** dashboard hierarchy, Inputs/Outputs grouping, compact captions, channel order, segment count, numeric dBFS, structured outcome detail, disabled-control state, and selected identity remain equivalent
 - **AND** only theme styling changes
 
 #### Scenario: Minimum supported window keeps room Audio DSP content reachable
 
 - **WHEN** the application is shown at `1180 x 720` logical pixels with an expanded numeric Audio DSP room row
-- **THEN** controlled reflow/scrolling keeps every current meter channel, numeric value, secondary diagnostic outcome, selected cue, and disabled control strip reachable
+- **THEN** controlled reflow/scrolling keeps every current meter channel, numeric value, secondary diagnostic outcome, selected cue, and disabled local control reachable
 - **AND** no channel/data authority changes because of layout reflow

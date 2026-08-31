@@ -6,7 +6,7 @@ The merged and archived `room-diagnostic-modern-ui` foundation deliberately kept
 
 The standalone `AudioDSPScreen` is a different presentation surface. It may show the same device family and may be a secondary consumer of reusable presentation widgets, but it is not the MIH-10 acceptance target and SHALL NOT be promoted into room mode merely because it represents Audio DSP devices.
 
-Extron DMP 64 Plus accepted room snapshots already expose exact per-channel `dbfs`, `normalized`, availability, structured outcome evidence, and Input/Output grouping. The current room-mode Audio DSP presentation reduces that evidence to a read-only table. The desired room view is a compact vertical-meter presentation that remains a projection of the existing room lifecycle rather than creating another polling/session/control path.
+Extron DMP 64 Plus accepted room snapshots already expose exact per-channel `dbfs`, `normalized`, availability, structured outcome evidence, and Input/Output grouping. The current room-mode Audio DSP presentation reduces that evidence to a read-only table. The accepted room view is a compact dashboard: a narrow General information card, a dominant central peer area for Inputs and Outputs, and a narrow Quick actions card. It remains a projection of the existing room lifecycle rather than creating another polling/session/control path.
 
 This change isolates that family-specific visual work from Matrix, codec, and PDU redesigns so implementation, regression review, visual acceptance, and archive evidence remain focused.
 
@@ -18,7 +18,10 @@ This change isolates that family-specific visual work from Matrix, codec, and PD
 - Define deterministic 20-segment quantization and fixed segment-zone classification so GUI regression tests have one expected result.
 - Preserve safe structured unavailable-channel diagnostic evidence (`outcome` and accepted safe `error_code` when present) separately from the numeric `— dBFS` presentation.
 - Add local selected-channel presentation with a non-color selection cue. Selection SHALL survive accepted updates for the same current exact room context while the same `section` + `oid` still exists, and SHALL clear on context supersession or channel disappearance.
-- Reserve the approved visual positions for gain `-`, current gain value, gain `+`, and `Mute`; on the current change base these controls are disabled presentation placeholders because no approved exact-row Audio DSP gain/mute mutation capability exists.
+- Use compact ordinal channel captions above the meters and exact dBFS evidence below them. The captions improve density but do not replace exact `section` + `oid` selection identity.
+- Show gain `-`, current gain value, gain `+`, and `Mute` only in local controls visually associated with the hovered channel or the selected/pinned channel; no permanent full-width control strip is part of the accepted dashboard. On the current change base these controls are disabled presentation placeholders because no approved exact-row Audio DSP gain/mute mutation capability exists.
+- Permit only a widget-owned, single-shot presentation timer used to hide/reposition the local control popup. It performs no device I/O and is not a polling, retry, session, acquisition, or mutation timer.
+- Limit Quick actions to already-approved, existing safe local actions, or to a truthful non-actionable empty state; do not invent a mutation capability.
 - Keep current non-meter Audio DSP evidence honest: existing Biamp Tesira Forte CI `signal_sources` values remain represented as safe source/value evidence and are not fabricated into dBFS meters.
 - Keep dark/light theme geometry stable; theme changes affect styling only and do not restart Audio DSP acquisition or alter row authority.
 - Preserve the existing room application/composition lifecycle. For DMP, room automatic acquisition remains `dmp_one_shot` and room live interaction remains `dmp_room_live`; standalone `DMPPollingController` remains separate and is not room-mode authority.
@@ -50,7 +53,7 @@ This change does not redefine or take ownership of:
 - No Matrix/IN1804, codec, or PDU visual redesign.
 - No new DMP or Biamp protocol commands.
 - No gain or mute mutation implementation.
-- No new polling timer, polling worker, handler/session lane, credential retry lane, or GUI-thread network I/O.
+- No new polling timer, polling worker, handler/session lane, credential retry lane, or GUI-thread network I/O. A widget-owned single-shot timer solely for local-popup presentation is permitted.
 - No conversion of Biamp boolean/arbitrary source values into invented dBFS evidence.
 - No promotion or embedding of standalone `AudioDSPScreen` as room capability.
 - No change to the common accordion header, one-expanded-row rule, target-search, room/network cards, or application title.
@@ -78,4 +81,6 @@ Changes to `core/dmp64_plus.py`, DMP workers, room adapters/live bindings, `DMPP
 
 ## Validation Direction
 
-Architecture review SHALL verify that room-mode expanded Audio DSP is the actual target and that no standalone surface is promoted into room authority. Implementation validation SHALL include focused tests through `RoomDiagnosticTreeWidget`, DMP/Biamp presentation tests, room-live lifecycle regressions, theme/foundation regressions, full offline tests, repository-local strict OpenSpec validation, `git diff --check`, `git diff --cached --check`, and manual dark/light room screenshots at the foundation baseline/minimum sizes. Independent validation and archive remain later workflow gates and are not satisfied by this proposal.
+Architecture review SHALL verify that room-mode expanded Audio DSP is the actual target, that no standalone surface is promoted into room authority, and that the local-popup timer stays within its presentation-only boundary. Implementation validation SHALL include focused tests through `RoomDiagnosticTreeWidget`, DMP/Biamp presentation tests, room-live lifecycle regressions, theme/foundation regressions, full offline tests, repository-local strict OpenSpec validation, `git diff --check`, and `git diff --cached --check`.
+
+The user accepted the controlled full-production dashboard at `1440 x 900` in dark and light themes. The `1180 x 720` manual visual checkpoint was explicitly cancelled: responsive runtime behavior remains covered by regression tests, but no manual acceptance is claimed for that viewport. This amendment records the user-approved visual refinement after the initial architecture decision and before independent validation; it does not weaken lifecycle, evidence, or mutation boundaries. Independent validation and archive remain later workflow gates and are not satisfied by this proposal.

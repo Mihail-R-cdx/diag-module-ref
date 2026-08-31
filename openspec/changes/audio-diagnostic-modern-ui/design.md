@@ -67,25 +67,9 @@ The GUI SHALL NOT derive dBFS from arbitrary `signal_sources`, boolean state, ra
 
 ## Decision 3: Vertical segmented meters preserve numeric and structured diagnostic evidence
 
-At the foundation baseline viewport (`1440 x 900` logical pixels), the expanded Audio DSP meter area SHALL present two peer section cards in one horizontal row where width permits:
+At the accepted baseline viewport (`1440 x 900` logical pixels), the expanded Audio DSP content is a compact dashboard: a narrow General information card, a dominant central meter area, and a narrow Quick actions card. The central area presents Inputs and Outputs as peer section cards in one horizontal row where width permits; Inputs receive more width than Outputs because the accepted DMP payload has six Inputs and four Outputs.
 
-```text
-Inputs / sources             approximately 55-62% of meter-area width
-Outputs / destinations       approximately 38-45% of meter-area width
-```
-
-Each channel uses the following baseline proportions:
-
-```text
-channel column width         56-76 px
-active meter track width     18-28 px
-meter track height           180-240 px
-segment count                20
-segment gap                  2-3 px
-channel-to-channel gap       8-14 px
-channel label                1-2 compact lines below the meter
-numeric value                directly below/adjacent to the meter
-```
+Each channel has a compact ordinal caption above its meter and accepted numeric dBFS evidence below it. The compact captions intentionally omit the repeated words `Input` and `Output`; exact `section` + `oid` remains the selection identity. Exact pixel sizes, gaps, and card ratios are visual tuning rather than a normative contract. The fixed semantic contract is 20 segments, visible numeric evidence, deterministic order, and reachability at supported sizes.
 
 The fixed visual scale is `-60 dBFS` through `+12 dBFS`. Accepted `dbfs` remains the visible operator-readable numeric truth. Accepted `normalized` is used only to determine meter fill and SHALL NOT replace `dbfs` as displayed evidence.
 
@@ -157,9 +141,9 @@ No first channel is implicitly selected on row expansion.
 
 Because `RoomDiagnosticTreeWidget.render()` rebuilds child presentations, selection SHALL NOT be owned only by a disposable child widget if that would reset it on every accepted snapshot. A natural implementation is local non-authoritative state on `RoomDiagnosticTreeWidget` (or an equivalent room-presentation owner above the rebuilt child), passed into the Audio DSP child when rebuilt. This is an implementation choice, not a new application/device authority.
 
-## Decision 5: Gain/mute positions are disabled future controls on this change base
+## Decision 5: Gain/mute positions are local disabled future controls on this change base
 
-The room Audio DSP view reserves a selected-channel control strip containing channel context/label, gain decrement `-`, current gain/value, gain increment `+`, and `Mute`.
+The room Audio DSP view exposes local controls visually associated with a hovered channel or a selected/pinned channel. They contain channel context/label, gain decrement `-`, current gain/value, gain increment `+`, and `Mute`. The accepted dashboard has no permanent full-width selected-channel control strip.
 
 Current `master` does not expose an approved exact-row Audio DSP gain/mute mutation binding for this room presentation. Therefore:
 
@@ -173,6 +157,8 @@ Mute                   disabled/non-actionable
 The placeholders emit no room interaction intent, signal, worker start, handler/session acquisition, protocol command, or device request. Meter level SHALL NOT be interpreted as gain or mute state.
 
 A later approved change may enable them only after exact target identity, application intent binding, mutation safety, reconciliation/readback, lifecycle/currentness, and failure semantics are specified.
+
+Quick actions remain limited to already-approved existing safe local room actions. If no such action is supplied, the card shows a truthful non-actionable empty state. MIH-10 SHALL NOT add or imply a gain/mute or other device mutation action there.
 
 ## Decision 6: Biamp/non-meter evidence remains a truthful fallback presentation
 
@@ -202,11 +188,11 @@ The following events are presentation-only and SHALL perform zero device I/O by 
 - row expand/collapse;
 - channel select/deselect;
 - meter repaint/visual animation;
-- hover/focus over meter or disabled controls;
+- hover/focus over meter or disabled local controls;
 - dark/light theme toggle;
 - resize, reflow, or scrolling.
 
-The Audio DSP room view SHALL NOT create another `QTimer`, polling worker, controller, handler/session, credential plan, retry lane, or mutation lane.
+The Audio DSP room view SHALL NOT create a polling or lifecycle `QTimer`, worker, controller, handler/session, credential plan, retry lane, or mutation lane. A focused widget MAY own a single-shot `QTimer` solely to defer hiding or repositioning its local control popup, provided it performs no device I/O, emits no room interaction intent, starts no worker/session, and does not drive acquisition, retry, or mutation.
 
 Existing application-owned room generation/record/credential/currentness checks remain authority for accepting or rejecting room callbacks. A stale room snapshot cannot update a replacement Audio DSP view or restore stale channel selection.
 
@@ -218,7 +204,7 @@ If implementation appears to require changes to `dmp_one_shot`, `dmp_room_live`,
 
 The change inherits foundation baseline `1440 x 900` and minimum `1180 x 720` logical-pixel requirements.
 
-At baseline, Inputs and Outputs are side by side. At narrower supported widths, controlled reflow MAY stack the two section cards vertically or use existing expanded-content scrolling, provided every channel, numeric value, secondary outcome detail, selected cue, and disabled control strip remains reachable.
+At baseline, the narrow General information card, dominant central Inputs/Outputs meter area, and narrow Quick actions card form the accepted dashboard; Inputs and Outputs are side by side inside the central area. At narrower supported widths, controlled reflow MAY place the auxiliary cards above the meter area, stack the two section cards vertically, or use existing expanded-content scrolling, provided every channel, numeric value, secondary outcome detail, selected cue, and disabled local control remains reachable.
 
 Dark/light changes alter style tokens only. Meter dimensions, channel order, selected identity, accepted dBFS/outcome evidence, and lifecycle state SHALL not change merely because the theme changed. The application continues to start in dark theme; this change adds no theme persistence.
 
@@ -270,7 +256,7 @@ Tests SHALL prove through the room-mode surface at least:
 - accepted snapshots for the same exact context/record preserve selection while the same `section` + `oid` remains present;
 - context supersession, record removal, or channel disappearance clears selection;
 - no implicit first-channel selection occurs;
-- disabled `-`, value, `+`, `Mute` placeholders emit no mutation/interaction intent;
+- disabled `-`, value, `+`, `Mute` local placeholders emit no mutation/interaction intent;
 - Biamp `signal_sources` remain non-fabricated scalar/source presentation;
 - room DMP automatic/live lifecycle remains `dmp_one_shot` / `dmp_room_live` and standalone `DMPPollingController` is not promoted;
 - stale room callbacks cannot update a superseded exact row or restore selection;
@@ -285,9 +271,10 @@ Using controlled fixture data, inspect the **expanded Audio DSP row inside the r
 
 - `1440 x 900` dark theme;
 - `1440 x 900` light theme with identical data;
-- `1180 x 720` minimum supported size.
 
-Verify room integration, Inputs/Outputs hierarchy, segment readability, numeric dBFS, structured unavailable outcome detail, selected cue persistence during same-context accepted updates, disabled controls, and geometry-stable theme behavior. Screenshots remain local/untracked unless separately approved.
+The user accepted the `1440 x 900` dark and light reviews. The `1180 x 720` manual visual checkpoint was explicitly cancelled; responsive runtime behavior remains automated, but this design does not claim user acceptance for that viewport.
+
+Verify room integration, dashboard hierarchy, compact ordinal labels, segment readability, numeric dBFS, structured unavailable outcome detail, selected cue persistence during same-context accepted updates, local disabled controls, Quick actions truthfulness, and geometry-stable theme behavior. Screenshots remain local/untracked unless separately approved.
 
 ### Full workflow
 

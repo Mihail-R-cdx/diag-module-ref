@@ -5,6 +5,7 @@
 - [x] 1.1 Read current `RULES.md`, current merged root OpenSpec, and confirm the change is based on current `master` after archived `room-diagnostic-modern-ui`.
 - [x] 1.2 Reconfirm the real room Audio DSP source/tests before implementation: `RoomDiagnosticTreeWidget`, `RoomReadOnlyPresentation._build_audio()`, `normalize_audio_dsp_presentation`, DMP canonical `meter_sections`, Biamp `signal_sources`, unified registry `dmp_one_shot` / `dmp_room_live`, and existing stale-result/cleanup boundaries. Treat standalone `AudioDSPScreen` / `DMPPollingController` only as a separate secondary surface/lifecycle.
 - [x] 1.3 From the repository root run only `./openspec.cmd validate audio-diagnostic-modern-ui --strict` (PowerShell: `.\openspec.cmd validate audio-diagnostic-modern-ui --strict`) and complete architecture review before production implementation.
+- [x] 1.4 Amend the active OpenSpec artifacts after the user-approved implementation visual refinement: record the accepted `1440 x 900` dashboard, compact ordinal captions, local hover/selected-pinned disabled controls, safe Quick actions, and the narrowly presentation-only popup timer without changing lifecycle authority or claiming the cancelled `1180 x 720` manual review.
 
 ## 2. Room Audio DSP presentation implementation
 
@@ -12,16 +13,16 @@
 - [x] 2.2 Implement the vertical 20-segment dBFS meter using accepted `normalized` only for fill and accepted `dbfs` as visible numeric truth. Use exactly `filled_segments = floor(clamp(normalized, 0, 1) * 20 + 0.5)`.
 - [x] 2.3 Classify each physical filled segment by fixed midpoint `-60 + (index + 0.5) * 3.6 dBFS`: green below `-18`, yellow from `-18` to below `-6`, orange at/above `-6`; use theme-aware tokens and keep numeric dBFS visible.
 - [x] 2.4 Render unavailable numeric evidence as a neutral/empty segmented track with `— dBFS` while preserving accepted safe structured `outcome` and accepted safe `error_code` when present in secondary presentation. Do not expose raw payload/debug text, reuse an old value, or fabricate `0 dBFS`.
-- [x] 2.5 Implement deterministic channel labels/order and local selected-channel state keyed by current exact room context + `record_id` + `section` + `oid`, with an explicit non-color selection cue.
+- [x] 2.5 Implement deterministic compact ordinal channel captions above the meters, accepted dBFS evidence below, and local selected-channel state keyed by current exact room context + `record_id` + `section` + `oid`, with an explicit non-color selection cue.
 - [x] 2.6 Preserve valid selected-channel state across accepted same-context snapshot rebuilds while the same `section` + `oid` remains present. Clear it on context supersession/clear, record replacement/removal, or selected-channel disappearance. Do not keep this state solely in a disposable rebuilt child if that causes snapshot-to-snapshot reset.
-- [x] 2.7 Add the future selected-channel control strip with `-`, current gain/value, `+`, and `Mute` in the approved room layout. On the current base all are disabled/non-actionable, current gain is `—`/`Нет данных`, and no application/room interaction intent or network mutation is emitted.
+- [x] 2.7 Add local hover/selected-pinned future controls with `-`, current gain/value, `+`, and `Mute`, visually associated with their channel and without a permanent full-width control strip. On the current base all are disabled/non-actionable, current gain is `—`/`Нет данных`, and no application/room interaction intent or network mutation is emitted.
 - [x] 2.8 Preserve current Biamp `signal_sources` as truthful source/value evidence; family-consistent visual cleanup is allowed, but do not fabricate dBFS meters, Inputs/Outputs, gain, or mute state from unsupported evidence.
-- [x] 2.9 Keep room Audio DSP content usable at foundation baseline `1440 x 900` and minimum `1180 x 720`, with controlled reflow/scrolling and consistent dark/light geometry.
+- [x] 2.9 Keep room Audio DSP content usable at foundation baseline `1440 x 900` and minimum `1180 x 720`, with the accepted narrow-General / dominant-Inputs+Outputs / narrow-Quick-actions dashboard at baseline and controlled reflow/scrolling at narrow widths.
 - [x] 2.10 If a focused reusable Audio DSP presentation widget is extracted, integrate it into the room exact-row path first. Optional standalone `AudioDSPScreen` reuse is secondary and must not change room authority or acceptance.
 
 ## 3. Lifecycle and authority preservation
 
-- [x] 3.1 Prove channel select/deselect, meter repaint/animation, hover/focus, resize/reflow, theme toggle, and pure presentation rebuilds perform no device I/O and do not start workers, timers, handlers, sessions, credential attempts, retries, or mutations.
+- [x] 3.1 Prove channel select/deselect, meter repaint/animation, hover/focus, resize/reflow, theme toggle, and pure presentation rebuilds perform no device I/O and do not start workers, lifecycle/polling timers, handlers, sessions, credential attempts, retries, or mutations. A widget-owned single-shot timer may only defer hiding/repositioning the local controls and must remain presentation-only.
 - [x] 3.2 Prove room DMP automatic acquisition remains `dmp_one_shot`, room live interaction remains `dmp_room_live`, and standalone `DMPPollingController` is not promoted into room mode or treated as room callback authority.
 - [x] 3.3 Prove stale/superseded room DMP callbacks cannot update a replacement Audio DSP exact row/context and cannot restore stale selected-channel state.
 - [x] 3.4 Prove row expand/collapse does not create, leak, or duplicate room DMP live/session ownership and does not alter common accordion acquisition order.
@@ -31,11 +32,11 @@
 ## 4. Regression coverage
 
 - [x] 4.1 Add focused GUI tests through `RoomDiagnosticTreeWidget` proving an expanded Audio DSP exact row uses the modern room presentation rather than standalone `AudioDSPScreen`.
-- [x] 4.2 Add focused room GUI tests for current DMP six-Input/four-Output grouping, deterministic accepted order, meter geometry/20-segment count, numeric dBFS display, and exact round-half-up normalized fill.
+- [x] 4.2 Add focused room GUI tests for the accepted dashboard hierarchy, current DMP six-Input/four-Output grouping, compact ordinal captions, deterministic accepted order, 20-segment count, numeric dBFS display, and exact round-half-up normalized fill.
 - [x] 4.3 Add focused tests for fixed midpoint semantic-zone assignment, including values/segments around the `-18 dBFS` and `-6 dBFS` boundaries, without color-only value meaning.
 - [x] 4.4 Add focused tests for unavailable channels showing `— dBFS` while preserving accepted structured `outcome`/safe `error_code`, with no stale numeric reuse or fabricated `0 dBFS`.
 - [x] 4.5 Add focused tests for selected-channel non-color cue, same-context persistence across room presentation rebuilds, clearing on context/record/channel invalidation, and no implicit first-channel selection.
-- [x] 4.6 Add focused tests proving `-`, gain/value, `+`, and `Mute` placeholders are disabled and emit no action/room-interaction/mutation intent.
+- [x] 4.6 Add focused tests proving local hover/selected-pinned `-`, gain/value, `+`, and `Mute` placeholders are disabled, full-size, and emit no action/room-interaction/mutation intent.
 - [x] 4.7 Add/retain regression coverage for Biamp non-meter `signal_sources` so arbitrary scalar/boolean evidence is not turned into dBFS.
 - [x] 4.8 Re-run existing DMP protocol/worker/controller tests as regression protection, but also run room one-shot/live production lifecycle tests, `RoomDiagnosticTreeWidget`/foundation tests, and theme regressions relevant to the changed room presentation.
 - [ ] 4.9 If standalone `AudioDSPScreen` reuses the focused widget, add only the secondary reuse regressions needed for that surface; standalone tests do not replace room-mode acceptance tests.
