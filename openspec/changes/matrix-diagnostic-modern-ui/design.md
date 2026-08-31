@@ -2,18 +2,18 @@
 
 ## Context
 
-MIH-9 established the common room shell and exact-row accordion. MIH-10 independently modernized Audio DSP inside that shell. MIH-11 now owns only the Matrix/Extron IN1804 expanded room presentation and the minimum room-safe route interaction needed for the approved Matrix table.
+MIH-9 established the common room shell and exact-row accordion. MIH-10 independently modernized Audio DSP inside that shell. MIH-11 owns the Matrix/Extron IN1804 expanded room presentation and the minimum room-safe route interaction needed for the approved Matrix table.
 
-Current `master` has three distinct Matrix concerns that must remain separated:
+Current `master` has three Matrix concerns that must remain separated:
 
 1. **Accepted Matrix evidence**
-   - `ExtronIN1804Handler.get_full_status()` collects device/routing evidence.
-   - `ExtronIN1804DataParser.parse()` publishes accepted normalized Matrix data.
-   - Current accepted fields include model, temperature, input/output counts and names, signal evidence, HDCP evidence, current connection, and connection protocol.
+   - `ExtronIN1804Handler.get_full_status()` collects existing device/routing evidence.
+   - `ExtronIN1804DataParser.parse()` publishes normalized Matrix data.
+   - Current legacy behavior is not fully fail-closed: constructor/parser defaults can synthesize eight inputs or input 1, and failed HDCP reads can collapse to zero.
 
 2. **Standalone Matrix lifecycle**
    - `MatrixScreen` owns standalone presentation and emits `routeRequested`.
-   - `MatrixController` owns standalone Matrix background refresh/route/session/currentness.
+   - `MatrixController` owns standalone background refresh/route/session/currentness.
    - This standalone screen/controller pair is not room authority.
 
 3. **Room Matrix lifecycle**
@@ -22,27 +22,30 @@ Current `master` has three distinct Matrix concerns that must remain separated:
    - unified dispatch registers exact `Extron IN1804` with `matrix_one_shot` and `matrix_room_live`, but no room mutation binding.
    - `RoomInteractionCoordinator` owns one serialized room lane including generic `MUTATION` and `RECONCILIATION` semantics.
 
-The redesign must use these existing boundaries rather than collapse them.
+The redesign must preserve those ownership boundaries while tightening Matrix evidence before it is allowed to authorize room routing.
 
 ## Goals
 
 - Match the approved Matrix reference hierarchy/field placement inside the foundation accordion.
 - Keep the Matrix table visually dominant and operator-readable.
-- Preserve truthful accepted evidence; do not fabricate reference sample values.
-- Add exact-row room routing to output 1 through existing application-owned mutation safety.
-- Preserve current Matrix live/local-refresh behavior and standalone behavior.
-- Keep dark/light presentation geometry stable.
-- Keep GUI network I/O off the Qt GUI thread.
+- Preserve truthful accepted evidence; never fabricate reference values or legacy defaults as device evidence.
+- Show HDCP as presence only: `есть`, `нет`, `Нет данных`.
+- Add exact-row room routing to output 1 through existing application-owned mutation safety with explicit confirmation.
+- Ensure missing/malformed route readback can never confirm a state-changing route.
+- Preserve current Matrix live/local-refresh and standalone behavior except where fail-closed normalization removes fabricated defaults.
+- Keep dark/light presentation geometry stable and GUI network I/O off the Qt GUI thread.
 
 ## Non-goals
 
 - No redesign of the common room header/shell.
 - No Audio DSP/codec/PDU redesign.
-- No protocol/data expansion for MAC, serial, firmware, uptime, reboot, or HDCP-version discovery.
+- No new protocol reads for MAC, serial, firmware, uptime, HDCP version, reboot, or expanded-screen navigation.
+- No HDCP version display.
 - No standalone Matrix screen promotion into room mode.
+- No `Открыть расширенный экран` affordance in the room Matrix dashboard.
 - No second room route lane or direct widget-to-handler call.
 - No mutation retry after possible route delivery.
-- No change to Matrix SIS route semantics (output 1 only).
+- No change to Matrix SIS route command syntax (output 1 only).
 
 ## Decision 1: The room exact-row surface is the normative Matrix target
 
@@ -50,11 +53,9 @@ The modern Matrix content is rendered by the current room path under `RoomDiagno
 
 Implementation may extract a presentation-only Matrix dashboard widget, but room mode remains acceptance authority. Such a widget may consume accepted data and emit safe local intents; it cannot own credentials, handlers, sessions, request generations, currentness, or device I/O.
 
-The common accordion header is unchanged. The visual reference's device title/status row is satisfied by the already-merged common row header. MIH-11 starts below that header.
+The common accordion header is unchanged. MIH-11 starts below that header.
 
-### Consequence
-
-`Открыть расширенный экран`, if represented for reference-layout fidelity, is not a navigation authority in MIH-11. It remains disabled/non-actionable. Enabling it later requires explicit architecture for cross-surface lifecycle/target ownership.
+`Открыть расширенный экран` SHALL NOT be rendered in MIH-11: no enabled control, disabled placeholder, navigation signal, or acceptance requirement exists for it.
 
 ## Decision 2: Three-card Matrix dashboard hierarchy
 
@@ -63,7 +64,7 @@ At the foundation baseline viewport (`1440 x 900` logical pixels), expanded Matr
 ```text
 +-------------------------+--------------------------------------------------+--------------------+
 | Общая информация       | Матрица (входы и коммутация)                    | Быстрые действия   |
-| narrow                  | dominant                                          | narrow             |
+| narrow                  | dominant                                         | narrow             |
 +-------------------------+--------------------------------------------------+--------------------+
 ```
 
@@ -75,15 +76,11 @@ Matrix table:        50-56%
 Quick actions:       18-22%
 ```
 
-The central Matrix card must remain the dominant region. Exact pixel dimensions and card gaps use current foundation/theme tokens rather than duplicating a Matrix-only spacing system.
-
-At the foundation minimum supported window (`1180 x 720`), implementation may controlled-reflow auxiliary side cards (for example two side cards above/below the table) if required, but SHALL keep the Matrix table reachable, preserve its column order, and keep the active-route/action semantics usable. No baseline horizontal clipping is acceptable.
-
-Dark/light theme switching changes semantic styling only. At the same viewport it must not intentionally change Matrix card order, table semantics, action availability, route authority, or trigger device work.
+The central Matrix card remains dominant. Exact pixel dimensions and gaps use foundation/theme tokens. At `1180 x 720`, controlled reflow/scrolling is allowed if semantic order and action meaning remain reachable and unchanged. Theme switching is presentation-only and performs no Matrix I/O.
 
 ## Decision 3: General information card uses fixed visual slots and truthful evidence
 
-The left card rows are always rendered in this visual order:
+Rows always render in this order:
 
 ```text
 Модель
@@ -94,34 +91,19 @@ MAC-адрес
 Время работы
 ```
 
-The presentation may use deterministic accepted-key aliases only, for example:
+Deterministic accepted-key aliases may map existing accepted evidence to those slots, but presentation cannot infer values from unrelated fields, model text, logs, prior snapshots, or reference artwork. Missing fields render `Нет данных`.
 
-```text
-model                         -> Модель
-mac / mac_address             -> MAC-адрес
-serial / serial_number        -> Серийный номер
-firmware / version            -> Версия прошивки
-temperature                   -> Температура
-uptime                        -> Время работы
-```
+On the change base, MAC, serial, firmware, and uptime are not authoritative Matrix evidence. MIH-11 does not add new protocol reads to fill them.
 
-Aliases are presentation mapping, not source inference. If accepted evidence does not contain a field, show `Нет данных` or the foundation safe no-data equivalent.
+## Decision 4: Table order is normative and rows require proven input authority
 
-On the architecture base, Matrix accepted evidence does not authoritatively provide MAC, serial, firmware, or uptime. MIH-11 intentionally does not issue new protocol reads to fill these slots.
-
-Do not substitute unrelated fields such as connection protocol or switch topology merely to avoid a no-data row; the product decision is the reference field placement.
-
-## Decision 4: Matrix table column order is normative; row count is data-driven
-
-The central table uses exactly this semantic order:
+The central table semantic order is:
 
 ```text
 [input ordinal] | Сигнал | HDCP | Входы | [accepted output-1 name / Main Output]
 ```
 
-The leading input ordinal is compact and may have an empty visual header or accessible `№` label. The input-name column is the main wide descriptive input column. The output column is also wide enough for route state/action text.
-
-Baseline width targets are proportional rather than pixel-perfect:
+Baseline width targets:
 
 ```text
 ordinal       7-9%
@@ -131,78 +113,107 @@ HDCP         16-18%
 output       26-30%
 ```
 
-Implementation may tune within those ranges to account for font metrics/theme, but SHALL preserve order and hierarchy.
+Rows are created only from a **proven accepted current input count/order**. The visual reference's eight rows are illustrative only.
 
-Rows are created from the accepted current input count/order. The screenshot's eight visible rows are illustrative only. MIH-11 SHALL NOT hard-code eight inputs. If the accepted Matrix snapshot says 4 inputs, render 4 rows; if another supported accepted payload exposes a different count through the same exact Matrix contract, render that accepted count.
+Current legacy `self.inputs_num = 8` / parser fallback `data.get('inputs_num', 8)` SHALL NOT establish accepted input authority. Input count is known only when existing model/capability evidence positively establishes the supported exact Matrix input count. If count is unproven, normalized count remains UNKNOWN/absent and the room presentation SHALL NOT fabricate eight rows or enable route intents for an unproven ordinal.
 
 The output header uses the first accepted output name when present/non-empty; otherwise `Main Output`.
 
-## Decision 5: Signal, HDCP, and route cells preserve non-color meaning
+## Decision 5: Existing Matrix reads are normalized fail-closed before presentation/reconciliation
+
+MIH-11 explicitly includes normalization-only corrections in `handlers/extron/in1804.py` and `core/parser.py`. It does not add a new SIS command.
+
+### Input count
+
+- recognized existing model/capability evidence -> positive accepted count;
+- missing/unrecognized model/count evidence -> UNKNOWN/absent;
+- constructor or parser default `8` is not device evidence;
+- per-input arrays produced only from an unproven legacy default cannot authorize table rows or route intents.
+
+### Current connection
+
+`current_connection` is an optional accepted input ordinal. It is established only by a successfully parsed existing connection readback that identifies one valid input within the proven accepted input range.
+
+```text
+valid parse + valid input -> N
+empty response            -> None / UNKNOWN
+malformed response        -> None / UNKNOWN
+out-of-range response     -> None / UNKNOWN
+failed read               -> None / UNKNOWN
+```
+
+`get_connections()` SHALL NOT append input 1 when the response contains no parseable route. `ExtronIN1804DataParser.parse()` SHALL NOT use input 1 when the connection list is empty.
+
+A route readback parser SHALL parse the protocol response intentionally rather than concatenate unrelated digits into a synthetic input number.
+
+### HDCP presence
+
+The room column represents current **input HDCP presence**, not HDCP version, input authorization configuration, or output HDCP state.
+
+A dedicated normalized per-input tri-state projection SHALL be derived from the existing input HDCP status read:
+
+```text
+recognized present -> True
+recognized absent  -> False
+failed/malformed/unrecognized/missing -> None
+```
+
+Failure must never be collapsed into false merely to fill the table. Existing `input_hdcp_auth` configuration and `output_hdcp` evidence are not presentation authority for this column.
+
+## Decision 6: Signal, HDCP presence, and route cells preserve non-color meaning
 
 ### Signal
 
-Signal presentation uses accepted `signal_status` for the exact input.
-
-Minimum safe states:
+Signal presentation uses accepted `signal_status` and must distinguish confirmed absence from unknown. Color is supplementary only.
 
 ```text
-has_signal true       -> positive non-color cue + text equivalent to `есть`
-has_signal false      -> neutral/negative non-color cue + `нет сигнала`
-missing/unknown       -> neutral cue + `Нет данных`/`не определено`
+confirmed signal present -> `есть`
+confirmed signal absent  -> `нет сигнала`
+unknown                  -> `Нет данных`
 ```
-
-Color may reinforce the state but never replace the text/cue.
 
 ### HDCP
 
-The screenshot value `2.2` is not a data authority. MIH-11 renders only accepted normalized HDCP evidence from `input_hdcp_auth` / `input_hdcp_status` (or a future approved normalized equivalent already present in the accepted snapshot).
+```text
+hdcp_present is True  -> `есть`
+hdcp_present is False -> `нет`
+hdcp_present is None  -> `Нет данных`
+```
 
-Presentation may show a meaningful accepted version/status token when the current normalized evidence actually establishes it. Otherwise it uses an honest state/no-data label. It SHALL NOT infer HDCP 2.2 from color, route state, signal presence, output status, model name, or reference artwork.
+No `2.2`, `1.4`, other version/status token, authorization value, or output HDCP value is displayed in the room `HDCP` column.
 
 ### Route/output
 
-For output 1:
-
 ```text
-current_connection == input N -> positive non-color cue + `активен`
-other current input            -> neutral cue + `не выбран`
-missing/unknown route evidence -> neutral cue + `Нет данных`
+current_connection == input N -> `активен`
+known different current input -> `не выбран`
+current_connection is UNKNOWN -> `Нет данных`
 ```
 
-The accepted snapshot remains route-state authority. Local click/hover state never changes `активен` before reconciliation succeeds.
+Local click/hover/confirmation/ACK state never changes authoritative route styling before reconciliation accepts a truthful snapshot.
 
-## Decision 6: Matrix route is a safe exact-row intent, not widget I/O
+## Decision 7: Matrix route is a safe exact-row intent with explicit confirmation
 
 A non-active output cell may become actionable only when all are true:
 
 - current row is exact `Extron IN1804`;
-- row is the current expanded record;
-- row has usable connected accepted state;
+- row is current expanded record with usable connected state;
 - row is not stale/degraded/blocked/unconfirmed;
-- unified exact-model registration declares the approved Matrix mutation/reconciliation bindings;
-- room interaction lane says mutation is currently allowed;
-- accepted input ordinal is valid for the current accepted table.
+- unified registration declares approved Matrix mutation/reconciliation bindings;
+- room lane permits mutation;
+- input ordinal is within the proven accepted input authority.
 
-The presentation emits only a non-secret immutable intent equivalent to:
+Presentation emits only a non-secret immutable intent equivalent to:
 
 ```text
-MatrixRoomRouteIntent(
-    output_num = 1,
-    input_num = N,
-)
+MatrixRoomRouteIntent(output_num=1, input_num=N)
 ```
 
-It carries no credential, handler/session, screen pointer, raw target-search, initial source record, or global widget context.
+The active cell is a no-op. Composition revalidates exact `record_id`, shows an explicit confirmation dialog, and only on confirmation calls `RoomInteractionCoordinator.confirm_mutation()`. Cancel changes no lifecycle state and performs no I/O.
 
-The current active output cell is not actionable: selecting an already-authoritative route sends no mutation.
+## Decision 8: Unified registration owns Matrix room mutation capability
 
-The room composition layer receives the intent, verifies that the published `record_id` is still the current expanded row, and shows an explicit confirmation dialog. Cancel performs no lifecycle change and no I/O. Confirm passes the safe intent to `RoomInteractionCoordinator.confirm_mutation()`.
-
-## Decision 7: Unified registration owns Matrix room mutation capability
-
-No parallel model list is introduced.
-
-The exact `Extron IN1804` registration adds explicit room bindings equivalent to:
+No parallel model list is introduced. The exact `Extron IN1804` registration adds explicit room bindings equivalent to:
 
 ```text
 mutation_binding_key       = matrix_room_route
@@ -210,104 +221,49 @@ reconciliation_binding_key = matrix_room_route_reconcile
 cleanup_binding_key         = existing room cleanup authority
 ```
 
-Existing bindings remain:
+Existing `matrix_one_shot`, `matrix_room_live`, and local-refresh acquisition remain authorities. Startup/composition fails closed if declared mutation capability lacks mutation/reconciliation/cancellation/cleanup hooks.
+
+## Decision 9: Matrix mutation uses one exact credential attempt and one send
+
+The background route adapter receives immutable exact-row context, validated output 1/input N intent, and exactly one application-selected credential candidate/index per attempt. Handler/worker never chooses or iterates candidates.
+
+Only structured authentication rejection proven before route delivery may authorize application-owned candidate advance after cleanup. Once route send is invoked or delivery is ambiguous, no candidate advance or replay is allowed. Public strings never authorize fallback.
+
+## Decision 10: Route ACK is non-authoritative; reconciliation requires truthful requested-input readback
+
+ACK/success from route send is only delivery evidence. It cannot update accepted `current_connection`, visible active route, or final success memory.
+
+Reconciliation performs current exact-row read-only Matrix acquisition. Success is authoritative only when fail-closed normalized evidence establishes:
 
 ```text
-room_adapter_key = matrix_one_shot
-live_binding_key = matrix_room_live
-local refresh    = room_one_shot_refresh
+current_connection == requested input_num
 ```
 
-Startup/composition validation must fail closed if the Matrix registration declares the new mutation binding but composition cannot resolve mutation/reconciliation/cleanup.
+A different input, `None`, malformed/failed evidence, or other UNKNOWN result fails reconciliation unconfirmed. This rule is especially important for requested Input 1: no legacy default may convert missing readback into confirmation.
 
-Widget class checks, model substrings, a `MATRIX_MUTATION_MODELS` list, or standalone `MatrixScreen.routeRequested` are not capability authority.
+On failed/unconfirmed reconciliation, prior cache is stale/unconfirmed, row network actions/live remain blocked, and top full Refresh is required. On confirmed reconciliation, the full accepted snapshot may atomically replace row cache; eligible live resumes only after cleanup/currentness checks.
 
-## Decision 8: Matrix mutation execution uses one exact credential attempt and one send
+## Decision 11: Model-specific cleanup remains inside the one room lane
 
-The room mutation adapter is application-owned and background-executed. It receives:
+Composition may generalize PDU-specific dispatch plumbing or add a Matrix-specific sibling, but SHALL preserve one serialized room lane and model-specific owners. Matrix cancellation targets Matrix ownership, PDU cancellation remains PDU-specific, and neither acquires the other's resources.
 
-- immutable `RoomInteractionContext`;
-- validated `MatrixRoomRouteIntent`;
-- exactly one application-selected credential candidate/index for that attempt.
+## Decision 12: Quick actions contain only approved controls
 
-It SHALL check currentness before acquiring a Matrix handler/session or doing route I/O.
-
-The adapter may reuse reviewed MatrixController transport primitives or a focused Matrix room worker, provided it preserves these invariants:
-
-- handler/worker does not choose/iterate credential candidates;
-- route send uses exact model/IP/context and output 1/input N;
-- route send is marked non-replay-safe;
-- no Qt GUI-thread I/O;
-- no persistent route owner overlaps reconciliation;
-- cleanup/release is bounded and observable.
-
-### Authentication fallback
-
-Only structured authentication rejection proven before the route command could have been delivered may return `RoomAuthenticationRejected` (or equivalent typed pre-delivery result) and allow composition to advance to the next approved candidate after cleanup.
-
-If authentication/transport/session failure is observed after route send was invoked or delivery is ambiguous, classify the result as ambiguous/unconfirmed. Do not advance credentials and do not replay the route. Public strings such as `auth`, `401`, `403`, empty success data, or user-facing error text never authorize fallback.
-
-## Decision 9: Route ACK is non-authoritative; Matrix-specific reconciliation validates the requested input
-
-A successful route send/ACK is only mutation delivery evidence. It SHALL NOT directly update `accepted_snapshot.current_connection`, table route styling, or credential success memory for the final state.
-
-On mutation delivery success, the coordinator transitions to `RECONCILIATION`. Matrix reconciliation receives the requested route identity from the mutation result/intent and performs the existing exact-row read-only Matrix acquisition under the current reconciliation context.
-
-A successful read is authoritative only when:
-
-```text
-accepted current_connection == requested input_num
-```
-
-If the read succeeds but reports a different/unknown connection, reconciliation fails unconfirmed. The prior accepted cache may remain visible only as stale/unconfirmed presentation, all row network actions remain blocked, live stays stopped, and top full Refresh is required, per the existing generic mutation contract.
-
-If reconciliation confirms the route, its full accepted Matrix snapshot atomically replaces the row cache; the row may return to normal usable state and eligible live may resume after lifecycle cleanup/currentness checks.
-
-## Decision 10: Route cleanup is model-specific but remains inside the one room lane
-
-Current room mutation plumbing is PDU-specific in composition/controller methods. MIH-11 may generalize those names/dispatch points or add a Matrix-specific sibling, but SHALL NOT weaken the one-lane contract.
-
-Expected conceptual ownership:
-
-```text
-RoomInteractionCoordinator
-  -> mutation binding resolved from exact registry entry
-      -> PDU mutation adapter OR Matrix route adapter
-  -> reconciliation binding resolved from exact registry entry
-      -> current PDU readback OR Matrix route readback validator
-```
-
-The existing PDU behavior must remain unchanged.
-
-Cancellation/supersession must target the actual model-specific owner. A Matrix route adapter must not be cancelled through a PDU-only object, and PDU cancellation must not acquire Matrix resources.
-
-## Decision 11: Quick actions are truthful
-
-The right `Быстрые действия` card follows the approved reference layout.
+The right `Быстрые действия` card contains:
 
 ### `Обновить статус`
-
-Enabled only when existing exact-row Local Refresh is allowed. It emits the existing safe Local Refresh intent and does not create a second refresh path.
+Enabled only when existing exact-row Local Refresh is allowed. It emits existing Local Refresh intent and creates no second refresh path.
 
 ### `Перезагрузить устройство`
+Visible for layout fidelity but disabled/non-actionable because approved IN1804 capability has no reboot mutation. It emits no signal, worker, handler call, or device request.
 
-Visible for layout fidelity but disabled/non-actionable because current approved IN1804 control capability does not include reboot. It emits no signal, worker, handler call, or device request.
+`Открыть расширенный экран` is absent from the room dashboard.
 
-### `Открыть расширенный экран`
+## Decision 13: Existing live/local refresh and standalone routing remain regression-free
 
-If rendered above/alongside the three-card content for visual fidelity, it is disabled/non-actionable in MIH-11. It does not navigate to standalone `MatrixScreen`, start a second MatrixController, change the selected target, or perform I/O.
+MIH-11 does not replace existing `matrix_room_live` or `matrix_one_shot` acquisition. Confirmed mutation retires current Matrix live through the existing bounded lifecycle before send. Eligible live may resume only after confirmed reconciliation and cleanup/currentness checks.
 
-A later change may authorize navigation/reboot only with explicit lifecycle/capability contracts.
-
-## Decision 12: Existing live/local refresh and standalone routing must remain regression-free
-
-MIH-11 does not replace existing `matrix_room_live` or `matrix_one_shot` acquisition.
-
-Before a confirmed route send, the generic room mutation contract retires current Matrix live ownership. If cleanup cannot reach the allowed boundary, no route send occurs.
-
-After successful reconciliation, eligible Matrix room live may resume only through the existing registry binding/current exact row.
-
-Standalone `MatrixScreen` routing remains connected to standalone `MatrixController` and keeps its current semantics. MIH-11 shall not rewire it through the room coordinator or make room exact-row behavior depend on standalone screen state.
+Standalone `MatrixScreen`/`MatrixController` routing remains separate. Tightened normalization may remove fabricated defaults but does not rewire standalone routing through room state.
 
 ## Failure-state table
 
@@ -315,77 +271,83 @@ Standalone `MatrixScreen` routing remains connected to standalone `MatrixControl
 | --- | --- |
 | Click active route | no mutation |
 | Confirmation Cancel | no lifecycle change, no I/O |
-| Stale/superseded route intent before mutation acquisition | reject/no I/O |
+| Stale/superseded intent before acquisition | reject/no I/O |
 | Live cleanup timeout before send | route not sent |
 | Structured auth rejection before delivery | candidate may advance after cleanup |
 | Route send ACK/success | start reconciliation; cache unchanged |
 | Route send ambiguous/unknown outcome | blocked/unconfirmed; no replay/fallback; full Refresh required |
 | Reconciliation reads requested input | accept new full snapshot; normal lifecycle may resume |
-| Reconciliation reads different/unknown input | blocked/unconfirmed; prior cache stale; full Refresh required |
-| Reconciliation transport/session failure | blocked/unconfirmed/connection-loss semantics per typed failure; full Refresh required |
+| Reconciliation reads different input | blocked/unconfirmed; prior cache stale; full Refresh required |
+| Reconciliation has empty/malformed/UNKNOWN route evidence | blocked/unconfirmed; never synthesize Input 1; full Refresh required |
 | Late callback from superseded context | ignored |
 
 ## Testing strategy
+
+### Normalization
+
+- missing/unrecognized model/count does not become 8 accepted inputs;
+- empty connection list normalizes `current_connection` to UNKNOWN, not 1;
+- successful connection response without a parseable input normalizes to UNKNOWN;
+- out-of-range connection normalizes to UNKNOWN;
+- requested Input 1 plus failed/empty/malformed readback cannot reconcile successfully;
+- HDCP input presence has present/absent/unknown states;
+- HDCP read failure/malformed response does not become `нет`.
 
 ### Presentation
 
 - exact three-card order at baseline;
 - general-info row order and no-data behavior;
-- accepted input count (4 vs 8 regression, no hard-coded eight);
-- exact table column order;
-- dynamic output header;
-- signal text + non-color cue;
-- HDCP truthfulness/no fabricated `2.2`;
+- data-driven **proven** input count; no hard-coded/default eight;
+- exact table column order and dynamic output header;
+- signal + non-color cue;
+- HDCP displays only `есть` / `нет` / `Нет данных` and never a version token;
 - route active/non-active/no-data states;
-- dark/light styling and baseline/minimum behavior;
-- disabled reboot/expanded-screen placeholders;
-- local Refresh action uses existing intent.
+- dark/light baseline/minimum behavior;
+- reboot disabled;
+- `Открыть расширенный экран` absent;
+- Local Refresh uses existing intent.
 
-### Intent/currentness
+### Intent/currentness and registry
 
 - only non-active eligible output cell emits route intent;
-- stale/non-current record emits/accepts no mutation;
-- active route click is no-op;
-- disabled/blocked/degraded rows produce no route intent;
-- confirmation cancel performs zero device I/O.
-
-### Registry/composition
-
-- Extron IN1804 exact registration declares Matrix mutation/reconciliation bindings;
-- binding validation fails closed if an expected implementation hook is absent;
-- no parallel Matrix mutation model list.
+- unproven input count exposes no actionable fabricated input;
+- stale/non-current row emits/accepts no mutation;
+- confirmation cancel performs zero device I/O;
+- exact Extron registration owns Matrix mutation/reconciliation bindings with no parallel model list.
 
 ### Mutation safety
 
 - live retires before route owner starts;
-- no handler/session acquisition before currentness/cleanup gate;
-- pre-delivery typed auth rejection can advance one approved candidate at a time;
-- after route send invocation, auth-like/transport failure cannot advance candidate or replay;
-- at most one route send per confirmed mutation generation;
-- route ACK does not update accepted route state;
-- reconciliation matches requested input before accepting cache;
-- mismatch/unknown blocks row and requires top full Refresh;
-- stale mutation/reconciliation callbacks cannot update replacement context.
+- no acquisition before currentness/cleanup gate;
+- pre-delivery typed auth rejection may advance one approved candidate;
+- after route send invocation no automatic replay/candidate advance;
+- at most one route send per confirmed mutation attempt;
+- ACK does not update accepted route state;
+- reconciliation must match requested input from truthful normalized evidence;
+- mismatch/UNKNOWN blocks row and requires full Refresh;
+- stale callbacks cannot update replacement context.
 
 ### Regression
 
-- existing PDU mutation/reconciliation remains unchanged;
-- existing Matrix room live/local Refresh remains unchanged;
-- standalone Matrix route behavior remains functional;
-- common accordion one-expanded-row behavior remains unchanged;
+- existing PDU mutation/reconciliation unchanged;
+- existing Matrix room live/local Refresh unchanged;
+- standalone Matrix routing remains functional and separate;
+- common accordion one-expanded-row behavior unchanged;
 - theme toggle does not perform I/O.
 
 ## Manual visual acceptance
 
-At `1440 x 900` in both dark and light themes, capture the expanded Matrix exact row and verify:
+At `1440 x 900` in dark and light themes verify:
 
 - left General information / center Matrix / right Quick actions hierarchy;
-- field order exactly matches this design;
-- central table is visually dominant;
-- input number is compact;
-- Signal, HDCP, input name, and output columns are readable without baseline horizontal clipping;
-- route state is understandable without color alone;
-- disabled placeholders are visibly disabled;
+- exact field order;
+- central table visually dominant;
+- input number compact;
+- Signal, HDCP, input name, and output columns readable without baseline clipping;
+- HDCP is presence-only and never shows a version;
+- route state understandable without color;
+- reboot visibly disabled;
+- `Открыть расширенный экран` is absent;
 - shared foundation header/room/network regions remain unchanged.
 
-The screenshots are local validation evidence and are not repository artifacts by default.
+Screenshots are local validation evidence and are not repository artifacts by default.

@@ -4,84 +4,98 @@
 
 - [ ] 1.1 Before implementation, reread current `RULES.md`, current `master`, this approved change, relevant root specs, and current Matrix room/standalone source/tests. Confirm implementation is based on the approved remote HEAD rather than an older local branch/report.
 - [ ] 1.2 Reconfirm the normative target is the expanded exact-row Matrix presentation inside `RoomDiagnosticTreeWidget`; standalone `MatrixScreen` remains a separate lifecycle/surface and is not promoted into room authority.
-- [ ] 1.3 Reconfirm current authoritative Matrix evidence fields and preserve `Нет данных` for reference-layout slots without accepted MAC/serial/firmware/uptime evidence. Do not add protocol/parser scope silently.
+- [ ] 1.3 Reconfirm current authoritative Matrix evidence fields and preserve `Нет данных` for reference-layout slots without accepted MAC/serial/firmware/uptime evidence. Do not add new SIS reads for those fields.
+- [ ] 1.4 Reconfirm MIH-11 explicitly includes normalization-only corrections for existing Matrix input-count, connection, and input-HDCP-status reads; legacy defaults must not become route authority.
 
-## 2. Matrix presentation layout
+## 2. Fail-closed Matrix normalization
 
-- [ ] 2.1 Build/extract a presentation-only Matrix dashboard for the room exact-row path with baseline card order: `Общая информация` -> `Матрица (входы и коммутация)` -> `Быстрые действия`.
-- [ ] 2.2 Render General information rows in exact order: `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, `Время работы`; use accepted evidence only and safe no-data presentation for missing fields.
-- [ ] 2.3 Replace the current room Matrix table presentation with exact column order: compact input ordinal, `Сигнал`, `HDCP`, `Входы`, accepted output-1 name / `Main Output` fallback.
-- [ ] 2.4 Use accepted current input count/order; add regression coverage proving the presentation does not hard-code eight rows.
-- [ ] 2.5 Preserve non-color text/cue meaning for signal, HDCP, active route, non-selected route, and no-data states. Do not fabricate the reference's sample `2.2` HDCP value.
-- [ ] 2.6 At the `1440 x 900` baseline keep the central Matrix card dominant with the approved proportional hierarchy and no baseline horizontal clipping. At `1180 x 720`, use controlled reflow/scrolling without changing semantic order or route authority.
-- [ ] 2.7 Keep dark/light theme switching presentation-only and geometry-stable for equivalent viewport/layout mode.
+- [ ] 2.1 Remove authoritative use of legacy eight-input defaults. Publish/accept `inputs_num` only when existing model/capability evidence proves the current count; otherwise preserve UNKNOWN/absent count.
+- [ ] 2.2 Ensure per-input arrays produced only from an unproven fallback count cannot make those ordinals actionable for room routing.
+- [ ] 2.3 Correct existing connection normalization so empty, failed, malformed, ambiguous, or out-of-range readback yields `current_connection = None`/UNKNOWN; never substitute input 1.
+- [ ] 2.4 Parse connection response through reviewed protocol structure rather than concatenating unrelated digits into a synthetic input ordinal.
+- [ ] 2.5 Add a normalized per-input tri-state `hdcp_present` (or equivalent approved representation) derived from the existing input HDCP-status read only: present=True, absent=False, failure/malformed/unrecognized=None.
+- [ ] 2.6 Do not use input HDCP authorization/configuration or output HDCP state as the room HDCP-column authority. Do not add a new HDCP-version read.
 
-## 3. Quick/reference actions
+## 3. Matrix presentation layout
 
-- [ ] 3.1 Wire `Обновить статус` to the existing exact-row Local Refresh intent and only enable it under existing room lifecycle authorization.
-- [ ] 3.2 Render `Перезагрузить устройство` as disabled/non-actionable; it must emit no application intent, worker start, handler/session acquisition, or protocol command.
-- [ ] 3.3 If `Открыть расширенный экран` is rendered for reference fidelity, keep it disabled/non-actionable. Do not navigate/promote standalone `MatrixScreen` in this change.
+- [ ] 3.1 Build/extract a presentation-only Matrix dashboard for the room exact-row path with baseline card order: `Общая информация` -> `Матрица (входы и коммутация)` -> `Быстрые действия`.
+- [ ] 3.2 Render General information rows in exact order: `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, `Время работы`; use accepted evidence only and safe no-data presentation for missing fields.
+- [ ] 3.3 Replace the current room Matrix table presentation with exact column order: compact input ordinal, `Сигнал`, `HDCP`, `Входы`, accepted output-1 name / `Main Output` fallback.
+- [ ] 3.4 Use only proven accepted current input count/order; add regression coverage proving the presentation neither hard-codes nor falls back to eight rows when count is unknown.
+- [ ] 3.5 Preserve non-color text/cue meaning for signal, HDCP presence, active route, non-selected route, and no-data states.
+- [ ] 3.6 Render the HDCP column strictly as `есть` / `нет` / `Нет данных` from normalized `hdcp_present`; never show `2.2`, `1.4`, any version/status token, authorization value, or output HDCP state.
+- [ ] 3.7 At `1440 x 900`, keep the central Matrix card dominant with approved proportions and no baseline horizontal clipping. At `1180 x 720`, use controlled reflow/scrolling without changing semantic order or route authority.
+- [ ] 3.8 Keep dark/light theme switching presentation-only and geometry-stable for equivalent viewport/layout mode.
 
-## 4. Safe Matrix route intent
+## 4. Quick/reference actions
 
-- [ ] 4.1 Add a presentation-only, non-secret exact-row Matrix route intent for output 1 and accepted input N. Do not pass credentials, handler/session identity, target-search text, or standalone screen state through the widget intent.
-- [ ] 4.2 Enable routing only for the current expanded usable connected `Extron IN1804` row when the unified registration advertises the approved Matrix mutation/reconciliation capability and the room lane permits mutation.
-- [ ] 4.3 Make the currently active route cell non-actionable/no-op; local hover/click state must not alter accepted route state.
-- [ ] 4.4 At composition, verify the intent still belongs to the current expanded record, show explicit confirmation, and call `RoomInteractionCoordinator.confirm_mutation()` only after Yes/confirm. Cancel must perform zero lifecycle/device I/O.
+- [ ] 4.1 Wire `Обновить статус` to the existing exact-row Local Refresh intent and only enable it under existing room lifecycle authorization.
+- [ ] 4.2 Render `Перезагрузить устройство` as disabled/non-actionable; it must emit no application intent, worker start, handler/session acquisition, or protocol command.
+- [ ] 4.3 Do **not** render `Открыть расширенный экран` in MIH-11. There is no enabled control, disabled placeholder, navigation intent, or manual-acceptance requirement for it.
 
-## 5. Unified registry and composition bindings
+## 5. Safe Matrix route intent
 
-- [ ] 5.1 Extend the exact `Extron IN1804` unified dispatch registration with Matrix-specific room mutation and reconciliation binding keys. Do not add a parallel model list or widget/model-substring capability inference.
-- [ ] 5.2 Add composition resolution for the Matrix mutation/reconciliation bindings while preserving existing PDU bindings and existing Matrix `matrix_room_live` / `matrix_one_shot` ownership.
-- [ ] 5.3 Ensure startup/composition validation fails closed if the registry declares Matrix mutation/reconciliation capability but required binding/cleanup implementation is unavailable.
-- [ ] 5.4 Ensure cancellation/supersession targets the actual Matrix mutation owner rather than PDU-only cancellation state.
+- [ ] 5.1 Add a presentation-only, non-secret exact-row Matrix route intent for output 1 and proven accepted input N. Do not pass credentials, handler/session identity, target-search text, or standalone screen state through the widget intent.
+- [ ] 5.2 Enable routing only for the current expanded usable connected `Extron IN1804` row when the unified registration advertises approved Matrix mutation/reconciliation capability, the room lane permits mutation, and input N is within proven accepted input authority.
+- [ ] 5.3 Make the currently active route cell non-actionable/no-op; local hover/click state must not alter accepted route state.
+- [ ] 5.4 At composition, verify the intent still belongs to the current expanded record, show explicit operator confirmation, and call `RoomInteractionCoordinator.confirm_mutation()` only after confirm. Cancel performs zero lifecycle/device I/O.
 
-## 6. Matrix mutation execution safety
+## 6. Unified registry and composition bindings
 
-- [ ] 6.1 Implement a background exact-context Matrix room route adapter/controller extension that receives one `RoomInteractionContext`, one validated output-1/input-N intent, and exactly one application-selected credential candidate for the current attempt.
-- [ ] 6.2 Reject stale/superseded context before handler/session acquisition and before route send; no Qt GUI-thread Matrix I/O.
-- [ ] 6.3 Preserve application/composition credential ownership. Worker/handler must not iterate candidates.
-- [ ] 6.4 Permit credential advancement only after structured authentication rejection proven before route delivery and only after prior attempt cleanup/release. Do not infer fallback from text.
-- [ ] 6.5 Once route send is attempted or may have been delivered, send at most once for that confirmed mutation generation; no credential advance, automatic replay, read-only retry policy, or string heuristic may repeat it after ambiguous/unknown outcome.
-- [ ] 6.6 Mutation success/ACK remains non-authoritative and must not directly modify `accepted_snapshot.current_connection` or visible active-route state.
-- [ ] 6.7 Ensure the Matrix mutation transport owner is physically/reliably retired before mandatory reconciliation can acquire conflicting device resources; if this cannot be proven with the selected implementation approach, stop and return for architecture review.
+- [ ] 6.1 Extend exact `Extron IN1804` unified dispatch registration with Matrix-specific room mutation and reconciliation binding keys. Do not add a parallel model list or widget/model-substring capability inference.
+- [ ] 6.2 Add composition resolution for Matrix mutation/reconciliation bindings while preserving existing PDU bindings and Matrix `matrix_room_live` / `matrix_one_shot` ownership.
+- [ ] 6.3 Ensure startup/composition validation fails closed if registry declares Matrix mutation/reconciliation capability but required binding/cancellation/cleanup implementation is unavailable.
+- [ ] 6.4 Ensure cancellation/supersession targets the actual Matrix mutation owner rather than PDU-only cancellation state.
 
-## 7. Matrix-specific reconciliation
+## 7. Matrix mutation execution safety
 
-- [ ] 7.1 Preserve the requested input identity across the mutation-to-reconciliation handoff as non-secret exact-operation evidence.
-- [ ] 7.2 Run reconciliation through current exact-row read-only Matrix acquisition/currentness authority; do not reuse a stale standalone/global Matrix target.
-- [ ] 7.3 Accept reconciliation success only when current accepted readback establishes `current_connection == requested input_num`.
-- [ ] 7.4 On readback mismatch, unknown route, ambiguous mutation outcome, or unconfirmed final state, keep prior cache only as stale/unconfirmed presentation, block row network actions/live, and require top full Refresh according to existing room mutation contract.
-- [ ] 7.5 On confirmed reconciliation, atomically replace the row's accepted Matrix snapshot and permit normal eligible lifecycle/live only after currentness/cleanup checks.
+- [ ] 7.1 Implement a background exact-context Matrix room route adapter/controller extension that receives one `RoomInteractionContext`, one validated output-1/input-N intent, and exactly one application-selected credential candidate for the current attempt.
+- [ ] 7.2 Reject stale/superseded context before handler/session acquisition and before route send; no Qt GUI-thread Matrix I/O.
+- [ ] 7.3 Preserve application/composition credential ownership. Worker/handler must not iterate candidates.
+- [ ] 7.4 Permit credential advancement only after structured authentication rejection proven before route delivery and only after prior attempt cleanup/release. Do not infer fallback from text.
+- [ ] 7.5 Once route send is attempted or may have been delivered, send at most once for that confirmed mutation generation; no credential advance, automatic replay, read-only retry policy, or string heuristic may repeat it after ambiguous/unknown outcome.
+- [ ] 7.6 Mutation success/ACK remains non-authoritative and must not directly modify `accepted_snapshot.current_connection` or visible active-route state.
+- [ ] 7.7 Ensure Matrix mutation transport ownership is retired before mandatory reconciliation acquires conflicting device resources; if this cannot be proven, stop and return for architecture review.
 
-## 8. Focused regression coverage
+## 8. Matrix-specific reconciliation
 
-- [ ] 8.1 Presentation tests: three-card order, General information field order, no-data slots, exact table column order, data-driven input count, dynamic output header, signal/HDCP/route non-color states.
-- [ ] 8.2 Presentation tests: `2.2` is not fabricated without accepted evidence; disabled reboot/expanded-screen controls emit no intent.
-- [ ] 8.3 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current rows emit/accept no route mutation.
-- [ ] 8.4 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
-- [ ] 8.5 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
-- [ ] 8.6 Mutation tests: live retirement before send, stale pre-acquisition rejection, structured pre-delivery auth fallback, at-most-one send after command invocation, no string-based fallback/replay.
-- [ ] 8.7 Reconciliation tests: ACK does not update cache; matching readback accepts route; mismatching/unknown readback blocks/unconfirms; late stale mutation/reconciliation callbacks cannot update replacement context.
-- [ ] 8.8 Regression tests: existing PDU mutation/reconciliation remains unchanged.
-- [ ] 8.9 Regression tests: existing Matrix room live/local Refresh remains unchanged.
-- [ ] 8.10 Regression tests: standalone MatrixScreen/MatrixController routing remains functional and separate from room exact-row authority.
-- [ ] 8.11 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
+- [ ] 8.1 Preserve requested input identity across mutation-to-reconciliation handoff as non-secret exact-operation evidence.
+- [ ] 8.2 Run reconciliation through current exact-row read-only Matrix acquisition/currentness authority; do not reuse stale standalone/global Matrix target.
+- [ ] 8.3 Accept reconciliation success only when fail-closed normalized current readback establishes `current_connection == requested input_num`.
+- [ ] 8.4 Explicitly prove requested Input 1 is **not** confirmed by empty, failed, malformed, ambiguous, out-of-range, or otherwise UNKNOWN readback.
+- [ ] 8.5 On readback mismatch/UNKNOWN or unconfirmed final state, keep prior cache only as stale/unconfirmed presentation, block row network actions/live, and require top full Refresh according to existing room mutation contract.
+- [ ] 8.6 On confirmed reconciliation, atomically replace row accepted Matrix snapshot and permit normal eligible lifecycle/live only after currentness/cleanup checks.
 
-## 9. Implementation validation
+## 9. Focused regression coverage
 
-- [ ] 9.1 Run focused Matrix/room GUI/lifecycle tests for all changed surfaces.
-- [ ] 9.2 Run full offline test suite from the implementation branch and record fresh command/counts in the implementation report; do not copy prior counts.
-- [ ] 9.3 Run repository-local `\.\openspec.cmd validate matrix-diagnostic-modern-ui --strict`.
-- [ ] 9.4 Run repository-local `\.\openspec.cmd validate --all --strict`.
-- [ ] 9.5 Run `git diff --check` and `git diff --cached --check`.
-- [ ] 9.6 Perform local manual visual acceptance at `1440 x 900` in dark and light themes against the self-contained OpenSpec hierarchy: left General information, dominant center Matrix table, right Quick actions, exact field/column order, readable non-color status, disabled placeholders. Screenshots remain local evidence unless explicitly requested as tracked artifacts.
-- [ ] 9.7 Create one focused implementation commit and push to the feature branch only after focused/full tests and strict validation pass. Do not archive or self-approve.
+- [ ] 9.1 Normalization tests: missing/unrecognized model/count does not become eight accepted inputs; empty connection evidence does not become input 1; malformed/non-parseable route response remains UNKNOWN; out-of-range route remains UNKNOWN.
+- [ ] 9.2 HDCP normalization tests: recognized present/absent become True/False; failed/malformed/unrecognized input HDCP status becomes UNKNOWN and not false.
+- [ ] 9.3 Presentation tests: three-card order, General information field order, no-data slots, exact table column order, proven data-driven input count, dynamic output header, signal/HDCP-presence/route non-color states.
+- [ ] 9.4 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent.
+- [ ] 9.5 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current/unproven-input rows emit/accept no route mutation.
+- [ ] 9.6 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
+- [ ] 9.7 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
+- [ ] 9.8 Mutation tests: live retirement before send, stale pre-acquisition rejection, structured pre-delivery auth fallback, at-most-one send after command invocation, no string-based fallback/replay.
+- [ ] 9.9 Reconciliation tests: ACK does not update cache; matching truthful readback accepts route; mismatching/UNKNOWN readback blocks/unconfirms; requested Input 1 with empty/malformed readback is never accepted; late stale callbacks cannot update replacement context.
+- [ ] 9.10 Regression tests: existing PDU mutation/reconciliation remains unchanged.
+- [ ] 9.11 Regression tests: existing Matrix room live/local Refresh remains unchanged.
+- [ ] 9.12 Regression tests: standalone MatrixScreen/MatrixController routing remains functional and separate from room exact-row authority, subject to removal of fabricated normalization defaults.
+- [ ] 9.13 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
 
-## 10. Independent validation and completion gates
+## 10. Implementation validation
 
-- [ ] 10.1 Independent validator uses a separate clean detached worktree from current `origin/agent/matrix-diagnostic-modern-ui`, proves local/remote SHA equality and clean status before/after, and independently repeats focused/full tests, strict validation, Git checks, architecture/diff review, mutation/reconciliation safety review, and visual acceptance as required.
-- [ ] 10.2 Because this change modifies/adds root-spec requirements, independent validation performs a disposable archive-applicability check on a disposable worktree/branch, not on the feature branch.
-- [ ] 10.3 Only after independent `APPROVE` / `READY FOR ARCHIVE`, archive with repository-local `\.\openspec.cmd archive matrix-diagnostic-modern-ui --yes` in the archive session.
-- [ ] 10.4 Post-archive: review archive/root-spec diff, run `\.\openspec.cmd validate --all --strict`, full offline tests, `git diff --check`, and create/push a dedicated archive commit.
-- [ ] 10.5 Before merge, recheck current remote archive HEAD and current `master`. Do not mark PR ready, merge, close, or delete branches without explicit user authorization.
+- [ ] 10.1 Run focused Matrix normalization/room GUI/lifecycle tests for all changed surfaces.
+- [ ] 10.2 Run full offline test suite from implementation branch and record fresh command/counts; do not copy prior counts.
+- [ ] 10.3 Run repository-local `\.\openspec.cmd validate matrix-diagnostic-modern-ui --strict`.
+- [ ] 10.4 Run repository-local `\.\openspec.cmd validate --all --strict`.
+- [ ] 10.5 Run `git diff --check` and `git diff --cached --check`.
+- [ ] 10.6 Perform local manual visual acceptance at `1440 x 900` in dark and light themes: left General information, dominant center Matrix table, right Quick actions, exact field/column order, HDCP presence-only projection, truthful no-data/UNKNOWN states, disabled reboot, and no `Открыть расширенный экран`. Screenshots remain local evidence unless explicitly requested as tracked artifacts.
+- [ ] 10.7 Create one focused implementation commit and push to feature branch only after focused/full tests and strict validation pass. Do not archive or self-approve.
+
+## 11. Independent validation and completion gates
+
+- [ ] 11.1 Independent validator uses a separate clean detached worktree from current `origin/agent/matrix-diagnostic-modern-ui`, proves local/remote SHA equality and clean status before/after, and independently repeats focused/full tests, strict validation, Git checks, architecture/diff review, normalization/mutation/reconciliation safety review, and visual acceptance as required.
+- [ ] 11.2 Because this change adds/modifies root-spec requirements, independent validation performs a disposable archive-applicability check on a disposable worktree/branch, not on the feature branch.
+- [ ] 11.3 Only after independent `APPROVE` / `READY FOR ARCHIVE`, archive with repository-local `\.\openspec.cmd archive matrix-diagnostic-modern-ui --yes` in the archive/completion phase.
+- [ ] 11.4 Post-archive: review archive/root-spec diff, run `\.\openspec.cmd validate --all --strict`, full offline tests, `git diff --check`, `git diff --cached --check`, and create/push a dedicated archive commit.
+- [ ] 11.5 Before merge, recheck current remote archive HEAD and current `master`. Do not mark PR ready, merge, close, or delete branches without explicit user authorization.
