@@ -26,6 +26,7 @@ COLORS = {
     "danger_hover": "#ED6370",
     "danger_pressed": "#B83E4A",
     "warning": "#F59E0B",
+    "elevated": "#EA580C",
     "text_primary": "#F2F5F8",
     "text_secondary": "#A6B0BE",
     "text_muted": "#6F7B8A",
@@ -39,7 +40,7 @@ LIGHT_COLORS = {
     "surface_hover": "#E7EDF5", "border": "#CBD5E1", "border_strong": "#94A3B8",
     "primary": "#2563EB", "primary_hover": "#1D4ED8", "primary_pressed": "#1E40AF",
     "success": "#16803B", "success_hover": "#117A34", "success_pressed": "#0E642B",
-    "danger": "#C82D3D", "danger_hover": "#B91C2C", "danger_pressed": "#991B2A", "warning": "#B45309",
+    "danger": "#C82D3D", "danger_hover": "#B91C2C", "danger_pressed": "#991B2A", "warning": "#B45309", "elevated": "#C2410C",
     "text_primary": "#172033", "text_secondary": "#475569", "text_muted": "#64748B",
     "text_on_accent": "#FFFFFF", "focus": "#2563EB",
 }
@@ -407,6 +408,20 @@ def build_stylesheet() -> str:
             selection-background-color: {c["primary_pressed"]};
             outline: 0;
         }}
+        QTreeView, QTreeWidget {{
+            color: {c["text_primary"]};
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            outline: 0;
+        }}
+        QTreeView::item, QTreeWidget::item {{
+            color: {c["text_primary"]};
+            background-color: {c["surface"]};
+        }}
+        QTreeView::item:selected, QTreeWidget::item:selected {{
+            color: {c["text_on_accent"]};
+            background-color: {c["primary_pressed"]};
+        }}
         QHeaderView::section {{
             color: {c["text_secondary"]};
             background-color: {c["surface_raised"]};
@@ -486,6 +501,88 @@ def build_stylesheet() -> str:
         QProgressBar[meterState="unavailable"]::chunk {{
             background-color: transparent;
         }}
+        QWidget#roomAudioDspMeters {{
+            background: transparent;
+        }}
+        QWidget#roomAudioDspDashboard {{
+            background: transparent;
+        }}
+        QFrame#roomAudioDspInfo,
+        QFrame#roomAudioDspQuickActions,
+        QFrame#roomAudioDspMeterSection {{
+            min-height: 244px;
+        }}
+        QFrame#roomAudioDspInfo[audioCompact="true"],
+        QFrame#roomAudioDspQuickActions[audioCompact="true"] {{
+            min-height: 118px;
+        }}
+        QFrame#roomAudioDspChannel {{
+            background-color: {c["surface_raised"]};
+            border: 1px solid transparent;
+            border-radius: {r["md"]}px;
+        }}
+        QFrame#roomAudioDspChannel:hover {{
+            background-color: {c["surface_hover"]};
+            border-color: {c["border_strong"]};
+        }}
+        QFrame#roomAudioDspChannel[audioSelected="true"] {{
+            border: 2px solid {c["focus"]};
+        }}
+        QWidget#roomAudioDspMeterTrack {{
+            min-width: 22px;
+            max-width: 22px;
+            min-height: 146px;
+        }}
+        QFrame#roomAudioDspMeterSegment {{
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            border-radius: 2px;
+        }}
+        QFrame#roomAudioDspMeterSegment[meterFilled="true"][meterZone="success"] {{
+            background-color: {c["success"]};
+            border-color: {c["success"]};
+        }}
+        QFrame#roomAudioDspMeterSegment[meterFilled="true"][meterZone="warning"] {{
+            background-color: {c["warning"]};
+            border-color: {c["warning"]};
+        }}
+        QFrame#roomAudioDspMeterSegment[meterFilled="true"][meterZone="elevated"] {{
+            background-color: {c["elevated"]};
+            border-color: {c["elevated"]};
+        }}
+        QLabel#roomAudioDspDbfs {{
+            font-weight: {t["weight_semibold"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QLabel#roomAudioDspUnavailableDetail {{
+            color: {c["text_secondary"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QLabel#roomAudioDspSelectionCue {{
+            color: {c["focus"]};
+            font-size: {t["caption"]}pt;
+            font-weight: {t["weight_semibold"]};
+        }}
+        QFrame#roomAudioDspLocalControls {{
+            background-color: {c["surface"]};
+            border: 1px solid {c["focus"]};
+            border-radius: {r["md"]}px;
+        }}
+        QFrame#roomAudioDspLocalControls QPushButton {{
+            min-height: 38px;
+            padding: 4px 8px;
+        }}
+        QLabel#roomAudioDspLocalControlsTitle {{
+            color: {c["text_primary"]};
+            font-weight: {t["weight_semibold"]};
+        }}
+        QLabel#roomAudioDspInfoLabel {{
+            color: {c["text_secondary"]};
+        }}
+        QLabel#roomAudioDspInfoValue {{
+            color: {c["text_primary"]};
+            font-weight: {t["weight_semibold"]};
+        }}
         QCheckBox, QRadioButton {{
             spacing: 8px;
             color: {c["text_primary"]};
@@ -520,12 +617,31 @@ def build_stylesheet() -> str:
 
 
 def apply_theme(target, theme: str = "dark") -> None:
-    """Apply the shared palette and QSS to a QApplication or QWidget."""
+    """Apply the shared palette and QSS to the full application or a widget."""
     if theme not in {"dark", "light"}:
         raise ValueError(f"Unsupported theme: {theme}")
     COLORS.clear()
     COLORS.update(DARK_COLORS if theme == "dark" else LIGHT_COLORS)
-    target.setPalette(create_palette())
-    target.setStyleSheet(build_stylesheet())
+    palette = create_palette()
+    stylesheet = build_stylesheet()
+    if isinstance(target, QWidget):
+        # A window-local stylesheet does not automatically refresh children
+        # created under the opposite palette.  Refresh this surface explicitly
+        # instead of repolishing unrelated windows application-wide.
+        target.setPalette(palette)
+        target.setStyleSheet(stylesheet)
+        for child in target.findChildren(QWidget):
+            child.setPalette(palette)
+            if child.objectName() == "roomDiagnosticTree":
+                # The room tree is a long-lived presentation scope.  Give it
+                # the replacement stylesheet directly so nested meter widgets
+                # cannot retain rules compiled under the prior theme.
+                child.setStyleSheet(stylesheet)
+            style = child.style()
+            style.unpolish(child)
+            style.polish(child)
+    else:
+        target.setPalette(palette)
+        target.setStyleSheet(stylesheet)
     if isinstance(target, QWidget):
         target.setAttribute(Qt.WA_StyledBackground, True)
