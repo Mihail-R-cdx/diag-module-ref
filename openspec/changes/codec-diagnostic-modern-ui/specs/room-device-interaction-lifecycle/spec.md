@@ -2,9 +2,9 @@
 
 ## ADDED Requirements
 
-### Requirement: Codec expansion may start one exact-row call-log preview through the existing auxiliary lane
+### Requirement: Codec expansion starts one exact-row call-log preview through the existing auxiliary lane
 
-After the automatic room cycle is terminal, expanding a current connected/usable exact codec row whose unified registration advertises the existing call-log auxiliary binding MAY request one automatic call-log preview. The expansion itself remains presentation/current-selection state; all network acquisition SHALL enter the existing single serialized room interaction lane as `AUXILIARY_READ` and SHALL preserve the existing auxiliary credential, lock, cleanup, degradation and supersession rules.
+After the automatic room cycle is terminal, expanding a current connected/usable exact codec row whose unified registration advertises the existing call-log auxiliary binding SHALL request one automatic call-log preview. The expansion itself remains presentation/current-selection state; all network acquisition SHALL enter the existing single serialized room interaction lane as `AUXILIARY_READ` and SHALL preserve the existing auxiliary credential, lock, cleanup, degradation and supersession rules.
 
 Before preview I/O begins, any current LIVE owner for that row SHALL lose authority and retire through the existing bounded cleanup/release boundary. Preview I/O SHALL start only after that boundary and only if the same room generation, `record_id`, exact model/IP and row operation/currentness token remain current and eligible. After terminal preview cleanup, eligible LIVE MAY start/resume only for the still-current expanded usable row.
 
