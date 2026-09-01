@@ -2,41 +2,62 @@
 
 ## ADDED Requirements
 
-### Requirement: Codec expansion starts one exact-row call-log preview through the existing auxiliary lane
+### Requirement: Codec expansion performs at most one automatic call-log preview attempt per expansion epoch
 
-After the automatic room cycle is terminal, a current expanded connected/usable exact codec row whose unified registration advertises the existing call-log auxiliary binding SHALL request one automatic call-log preview. If the codec row became expanded before the automatic cycle reached terminal state, the application SHALL remember only that current presentation selection and SHALL admit the preview once, after the cycle becomes terminal and the row is still current/eligible; the pre-terminal expansion itself SHALL NOT start device I/O.
+After the automatic room cycle is terminal, a current expanded connected/usable exact codec row whose unified registration advertises the existing call-log auxiliary binding SHALL be eligible for one automatic call-log preview attempt for the current **expansion epoch**.
 
-All preview network acquisition SHALL enter the existing single serialized room interaction lane as `AUXILIARY_READ` and SHALL preserve the existing auxiliary credential, lock, cleanup, degradation and supersession rules.
+An expansion epoch SHALL be application-owned non-secret presentation/lifecycle state identified by the current room generation, exact `record_id`, and a monotonically changing row-expansion token or equivalent. A new epoch begins only when that exact row transitions from collapsed to expanded under current room authority. Re-rendering, resize, theme switching, hover, repaint, duplicate Qt expansion notifications, or rebuilding the same already-expanded presentation SHALL NOT create a new epoch.
 
-Before preview I/O begins, any current LIVE owner for that row SHALL lose authority and retire through the existing bounded cleanup/release boundary. Preview I/O SHALL start only after that boundary and only if the same room generation, `record_id`, exact model/IP and row operation/currentness token remain current and eligible. After terminal preview cleanup, eligible LIVE MAY start/resume only for the still-current expanded usable row.
+If the codec row becomes expanded before the automatic room cycle reaches terminal state, the application SHALL remember only that current expanded selection/epoch and SHALL admit its one automatic preview attempt after the cycle becomes terminal if the same exact row/epoch remains current and eligible. The pre-terminal expansion itself SHALL NOT start device I/O.
 
-The application SHALL maintain at most one active/pending call-log preview acquisition for the current exact row/generation. Re-rendering the row, repeated Qt expansion notifications, theme switching, hover or resize SHALL NOT enqueue duplicate auxiliary reads. A successfully completed current preview SHALL remain the current accepted preview for that exact row/generation and SHALL NOT be refetched merely because the same expanded presentation re-renders. The accepted full normalized result MAY be retained as non-secret exact-row/generation auxiliary presentation state so the codec card can project the newest three entries.
+All preview network acquisition SHALL enter the existing single serialized room interaction lane as `AUXILIARY_READ` and SHALL preserve the existing auxiliary credential, lock, cleanup, degradation and supersession rules. Before preview I/O begins, any current LIVE owner for that row SHALL lose authority and retire through the existing bounded cleanup/release boundary. Preview I/O SHALL start only after that boundary and only if the same room generation, `record_id`, exact model/IP, expansion epoch and operation/currentness token remain current and eligible. After terminal preview cleanup, eligible LIVE MAY start/resume only for the still-current expanded usable row.
 
-Collapsing the row, expanding another row, top full Refresh, target-search/context invalidation, credential-context invalidation or application shutdown SHALL immediately make preview callbacks stale and publish cancellation/retirement where applicable. Late preview callbacks SHALL NOT update another row, reopen a child window, resume LIVE for an old context, change credential-success memory outside an accepted current operation, or become current cache authority.
+The automatic-attempt marker SHALL become terminal for that expansion epoch after any current terminal preview result, including:
 
-An ordinary preview parse/business failure without typed connection/session loss SHALL keep the row connected and render preview no-data after bounded cleanup. Terminal typed connection/session loss or terminal authentication failure after allowed fallback is exhausted SHALL follow the existing auxiliary degradation/recovery contract.
+```text
+accepted success with records
+accepted success with zero records
+ordinary parse/business/no-data failure that does not degrade the row
+typed terminal connection/session/authentication failure
+```
+
+A terminal ordinary failure SHALL therefore render `Нет данных` and complete the automatic attempt; it SHALL NOT leave the same expansion epoch eligible for an automatic retry. Re-render, theme switch, resize, repaint, hover, duplicate expansion events, LIVE resume, or another local presentation event SHALL cause zero additional automatic preview I/O for that completed epoch.
+
+A new automatic preview attempt MAY become eligible only after an authority boundary that creates a new current expansion context, including collapse followed by explicit re-expand of that codec row, expansion of another row followed by a later re-expand, a new room generation/top full Refresh, or target/context/credential-context invalidation followed by a new valid room context. Merely returning the UI to the same visible values does not resurrect an old epoch.
+
+Collapsing the row, expanding another row, top full Refresh, target-search/context invalidation, credential-context invalidation or application shutdown SHALL immediately make active preview callbacks stale and publish cancellation/retirement where applicable. Late preview callbacks SHALL NOT update another row, reopen a child window, resume LIVE for an old context, change credential-success memory outside an accepted current operation, or become current cache authority.
+
+An ordinary preview parse/business failure without typed connection/session loss SHALL keep the row connected. Terminal typed connection/session loss or terminal authentication failure after allowed fallback is exhausted SHALL follow the existing auxiliary degradation/recovery contract.
 
 #### Scenario: Codec was expanded before the room cycle finished
 
-- **GIVEN** a codec row is the current expanded row while the automatic room cycle is still running
-- **WHEN** the room cycle later reaches terminal state and that exact row remains current, connected/usable and call-log capable
-- **THEN** one automatic call-log preview is admitted through the auxiliary lane
+- **GIVEN** a codec row owns a current expansion epoch while the automatic room cycle is still running
+- **WHEN** the room cycle later reaches terminal state and that exact row/epoch remains current, connected/usable and call-log capable
+- **THEN** one automatic call-log preview attempt is admitted through the auxiliary lane
 - **AND** the earlier expansion itself performed no device I/O before the terminal room boundary
+
+#### Scenario: Preview business failure is one-shot for the epoch
+
+- **GIVEN** an automatic preview attempt for the current exact row/expansion epoch ends with an ordinary parse/business/no-data failure
+- **WHEN** the same expanded presentation is rebuilt, resized, repainted, theme-switched or receives duplicate expansion notifications
+- **THEN** no additional automatic call-log read is admitted for that epoch
+- **AND** the row remains connected unless the failure separately proves typed connection/session loss
+
+#### Scenario: Collapse and re-expand creates a new attempt boundary
+
+- **GIVEN** the current codec expansion epoch already completed its automatic preview attempt
+- **WHEN** the operator collapses that row and later explicitly expands it again under the same otherwise-current room generation
+- **THEN** the new expansion receives a new expansion epoch
+- **AND** one new automatic preview attempt may be admitted if the row is still eligible
 
 #### Scenario: Codec expansion starts preview after live retirement
 
 - **GIVEN** a terminal room has a current connected codec row with a registered call-log auxiliary binding
 - **AND** LIVE currently owns that row
-- **WHEN** automatic call-log preview is admitted
+- **WHEN** the current expansion epoch's automatic call-log preview is admitted
 - **THEN** LIVE is invalidated and retired before preview handler/session acquisition
 - **AND** exactly one `AUXILIARY_READ` preview may perform network I/O
 - **AND** eligible LIVE may resume only after preview cleanup and currentness checks
-
-#### Scenario: Re-render does not duplicate preview
-
-- **GIVEN** a call-log preview is active/pending or current accepted preview data already belongs to the same exact row/generation
-- **WHEN** presentation re-renders or receives another equivalent expansion notification
-- **THEN** no second preview network acquisition is created solely by that presentation event
 
 #### Scenario: Row switch makes old preview stale
 
@@ -46,11 +67,13 @@ An ordinary preview parse/business failure without typed connection/session loss
 - **AND** late A callbacks cannot update B or restart A live
 - **AND** any B network lifecycle waits for the permitted A retirement boundary
 
-### Requirement: Codec call-log acquisition result is separable from detailed-window presentation
+### Requirement: Codec call-log acquisition result and explicit detail request are separate from automatic-attempt authority
 
 The existing room call-log application/controller boundary SHALL separate normalized acquisition/result ownership from the side effect of showing `CallLogWindow`. A current accepted call-log result SHALL remain bound to its immutable exact row/generation context and MAY feed either the inline three-record preview, the existing detailed child window, or both without creating a second capability authority.
 
-When `Развернуть` is requested and current accepted full preview data exists for the same exact row/generation, the application SHALL populate and open the existing detailed window from that accepted result as a local presentation action with no additional network I/O. If no such current accepted data exists, `Развернуть` SHALL request a normal fresh call-log `AUXILIARY_READ`; after a current accepted result, the application SHALL populate and open the existing detailed window.
+When `Развернуть` is requested and current accepted full preview data exists for the same exact row/generation, the application SHALL populate and open the existing detailed window from that accepted result as a local presentation action with no additional network I/O.
+
+If no current accepted data exists — including after a completed automatic preview attempt that ended in ordinary failure/no-data — `Развернуть` SHALL be treated as a new explicit operator auxiliary intent. It MAY request one normal fresh call-log `AUXILIARY_READ` through the same serialized lane; after a current accepted result, the application SHALL populate and open the existing detailed window. This explicit request SHALL NOT clear, reuse or reset the completed automatic-attempt marker for the current expansion epoch, and its completion SHALL NOT cause an automatic retry loop.
 
 The existing direct child-window close rule remains authoritative for an active window-owned network request: user close invalidates/cancels that request, bounded cleanup follows, late callbacks cannot reopen it, and a later explicit network opening after the cancelled request requires fresh acquisition. Accepted preview data from a distinct still-current completed preview SHALL NOT be confused with a cancelled child-window request.
 
@@ -61,16 +84,18 @@ The existing direct child-window close rule remains authoritative for an active 
 - **THEN** the existing detailed window opens from that accepted full result
 - **AND** no second auxiliary read is started solely to reproduce the same current accepted records
 
-#### Scenario: No current preview exists
+#### Scenario: Failed automatic preview can be retried only by explicit detail intent
 
-- **GIVEN** the current codec row has no accepted current call-log preview
-- **WHEN** the operator clicks `Развернуть`
-- **THEN** a fresh call-log acquisition enters the existing serialized auxiliary lane
-- **AND** the detailed window is populated/opened only after a current accepted result
+- **GIVEN** the current expansion epoch's automatic preview completed with an ordinary failure/no-data result
+- **WHEN** no explicit call-log action occurs
+- **THEN** presentation events cause zero further automatic call-log I/O
+- **WHEN** the operator explicitly clicks `Развернуть`
+- **THEN** one fresh call-log auxiliary acquisition may be requested through the serialized lane
+- **AND** the automatic-attempt marker for that expansion epoch remains completed
 
 ### Requirement: Room codec controls use registry-owned exact-row state-changing lifecycle bindings
 
-The unified exact application model registration SHALL remain the sole capability authority for codec room controls. Each current exact codec registration SHALL explicitly declare support or absence for the operations needed by the common codec dashboard:
+The unified exact application model registration SHALL remain the sole runtime capability authority for codec room controls. Each current exact codec registration SHALL explicitly declare support or absence for:
 
 ```text
 speaker_adjust
@@ -80,21 +105,21 @@ microphone_mute
 reboot
 ```
 
-These declarations SHALL live in or be owned by the existing exact registration and SHALL NOT form a parallel model registry. Application composition SHALL fail closed if a codec operation is declared supported but its required adapter, model-safe target policy, readback/reconciliation binding, cancellation or cleanup hook is unavailable or contradictory.
+The required current-baseline values are the OpenSpec test oracle defined by `device-diagnostics-and-control`; they SHALL NOT be copied into a second runtime support table. Application composition SHALL fail closed if a codec operation is declared supported but its required adapter, model-safe target policy, readback/reconciliation binding, cancellation or cleanup hook is unavailable or contradictory.
 
-A dashboard click for an explicitly unsupported operation SHALL be resolved locally before `RoomInteractionCoordinator` mutation admission: it SHALL show the approved non-secret informational result and SHALL NOT invalidate LIVE, replace an interaction generation, acquire a handler/session, select credentials or perform device network I/O. Unsupported controls SHALL not be permanently disabled solely because the model lacks that operation; however, the existing interaction lock matrix MAY temporarily disable the common controls while another room lifecycle owns interaction authority.
+A dashboard click for an explicitly unsupported operation SHALL be resolved locally before `RoomInteractionCoordinator` mutation admission. The local affordance SHALL show the approved non-secret informational result and SHALL NOT invalidate LIVE, replace an interaction generation, acquire a handler/session, select credentials or perform device network I/O. The operation remains an unsupported **network capability** even though the fixed dashboard retains a visible local affordance. Existing active/retiring lifecycle locks MAY temporarily disable the common controls.
 
 A supported codec state-changing operation SHALL bind to the current immutable exact-row `RoomInteractionContext` and use the existing `MUTATION -> RECONCILIATION` lifecycle. It SHALL preserve all stronger generic mutation rules: LIVE retirement before send, no send if cleanup cannot reach its permitted boundary, one state-changing delivery attempt at most under current policy, no blind replay/credential advance after possible delivery, mandatory model-appropriate readback, authoritative cache update only after confirmed reconciliation, and row network blocking until top full Refresh after ambiguous/unconfirmed outcome.
 
-For non-disruptive codec audio controls (`speaker_adjust`, `speaker_mute`, `microphone_adjust`, `microphone_mute`), the operator's click on the explicit desired-state control SHALL constitute the explicit mutation confirmation required by the generic room mutation contract; no second confirmation dialog SHALL be inserted between the control click and lifecycle admission. For a supported `reboot`, a separate explicit confirmation dialog SHALL be required before mutation admission because reboot is disruptive. Canceling that reboot confirmation SHALL be a no-op under the existing mutation contract.
+For non-disruptive codec audio controls, the operator's click on an explicit provable desired-state control SHALL constitute the explicit mutation confirmation required by the generic room mutation contract; no second confirmation dialog SHALL be inserted between the control click and lifecycle admission. A future supported `reboot` would require a separate explicit confirmation dialog because reboot is disruptive; current baseline reboot support is `UNSUPPORTED` for all five codecs.
 
 The presentation SHALL NOT call standalone `CodecScreen`, handlers or transports directly and SHALL NOT determine support from widget type, handler method presence, model substring, localized text or an independent codec model list.
 
 #### Scenario: Unsupported codec control is local only
 
-- **GIVEN** the exact codec registration explicitly marks the requested dashboard operation unsupported
+- **GIVEN** the exact codec registration explicitly marks the requested dashboard network operation unsupported
 - **AND** the common controls are not temporarily locked by another lifecycle
-- **WHEN** the operator clicks its visible control
+- **WHEN** the operator clicks its visible affordance
 - **THEN** the application displays the unsupported-operation information locally
 - **AND** no room interaction generation or network owner changes
 - **AND** no handler/session is acquired and current LIVE remains eligible/unchanged
@@ -106,13 +131,6 @@ The presentation SHALL NOT call standalone `CodecScreen`, handlers or transports
 - **THEN** no secondary modal confirmation is required
 - **AND** the click may be admitted into the existing mutation lifecycle after normal exact-row/currentness gates
 
-#### Scenario: Supported reboot requires confirmation
-
-- **GIVEN** an exact codec registration has an approved supported reboot binding
-- **WHEN** the operator clicks `Перезагрузить устройство`
-- **THEN** the application asks for explicit confirmation before mutation admission
-- **AND** Cancel performs no reboot I/O and does not replace interaction authority
-
 #### Scenario: Declared codec control binding is unavailable
 
 - **GIVEN** an exact codec registration declares a dashboard operation supported
@@ -120,15 +138,20 @@ The presentation SHALL NOT call standalone `CodecScreen`, handlers or transports
 - **THEN** startup/composition fails closed
 - **AND** the GUI cannot expose that operation as a network-capable room control
 
-### Requirement: Codec relative audio controls resolve to authoritative absolute targets before mutation
+### Requirement: Codec relative and mute controls derive only from authoritative typed audio evidence
 
-Room codec `+` and `−` controls SHALL NOT be implemented as blind relative device commands or by guessing a starting value. Before mutation admission, application/core codec-control composition SHALL use current accepted exact-row authoritative audio evidence plus the registry-bound model range/step policy to derive one valid absolute target.
+Room codec `+` and `−` controls SHALL NOT be implemented as blind relative device commands or by guessing a starting value. Before mutation admission, application/core codec-control composition SHALL use current accepted exact-row numeric `speaker_volume` or `microphone_volume` plus the registry-bound model range/step policy to derive one valid absolute target.
 
-If the current value, range, step or applicable operation support cannot be proven for the exact row, the click SHALL produce a safe local unavailable/unsupported informational result and SHALL perform no device I/O. A fallback default such as minimum volume, zero, another model's range, or a stale standalone-widget value SHALL NOT become mutation authority.
+If the current numeric value, range, step or applicable operation support cannot be proven for the exact row, the click SHALL produce a safe local unavailable/unsupported informational result and SHALL perform no device I/O. A fallback default such as minimum volume, zero, another model's range, or a stale standalone-widget value SHALL NOT become mutation authority.
 
-Mute/unmute SHALL likewise resolve to an explicit desired model-safe target, not a blind toggle. Where the existing approved model contract represents mute through volume zero/restore or a typed mute state, the codec-control adapter SHALL perform that mapping below the shared presentation and SHALL provide the model-appropriate readback needed for reconciliation.
+Mute/unmute SHALL likewise resolve to an explicit desired model-safe target, not a blind toggle. The application SHALL consume the separate typed mute-state and restore authority defined by `device-diagnostics-and-control`:
 
-Model-specific range/step/mute policy SHALL come from the registry-owned binding/adapter. Shared Qt presentation SHALL NOT hard-code model names to choose command semantics. Existing safe behavior, including a model-specific larger Polycom speaker step where applicable, MAY be preserved through that adapter.
+- supported TE20/TE40/Polycom microphone mute uses typed `MUTED`/`UNMUTED` readback and never numeric-gain inference;
+- supported speaker mute for current codecs may map to absolute zero/restore only when current numeric volume and exact-row room-owned restore evidence prove the target;
+- widget-local `last_unmuted_volume`, fallback `1`, minimum volume or requested-but-unconfirmed values SHALL NOT supply restore authority;
+- when unmute cannot prove a restore target, the click remains local unavailable and starts zero mutation/network I/O.
+
+Model-specific range/step/mute policy SHALL come from the registry-owned binding/adapter. Shared Qt presentation SHALL NOT hard-code model names to choose command semantics.
 
 #### Scenario: Volume value is unavailable
 
@@ -138,9 +161,17 @@ Model-specific range/step/mute policy SHALL come from the registry-owned binding
 - **AND** no mutation/handler/device I/O starts
 - **AND** a safe informational unavailable result is shown
 
+#### Scenario: Speaker unmute lacks restore authority
+
+- **GIVEN** the current exact row has accepted speaker volume zero
+- **AND** no current exact-row/generation non-zero restore target is proven
+- **WHEN** the operator clicks speaker unmute
+- **THEN** no fallback target is fabricated
+- **AND** no mutation/handler/device I/O starts
+
 #### Scenario: Supported audio target reconciles
 
-- **GIVEN** current authoritative value and registry-bound model policy produce a valid absolute target
+- **GIVEN** current authoritative audio evidence and registry-bound model policy produce a valid absolute or typed desired target
 - **WHEN** the operator requests an audio change
 - **THEN** one exact-row mutation may send that desired target after currentness/live-retirement gates
 - **AND** only matching accepted readback may confirm the operation and replace authoritative row audio state
