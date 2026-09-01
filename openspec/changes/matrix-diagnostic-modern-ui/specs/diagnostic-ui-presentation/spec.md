@@ -238,6 +238,15 @@ Compatibility/family presentation adaptation SHALL NOT make expanded widgets aut
 - **THEN** the existing application intent/controller boundary is used
 - **AND** the foundation introduces no direct handler call, new capability, or parallel network lifecycle
 
+#### Scenario: Matrix remains read-only in room mode under the foundation
+
+- **GIVEN** an exact `Extron IN1804` room row whose current unified-registry entry has room live/local-refresh capability but no route-mutation binding
+- **WHEN** the row is expanded in the foundation accordion
+- **THEN** the current room-mode read-only Matrix projection remains exact-row bound
+- **AND** existing Matrix room live/local-refresh behavior remains governed by the current lifecycle
+- **AND** no Matrix route-mutation intent or registry mutation binding is inferred from the visual capability
+- **AND** standalone `MatrixScreen.routeRequested` is not wired into the room accordion
+
 #### Scenario: MIH-11 Matrix routing replaces only the deferred read-only family limitation
 
 - **GIVEN** an exact current `Extron IN1804` room row whose unified registration declares MIH-11 Matrix route mutation/reconciliation bindings
