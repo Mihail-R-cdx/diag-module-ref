@@ -4,7 +4,7 @@
 
 ### Requirement: Codec expansion performs at most one automatic call-log preview attempt per expansion epoch
 
-After the automatic room cycle is terminal, a current expanded connected/usable exact codec row whose unified registration advertises the existing call-log auxiliary binding SHALL be eligible for one automatic call-log preview attempt for the current **expansion epoch**.
+After the automatic room cycle is terminal, when a current connected/usable exact codec row whose unified registration advertises the existing call-log auxiliary binding transitions from collapsed to expanded under current room authority, the application SHALL admit exactly one automatic call-log preview attempt for that new **expansion epoch** through the existing serialized room interaction lane. Admission of that automatic intent is mandatory for the eligible post-terminal expansion; later currentness, retirement, cancellation or cleanup gates MAY prevent device I/O, but the implementation SHALL NOT leave the row merely "eligible" without submitting the one automatic attempt.
 
 An expansion epoch SHALL be application-owned non-secret presentation/lifecycle state identified by the current room generation, exact `record_id`, and a monotonically changing row-expansion token or equivalent. A new epoch begins only when that exact row transitions from collapsed to expanded under current room authority. Re-rendering, resize, theme switching, hover, repaint, duplicate Qt expansion notifications, or rebuilding the same already-expanded presentation SHALL NOT create a new epoch.
 
@@ -23,11 +23,19 @@ typed terminal connection/session/authentication failure
 
 A terminal ordinary failure SHALL therefore render `Нет данных` and complete the automatic attempt; it SHALL NOT leave the same expansion epoch eligible for an automatic retry. Re-render, theme switch, resize, repaint, hover, duplicate expansion events, LIVE resume, or another local presentation event SHALL cause zero additional automatic preview I/O for that completed epoch.
 
-A new automatic preview attempt MAY become eligible only after an authority boundary that creates a new current expansion context, including collapse followed by explicit re-expand of that codec row, expansion of another row followed by a later re-expand, a new room generation/top full Refresh, or target/context/credential-context invalidation followed by a new valid room context. Merely returning the UI to the same visible values does not resurrect an old epoch.
+A new automatic preview attempt SHALL be admitted only after an authority boundary creates a new current eligible expansion epoch and the automatic room cycle is terminal. Such boundaries include collapse followed by explicit re-expand of that codec row, expansion of another row followed by a later re-expand, a new room generation/top full Refresh followed by a new current expansion, or target/context/credential-context invalidation followed by a new valid room context and a new current expansion. Merely returning the UI to the same visible values or rebuilding an already-expanded row does not create or admit another automatic attempt.
 
 Collapsing the row, expanding another row, top full Refresh, target-search/context invalidation, credential-context invalidation or application shutdown SHALL immediately make active preview callbacks stale and publish cancellation/retirement where applicable. Late preview callbacks SHALL NOT update another row, reopen a child window, resume LIVE for an old context, change credential-success memory outside an accepted current operation, or become current cache authority.
 
 An ordinary preview parse/business failure without typed connection/session loss SHALL keep the row connected. Terminal typed connection/session loss or terminal authentication failure after allowed fallback is exhausted SHALL follow the existing auxiliary degradation/recovery contract.
+
+#### Scenario: Post-terminal codec expansion automatically admits preview
+
+- **GIVEN** the automatic room cycle is terminal
+- **AND** a current connected/usable exact codec row with the registered call-log auxiliary binding is collapsed
+- **WHEN** the operator expands that codec row and creates a new current expansion epoch
+- **THEN** the application admits exactly one automatic call-log preview attempt through the existing `AUXILIARY_READ` lane for that epoch
+- **AND** duplicate expansion notifications, render, resize, repaint or theme switching do not admit another automatic attempt for the same epoch
 
 #### Scenario: Codec was expanded before the room cycle finished
 
@@ -46,15 +54,15 @@ An ordinary preview parse/business failure without typed connection/session loss
 #### Scenario: Collapse and re-expand creates a new attempt boundary
 
 - **GIVEN** the current codec expansion epoch already completed its automatic preview attempt
-- **WHEN** the operator collapses that row and later explicitly expands it again under the same otherwise-current room generation
+- **WHEN** the operator collapses that row and later explicitly expands it again under the same otherwise-current terminal room generation
 - **THEN** the new expansion receives a new expansion epoch
-- **AND** one new automatic preview attempt may be admitted if the row is still eligible
+- **AND** one new automatic preview attempt is admitted if the row is still current, connected/usable and call-log capable
 
 #### Scenario: Codec expansion starts preview after live retirement
 
 - **GIVEN** a terminal room has a current connected codec row with a registered call-log auxiliary binding
 - **AND** LIVE currently owns that row
-- **WHEN** the current expansion epoch's automatic call-log preview is admitted
+- **WHEN** the current expansion epoch's mandatory automatic call-log preview attempt is admitted
 - **THEN** LIVE is invalidated and retired before preview handler/session acquisition
 - **AND** exactly one `AUXILIARY_READ` preview may perform network I/O
 - **AND** eligible LIVE may resume only after preview cleanup and currentness checks

@@ -37,17 +37,17 @@ The dashboard SHALL be presentation/application-intent only: it SHALL NOT own ta
 At baseline, each card SHALL use this common visual anatomy:
 
 ```text
-header height                34-42 px
-header/section icon          18-22 px
-card title                   11-12 pt semibold equivalent
-body label                   9-10 pt
-body primary value           10-11 pt
-secondary/timestamp text      9-10 pt
-ordinary data row height     28-34 px
-status-dot diameter           8-10 px when a dot is used
+header height                         34-42 px
+header/section icon                   18-22 px
+card title                            11-12 pt semibold equivalent
+body label                             9-10 pt
+body primary value                    10-11 pt
+secondary/timestamp text               9-10 pt
+ordinary data row height              28-34 px
+required status-dot diameter           8-10 px
 ```
 
-Headers SHALL place the icon before the title on one line. Status meaning SHALL never rely on color alone; text/accessibility meaning remains required. Values SHALL not overlap adjacent controls or card boundaries at baseline.
+Headers SHALL place the icon before the title on one line. Required status rows defined below SHALL place their semantic indicator before/adjacent to the textual value with a stable `8-10 px` dot target. Status meaning SHALL never rely on color alone; the textual state and accessibility/non-color meaning remain required. Values and indicators SHALL not overlap adjacent controls or card boundaries at baseline.
 
 #### Scenario: Current codec row opens at baseline size
 
@@ -90,7 +90,19 @@ At baseline each row SHALL use the common `28-34 px` row height. Label and value
 
 For either card, absent, stale-unusable, failed, malformed or otherwise unavailable current evidence SHALL render `Нет данных` in the corresponding slot. The shared dashboard SHALL NOT hide a required row/card, invent `Unknown`, invent numeric zero, copy another model's value, or infer semantic values from model-name/localized-string substrings.
 
-Legitimate current false/zero values SHALL remain distinguishable from missing evidence where the approved model normalization defines them. Status indicators MAY use color but SHALL preserve text/non-color/accessibility meaning.
+The following five reference-status rows SHALL always render one leading/adjacent semantic status dot plus the textual state/value:
+
+```text
+Состояние / Микрофон
+Состояние / Камера
+Вызов и презентация / Статус звонка
+Вызов и презентация / Презентация
+Вызов и презентация / Регистрация SIP/H.323
+```
+
+For current normalized evidence that has an approved semantic state, the indicator class SHALL be derived from that same typed/structured model-neutral or exact-model-normalized evidence used for the textual value. Shared presentation SHALL NOT determine indicator meaning by parsing localized display strings, model names or substrings. If the available evidence has a textual value but no approved semantic class, the presentation SHALL use a neutral informational indicator rather than guess positive/negative state. If evidence is unavailable, the row SHALL show a neutral unavailable indicator together with the text `Нет данных`.
+
+Known positive/active/healthy and known negative/inactive/error states MAY use distinct shared-theme colors/icons, but color SHALL NOT be the sole carrier of meaning and the indicator SHALL NOT replace the textual value. Legitimate current false/zero values SHALL remain distinguishable from missing evidence where the approved model normalization defines them.
 
 #### Scenario: Model lacks one field
 
@@ -99,6 +111,14 @@ Legitimate current false/zero values SHALL remain distinguishable from missing e
 - **THEN** the `Платформа` row remains in its fixed position
 - **AND** its value is `Нет данных`
 - **AND** neighboring rows are not shifted into a different model-specific layout
+
+#### Scenario: Required codec status row has no current evidence
+
+- **GIVEN** one of the five required status-indicator rows has no current usable normalized evidence
+- **WHEN** the codec state/call cards are rendered
+- **THEN** that row remains in its fixed position
+- **AND** it renders the neutral unavailable status indicator plus `Нет данных`
+- **AND** the GUI does not omit the indicator or infer a colored state from a localized fallback string
 
 ### Requirement: Codec audio card has fixed meter and control-row geometry without fabricated authority
 
@@ -224,10 +244,10 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use the following t
 6. `Аудио` uses horizontal meter then microphone row then speaker row with the required control placement/sizing and distinct numeric/mute semantics;
 7. `Журнал вызовов` reserves three-row density, uses direction + primary peer + secondary timestamp anatomy, and places `Развернуть` after the preview;
 8. `Действия` uses exactly two vertically stacked full-width actions in required order/sizing;
-9. ordinary labels/values/status indicators follow the shared size/density/non-color ranges above without overlap or model-specific layout collapse;
+9. all five required status rows (`Микрофон`, `Камера`, `Статус звонка`, `Презентация`, `Регистрация SIP/H.323`) show the required `8-10 px` semantic status indicator plus textual state; unavailable evidence uses the neutral unavailable indicator + `Нет данных`, and color is not the sole meaning;
 10. light theme preserves the same geometry/order and readable semantic states without device I/O.
 
-Checkpoints 1, 5, 6, 7 and 8 are mandatory structural checkpoints and cannot be waived by approximate similarity. The implementation SHALL satisfy all mandatory structural checkpoints and at least `9/10` total checkpoints to meet the product target of approximately 90% visual correspondence. Font rasterization and one-pixel antialiasing differences are not acceptance failures when these repository-local ranges/checkpoints are satisfied.
+Checkpoints 1, 5, 6, 7, 8 and 9 are mandatory structural/semantic checkpoints and cannot be waived by approximate similarity. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints to meet the product target of approximately 90% visual correspondence. Font rasterization and one-pixel antialiasing differences are not acceptance failures when these repository-local ranges/checkpoints are satisfied.
 
 #### Scenario: Independent validator has no source screenshot
 

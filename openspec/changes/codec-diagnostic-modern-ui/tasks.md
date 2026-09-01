@@ -23,12 +23,12 @@
 - [ ] 2.1 Replace the room codec flat-field projection with the one shared five-card dashboard: `Состояние`, `Вызов и презентация`, `Аудио`, `Журнал вызовов`, `Действия`.
 - [ ] 2.2 Preserve exact `Состояние` row order: model, MAC, serial, platform, software version, microphone, camera.
 - [ ] 2.3 Preserve exact `Вызов и презентация` row order: call status, presentation, SIP/H.323 registration.
-- [ ] 2.4 Render missing/unusable values as `Нет данных`; never hide a required card/row because one model lacks the value.
+- [ ] 2.4 Render missing/unusable values as `Нет данных`; never hide a required card/row because one model lacks the value. For `Микрофон`, `Камера`, `Статус звонка`, `Презентация`, and `Регистрация SIP/H.323`, always render the required `8-10 px` semantic status indicator plus textual state; unavailable evidence uses a neutral unavailable indicator + `Нет данных`, and shared GUI code must not derive indicator semantics from localized strings/model names.
 - [ ] 2.5 Implement Audio with horizontal current microphone-level indicator followed by microphone and speaker rows in the exact `− | value | + | mute` geometry and approved size ranges.
 - [ ] 2.6 Reuse only existing current accepted/live level evidence; do not add a meter poll solely to populate the visual slot.
 - [ ] 2.7 Implement Actions with two full-width vertical buttons in order: `Обновить статус`, then `Перезагрузить устройство`; refresh is existing Local Refresh alias and reboot follows current unsupported local-only path.
 - [ ] 2.8 Meet repository-local baseline geometry: five-card weights `23:17:18:25:17` within ±4 points, card height `286-326 px`, card gaps `10-14 px`, padding `14-18 px`, and all detailed typography/control/call-row ranges in the presentation spec.
-- [ ] 2.9 At `1440 x 900` satisfy all mandatory visual checkpoints and at least `9/10` total repository-local checkpoints; preserve the same geometry/order in light theme. External screenshot access must not be required.
+- [ ] 2.9 At `1440 x 900` satisfy all mandatory visual checkpoints, including required indicator checkpoint 9, and at least `9/10` total repository-local checkpoints; preserve the same geometry/order in light theme. External screenshot access must not be required.
 
 ## 3. Typed room audio projection and interactions
 
@@ -45,7 +45,7 @@
 ## 4. Call-log preview and chronology
 
 - [ ] 4.1 Refactor/reuse the existing room call-log controller so acquisition/typed normalized result ownership is separable from opening `CallLogWindow`.
-- [ ] 4.2 Track automatic preview authority by current room generation + exact `record_id` + expansion epoch; a new epoch begins only on a real collapsed->expanded transition, not rerender/theme/resize/repaint/duplicate Qt events.
+- [ ] 4.2 Track automatic preview authority by current room generation + exact `record_id` + expansion epoch; a new epoch begins only on a real collapsed->expanded transition, not rerender/theme/resize/repaint/duplicate Qt events. When the room cycle is already terminal, every current eligible collapsed->expanded codec transition must admit exactly one automatic preview intent through the existing `AUXILIARY_READ` lane for that epoch.
 - [ ] 4.3 If codec is expanded before room-cycle terminal state, perform zero pre-terminal preview I/O and admit that epoch's one automatic attempt only after terminal state if the same exact row/epoch remains current and eligible.
 - [ ] 4.4 Route the one automatic attempt through existing `AUXILIARY_READ`, retire active LIVE before preview I/O, and resume eligible LIVE only after terminal cleanup/currentness checks.
 - [ ] 4.5 Mark the automatic attempt terminal for the expansion epoch after success-with-records, success-empty, ordinary parse/business/no-data failure, or typed terminal failure.
@@ -62,7 +62,7 @@
 
 - [ ] 5.1 Cover the unified dashboard for all five exact codec registrations while proving runtime authority comes only from the unified registry.
 - [ ] 5.2 Assert every current codec registration matches the exact support matrix in task 1.2; a regression that turns a required current SUPPORTED operation into UNSUPPORTED must fail.
-- [ ] 5.3 Assert fixed card/field order, permanent missing-data rows, all normative baseline geometry ranges, mandatory structural checkpoints and dark/light parity.
+- [ ] 5.3 Assert fixed card/field order, permanent missing-data rows, all normative baseline geometry ranges, mandatory structural checkpoints, mandatory five-row status-indicator map (including neutral unavailable indicator + `Нет данных`), and dark/light parity.
 - [ ] 5.4 Assert microphone-level unavailable behavior and that the dashboard starts no new level I/O solely for presentation.
 - [ ] 5.5 Assert split numeric volume/mute-state typing; shared GUI never treats `Muted`/`Unmuted` as numeric volume or parses display strings for mutation authority.
 - [ ] 5.6 Assert supported speaker `+/-`, mute and restore target construction; current zero + no accepted restore target -> informational unavailable + zero handler/session/network I/O.
@@ -71,9 +71,9 @@
 - [ ] 5.9 Assert CloudLink Bar/Box microphone `−/+` clicks use local informational path with zero interaction/network I/O and no gain PUT/POST/readback.
 - [ ] 5.10 Assert current reboot is unsupported for all five and visible affordance performs zero I/O; do not add a reboot handler merely to satisfy the dashboard.
 - [ ] 5.11 Assert supported audio mutation/readback confirmation, ambiguous-outcome blocking and top-Refresh recovery.
-- [ ] 5.12 Assert automatic call-log preview for post-terminal expansion and a codec already expanded when the cycle becomes terminal.
+- [ ] 5.12 Assert a terminal room followed by an eligible collapsed->expanded codec transition admits exactly one automatic `AUXILIARY_READ` preview intent for that epoch, and separately assert a codec already expanded when the cycle becomes terminal admits its one deferred automatic attempt.
 - [ ] 5.13 Assert success, empty and ordinary-failure automatic preview each consume exactly one attempt per expansion epoch; specifically business failure -> repeated render/theme/resize/repaint -> zero additional automatic I/O.
-- [ ] 5.14 Assert collapse+re-expand creates a new epoch that may perform one new automatic attempt; duplicate expansion notifications without collapse do not.
+- [ ] 5.14 Assert collapse+re-expand creates a new epoch that admits one new automatic attempt when still eligible; duplicate expansion notifications without collapse do not.
 - [ ] 5.15 Assert preview/live handoff and stale suppression across collapse, A->B row switch, top Refresh, query/context invalidation and shutdown.
 - [ ] 5.16 Assert `Развернуть` after a failed automatic attempt may execute one explicit fresh auxiliary read without causing a new automatic attempt.
 - [ ] 5.17 For TE20, TE40, Bar 310, Box 310 and Polycom call-log fixtures, assert normalized newest-first chronology; include equal, malformed and missing timestamp cases and prove localized display strings are not sorting authority.
