@@ -2,109 +2,241 @@
 
 ### Requirement: Diagnostic shell follows a self-contained modern room-oriented foundation contract
 
-The desktop application SHALL retain the user-visible title `Диагностический модуль` and a card-based room-oriented layout with semantic spacing, typography, borders, radii, standard Qt/device-class icons, and status styling. This repository-local contract, rather than an external screenshot or a particular stylesheet, SHALL be sufficient for implementation and review.
+The desktop application SHALL present the user-visible title `Диагностический модуль` and SHALL use a card-based desktop layout with consistent semantic spacing, typography, borders, radii, standard Qt/device-class icons, and status styling. External screenshots are product-design inputs only; implementation and review SHALL be possible from this repository-local foundation contract without access to the original conversation images.
 
-The baseline viewport remains `1440 x 900` logical pixels and the minimum supported window remains `1180 x 720`. Below the baseline, controlled reflow or vertical scrolling MAY occur, but target search, top Refresh, selected-room cue, room/network cards, equipment accordion, and expanded current-device content SHALL remain reachable. Presentation widgets SHALL NOT become authority for target identity, credentials, request generation, handler/session ownership, or device I/O.
+The baseline visual acceptance viewport SHALL be `1440 x 900` logical pixels. The layout SHALL remain usable at a minimum `1180 x 720` logical-pixel window; below the baseline, vertical scrolling or controlled card reflow MAY occur, but target-search, top Refresh, current selected-room cue, room/network cards, common equipment accordion, and expanded current device content SHALL remain reachable.
 
-At baseline, room mode SHALL place two peer-weight cards above the equipment accordion, with aligned tops and a width ratio from `0.9:1` through `1.1:1`. The upper card block SHALL have an accepted height centered on `186` logical pixels (an implementation-tuning range of `178-194` is permitted). The left card header SHALL read `Информация о комнате`; the right header SHALL include the current switch count, equivalent to `Сетевые подключения (N коммутаторов)`. The cards SHALL remain side by side at baseline.
+At the baseline viewport the following common visual scale SHALL apply:
 
-The accepted shell uses a transparent/common diagnostic-tree background with card-like equipment surfaces. Its compact accordion header has no visible tree column header and no visible trailing overflow placeholder. A hidden, data-bearing or accessibility surface MAY retain cycle health, but the shell SHALL NOT insert a second visible global-cycle line between the upper cards and the accordion. Hover, repaint, resize, theme switch, reflow, and scrolling remain presentation-only and SHALL start no device I/O or change authority.
+```text
+outer content margin              20-28 px
+major section gap                 16-24 px
+card internal padding             16-20 px
+card radius                       8-12 px
+toolbar/control height            44-56 px
+collapsed equipment row height    38-46 px (accepted target about 42 px)
+common equipment-row device-class icon  approximately 28 x 28 px
+section icon                       18-24 px
+room hero icon                    28-36 px
+body text                         10-11 pt
+secondary text                    9-10 pt
+section heading                   12-14 pt
+page/application heading          18-22 pt
+```
 
-#### Scenario: Accepted room shell renders at baseline size
+The primary toolbar SHALL expose the single target-search field, top Refresh, application actions, and the session theme control. At baseline width, the target-search area including its selected-room cue SHALL consume approximately 45-60% of the usable toolbar width; top actions SHALL remain compact and SHALL NOT visually dominate the search field.
+
+Room mode SHALL place the room-summary card and network-connections card above the equipment accordion. At baseline width the two cards SHALL have aligned tops and approximately peer weight with a width ratio between `0.9:1` and `1.1:1`; neither card SHALL collapse into a narrow sidebar while the other occupies the full row. The accepted upper-card block SHALL be about `186` logical pixels high (a tuning range of `178-194` is permitted); its visible headings SHALL be `Информация о комнате` and `Сетевые подключения (N коммутаторов)` or an equivalent current switch-count rendering.
+
+The foundation contract itself does not define final family-specific visual geometry for Audio DSP, Matrix/IN1804, codec, or PDU expanded content; such geometry is owned only by dedicated reviewed follow-up OpenSpec changes. MIH-10 and MIH-11 are those approved follow-ups for Audio DSP and Matrix/IN1804 respectively; codec and PDU redesign remain deferred. The common shell redesign SHALL NOT make Qt widget state authoritative for target identity, credentials, request generation, handler/session ownership, or device I/O.
+
+The accepted shell uses a transparent/common diagnostic-tree background with card-like equipment surfaces. Its compact accordion has no visible tree column header and no visible trailing common overflow/action placeholder. A hidden data-bearing or accessibility surface MAY retain cycle health, but the shell SHALL NOT insert a second visible global-cycle line between the upper cards and the accordion. Hover, repaint, resize, theme switch, reflow, and scrolling remain presentation-only and SHALL start no device I/O or change authority.
+
+#### Scenario: Room shell is rendered at baseline size
 
 - **WHEN** room mode has an authoritative current room at the baseline viewport
-- **THEN** the titled room and network cards appear side by side above the compact equipment accordion
-- **AND** the upper block uses the accepted taller card geometry
-- **AND** device/network authority remains outside presentation widgets
+- **THEN** the titled room-summary and network cards appear side by side above the compact equipment accordion with peer visual weight
+- **AND** the accepted common spacing/typography/icon scale and taller upper-card geometry are applied
+- **AND** device/network authority remains outside the presentation widgets
 
-#### Scenario: Supported smaller window remains usable
+#### Scenario: Minimum supported window remains usable
 
 - **WHEN** the application is shown at `1180 x 720` logical pixels
-- **THEN** controlled reflow or scrolling keeps the required shell and current expanded content reachable
-- **AND** no target, device, credential, or request authority changes merely because layout reflows
+- **THEN** target-search, selected-room cue when present, top Refresh, room/network cards, equipment accordion, and current expanded device content remain reachable through controlled reflow/scrolling
+- **AND** no target or device authority changes merely because layout reflows
 
 ### Requirement: Room summary card derives busy indication only from typed codec call activity
 
-The room-summary card SHALL permanently render labelled facts for `Название комнаты`, `Адрес комнаты`, `Гарантия`, and `Занятость`, plus a clear VIP badge when canonical `room_vip` is true. `room_name`, `room_address`, and `room_vip` remain governed by the canonical room metadata authority. The accepted visual text for the unavailable warranty source is `Гарантия: нет данных`; this capitalization is presentation only and does not create a warranty field or data source.
+The room-summary card SHALL permanently include labelled presentation slots for `Название комнаты`, `Адрес комнаты`, `Гарантия`, and `Занятость`, plus VIP. Current canonical `room_name`, `room_address`, and `room_vip` SHALL use the room metadata authority defined by `room-equipment-diagnostics`.
 
-The operator-facing `Занятость` means busy by a current VKS codec call, not physical or calendar availability. It SHALL consume only current model-neutral `CallActivity` evidence from registry-relevant call-capable codec rows. A current accepted `CallActivity.ACTIVE` renders `Занято`; all other cases, including INACTIVE, UNKNOWN, missing, stale, failed, contradictory, unrecognized, or no relevant current codec, render `Нет данных`. The GUI SHALL NOT display `Свободно`, infer occupancy from inventory/calendar/local state, maintain a second support list, parse model/localized strings, or start occupancy-specific I/O.
+The confirmed product decision for this change is that real warranty data is not implemented yet. This scope decision is independent of the current schema limitation. Because canonical schema v4 contains no authoritative warranty field, the permanent row SHALL render `Гарантия: нет данных` and SHALL NOT infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state. A future reviewed change may add an authoritative warranty source/schema mapping.
 
-Registry relevance remains defined exclusively by the exact unified model registration's declared call-activity binding. A relevant row with unusable evidence contributes UNKNOWN and remains relevant. The projection updates only when the application-owned lifecycle accepts current typed evidence; rendering and the explanatory hover tooltip perform no timer, poll, worker, handler/session acquisition, credential attempt, or network request.
+The confirmed product meaning of the operator-facing `Занятость` row in this change is **busy by current VKS call**, not physical room occupancy and not booking/calendar occupancy. Occupancy SHALL NOT become an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL consume only current model-neutral `CallActivity` evidence produced under `device-diagnostics-and-control`; the room presentation SHALL NOT parse model-specific or localized call-status strings.
+
+The current product decision defines only a positive busy indication:
+
+```text
+at least one current accepted relevant room codec has CallActivity.ACTIVE
+    -> `Занято`
+
+otherwise
+    -> `Нет данных`
+```
+
+`CallActivity.INACTIVE` is intentionally not presented as `Свободно` in this change because absence of a codec call does not establish physical room availability. `CallActivity.UNKNOWN`, missing/stale/failed call evidence, or a room with no current active call likewise renders `Нет данных`.
+
+A relevant call-capable codec row is defined exclusively by capability authority: its exact unified application model registration declares the required available call-activity normalization/projection binding defined by `device-diagnostics-and-control`. Runtime presence or absence of a `CallActivity` field or call-status payload SHALL NOT decide applicability. A registry-relevant row whose current evidence is missing, stale, failed, contradictory, or unrecognized remains relevant and contributes `CallActivity.UNKNOWN`; it SHALL NOT silently disappear from aggregation. Presentation SHALL NOT keep a second occupancy-supported model list.
+
+The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts new current typed call-activity evidence/currentness. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
+
+Hovering the `Занятость` row/value SHALL show a local tooltip or equivalent non-modal explanatory popup whose meaning is equivalent to: `Занятость определяется по текущему состоянию звонка кодека.` The tooltip SHALL perform no device I/O and SHALL NOT imply that occupancy comes from a room-booking/calendar system.
+
+VIP true SHALL have a clear badge/indicator in addition to textual/accessibility meaning. VIP false/null SHALL not be rendered as VIP true.
+
+At baseline size the room identity/name is the strongest text inside the card; address/warranty/occupancy are secondary rows. A room-card refresh icon MAY be present to match the visual hierarchy, but if actionable it SHALL be only an alias of the existing top full Refresh intent.
 
 #### Scenario: Typed active codec call marks the room busy
 
-- **GIVEN** a registry-relevant current room codec has accepted `CallActivity.ACTIVE`
-- **WHEN** the room summary renders
-- **THEN** `Занятость` displays `Занято`
-- **AND** no occupancy-specific request starts
+- **GIVEN** a registry-relevant current room codec row has non-stale accepted `CallActivity.ACTIVE`
+- **WHEN** the room summary is rendered or that accepted typed activity changes
+- **THEN** occupancy is displayed as `Занято`
+- **AND** no additional occupancy-specific network request is started
 
-#### Scenario: Inactive or incomplete evidence does not claim availability
+#### Scenario: Typed inactive evidence does not claim physical availability
 
-- **GIVEN** no registry-relevant current room codec has accepted active call activity
-- **WHEN** the room summary renders
-- **THEN** `Занятость` displays `Нет данных`
+- **GIVEN** every registry-relevant current room codec has current accepted `CallActivity.INACTIVE`
+- **WHEN** the room summary is rendered
+- **THEN** occupancy is displayed as `Нет данных`
 - **AND** the GUI does not claim `Свободно`
+
+#### Scenario: Registry-relevant codec remains relevant without usable evidence
+
+- **GIVEN** a room codec exact registration declares the required call-activity binding
+- **AND** its current call evidence is missing, stale, failed, contradictory, or unrecognized
+- **WHEN** occupancy is aggregated
+- **THEN** that codec remains a relevant row
+- **AND** its contribution is `CallActivity.UNKNOWN`
+- **AND** runtime field absence does not remove it from applicability
+
+#### Scenario: Occupancy evidence is incomplete
+
+- **GIVEN** no registry-relevant current room codec has `CallActivity.ACTIVE`
+- **AND** call activity is `UNKNOWN`, missing, stale, failed, or otherwise unusable for one or more registry-relevant rows
+- **WHEN** the room summary is rendered
+- **THEN** occupancy is displayed as `Нет данных`
+- **AND** the GUI does not guess that the room is free
+
+#### Scenario: Occupancy explanation is available on hover
+
+- **WHEN** the operator hovers the occupancy row or value
+- **THEN** a local explanatory tooltip/popup states that occupancy is derived from the current codec call state
+- **AND** opening the explanation performs no device I/O
 
 ### Requirement: Network card preserves all available canonical connection evidence
 
-The titled network card SHALL use a compact summary table with columns equivalent to `Коммутатор (IP)`, `Порты`, and `Подключено устройств`. Rendering, hover, and any local table interaction are presentation-only and SHALL perform no device network I/O.
+The titled network-connections card SHALL use a compact summary table with columns equivalent to `Коммутатор (IP)`, `Порты`, and `Подключено устройств`. Rendering, hover, and local table interaction SHALL be presentation-only and SHALL perform no device network I/O.
 
-For each known exact canonical `switch_ip_address`, the table SHALL render one summary row labelled equivalently to `SW (<IP>)`. Its ports cell SHALL be the deterministic, first-occurrence de-duplicated summary of non-null canonical child `switch_port` values in canonical `record_id` order (`Нет данных` if none), and its device-count cell SHALL equal the number of canonical room-equipment records with that exact switch IP. Neither summary nor count becomes canonical switch, routing, or topology authority.
+Canonical connection evidence SHALL be presented according to these exact cases:
 
-For `switch_ip_address == null` and `switch_port != null`, the table SHALL render a separate record-bound `Коммутатор не определён` row with that exact port and device count `1`; such rows SHALL NOT be merged by matching port text. A record with both values null contributes no topology evidence. Deterministic ordering, partial-evidence visibility, and no invented switch identity remain mandatory. The compact table SHALL NOT require visual device-child rows. With no presentable evidence it SHALL show `Нет данных о сетевых подключениях` or an accepted equivalent.
+```text
+switch_ip_address known + switch_port known
+    -> one summary row for the exact switch IP with that port in its summary
 
-#### Scenario: Two devices share a known switch
+switch_ip_address known + switch_port null
+    -> one summary row for the exact switch IP; its port summary may be `Нет данных`
 
-- **GIVEN** two canonical room records share one non-null switch IP and ports `Gi1/0/5` and `Gi1/0/6`
+switch_ip_address null + switch_port known
+    -> do not invent or merge switch identity
+    -> one record-bound `Коммутатор не определён` row with that exact port and count 1
+
+switch_ip_address null + switch_port null
+    -> that record contributes no switch/port topology evidence
+```
+
+Records with unknown switch IP but known port SHALL NOT be grouped together merely because port text matches. Each such summary row remains tied to the exact canonical record evidence so no fictitious common switch is created.
+
+For each authoritative switch-IP row, attached canonical room-equipment records SHALL be ordered by canonical `record_id`. Its `Порты` cell SHALL collect non-null canonical `switch_port` values in that order and de-duplicate by first occurrence:
+
+```text
+zero known child ports     -> `Нет данных`
+one unique known port      -> that exact port, e.g. `Gi1/0/5`
+multiple unique ports      -> comma-separated exact values in deterministic child order
+```
+
+The summary row SHALL use a safe generic name equivalent to `SW (<IP>)` unless safe unique current canonical display evidence establishes a user-friendly name. The displayed ports summary and record count SHALL not be persisted as canonical data and SHALL not be used as switch identity, routing, or device-topology authority. The compact table intentionally has no visual device-child rows.
+
+For a record-bound `Коммутатор не определён` row with a known canonical port, the `Порты` cell SHALL display that exact port and count `1` because the row is bound to one exact record.
+
+If the room contains no presentable switch-IP or port evidence at all, the card SHALL show a safe empty state equivalent to `Нет данных о сетевых подключениях` rather than an invented topology.
+
+The confirmed product decision for this change is that room switches with zero attached canonical equipment are not implemented now. This is an intentional scope decision, not an inference from schema v4. Current schema v4 also cannot authoritatively establish such a switch, so implementation SHALL NOT fabricate it and acceptance SHALL NOT require the `Нет подключенных устройств` runtime state. A future reviewed source/schema change is required before that state becomes data-driven.
+
+#### Scenario: Two room devices share a switch
+
+- **GIVEN** two room records contain the same non-null canonical `switch_ip_address`
+- **AND** their canonical ports are `Gi1/0/5` and `Gi1/0/6`
 - **WHEN** the network summary renders
-- **THEN** one switch row displays the deterministic port summary and count `2`
+- **THEN** one switch summary row is shown for that IP
+- **AND** its Port summary displays `Gi1/0/5, Gi1/0/6` and its device count is `2`
 - **AND** neither displayed summary becomes canonical switch state
 
-#### Scenario: Known port without switch identity is retained safely
+#### Scenario: Parent port summary de-duplicates repeated child evidence
 
-- **GIVEN** a room record has null switch IP and a non-null canonical port
+- **GIVEN** several canonical records under one exact switch IP contain the same non-null canonical port text
 - **WHEN** the network summary renders
-- **THEN** a separate `Коммутатор не определён` row displays that exact port and count `1`
-- **AND** no shared switch identity is guessed
+- **THEN** the repeated port appears once according to first canonical `record_id` occurrence
+- **AND** the summary does not replace the per-record canonical evidence
+
+#### Scenario: Known port with missing switch IP is not lost
+
+- **GIVEN** one room record has null `switch_ip_address` and non-null canonical `switch_port`
+- **WHEN** the network card renders
+- **THEN** the known port remains visible under a `Коммутатор не определён` record-bound row with count `1`
+- **AND** no switch IP or shared switch identity is guessed
+
+#### Scenario: Empty switch state is explicitly out of current scope
+
+- **GIVEN** the confirmed product scope defers room switches with zero attached canonical equipment
+- **WHEN** no canonical room record/evidence establishes an unattached switch node
+- **THEN** the GUI does not fabricate a switch solely to display `Нет подключенных устройств`
+- **AND** acceptance does not require that state in this change
 
 ### Requirement: Equipment rows share one non-color accordion header contract
 
-Every room equipment record SHALL use one compact top-level row equivalent to `chevron -> device-class icon -> model label -> status cue + status text -> IP`. At baseline, a collapsed row SHALL be approximately `42` logical pixels high (a `38-46` range is permitted), the device-class icon SHALL be approximately `28 x 28` logical pixels, and the chevron/icon cluster SHALL remain compact. The tree header and a trailing overflow/action placeholder are intentionally not visible in the accepted shell.
+Every room equipment record SHALL use one compact top-level row layout equivalent to:
 
-Model text SHALL receive flexible width while status and IP remain readable under ordinary baseline content. Status SHALL retain explicit textual/non-color meaning for connected, waiting, connecting, unsupported, missing/ambiguous IP, failed, connection-lost, and other approved states; color may reinforce only. Exactly one expandable equipment row MAY be open. Expanding another expandable row SHALL collapse the prior row without reordering automatic acquisition or changing lifecycle authority. Any authorized device controls remain inside expanded content and through current application intent/controller boundaries; absence of a common row action SHALL NOT require a hidden or disabled placeholder.
+```text
+expand chevron -> device-class icon -> model label -> status cue + status text -> IP
+```
 
-#### Scenario: Another row is expanded
+At baseline size a collapsed row SHALL remain within the `38-46 px` height range, targeting about `42 px`. The device-class icon SHALL be approximately `28 x 28 px` and the chevron/icon cluster SHALL remain compact. Model text SHALL receive the largest flexible width, and status and IP SHALL remain readable without forcing the row into multiple lines under ordinary baseline content. The tree header and trailing common overflow/action placeholder are intentionally not visible.
+
+Status SHALL remain understandable without color alone. The row SHALL retain explicit text/non-color meaning for connected, waiting, connecting, unsupported, missing-IP, ambiguous-IP, failed, connection-lost, and other approved states. Color MAY reinforce but SHALL NOT be the only meaning.
+
+Exactly one room equipment row MAY be expanded at a time. Expanding another expandable row SHALL collapse the previous row. Accordion changes SHALL remain presentation/current-selection behavior and SHALL NOT reorder the automatic room acquisition queue.
+
+Any authorized device controls SHALL remain inside expanded content and through current application intent/controller boundaries. The absence of a common row action SHALL NOT create, imply, or require a hidden/disabled placeholder or an alternate direct network path.
+
+#### Scenario: Another device row is expanded
 
 - **GIVEN** one expandable equipment row is open
-- **WHEN** the operator expands another expandable row
-- **THEN** the first row collapses and only the second owns expanded presentation selection
-- **AND** automatic acquisition order remains unchanged
+- **WHEN** the operator expands a second row
+- **THEN** the first row collapses
+- **AND** only the second row owns current expanded presentation selection
+- **AND** automatic queue order is unchanged
 
 #### Scenario: Compact row remains understandable without color
 
 - **WHEN** a compact equipment row renders any approved connection state
 - **THEN** it displays explicit status text/non-color meaning in addition to optional color
-- **AND** no visible common overflow placeholder is required
+- **AND** no visible common overflow placeholder or alternate direct network path is required
 
 ### Requirement: Existing expanded device presentations remain compatible and are not redesigned by this foundation
 
-The `room-diagnostic-modern-ui` foundation established the **current room-mode exact-row presentation/interaction surface** as the common container for supported device families. A standalone or legacy single-device screen SHALL NOT be selected, embedded, or treated as room capability merely because it represents the same device family.
+For this foundation, `existing`, `current`, or `reused` device-family presentation means the **current room-mode exact-row presentation/interaction surface** for that family, as bound by the room diagnostic presentation path and the unified exact-model registry/lifecycle capabilities. A standalone or legacy single-device screen SHALL NOT be selected, embedded, or treated as room capability merely because it represents the same device family. The foundation MAY add only the minimum container/reparenting/theme compatibility needed to keep the current room-mode surface reachable at supported window sizes.
 
-Dedicated reviewed family changes MAY replace only their family-specific expanded content inside that exact-row room surface while preserving exact-row authority, theme semantics, and application-owned lifecycle boundaries. MIH-10 already provides the approved Audio DSP family redesign. MIH-11 provides the Matrix/IN1804 family redesign described below. The user-approved common room visual refinement in this change supersedes the foundation's provisional upper-card and compact-accordion geometry only; it neither creates a new data model nor changes the lifecycle or capability meaning of codec and PDU presentations.
+Expanded Audio DSP, Matrix/IN1804, codec, and PDU content SHALL remain projections of exact per-record state through that current room-mode surface. Dedicated reviewed family changes MAY define their family-specific internal visual contract inside that exact-row surface. MIH-10 provides the approved Audio DSP family redesign and MIH-11 provides the Matrix/IN1804 family redesign. The user-approved common room visual refinement in MIH-11 supersedes only the foundation's provisional upper-card and compact-accordion geometry; it neither creates a new data model nor changes the capability or lifecycle meaning of codec and PDU presentations.
 
-Existing **room-mode** controls SHALL remain connected through current non-secret application intent/controller boundaries and SHALL remain enabled only when current unified-registry/lifecycle capability state permits them. A family follow-up SHALL NOT promote an action, signal, credential owner, handler/session owner, retry lane, or network lifecycle from a standalone/single-device screen merely because similar functionality exists there.
+Existing **room-mode** controls SHALL remain connected through their current non-secret application intent/controller boundaries and SHALL remain enabled only when current registry/lifecycle capability state permits them. The foundation SHALL NOT promote an action, control, or signal that exists only on a standalone/single-device screen into room mode. Existing room-mode PDU mutation/reconciliation, codec auxiliary/live behavior, Audio DSP live/meter behavior, and Matrix room live/local-refresh behavior SHALL remain governed by their current corresponding lifecycle contracts.
 
-For Matrix/IN1804 specifically, MIH-11 supersedes the foundation's temporary read-only room projection only through the unified exact-model registry and existing serialized `MUTATION -> RECONCILIATION` room lifecycle. Standalone `MatrixScreen.routeRequested` SHALL NOT be wired or embedded as room authority, and no widget SHALL call a Matrix handler/session directly.
+For Matrix/IN1804 specifically, MIH-11 supersedes the foundation's temporary read-only room projection only through the exact unified model registration and the existing serialized `MUTATION -> RECONCILIATION` room lifecycle. It SHALL NOT promote standalone Matrix routing as an existing room capability, wire or embed standalone `MatrixScreen.routeRequested` as a room action, or bypass the exact-row route binding and application-owned lifecycle.
 
 Compatibility/family presentation adaptation SHALL NOT make expanded widgets authoritative for credential selection/fallback, handlers, sessions, transports, successful credential memory, stale-operation authority, request generations, exact-row identity, accepted device state, or direct device network I/O.
 
 #### Scenario: Existing room-mode device view opens inside the common accordion
 
-- **GIVEN** an exact supported room row has a current approved room-mode family presentation
-- **WHEN** the operator expands that row under the common accordion
-- **THEN** the approved room-mode family presentation is reachable and bound to that exact row state
+- **GIVEN** an exact supported room row has a current room-mode expanded presentation path
+- **WHEN** the operator expands that row under the new common accordion
+- **THEN** the current room-mode family presentation remains reachable and bound to that exact row state
 - **AND** no standalone/single-device screen is promoted merely because it has the same family
 - **AND** no widget gains direct credential/session/network authority
+
+#### Scenario: Existing room-mode device action preserves its application boundary
+
+- **GIVEN** an existing current room-mode device-family action is authorized by its current unified-registry/lifecycle capability
+- **WHEN** the operator invokes it from the reused expanded presentation inside the accordion
+- **THEN** the existing application intent/controller boundary is used
+- **AND** the foundation introduces no direct handler call, new capability, or parallel network lifecycle
 
 #### Scenario: MIH-11 Matrix routing replaces only the deferred read-only family limitation
 
