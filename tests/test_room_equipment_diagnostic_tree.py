@@ -8,6 +8,7 @@ import threading
 import time
 
 try:
+    from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -639,6 +640,91 @@ class OrchestratorTests(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
 class RoomGuiCompositionTests(unittest.TestCase):
+    def _matrix_route_session(self, window, *, record_id="matrix", generation=20, bind=True):
+        from gui.diagnostic_dispatch import room_model_capabilities
+
+        matrix = record(record_id, model="Extron IN1804")
+        stock = inventory(matrix)
+        session = build_room_session(
+            inventory=stock,
+            source=resolve_room_source(stock, matrix.ip_address, room_model_capabilities()),
+            generation=generation,
+            capabilities=room_model_capabilities(),
+        )
+        session.status = RoomCycleStatus.COMPLETE
+        session.expanded_record_id = record_id
+        row = session.row_for(record_id)
+        row.status = DeviceRowStatus.CONNECTED
+        row.network_actions_enabled = True
+        row.accepted_snapshot = {"inputs_num": 4, "current_connection": 1}
+        if bind:
+            window.room_diagnostic_session = session
+            window.room_interaction_coordinator.bind_session(session)
+        return session, row
+
+    def test_matrix_confirmation_admits_one_current_exact_row(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        session, _row = self._matrix_route_session(window)
+        window._start_room_matrix_mutation = Mock()
+        confirm = Mock(wraps=window.room_interaction_coordinator.confirm_mutation)
+        window.room_interaction_coordinator.confirm_mutation = confirm
+
+        with patch("gui.main_window.QMessageBox.question", return_value=QMessageBox.Yes):
+            window._on_room_matrix_route_requested("matrix", 1, 2)
+
+        confirm.assert_called_once()
+        self.assertEqual(session.identity, confirm.call_args.kwargs["expected_session_identity"])
+        window._start_room_matrix_mutation.assert_called_once()
+        window.room_interaction_coordinator.complete(
+            window.room_interaction_coordinator.active_context,
+            success=False,
+        )
+
+    def test_matrix_confirmation_cancel_starts_no_mutation(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        self._matrix_route_session(window)
+        window._start_room_matrix_mutation = Mock()
+        window.room_interaction_coordinator.confirm_mutation = Mock()
+
+        with patch("gui.main_window.QMessageBox.question", return_value=QMessageBox.No):
+            window._on_room_matrix_route_requested("matrix", 1, 2)
+
+        window.room_interaction_coordinator.confirm_mutation.assert_not_called()
+        window._start_room_matrix_mutation.assert_not_called()
+
+    def test_matrix_confirmation_discards_superseded_exact_row(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        self._matrix_route_session(window, generation=20)
+        replacement, _row = self._matrix_route_session(
+            window, record_id="replacement", generation=21, bind=False,
+        )
+        window._start_room_matrix_mutation = Mock()
+        window.room_interaction_coordinator.confirm_mutation = Mock()
+
+        def supersede_then_accept(*_args, **_kwargs):
+            window.room_diagnostic_session = replacement
+            window.room_interaction_coordinator.bind_session(replacement)
+            return QMessageBox.Yes
+
+        with patch("gui.main_window.QMessageBox.question", side_effect=supersede_then_accept):
+            window._on_room_matrix_route_requested("matrix", 1, 2)
+
+        self.assertEqual("replacement", window.room_diagnostic_session.expanded_record_id)
+        window.room_interaction_coordinator.confirm_mutation.assert_not_called()
+        window._start_room_matrix_mutation.assert_not_called()
+
     def test_composed_pdu_ack_starts_exact_reconciliation_before_cache_replacement(self):
         from gui.diagnostic_dispatch import room_model_capabilities
         from gui.main_window import VCSDiagnosticApp
@@ -1002,7 +1088,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         row = OrchestratorTests()._session([record("a")]).row_for("a")
         matrix_snapshot = ExtronIN1804DataParser.parse({
             "device_info": {"model": "IN1804", "temperature": 41},
-            "inputs_num": 2,
+            "inputs_num": 4,
             "outputs_num": 1,
             "input_names": ["Laptop", "Wireless"],
             "output_names": ["Display"],
@@ -1012,7 +1098,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
                 {"input": 2, "has_signal": False, "status": "No signal"},
             ],
             "input_hdcp_auth": ["Authenticated", "Not authenticated"],
-            "input_hdcp_status": ["Enabled", "Disabled"],
+            "input_hdcp_status": ["2", "1"],
             "output_hdcp": "Enabled",
             "connections": [1],
         })
@@ -1029,7 +1115,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
         })
         cases = (
             ("pdu", {"device_info": {"model": "PDU"}, "outlets": [{"number": 1, "status": "ON", "name": "Rack"}]}, "roomPduOutlets", 1),
-            ("matrix", matrix_snapshot, "roomMatrixRouting", 2),
+            ("matrix", matrix_snapshot, "roomMatrixRouting", 4),
             ("audio_dsp", dmp_snapshot, "roomAudioDspMeters", 1),
             ("audio_dsp", biamp_snapshot, "roomAudioMeasurements", 1),
         )
@@ -1043,10 +1129,12 @@ class RoomGuiCompositionTests(unittest.TestCase):
             if isinstance(view, QTableWidget):
                 self.assertEqual(rows, view.rowCount())
             if screen_key == "matrix":
-                self.assertEqual("Laptop", view.item(0, 1).text())
-                self.assertIn("Present", view.item(0, 2).text())
-                self.assertIn("Authenticated", view.item(0, 3).text())
-                self.assertEqual("Активен", view.item(0, 4).text())
+                self.assertEqual("●", view.item(0, 1).text())
+                self.assertEqual("есть", view.item(0, 1).data(Qt.UserRole))
+                self.assertEqual("есть", view.item(0, 2).text())
+                self.assertEqual("Laptop", view.item(0, 3).text())
+                self.assertEqual("●", view.item(0, 4).text())
+                self.assertEqual("активен", view.item(0, 4).data(Qt.UserRole))
             elif snapshot is dmp_snapshot:
                 channels = view.findChildren(QWidget, "roomAudioDspChannel")
                 self.assertEqual(2, len(channels))
@@ -1082,7 +1170,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
 
         snapshot = ExtronIN1804DataParser.parse({
             "device_info": {"model": "IN1804", "temperature": 40},
-            "inputs_num": 8,
+            "inputs_num": 4,
             "input_names": ["Input 1"],
             "signal_status": [],
             "input_hdcp_auth": [],
@@ -1096,10 +1184,11 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.addCleanup(presentation.deleteLater)
         table = presentation.findChild(QTableWidget, "roomMatrixRouting")
         self.assertIsNotNone(table)
-        self.assertEqual(8, table.rowCount())
-        self.assertEqual("—", table.item(1, 1).text())
-        self.assertEqual("—", table.item(0, 2).text())
-        self.assertIn("—", table.item(0, 3).text())
+        self.assertEqual(4, table.rowCount())
+        self.assertEqual("●", table.item(1, 1).text())
+        self.assertEqual("Нет данных", table.item(1, 1).data(Qt.UserRole))
+        self.assertEqual("Нет данных", table.item(0, 2).text())
+        self.assertEqual("Input 1", table.item(0, 3).text())
 
 
 if __name__ == "__main__":

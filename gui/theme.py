@@ -436,6 +436,45 @@ def build_stylesheet() -> str:
             font-size: {t["body"]}pt;
             font-weight: {t["weight_semibold"]};
         }}
+        QLabel#roomDiagnosticHeader,
+        QLabel#roomWarranty,
+        QLabel#roomOccupancy {{
+            color: {c["text_secondary"]};
+        }}
+        QTreeWidget#roomNetworkConnections {{
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            border-radius: {r["md"]}px;
+        }}
+        QTreeWidget#roomNetworkConnections::item {{
+            min-height: 22px;
+            padding: 1px 8px;
+        }}
+        QTreeWidget#roomDiagnosticRows {{
+            background: transparent;
+            border: none;
+        }}
+        QTreeWidget#roomDiagnosticRows::item {{
+            min-height: 40px;
+            margin: 0 0 5px 0;
+            padding: 0 8px;
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+        }}
+        QTreeWidget#roomDiagnosticRows::item:hover {{
+            background-color: {c["surface_hover"]};
+            border-color: {c["border_strong"]};
+        }}
+        QTreeWidget#roomDiagnosticRows::item:disabled {{
+            color: {c["text_muted"]};
+            background-color: {c["surface"]};
+        }}
+        QWidget#roomReadOnlyPresentation {{
+            background-color: {c["background"]};
+        }}
+        QWidget#roomMatrixDashboard {{
+            background: transparent;
+        }}
         QLabel#roomVipBadge {{
             color: {c["text_on_accent"]};
             background-color: #8b5cf6;

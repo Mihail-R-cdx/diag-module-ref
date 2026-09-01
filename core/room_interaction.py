@@ -155,6 +155,10 @@ class RoomInteractionCoordinator:
         """Public currentness boundary for composition-owned success evidence."""
         return self._is_current(context)
 
+    def is_bound_session(self, session: RoomDiagnosticSession) -> bool:
+        """Whether composition still owns this exact, current room session."""
+        return self._session is session and not session.invalidated
+
     def bind_session(self, session: RoomDiagnosticSession | None) -> None:
         self.invalidate("room_session_changed")
         self._session = session
@@ -192,7 +196,27 @@ class RoomInteractionCoordinator:
     def request_auxiliary(self, action: str) -> RoomInteractionContext | None:
         return self._start_user_operation(RoomInteractionKind.AUXILIARY_READ, action=action)
 
-    def confirm_mutation(self, command: Any) -> RoomInteractionContext | None:
+    def confirm_mutation(
+        self,
+        command: Any,
+        *,
+        expected_session_identity: RoomDiagnosticSessionIdentity | None = None,
+        expected_record_id: str | None = None,
+        expected_row_token: int | None = None,
+    ) -> RoomInteractionContext | None:
+        """Admit a confirmed mutation only while optional exact-row proof holds."""
+        if any(value is not None for value in (expected_session_identity, expected_record_id, expected_row_token)):
+            session = self._require_session()
+            if session is None or session.identity != expected_session_identity:
+                return None
+            if session.expanded_record_id != expected_record_id:
+                return None
+            try:
+                row = session.row_for(expected_record_id)
+            except KeyError:
+                return None
+            if expected_row_token is None or not session.is_current(session.identity, row, expected_row_token):
+                return None
         # A confirmation dialog calls this only after explicit acceptance.
         return self._start_user_operation(RoomInteractionKind.MUTATION, command=command)
 

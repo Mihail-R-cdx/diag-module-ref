@@ -23,8 +23,10 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
     
     def __init__(self, ip_address: str, port: int = 22023, username: str = None, password: str = None):
         super().__init__(ip_address, port, username, password)
-        self.model = 'Unknown'
-        self.inputs_num = 8
+        self.model = None
+        # Input count is device authority only after a successful current
+        # model read establishes one of the supported capabilities.
+        self.inputs_num = None
         self.outputs_num = 1
         self.strict_session_failures = True
 
@@ -51,14 +53,15 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
     
     def get_device_info(self) -> dict:
         """Получить базовую информацию об устройстве"""
-        info = {'model': 'Unknown', 'temperature': 0}
+        info = {'model': None, 'temperature': None}
         try:
             # Получаем модель
             result = self.send_command('1I')
             if result and result.get('success') and result.get('response'):
                 model_str = result['response'].strip()
-                info['model'] = model_str
-                self.model = model_str
+                if model_str and model_str.casefold() != 'unknown':
+                    info['model'] = model_str
+                    self.model = model_str
                 print(f"Model received: {model_str}")  # Для отладки
                 
                 # Определяем количество входов по модели
@@ -78,7 +81,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             except Exception as e:
                 self._raise_if_fatal_failure(e)
                 print(f"Temperature command failed: {e}")
-                info['temperature'] = 0
+                info['temperature'] = None
                 
         except Exception as e:
             self._raise_if_fatal_failure(e)
@@ -89,7 +92,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
     def get_input_names(self):
         """Получение названий входов"""
         names = []
-        for i in range(self.inputs_num):
+        for i in range(self.inputs_num or 0):
             try:
                 command = f'wI{i+1}VNAM'
                 result = self.send_command(command)
@@ -124,6 +127,8 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
     def get_signal_status(self):
         """Получение статуса сигналов на входах"""
         statuses = []
+        if self.inputs_num is None:
+            return statuses
         
         try:
             result = self.send_command('w0LS')
@@ -161,7 +166,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                         for i in range(self.inputs_num):
                             statuses.append({
                                 'input': i + 1,
-                                'has_signal': False,
+                                'has_signal': None,
                                 'status': 'Unknown'
                             })
             else:
@@ -169,7 +174,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
                 for i in range(self.inputs_num):
                     statuses.append({
                         'input': i + 1,
-                        'has_signal': False,
+                        'has_signal': None,
                         'status': 'Unknown'
                     })
                     
@@ -179,7 +184,7 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             for i in range(self.inputs_num):
                 statuses.append({
                     'input': i + 1,
-                    'has_signal': False,
+                    'has_signal': None,
                     'status': 'Unknown'
                 })
         
@@ -190,38 +195,35 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
         input_hdcp_auth = []
         input_hdcp_status = []
         
-        for i in range(self.inputs_num):
+        for i in range(self.inputs_num or 0):
             try:
-                # HDCP авторизация
+                # Preserve the legacy diagnostic reads.  Room presentation
+                # intentionally ignores auth/output values, but standalone
+                # Matrix still consumes them.
                 result = self.send_command(f'wE{i+1}HDCP')
                 if result and result.get('success') and result.get('response'):
-                    hdcp_auth = result['response']
                     try:
-                        input_hdcp_auth.append(int(hdcp_auth) if hdcp_auth else 0)
-                    except:
+                        input_hdcp_auth.append(int(result['response']))
+                    except (TypeError, ValueError):
                         input_hdcp_auth.append(0)
                 else:
                     input_hdcp_auth.append(0)
-                
                 time.sleep(0.2)
-                
-                # HDCP статус
                 result = self.send_command(f'wI{i+1}HDCP')
                 if result and result.get('success') and result.get('response'):
                     hdcp_status = result['response']
                     input_hdcp_status.append(hdcp_status)
                 else:
-                    input_hdcp_status.append('0')
+                    input_hdcp_status.append(None)
                 
                 time.sleep(0.2)
                 
             except Exception as e:
                 self._raise_if_fatal_failure(e)
                 print(f"Error getting HDCP info for input {i+1}: {e}")
-                input_hdcp_auth.append(0)
-                input_hdcp_status.append('0')
-        
-        # HDCP статус выхода
+                input_hdcp_auth.append(None)
+                input_hdcp_status.append(None)
+
         output_hdcp = '0'
         try:
             result = self.send_command('wO1HDCP')
@@ -247,12 +249,9 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             if result and result.get('success') and result.get('response'):
                 response_str = result['response']
                 print(f"Connections response: {response_str}")
-                # Извлекаем цифры из ответа
-                digits = ''.join(filter(str.isdigit, response_str))
-                if digits:
-                    connections.append(int(digits))
-                else:
-                    connections.append(1)  # Значение по умолчанию
+                connection = self._parse_current_connection(response_str, self._accepted_inputs_num())
+                if connection is not None:
+                    connections.append(connection)
             else:
                 return []
                 
@@ -262,6 +261,35 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
             return []
         
         return connections
+
+    def _accepted_inputs_num(self):
+        if isinstance(self.inputs_num, int) and self.inputs_num > 0:
+            return self.inputs_num
+        if isinstance(self.model, str):
+            for pattern, config in self.MODEL_PATTERNS.items():
+                if pattern in self.model:
+                    return config['inputs']
+        return None
+
+    @staticmethod
+    def _parse_current_connection(response, inputs_num):
+        """Accept exactly the existing SIS ``!`` response grammar.
+
+        Framing may add blank CR/LF lines and one exact command echo.  Any
+        other extra content is ambiguous and therefore not routing evidence.
+        """
+        if not isinstance(inputs_num, int) or inputs_num < 1 or not isinstance(response, str):
+            return None
+        lines = [line.strip() for line in response.replace("\r", "\n").split("\n") if line.strip()]
+        if lines[:1] == ["!"]:
+            lines.pop(0)
+        if len(lines) != 1:
+            return None
+        match = re.fullmatch(r"(?:([1-9]\d*)|In([1-9]\d*) All)", lines[0])
+        if match is None:
+            return None
+        value = int(match.group(1) or match.group(2))
+        return value if 1 <= value <= inputs_num else None
     
     def get_full_status(self):
         """Получение полного статуса матрицы"""
@@ -298,16 +326,11 @@ class ExtronIN1804Handler(BaseExtronMatrixHandler):
         if output_num != 1:
             raise ValueError("This matrix has only one output")
         
-        if input_num < 1 or input_num > self.inputs_num:
-            raise ValueError(f"Input number must be between 1 and {self.inputs_num}")
+        if input_num < 1 or (isinstance(self.inputs_num, int) and input_num > self.inputs_num):
+            raise ValueError("Input number is outside Matrix capability")
         
         # Отправляем команду в зависимости от модели
-        if '1804' in self.model or '1608' in self.model:
-            command = f'{input_num}*1!'
-        elif '1808' in self.model:
-            command = f'{input_num}*1!'
-        else:
-            command = f'{input_num}*1!'
+        command = f'{input_num}*1!'
         
         print(f"Sending switch command: {command}")
         result = self.send_command(command, replay_safe=False)

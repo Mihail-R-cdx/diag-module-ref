@@ -50,6 +50,7 @@ from core.equipment_inventory import (
 )
 from core.room_context import RoomContextResolver, RoomResolutionStatus
 from core.room_diagnostic_tree import (
+    DeviceRowStatus,
     RoomCycleStatus,
     RoomSourceStatus,
     build_room_session,
@@ -256,16 +257,6 @@ class VCSDiagnosticApp(QMainWindow):
             entry.diagnostic_model: entry.screen_key for entry in self.dispatch_registry
         }
         
-        self.matrix_params = {
-            'num_inputs': 8,
-            'num_outputs': 6,
-            'input_names': [
-                "Ноутбук 1", "Ноутбук 2", "Apple TV", "ВКС система",
-                "Документ-камера", "Системный ПК", "Резерв 1", "Резерв 2"
-            ],
-            'output_names': ["ТВ зал 1", "ТВ зал 2", "ВКС кам", "ВКС през", "Выход 5", "Выход 6"]
-        }
-        
         self.huawei_settings = {
             'port': 443,
             'use_ssl': True,
@@ -378,6 +369,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.room_diagnostic_controller.pduMutationFinished.connect(
             self._on_room_pdu_mutation_finished
         )
+        self.room_diagnostic_controller.matrixMutationFinished.connect(
+            self._on_room_matrix_mutation_finished
+        )
         self.room_call_log_controller = RoomCodecCallLogController(parent=self)
         self.room_call_log_controller.operationFinished.connect(
             self._on_room_call_log_finished
@@ -392,6 +386,7 @@ class VCSDiagnosticApp(QMainWindow):
         # context has been superseded.
         self._room_debug_windows = {}
         self._room_credential_attempts = {}
+        self._room_matrix_reconciliation_requests = {}
         self._room_live_timers = {}
         self._room_live_inflight = set()
         self._room_cloudlink_live = {}
@@ -412,6 +407,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.room_diagnostic_tree.auxiliaryRequested.connect(self._on_room_auxiliary_requested)
         self.room_diagnostic_tree.pduMutationRequested.connect(
             self._on_room_pdu_mutation_requested
+        )
+        self.room_diagnostic_tree.matrixRouteRequested.connect(
+            self._on_room_matrix_route_requested
         )
         self.room_diagnostic_tree.debugRequested.connect(self._on_room_debug_requested)
         self.update_timer.setInterval(30000)
@@ -511,6 +509,8 @@ class VCSDiagnosticApp(QMainWindow):
                 "room_one_shot_cleanup",
                 "room_codec_call_log",
                 "room_pdu_mutation",
+                "matrix_room_route",
+                "matrix_room_route_reconcile",
                 "cloudlink_room_live",
                 "matrix_room_live",
                 "dmp_room_live",
@@ -859,6 +859,8 @@ class VCSDiagnosticApp(QMainWindow):
             mutation=(
                 self._start_room_pdu_mutation
                 if entry.mutation_binding_key == "room_pdu_mutation"
+                else self._start_room_matrix_mutation
+                if entry.mutation_binding_key == "matrix_room_route"
                 else None
             ),
             reconciliation=(
@@ -867,6 +869,8 @@ class VCSDiagnosticApp(QMainWindow):
                 # the mutation result is intentionally not used as cache.
                 lambda context, _mutation_result: self._start_room_reconciliation(context)
                 if entry.reconciliation_binding_key == "room_one_shot_refresh"
+                else lambda context, result: self._start_room_matrix_reconciliation(context, result)
+                if entry.reconciliation_binding_key == "matrix_room_route_reconcile"
                 else None
             ),
             cancel=(
@@ -932,6 +936,81 @@ class VCSDiagnosticApp(QMainWindow):
                 {"outlet_number": outlet_number, "operation": command}
             )
 
+    def _on_room_matrix_route_requested(self, record_id, output_num, input_num):
+        """Confirm a safe widget intent; widget itself has no device authority."""
+        session = self.__dict__.get("room_diagnostic_session")
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if session is None or coordinator is None:
+            return
+        try:
+            row = session.row_for(record_id)
+        except KeyError:
+            return
+        expected_identity = session.identity
+        expected_token = row.operation_token
+        if not self._matrix_route_authority_is_current(
+            session, coordinator, record_id, output_num, input_num,
+            expected_identity, expected_token,
+        ):
+            return
+        decision = QMessageBox.question(
+            self,
+            "Подтверждение коммутации Matrix",
+            f"Подтвердите: переключить Main Output на вход {input_num}.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if decision == QMessageBox.Yes and self._matrix_route_authority_is_current(
+            session, coordinator, record_id, output_num, input_num,
+            expected_identity, expected_token,
+        ):
+            coordinator.confirm_mutation(
+                {"output_num": 1, "input_num": input_num},
+                expected_session_identity=expected_identity,
+                expected_record_id=record_id,
+                expected_row_token=expected_token,
+            )
+
+    @staticmethod
+    def _matrix_route_authority_is_current(
+        session, coordinator, record_id, output_num, input_num,
+        expected_identity, expected_token,
+    ):
+        """Validate immutable Matrix route proof before and after modal confirmation."""
+        if (
+            not coordinator.is_bound_session(session)
+            or session.invalidated
+            or session.identity != expected_identity
+            or session.expanded_record_id != record_id
+            or session.status not in {RoomCycleStatus.COMPLETE, RoomCycleStatus.COMPLETE_WITH_PROBLEMS}
+            or output_num != 1
+            or not isinstance(input_num, int)
+        ):
+            return False
+        try:
+            row = session.row_for(record_id)
+        except KeyError:
+            return False
+        entry = dispatch_entry_for_model(row.diagnostic_model)
+        inputs = (row.accepted_snapshot or {}).get("inputs_num") if isinstance(row.accepted_snapshot, Mapping) else None
+        return (
+            session.is_current(expected_identity, row, expected_token)
+            and row.diagnostic_model == "Extron IN1804"
+            and entry is not None
+            and entry.mutation_binding_key == "matrix_room_route"
+            and entry.reconciliation_binding_key == "matrix_room_route_reconcile"
+            and row.status is DeviceRowStatus.CONNECTED
+            and not row.stale
+            and not row.interaction_blocked
+            and not row.unconfirmed_after_command
+            and row.network_actions_enabled
+            and isinstance(inputs, int)
+            and not isinstance(inputs, bool)
+            and inputs > 0
+            and 1 <= input_num <= inputs
+            and (row.accepted_snapshot or {}).get("current_connection") != input_num
+        )
+
     def _on_room_debug_requested(self, record_id):
         session = self.__dict__.get("room_diagnostic_session")
         if session is None or session.expanded_record_id != record_id:
@@ -990,7 +1069,20 @@ class VCSDiagnosticApp(QMainWindow):
     def _start_room_reconciliation(self, context):
         self._start_room_credential_attempt(context)
 
+    def _start_room_matrix_reconciliation(self, context, result):
+        requested = result.get("input_num") if isinstance(result, Mapping) else None
+        if not isinstance(requested, int):
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.complete(context, success=False, unconfirmed=True, warning="Не удалось подтвердить Matrix route")
+            return
+        self._room_matrix_reconciliation_requests[context] = requested
+        self._start_room_credential_attempt(context)
+
     def _start_room_pdu_mutation(self, context, command):
+        self._start_room_credential_attempt(context, command=command)
+
+    def _start_room_matrix_mutation(self, context, command):
         self._start_room_credential_attempt(context, command=command)
 
     def _start_room_credential_attempt(self, context, *, command=None, candidate_index=None):
@@ -1001,7 +1093,12 @@ class VCSDiagnosticApp(QMainWindow):
             candidates = ({},)
         if not candidates:
             if context.kind is RoomInteractionKind.MUTATION:
-                self._on_room_pdu_mutation_finished(context, False, None, True, "Credentials не настроены")
+                callback = (
+                    self._on_room_matrix_mutation_finished
+                    if entry is not None and entry.mutation_binding_key == "matrix_room_route"
+                    else self._on_room_pdu_mutation_finished
+                )
+                callback(context, False, None, True, "Credentials не настроены")
             else:
                 self._on_room_local_refresh_finished(context, False, None, True, "Credentials не настроены")
             return
@@ -1027,7 +1124,10 @@ class VCSDiagnosticApp(QMainWindow):
                 )
                 return
         if context.kind is RoomInteractionKind.MUTATION:
-            self.room_diagnostic_controller.start_pdu_mutation(context, command, credential=candidates[candidate_index], candidate_index=candidate_index)
+            if entry is not None and entry.mutation_binding_key == "matrix_room_route":
+                self.room_diagnostic_controller.start_matrix_mutation(context, command, credential=candidates[candidate_index], candidate_index=candidate_index)
+            else:
+                self.room_diagnostic_controller.start_pdu_mutation(context, command, credential=candidates[candidate_index], candidate_index=candidate_index)
         else:
             self.room_diagnostic_controller.start_local_refresh(context, credential=candidates[candidate_index], candidate_index=candidate_index)
 
@@ -1061,6 +1161,7 @@ class VCSDiagnosticApp(QMainWindow):
         elif context.kind is RoomInteractionKind.LOCAL_REFRESH:
             self.room_diagnostic_controller.cancel_local_refresh(context)
         elif context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION}:
+            self.room_diagnostic_controller.cancel_matrix_mutation(context)
             self.room_diagnostic_controller.cancel_pdu_mutation(context)
             self.room_diagnostic_controller.cancel_local_refresh(context)
         elif context.kind is RoomInteractionKind.AUXILIARY_READ:
@@ -1449,6 +1550,13 @@ class VCSDiagnosticApp(QMainWindow):
             if self._retry_room_authentication(context):
                 return
             success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
+        requested_input = self._room_matrix_reconciliation_requests.pop(context, None)
+        if requested_input is not None and (
+            not success
+            or not isinstance(data, Mapping)
+            or data.get("current_connection") != requested_input
+        ):
+            success, data, connection_lost, warning = False, None, False, "Коммутация Matrix не подтверждена"
         coordinator = self.__dict__.get("room_interaction_coordinator")
         accepted_current = coordinator is not None and coordinator.active_context == context
         if coordinator is not None:
@@ -1488,6 +1596,18 @@ class VCSDiagnosticApp(QMainWindow):
                 unconfirmed=not success,
                 warning=warning,
             )
+        self._room_credential_attempts.pop(context, None)
+        self.room_diagnostic_controller.forget_local_refresh(context)
+
+    def _on_room_matrix_mutation_finished(self, context, success, data, connection_lost, warning):
+        if isinstance(data, RoomAuthenticationRejected):
+            # Safe fallback is allowed only when connect rejected before send.
+            if self._retry_room_authentication(context):
+                return
+            success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if coordinator is not None:
+            coordinator.complete(context, success=success, data=data, connection_lost=connection_lost, unconfirmed=not success, warning=warning)
         self._room_credential_attempts.pop(context, None)
         self.room_diagnostic_controller.forget_local_refresh(context)
 

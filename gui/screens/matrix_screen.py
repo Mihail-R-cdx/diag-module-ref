@@ -27,8 +27,8 @@ class MatrixScreen(BaseScreen):
 
     def __init__(self, parent=None):
         self.matrix_data = None
-        self.current_connection = 1
-        self.inputs_num = 8
+        self.current_connection = None
+        self.inputs_num = 0
         self.outputs_num = 1
         self.input_names = []
         self.output_names = ["Main Output"]
@@ -55,23 +55,12 @@ class MatrixScreen(BaseScreen):
         )
         layout.setSpacing(SPACING["md"])
 
-        params = params or {}
-        self.inputs_num = params.get("num_inputs", 8)
-        self.outputs_num = params.get("num_outputs", 1)
-        self.input_names = params.get(
-            "input_names",
-            [
-                "Ноутбук 1",
-                "Ноутбук 2",
-                "Apple TV",
-                "ВКС система",
-                "Документ-камера",
-                "Системный ПК",
-                "Резерв 1",
-                "Резерв 2",
-            ],
-        )
-        self.output_names = params.get("output_names", ["Main Output"])
+        # Constructor parameters are presentation convenience only; standalone
+        # routing authority begins solely with an accepted data snapshot.
+        self.inputs_num = 0
+        self.outputs_num = 1
+        self.input_names = []
+        self.output_names = ["Main Output"]
 
         self.routing_card = self.create_matrix_table()
         self.info_card = self.create_info_panel()
@@ -159,7 +148,8 @@ class MatrixScreen(BaseScreen):
         if self.matrix_table is None:
             return
 
-        self.matrix_table.setRowCount(self.inputs_num)
+        input_count = self.inputs_num if isinstance(self.inputs_num, int) and self.inputs_num > 0 else 0
+        self.matrix_table.setRowCount(input_count)
         signal_status = (self.matrix_data or {}).get("signal_status", {})
         hdcp_statuses = (self.matrix_data or {}).get("input_hdcp_status", [])
         hdcp_auth = (self.matrix_data or {}).get("input_hdcp_auth", [])
@@ -167,7 +157,7 @@ class MatrixScreen(BaseScreen):
             "current_connection", self.current_connection
         )
 
-        for row in range(self.inputs_num):
+        for row in range(input_count):
             signal = signal_status.get(row + 1, {})
             has_signal = bool(signal.get("has_signal", False))
             self.matrix_table.setItem(
@@ -222,9 +212,10 @@ class MatrixScreen(BaseScreen):
             return
 
         self.matrix_data = data
-        self.inputs_num = data.get("inputs_num", self.inputs_num)
-        self.input_names = data.get("input_names", self.input_names)
-        self.output_names = data.get("output_names", self.output_names)
+        reported_count = data.get("inputs_num")
+        self.inputs_num = reported_count if isinstance(reported_count, int) and reported_count > 0 else 0
+        self.input_names = data.get("input_names") if isinstance(data.get("input_names"), (list, tuple)) else []
+        self.output_names = data.get("output_names") if isinstance(data.get("output_names"), (list, tuple)) else []
         self.current_connection = data.get(
             "current_connection", self.current_connection
         )
@@ -253,6 +244,8 @@ class MatrixScreen(BaseScreen):
             return
 
         input_num = row + 1
+        if not isinstance(self.inputs_num, int) or not 1 <= input_num <= self.inputs_num:
+            return
         self.routeRequested.emit(1, input_num)
 
     def update_info_panel(self):
@@ -262,7 +255,7 @@ class MatrixScreen(BaseScreen):
     def update_connection_display(self):
         if self.matrix_table is None:
             return
-        for row in range(self.inputs_num):
+        for row in range(self.inputs_num if isinstance(self.inputs_num, int) and self.inputs_num > 0 else 0):
             self.matrix_table.setItem(
                 row,
                 3,
