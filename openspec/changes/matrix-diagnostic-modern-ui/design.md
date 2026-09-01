@@ -2,7 +2,7 @@
 
 ## Context
 
-MIH-9 established the common room shell and exact-row accordion. MIH-10 independently modernized Audio DSP inside that shell. MIH-11 owns the Matrix/Extron IN1804 expanded room presentation and the minimum room-safe route interaction needed for the approved Matrix table.
+MIH-9 established the common room shell and exact-row accordion. MIH-10 independently modernized Audio DSP inside that shell. MIH-11 owns the Matrix/Extron IN1804 expanded room presentation, the minimum room-safe route interaction needed for the approved Matrix table, and the user-approved presentation-only refinement of the common room shell.
 
 Current `master` has three Matrix concerns that must remain separated:
 
@@ -26,7 +26,7 @@ The redesign must preserve those ownership boundaries while tightening Matrix ev
 
 ## Goals
 
-- Match the approved Matrix reference hierarchy/field placement inside the foundation accordion.
+- Match the approved Matrix hierarchy/field placement and accepted compact common room shell.
 - Keep the Matrix table visually dominant and operator-readable.
 - Preserve truthful accepted evidence; never fabricate reference values or legacy defaults as device evidence.
 - Show HDCP as presence only: `есть`, `нет`, `Нет данных`.
@@ -37,7 +37,7 @@ The redesign must preserve those ownership boundaries while tightening Matrix ev
 
 ## Non-goals
 
-- No redesign of the common room header/shell.
+- No data, lifecycle, security, credential, or device-I/O redesign of the common room shell; its accepted geometry changes are presentation only.
 - No Audio DSP/codec/PDU redesign.
 - No new protocol reads for MAC, serial, firmware, uptime, HDCP version, reboot, or expanded-screen navigation.
 - No HDCP version display.
@@ -53,9 +53,17 @@ The modern Matrix content is rendered by the current room path under `RoomDiagno
 
 Implementation may extract a presentation-only Matrix dashboard widget, but room mode remains acceptance authority. Such a widget may consume accepted data and emit safe local intents; it cannot own credentials, handlers, sessions, request generations, currentness, or device I/O.
 
-The common accordion header is unchanged. MIH-11 starts below that header.
+MIH-11 starts below the common accordion header, while this change also owns the accepted compact visual refinement of that header and the upper room/network region. This does not change exact-row authority or any application boundary.
 
 `Открыть расширенный экран` SHALL NOT be rendered in MIH-11: no enabled control, disabled placeholder, navigation signal, or acceptance requirement exists for it.
+
+## Decision 1a: User-approved common room visual refinement
+
+The user selected the current final common room layout after visual inspection; this product decision supersedes the earlier provisional foundation geometry. The two peer-weight upper cards remain side by side at baseline and use a block height centered on `186` logical pixels. Their visible headers are `Информация о комнате` and `Сетевые подключения (N коммутаторов)`. The room card presents labelled room facts and a VIP badge; warranty remains the presentation-only `нет данных` because no canonical warranty source exists.
+
+The network card is a compact, bordered summary table with `Коммутатор (IP)`, `Порты`, and `Подключено устройств`. One row summarizes each exact known switch IP using deterministic de-duplicated canonical ports and the count of bound canonical records. A missing switch IP with a known port remains one separate `Коммутатор не определён` record-bound row. The table creates neither switch identity nor topology authority and has no device I/O path.
+
+Equipment rows are card-like compact surfaces: approximately `42` logical pixels high, with approximately `28 x 28` standard device-class icons, hidden tree header, compact chevron/icon cluster, readable model/status/IP, and no visible trailing overflow placeholder. Status keeps explicit text/non-color meaning and the exactly-one-expanded-row rule is unchanged. The former visible global status line is omitted; a hidden data-bearing/accessibility surface may retain that information. Theme, hover, repaint, resize, scrolling, and reflow only change presentation.
 
 ## Decision 2: Three-card Matrix dashboard hierarchy
 
@@ -68,15 +76,15 @@ At the foundation baseline viewport (`1440 x 900` logical pixels), expanded Matr
 +-------------------------+--------------------------------------------------+--------------------+
 ```
 
-Approximate content-width shares:
+Accepted content-width shares:
 
 ```text
-General information: 24-28%
-Matrix table:        50-56%
-Quick actions:       18-22%
+General information: 25%
+Matrix table:        53%
+Quick actions:       22%
 ```
 
-The central Matrix card remains dominant. Exact pixel dimensions and gaps use foundation/theme tokens. At `1180 x 720`, controlled reflow/scrolling is allowed if semantic order and action meaning remain reachable and unchanged. Theme switching is presentation-only and performs no Matrix I/O.
+The dashboard has a stable inspection height of at least `360` logical pixels. General-information facts are top-aligned with values visually right-aligned and spare space below; quick-action controls remain adjacent to their heading with spare space below. The central Matrix card remains dominant. At `1180 x 720`, controlled reflow/scrolling is allowed if semantic order and action meaning remain reachable and unchanged. Theme switching is presentation-only and performs no Matrix I/O.
 
 ## Decision 3: General information card uses fixed visual slots and truthful evidence
 
@@ -108,11 +116,11 @@ The central table semantic order is:
 Baseline width targets:
 
 ```text
-ordinal       7-9%
-Сигнал       18-21%
-HDCP         16-18%
-Входы        25-29%
-output       26-30%
+ordinal       8%
+Сигнал       19%
+HDCP         17%
+Входы        27%
+output       29%
 ```
 
 Rows are created only from a **proven accepted current input count/order**. The visual reference's eight rows are illustrative only.
@@ -178,16 +186,16 @@ other / failed / malformed / unrecognized / missing -> None
 
 Status `0` is confirmed current absence of HDCP, not failed evidence; the separate Signal column remains responsible for showing that no source is detected. Failure must never be collapsed into false merely to fill the table. Existing `input_hdcp_auth` configuration and `output_hdcp` evidence are not presentation authority for this column.
 
-## Decision 6: Signal, HDCP presence, and route cells preserve non-color meaning
+## Decision 6: Signal, HDCP presence, and route cells retain semantic meaning through accepted compact projections
 
 ### Signal
 
-Signal presentation uses accepted `signal_status` and must distinguish confirmed absence from unknown. Color is supplementary only.
+Signal presentation uses accepted `signal_status` and must distinguish confirmed absence from UNKNOWN. The visible cell is compact; its semantic value remains available in a tooltip, accessibility value, or data role.
 
 ```text
-confirmed signal present -> `есть`
-confirmed signal absent  -> `нет сигнала`
-unknown                  -> `Нет данных`
+confirmed signal present -> positive filled `●`; semantic `есть`
+confirmed signal absent  -> neutral/open `○`; semantic `нет сигнала`
+unknown                  -> neutral filled `●`; semantic `Нет данных`
 ```
 
 ### HDCP
@@ -203,9 +211,9 @@ No `2.2`, `1.4`, other version/status token, authorization value, or output HDCP
 ### Route/output
 
 ```text
-current_connection == input N -> `активен`
-known different current input -> `не выбран`
-current_connection is UNKNOWN -> `Нет данных`
+current_connection == input N -> positive filled `●`; semantic `активен`
+known different current input -> neutral/open `○`; semantic `не выбран`
+current_connection is UNKNOWN -> neutral filled `●`; semantic `Нет данных`
 ```
 
 Local click/hover/confirmation/ACK state never changes authoritative route styling before reconciliation accepts a truthful snapshot.
@@ -319,9 +327,9 @@ Standalone `MatrixScreen`/`MatrixController` routing remains separate. Tightened
 - general-info row order and no-data behavior, including model/temperature no-evidence semantics;
 - data-driven **proven** input count; no hard-coded/default eight;
 - exact table column order and dynamic output header;
-- signal + non-color cue;
+- accepted compact Signal indicator with retained semantic value;
 - HDCP displays only `есть` / `нет` / `Нет данных` and never a version token;
-- route active/non-active/no-data states;
+- compact route active/non-active/no-data indicators with retained semantic values;
 - dark/light baseline/minimum behavior;
 - reboot disabled;
 - `Открыть расширенный экран` absent;
@@ -365,10 +373,10 @@ At `1440 x 900` in dark and light themes verify:
 - input number compact;
 - Signal, HDCP, input name, and output columns readable without baseline clipping;
 - HDCP is presence-only and never shows a version;
-- route state understandable without color;
+- Signal and route indicators retain semantic state through a tooltip, accessibility value, or data role;
 - failed/missing General-information evidence renders `Нет данных` rather than convenience sentinels/defaults;
 - reboot visibly disabled;
 - `Открыть расширенный экран` is absent;
-- shared foundation header/room/network regions remain unchanged.
+- shared upper-card/network/accordion regions follow the approved compact refinement.
 
 Screenshots are local validation evidence and are not repository artifacts by default.

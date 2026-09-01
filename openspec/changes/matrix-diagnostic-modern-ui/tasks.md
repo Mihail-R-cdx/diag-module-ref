@@ -24,10 +24,10 @@
 - [x] 3.2 Render General information rows in exact order: `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, `Время работы`; use accepted evidence only and safe no-data presentation for missing fields. In particular, normalized model/temperature `None` is `Нет данных`, while a successfully device-reported numeric temperature zero remains `0` rather than no-data.
 - [x] 3.3 Replace the current room Matrix table presentation with exact column order: compact input ordinal, `Сигнал`, `HDCP`, `Входы`, accepted output-1 name / `Main Output` fallback.
 - [x] 3.4 Use only proven accepted current input count/order; add regression coverage proving the presentation neither hard-codes nor falls back to eight rows when count is unknown.
-- [x] 3.5 Preserve non-color text/cue meaning for signal, HDCP presence, active route, non-selected route, and no-data states.
+- [x] 3.5 Render accepted compact Signal and route indicator cells (`●` / `○`) while retaining present/absent/unknown and active/non-selected/unknown semantic values in tooltip, accessibility, or data-role projections; keep HDCP textual.
 - [x] 3.6 Render the HDCP column strictly as `есть` / `нет` / `Нет данных` from normalized `hdcp_present`; never show `2.2`, `1.4`, any version/status token, authorization value, or output HDCP state.
-- [ ] 3.7 At `1440 x 900`, keep the central Matrix card dominant with approved proportions and no baseline horizontal clipping. At `1180 x 720`, use controlled reflow/scrolling without changing semantic order or route authority.
-- [ ] 3.8 Keep dark/light theme switching presentation-only and geometry-stable for equivalent viewport/layout mode.
+- [x] 3.7 At `1440 x 900`, implement the accepted common/Matrix geometry: titled peer upper cards at about `186` px, compact 42 px accordion rows, and a Matrix dashboard of at least 360 px with `25 / 53 / 22` cards and `8 / 19 / 17 / 27 / 29` table proportions. At `1180 x 720`, preserve reachability, semantic order, and route authority through controlled reflow/scrolling.
+- [x] 3.8 Keep accepted dark/light presentation stable: common transparent/card/table treatment and Matrix hierarchy change styling only, without device I/O, authority changes, or intentional equivalent-viewport geometry change.
 
 ## 4. Quick/reference actions
 
@@ -74,8 +74,8 @@
 - [x] 9.2 General-info normalization tests: failed/missing model does not publish `Unknown`; failed/missing/malformed temperature becomes UNKNOWN rather than zero; a successful device-reported numeric zero remains accepted zero.
 - [x] 9.3 Current-input grammar tests: accept untagged ordinal-only `N`, tagged/verbose `In<N> All`, exact echo `!` + each accepted form; reject echo-only, extra/multiple payloads, multiple numeric candidates, unrelated numeric text, partial matches, and out-of-range ordinals.
 - [x] 9.4 HDCP normalization tests: raw status `2/1/0` becomes `True/False/False`; failed/malformed/unrecognized input HDCP status becomes UNKNOWN and not false.
-- [x] 9.5 Presentation tests: three-card order, General information field order, no-data slots, exact table column order, proven data-driven input count, dynamic output header, signal/HDCP-presence/route non-color states.
-- [x] 9.6 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent.
+- [x] 9.5 Presentation tests: accepted upper-card/network/compact-row geometry; three-card order, General information field order, no-data slots, exact table column order, proven data-driven input count, dynamic output header, compact Signal/route indicator glyphs with retained semantic values, and textual HDCP presence.
+- [x] 9.6 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent; Signal/route cells do not require visible words when their semantic data-role/accessibility meaning is retained.
 - [x] 9.7 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current/unproven-input rows emit/accept no route mutation.
 - [x] 9.8 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
 - [x] 9.9 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
@@ -84,7 +84,7 @@
 - [x] 9.12 Regression tests: existing PDU mutation/reconciliation remains unchanged.
 - [x] 9.13 Regression tests: existing Matrix room live/local Refresh remains unchanged.
 - [x] 9.14 Regression tests: standalone MatrixScreen/MatrixController routing remains functional and separate from room exact-row authority, subject to removal of fabricated normalization defaults.
-- [x] 9.15 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
+- [x] 9.15 Regression tests: common accordion one-expanded-row rule, target-search, approved compact upper-card/network/accordion shell, and theme stability remain correct; theme/resize/hover/cell repaint causes no device I/O.
 
 ## 10. Implementation validation
 
@@ -93,7 +93,7 @@
 - [x] 10.3 Run repository-local `.\openspec.cmd validate matrix-diagnostic-modern-ui --strict`.
 - [x] 10.4 Run repository-local `.\openspec.cmd validate --all --strict`.
 - [x] 10.5 Run `git diff --check` and `git diff --cached --check`.
-- [ ] 10.6 Perform local manual visual acceptance at `1440 x 900` in dark and light themes: left General information, dominant center Matrix table, right Quick actions, exact field/column order, HDCP presence-only projection, truthful no-data/UNKNOWN states, disabled reboot, and no `Открыть расширенный экран`. Screenshots remain local evidence unless explicitly requested as tracked artifacts.
+- [x] 10.6 User approved the current visual acceptance target at `1440 x 900` in dark and light themes: titled peer upper cards, compact network/accordion shell, left General information, dominant center Matrix table, right Quick actions, accepted compact Signal/route indicators, textual HDCP presence, truthful no-data/UNKNOWN states, disabled reboot, and no `Открыть расширенный экран`. No screenshot artifact is asserted or added. The reconciliation commit itself still requires independent validation.
 - [x] 10.7 Create one focused implementation commit and push to feature branch only after focused/full tests and strict validation pass. Do not archive or self-approve.
 
 ## 11. Independent validation and completion gates

@@ -1,10 +1,96 @@
 ## MODIFIED Requirements
 
+### Requirement: Diagnostic shell follows a self-contained modern room-oriented foundation contract
+
+The desktop application SHALL retain the user-visible title `Диагностический модуль` and a card-based room-oriented layout with semantic spacing, typography, borders, radii, standard Qt/device-class icons, and status styling. This repository-local contract, rather than an external screenshot or a particular stylesheet, SHALL be sufficient for implementation and review.
+
+The baseline viewport remains `1440 x 900` logical pixels and the minimum supported window remains `1180 x 720`. Below the baseline, controlled reflow or vertical scrolling MAY occur, but target search, top Refresh, selected-room cue, room/network cards, equipment accordion, and expanded current-device content SHALL remain reachable. Presentation widgets SHALL NOT become authority for target identity, credentials, request generation, handler/session ownership, or device I/O.
+
+At baseline, room mode SHALL place two peer-weight cards above the equipment accordion, with aligned tops and a width ratio from `0.9:1` through `1.1:1`. The upper card block SHALL have an accepted height centered on `186` logical pixels (an implementation-tuning range of `178-194` is permitted). The left card header SHALL read `Информация о комнате`; the right header SHALL include the current switch count, equivalent to `Сетевые подключения (N коммутаторов)`. The cards SHALL remain side by side at baseline.
+
+The accepted shell uses a transparent/common diagnostic-tree background with card-like equipment surfaces. Its compact accordion header has no visible tree column header and no visible trailing overflow placeholder. A hidden, data-bearing or accessibility surface MAY retain cycle health, but the shell SHALL NOT insert a second visible global-cycle line between the upper cards and the accordion. Hover, repaint, resize, theme switch, reflow, and scrolling remain presentation-only and SHALL start no device I/O or change authority.
+
+#### Scenario: Accepted room shell renders at baseline size
+
+- **WHEN** room mode has an authoritative current room at the baseline viewport
+- **THEN** the titled room and network cards appear side by side above the compact equipment accordion
+- **AND** the upper block uses the accepted taller card geometry
+- **AND** device/network authority remains outside presentation widgets
+
+#### Scenario: Supported smaller window remains usable
+
+- **WHEN** the application is shown at `1180 x 720` logical pixels
+- **THEN** controlled reflow or scrolling keeps the required shell and current expanded content reachable
+- **AND** no target, device, credential, or request authority changes merely because layout reflows
+
+### Requirement: Room summary card derives busy indication only from typed codec call activity
+
+The room-summary card SHALL permanently render labelled facts for `Название комнаты`, `Адрес комнаты`, `Гарантия`, and `Занятость`, plus a clear VIP badge when canonical `room_vip` is true. `room_name`, `room_address`, and `room_vip` remain governed by the canonical room metadata authority. The accepted visual text for the unavailable warranty source is `Гарантия: нет данных`; this capitalization is presentation only and does not create a warranty field or data source.
+
+The operator-facing `Занятость` means busy by a current VKS codec call, not physical or calendar availability. It SHALL consume only current model-neutral `CallActivity` evidence from registry-relevant call-capable codec rows. A current accepted `CallActivity.ACTIVE` renders `Занято`; all other cases, including INACTIVE, UNKNOWN, missing, stale, failed, contradictory, unrecognized, or no relevant current codec, render `Нет данных`. The GUI SHALL NOT display `Свободно`, infer occupancy from inventory/calendar/local state, maintain a second support list, parse model/localized strings, or start occupancy-specific I/O.
+
+Registry relevance remains defined exclusively by the exact unified model registration's declared call-activity binding. A relevant row with unusable evidence contributes UNKNOWN and remains relevant. The projection updates only when the application-owned lifecycle accepts current typed evidence; rendering and the explanatory hover tooltip perform no timer, poll, worker, handler/session acquisition, credential attempt, or network request.
+
+#### Scenario: Typed active codec call marks the room busy
+
+- **GIVEN** a registry-relevant current room codec has accepted `CallActivity.ACTIVE`
+- **WHEN** the room summary renders
+- **THEN** `Занятость` displays `Занято`
+- **AND** no occupancy-specific request starts
+
+#### Scenario: Inactive or incomplete evidence does not claim availability
+
+- **GIVEN** no registry-relevant current room codec has accepted active call activity
+- **WHEN** the room summary renders
+- **THEN** `Занятость` displays `Нет данных`
+- **AND** the GUI does not claim `Свободно`
+
+### Requirement: Network card preserves all available canonical connection evidence
+
+The titled network card SHALL use a compact summary table with columns equivalent to `Коммутатор (IP)`, `Порты`, and `Подключено устройств`. Rendering, hover, and any local table interaction are presentation-only and SHALL perform no device network I/O.
+
+For each known exact canonical `switch_ip_address`, the table SHALL render one summary row labelled equivalently to `SW (<IP>)`. Its ports cell SHALL be the deterministic, first-occurrence de-duplicated summary of non-null canonical child `switch_port` values in canonical `record_id` order (`Нет данных` if none), and its device-count cell SHALL equal the number of canonical room-equipment records with that exact switch IP. Neither summary nor count becomes canonical switch, routing, or topology authority.
+
+For `switch_ip_address == null` and `switch_port != null`, the table SHALL render a separate record-bound `Коммутатор не определён` row with that exact port and device count `1`; such rows SHALL NOT be merged by matching port text. A record with both values null contributes no topology evidence. Deterministic ordering, partial-evidence visibility, and no invented switch identity remain mandatory. The compact table SHALL NOT require visual device-child rows. With no presentable evidence it SHALL show `Нет данных о сетевых подключениях` or an accepted equivalent.
+
+#### Scenario: Two devices share a known switch
+
+- **GIVEN** two canonical room records share one non-null switch IP and ports `Gi1/0/5` and `Gi1/0/6`
+- **WHEN** the network summary renders
+- **THEN** one switch row displays the deterministic port summary and count `2`
+- **AND** neither displayed summary becomes canonical switch state
+
+#### Scenario: Known port without switch identity is retained safely
+
+- **GIVEN** a room record has null switch IP and a non-null canonical port
+- **WHEN** the network summary renders
+- **THEN** a separate `Коммутатор не определён` row displays that exact port and count `1`
+- **AND** no shared switch identity is guessed
+
+### Requirement: Equipment rows share one non-color accordion header contract
+
+Every room equipment record SHALL use one compact top-level row equivalent to `chevron -> device-class icon -> model label -> status cue + status text -> IP`. At baseline, a collapsed row SHALL be approximately `42` logical pixels high (a `38-46` range is permitted), the device-class icon SHALL be approximately `28 x 28` logical pixels, and the chevron/icon cluster SHALL remain compact. The tree header and a trailing overflow/action placeholder are intentionally not visible in the accepted shell.
+
+Model text SHALL receive flexible width while status and IP remain readable under ordinary baseline content. Status SHALL retain explicit textual/non-color meaning for connected, waiting, connecting, unsupported, missing/ambiguous IP, failed, connection-lost, and other approved states; color may reinforce only. Exactly one expandable equipment row MAY be open. Expanding another expandable row SHALL collapse the prior row without reordering automatic acquisition or changing lifecycle authority. Any authorized device controls remain inside expanded content and through current application intent/controller boundaries; absence of a common row action SHALL NOT require a hidden or disabled placeholder.
+
+#### Scenario: Another row is expanded
+
+- **GIVEN** one expandable equipment row is open
+- **WHEN** the operator expands another expandable row
+- **THEN** the first row collapses and only the second owns expanded presentation selection
+- **AND** automatic acquisition order remains unchanged
+
+#### Scenario: Compact row remains understandable without color
+
+- **WHEN** a compact equipment row renders any approved connection state
+- **THEN** it displays explicit status text/non-color meaning in addition to optional color
+- **AND** no visible common overflow placeholder is required
+
 ### Requirement: Existing expanded device presentations remain compatible and are not redesigned by this foundation
 
 The `room-diagnostic-modern-ui` foundation established the **current room-mode exact-row presentation/interaction surface** as the common container for supported device families. A standalone or legacy single-device screen SHALL NOT be selected, embedded, or treated as room capability merely because it represents the same device family.
 
-Dedicated reviewed family changes MAY replace only their family-specific expanded content inside that exact-row room surface while preserving the foundation's common accordion/header, exact-row authority, theme shell, and application-owned lifecycle boundaries. MIH-10 already provides the approved Audio DSP family redesign. MIH-11 provides the Matrix/IN1804 family redesign described below. Codec and PDU family-specific redesign remain deferred.
+Dedicated reviewed family changes MAY replace only their family-specific expanded content inside that exact-row room surface while preserving exact-row authority, theme semantics, and application-owned lifecycle boundaries. MIH-10 already provides the approved Audio DSP family redesign. MIH-11 provides the Matrix/IN1804 family redesign described below. The user-approved common room visual refinement in this change supersedes the foundation's provisional upper-card and compact-accordion geometry only; it neither creates a new data model nor changes the lifecycle or capability meaning of codec and PDU presentations.
 
 Existing **room-mode** controls SHALL remain connected through current non-secret application intent/controller boundaries and SHALL remain enabled only when current unified-registry/lifecycle capability state permits them. A family follow-up SHALL NOT promote an action, signal, credential owner, handler/session owner, retry lane, or network lifecycle from a standalone/single-device screen merely because similar functionality exists there.
 
@@ -37,7 +123,7 @@ MIH-11 SHALL render modern Matrix/IN1804 content inside the current room-mode ex
 
 The standalone `MatrixScreen` SHALL remain a separate presentation/lifecycle surface. It SHALL NOT be selected, embedded, promoted, or navigated to from the MIH-11 room Matrix dashboard.
 
-The common foundation accordion header remains unchanged. MIH-11 redesigns only the expanded Matrix family interior below that header.
+MIH-11 renders Matrix below the common accordion header. This change also owns the user-approved presentation-only refinement of the common upper cards and compact accordion header; Matrix family interior redesign remains bounded to the expanded exact-row content.
 
 #### Scenario: Expanded Matrix room row uses the modern presentation
 
@@ -49,7 +135,7 @@ The common foundation accordion header remains unchanged. MIH-11 redesigns only 
 
 ### Requirement: Matrix dashboard follows the approved three-card field-placement hierarchy
 
-At the foundation baseline viewport of `1440 x 900` logical pixels, expanded Matrix content SHALL render three horizontal cards in this order:
+At the foundation baseline viewport of `1440 x 900` logical pixels, expanded Matrix content SHALL render three horizontal cards in this order and SHALL retain an inspection height of at least `360` logical pixels:
 
 ```text
 Общая информация -> Матрица (входы и коммутация) -> Быстрые действия
@@ -58,12 +144,12 @@ At the foundation baseline viewport of `1440 x 900` logical pixels, expanded Mat
 The Matrix card SHALL be visually dominant. Baseline content-width allocation SHALL remain within these approximate ranges:
 
 ```text
-Общая информация          24-28%
-Матрица                    50-56%
-Быстрые действия           18-22%
+Общая информация          25%
+Матрица                    53%
+Быстрые действия           22%
 ```
 
-Exact pixel dimensions, border radii, and gaps MAY use foundation/theme tokens, but order, dominant central hierarchy, readable baseline content, and absence of baseline horizontal clipping are normative.
+The proportions MAY vary by a small implementation-tuning amount while preserving the accepted `25 / 53 / 22` hierarchy. General-information facts SHALL be top-aligned with a visually right-aligned value column and spare space below the facts. Quick-action controls SHALL remain adjacent to their heading with remaining vertical space below. Exact borders and gaps MAY use theme tokens, but order, dominant central hierarchy, readable baseline content, and absence of baseline horizontal clipping are normative.
 
 At `1180 x 720`, controlled reflow or existing expanded-content scrolling MAY be used provided all required Matrix information/table/actions remain reachable, table semantic order is preserved, and route/currentness authority does not change. Dark/light theme switching SHALL be presentation-only and SHALL perform no Matrix device I/O.
 
@@ -130,11 +216,11 @@ The leading ordinal column SHALL remain compact and MAY use an empty visual head
 At baseline, approximate table-width allocation SHALL preserve this hierarchy:
 
 ```text
-input ordinal    7-9%
-Сигнал          18-21%
-HDCP            16-18%
-Входы           25-29%
-output           26-30%
+input ordinal    8%
+Сигнал          19%
+HDCP            17%
+Входы           27%
+output           29%
 ```
 
 Rows SHALL follow a **proven accepted current input count/order** from fail-closed Matrix normalization. MIH-11 SHALL NOT hard-code the eight rows visible in the design example and SHALL NOT accept a legacy constructor/parser default of eight as device evidence when input count/model capability is unproven.
@@ -157,7 +243,7 @@ If accepted input count is UNKNOWN, the Matrix presentation SHALL NOT fabricate 
 
 ### Requirement: Matrix signal, HDCP presence, and route presentation remains meaningful without color
 
-For each accepted input row, signal state SHALL distinguish confirmed presence, confirmed absence, and unknown. A confirmed present signal SHALL use a positive non-color cue and text equivalent to `есть`; confirmed absence SHALL use text equivalent to `нет сигнала`; missing/unknown evidence SHALL use `Нет данных` or equivalent. Color MAY reinforce but SHALL NOT be the only meaning.
+For each accepted input row, signal state SHALL distinguish confirmed presence, confirmed absence, and UNKNOWN. The accepted compact cell projects confirmed presence as a positive filled `●`, confirmed absence as a neutral/open `○`, and UNKNOWN as a neutral filled `●`. Color reinforces the positive/neutral distinction, while the accepted semantic value (`есть`, `нет сигнала`, or `Нет данных`) SHALL remain available through a tooltip, accessibility value, or data role. Visible words are not required inside Signal cells, and UNKNOWN remains fail-closed rather than false.
 
 The `HDCP` column SHALL represent only the normalized **current input HDCP-presence flag**. Its raw existing input-HDCP-status mapping is owned by `device-diagnostics-and-control` and is deterministic (`2 -> True`, `1 -> False`, `0 -> False`, unusable evidence -> `None`). Presentation SHALL map only that normalized value:
 
@@ -169,21 +255,22 @@ hdcp_present == None  -> neutral cue + `Нет данных`
 
 The room `HDCP` column SHALL NOT display HDCP version (`2.2`, `1.4`, or any other version token), input HDCP authorization/configuration value, or output HDCP state. Failed, malformed, unrecognized, or missing input HDCP-status evidence SHALL remain UNKNOWN and SHALL NOT be presented as `нет`.
 
-Output-1 route state SHALL derive only from fail-closed accepted `current_connection` evidence:
+Output-1 route state SHALL derive only from fail-closed accepted `current_connection` evidence and use compact cells:
 
 ```text
-current_connection == this input -> non-color positive cue + `активен`
-known different current input     -> neutral cue + `не выбран`
-missing/unknown connection        -> neutral cue + `Нет данных`
+current_connection == this input -> positive filled `●`; semantic `активен` retained
+known different current input     -> neutral/open `○`; semantic `не выбран` retained
+missing/unknown connection        -> neutral filled `●`; semantic `Нет данных` retained
 ```
 
-Local hover/click/confirmation/ACK state SHALL NOT change the visible authoritative route to `активен` before reconciliation accepts a confirming snapshot.
+The retained semantic route state SHALL be available through a tooltip, accessibility value, or data role; visible words are not required inside route cells. Local hover/click/confirmation/ACK state SHALL NOT change the visible authoritative route to `активен` before reconciliation accepts a confirming snapshot.
 
-#### Scenario: HDCP present/absent/unknown remains explicit
+#### Scenario: Compact Signal and HDCP remain semantically explicit
 
-- **GIVEN** three accepted input rows respectively have normalized `hdcp_present` values True, False, and None
+- **GIVEN** accepted signal evidence is present, absent, and UNKNOWN and three accepted input rows respectively have normalized `hdcp_present` values True, False, and None
 - **WHEN** the Matrix table renders
-- **THEN** their HDCP cells show `есть`, `нет`, and `Нет данных` respectively
+- **THEN** Signal cells show the accepted filled/open/neutral indicators with retained semantic values
+- **AND** their HDCP cells show `есть`, `нет`, and `Нет данных` respectively
 - **AND** no HDCP version token is displayed
 
 #### Scenario: Route ACK does not optimistically recolor the table
