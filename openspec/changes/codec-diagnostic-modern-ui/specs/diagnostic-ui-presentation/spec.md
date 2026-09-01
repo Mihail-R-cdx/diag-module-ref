@@ -81,7 +81,9 @@ The meter SHALL consume only existing current accepted/live codec level evidence
 
 Microphone and speaker values SHALL use current accepted authoritative values appropriate to the exact model. Missing/unusable current values render `Нет данных` while the reference control positions remain present.
 
-All `−`, `+`, mute controls SHALL remain visually enabled/clickable in the common layout. Clicking a model/operation combination that unified capability authority marks unsupported SHALL show the approved local informational message and SHALL perform no handler/session acquisition or device I/O. Supported clicks SHALL publish only safe typed exact-row intents to application composition under `room-device-interaction-lifecycle`.
+The `−`, `+` and mute controls SHALL remain visibly present for every current codec model. When the existing room interaction lock matrix otherwise permits operator input, a model/operation combination that unified capability authority marks unsupported SHALL remain clickable rather than being permanently disabled solely due to unsupported capability; clicking it SHALL show the approved local informational message and SHALL perform no handler/session acquisition or device I/O. During an active/retiring room lifecycle that already locks state-changing controls, these common controls SHALL obey that existing temporary lock.
+
+Supported clicks SHALL publish only safe typed exact-row intents to application composition under `room-device-interaction-lifecycle`.
 
 #### Scenario: Codec has no current microphone level evidence
 
@@ -92,6 +94,7 @@ All `−`, `+`, mute controls SHALL remain visually enabled/clickable in the com
 #### Scenario: Audio operation is unsupported for the exact model
 
 - **GIVEN** the exact registration marks the clicked microphone/speaker operation unsupported
+- **AND** no existing interaction lock currently disables the common controls
 - **WHEN** the operator clicks its visible control
 - **THEN** a local informational dialog equivalent to `Операция не поддерживается данной моделью` is shown
 - **AND** no room network interaction is started
@@ -101,7 +104,7 @@ All `−`, `+`, mute controls SHALL remain visually enabled/clickable in the com
 
 The `Журнал вызовов` card SHALL render at most the three newest records from the current accepted exact-row call-log preview. For each record it SHALL present a safe direction/non-color cue, peer/number/display identity when available, and timestamp when available. Missing subfields SHALL render `Нет данных`. If no current accepted records are available, the card SHALL show `Нет данных` rather than an empty unexplained surface.
 
-The card SHALL contain a visible `Развернуть` action. When a current accepted full preview result exists for the exact row/generation, `Развернуть` MAY open the existing detailed call-log window from that accepted result without another device read. When no current accepted preview exists, `Развернуть` SHALL use the existing serialized call-log auxiliary acquisition and populate/open the detailed window only from a current accepted result.
+The card SHALL contain a visible `Развернуть` action. When a current accepted full preview result exists for the exact row/generation, `Развернуть` SHALL open and populate the existing detailed call-log window from that accepted result without another device read. When no current accepted preview exists, `Развернуть` SHALL use the existing serialized call-log auxiliary acquisition and SHALL open/populate the detailed window only from a current accepted result.
 
 The card SHALL NOT own call-log network acquisition. Automatic preview acquisition, cancellation, LIVE handoff, duplicate suppression and stale-result authority are defined by `room-device-interaction-lifecycle`.
 
@@ -120,13 +123,13 @@ The card SHALL NOT own call-log network acquisition. Automatic preview acquisiti
 
 ### Requirement: Codec action card exposes Local Refresh and registry-gated reboot without inventing capabilities
 
-The `Действия` card SHALL permanently render `Обновить статус` and `Перезагрузить устройство` as visually actionable controls.
+The `Действия` card SHALL permanently render `Обновить статус` and `Перезагрузить устройство` in the reference positions. Their temporary enabled/disabled state SHALL obey the existing room interaction lock/eligibility matrix; unsupported reboot SHALL not be permanently hidden or disabled solely because it is unsupported.
 
 `Обновить статус` SHALL be only an alias of the existing exact-row Local Refresh intent/lifecycle. It SHALL NOT create a codec-specific refresh path, second interaction lane, direct handler call or different credential authority.
 
-`Перезагрузить устройство` SHALL resolve support from the exact unified codec-control registration before any room mutation is admitted. If no already-approved safe typed reboot binding exists for that exact model, clicking it SHALL show a local informational dialog equivalent to `Операция не поддерживается данной моделью` and SHALL perform no device I/O. Merely finding a similarly named method on a standalone widget/handler SHALL NOT establish room reboot capability.
+`Перезагрузить устройство` SHALL resolve support from the exact unified codec-control registration before any room mutation is admitted. If no already-approved safe typed reboot binding exists for that exact model, clicking it while controls are otherwise eligible SHALL show a local informational dialog equivalent to `Операция не поддерживается данной моделью` and SHALL perform no device I/O. Merely finding a similarly named method on a standalone widget/handler SHALL NOT establish room reboot capability.
 
-If a reboot binding is approved and present, the action SHALL enter the existing exact-row state-changing mutation/reconciliation lifecycle and obey all command-safety/readback rules; the presentation SHALL never treat command dispatch/ACK as confirmed final device state.
+If a reboot binding is approved and present, the action SHALL request a separate explicit confirmation dialog before entering the existing exact-row state-changing mutation/reconciliation lifecycle. Cancel SHALL perform no reboot I/O. After confirmation, the action SHALL obey all command-safety/readback rules; the presentation SHALL never treat command dispatch/ACK as confirmed final device state.
 
 #### Scenario: Refresh action is clicked
 
@@ -136,6 +139,6 @@ If a reboot binding is approved and present, the action SHALL enter the existing
 
 #### Scenario: Reboot is not approved for the exact model
 
-- **WHEN** the operator clicks `Перезагрузить устройство` for an exact registration without an approved reboot binding
+- **WHEN** the operator clicks `Перезагрузить устройство` for an exact registration without an approved reboot binding while controls are otherwise eligible
 - **THEN** the unsupported-operation information is shown locally
 - **AND** no handler/session is acquired and no reboot command is sent

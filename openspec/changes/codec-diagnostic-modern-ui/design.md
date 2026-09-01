@@ -19,7 +19,7 @@ The supplied screenshot is normative only for the expanded codec area. The commo
 - About 90% visual correspondence at the existing `1440 x 900` baseline to the supplied codec-expanded reference by structure, order, relative proportions, density, field names, indicators and control placement.
 - Missing model-specific data remains explicit as `Нет данных` without layout collapse.
 - Existing room exact-row authority, credential ownership, stale protection, single serialized network lane and Qt-thread safety remain unchanged.
-- Call-log preview appears automatically after safe acquisition on codec expansion.
+- Call-log preview appears automatically after safe acquisition for the current expanded codec row.
 - Existing safe audio controls become room interactions without direct calls from the presentation to handlers/sessions.
 
 ## Non-goals
@@ -93,13 +93,7 @@ The microphone level consumes only current accepted/live evidence already produc
 
 ### `Журнал вызовов`
 
-The preview area contains at most the three newest accepted call records. Each visible entry presents:
-
-- direction/non-color cue;
-- safe peer/number/display identity when available;
-- timestamp when available.
-
-Missing subfields show `Нет данных`; zero accepted records or unavailable preview data shows `Нет данных`.
+The preview area contains at most the three newest accepted call records. Each visible entry presents direction/non-color cue, safe peer/number/display identity when available, and timestamp when available. Missing subfields show `Нет данных`; zero accepted records or unavailable preview data shows `Нет данных`.
 
 `Развернуть` is mandatory and opens the existing detailed call-log window under the lifecycle rules below.
 
@@ -112,7 +106,7 @@ Two permanent actions:
 
 `Обновить статус` is an alias of the existing exact-row Local Refresh and does not create another refresh implementation.
 
-`Перезагрузить устройство` is always visually present/clickable for consistent layout. Capability support is resolved before any handler/session acquisition. If the exact registration has no approved safe reboot binding, a local informational dialog equivalent to `Операция не поддерживается данной моделью` is shown and no room interaction generation/device I/O starts.
+`Перезагрузить устройство` is always present. When the existing interaction lock matrix otherwise permits user input, it remains clickable even if the exact model has no reboot capability; unsupported click shows local information and starts no network lifecycle. A supported reboot requires a separate confirmation because it is disruptive.
 
 ## Decision 2: unified registry remains the only codec operation capability authority
 
@@ -132,21 +126,25 @@ The descriptor is part of the existing exact registration authority, not an inde
 
 The five current exact codec registrations are acceptance oracles. Tests SHALL exercise each registration and prove that every dashboard operation is explicitly `SUPPORTED` or `UNSUPPORTED`; runtime SHALL NOT infer support from the presence of a method on a widget/handler.
 
-Current standalone behavior is useful implementation evidence but is not automatically promoted. The room binding may reuse the same safe application/core operation semantics only where the existing method/readback contract is actually supported. Unsupported operations use the local information path described above.
+Current standalone behavior is useful implementation evidence but is not automatically promoted. The room binding may reuse the same safe application/core operation semantics only where the existing method/readback contract is actually supported. Unsupported operations use the local information path. Unsupported controls are not permanently disabled solely due to capability absence, but all common controls still obey temporary lifecycle locks required by the existing serialized room interaction matrix.
 
 ## Decision 3: audio button semantics are typed desired-state operations
 
 The presentation emits only safe typed intent bound to the exact current room row. It does not compute credentials, construct handlers, call handler methods or parse response strings.
 
-`+`/`−` SHALL resolve from current accepted authoritative volume evidence into an absolute target before the mutation is admitted. Model-specific step/range policy may be supplied by the registry-bound codec-control adapter (including an existing larger Polycom speaker step). If current value/range cannot be proven, the action performs no device I/O and reports a safe informational/unavailable result rather than defaulting to a fabricated starting value.
+`+`/`−` SHALL resolve from current accepted authoritative volume evidence into an absolute target before the mutation is admitted. Model-specific step/range policy may be supplied by the registry-bound codec-control adapter, including the existing larger Polycom speaker step where applicable. If current value/range cannot be proven, the action performs no device I/O and reports a safe informational/unavailable result rather than defaulting to a fabricated starting value.
 
 Mute/unmute SHALL be represented as an explicit desired state, not a blind toggle. Where the existing approved device contract represents mute by an absolute volume/mute state, the adapter maps the intent to that state and supplies model-appropriate readback.
 
-A supported audio change enters the existing `MUTATION -> RECONCILIATION` lifecycle. One send at most is attempted under the existing safety rules; ACK/transport success is not final authority. Only accepted model-appropriate readback confirming the requested state may update authoritative row data and resume normal interaction/live. Ambiguous/unconfirmed outcomes block row network interaction until top full Refresh exactly as the existing room mutation contract requires.
+The click on an eligible non-disruptive audio desired-state control is itself the explicit operator confirmation for that audio mutation; the room GUI SHALL NOT place a second modal confirmation dialog on every volume/mute click. This still enters the existing `MUTATION -> RECONCILIATION` lifecycle and obeys all of its stronger safety rules.
+
+Only accepted model-appropriate readback confirming the requested state may update authoritative row data and resume normal interaction/live. Ambiguous/unconfirmed outcomes block row network interaction until top full Refresh exactly as the existing room mutation contract requires.
+
+For a supported reboot, the action card SHALL use a separate explicit confirmation dialog before mutation admission. Cancel is a no-op. Reboot is unsupported unless an already-approved safe typed reboot and reconciliation contract exists; this change invents no reboot wire protocol.
 
 ## Decision 4: automatic call-log preview uses the existing AUXILIARY_READ lane
 
-Expanding a current connected codec row is allowed to create one automatic `call_log_preview` auxiliary intent after the room automatic cycle is terminal and exact-row interaction is eligible. Expansion remains immediate presentation selection; the network preview follows only through application/coordinator authority.
+A current connected codec row SHALL obtain one automatic preview after the room cycle is terminal and the row is current/expanded/eligible. If the codec is already expanded before the automatic room cycle terminates, expansion itself starts no I/O; once the cycle becomes terminal, one preview is admitted if that same exact row is still eligible.
 
 The preview lifecycle SHALL:
 
@@ -159,20 +157,23 @@ The preview lifecycle SHALL:
 
 No second call-log network owner or parallel preview controller is allowed. The current `RoomCodecCallLogController` may be refactored so data acquisition/result ownership is independent from the side effect of showing a child window.
 
+### Duplicate suppression
+
+One preview completion is current for the exact row/generation. Re-render, hover, theme switch, resize or duplicate Qt expansion notification does not refetch it. A new preview is allowed only after the exact preview authority has been invalidated by a new row/generation/context or after an explicit fresh acquisition is required by the existing cancelled-child-window rule.
+
 ### Supersession and cancellation
 
 - Collapse or switch to another row invalidates the preview and starts no stale follow-up I/O.
 - Top full Refresh supersedes the preview under the existing auxiliary rule.
 - Target/context invalidation makes all preview callbacks stale immediately.
 - Late callbacks cannot update another row, reopen a window, or start LIVE for an old context.
-- If an automatic preview is already active/pending for the exact current row, repeated expansion/render events SHALL NOT enqueue duplicate call-log reads.
-- An ordinary preview parse/business failure that does not prove session loss leaves the row connected and renders preview `Нет данных`; typed terminal connection/authentication failure follows the existing auxiliary degradation contract.
+- An ordinary preview parse/business failure that does not prove session loss shows `Нет данных` and preserves connection context; typed terminal connection/authentication failures follow the existing auxiliary degradation contract.
 
 ### `Развернуть`
 
-When a current accepted preview exists for the exact row/generation, `Развернуть` MAY open the existing detailed `CallLogWindow` from that accepted full result without another device read. This is presentation of current accepted auxiliary data, not a second network lifecycle.
+When a current accepted full preview exists for the exact row/generation, `Развернуть` SHALL open/populate the existing `CallLogWindow` from that result without another network request.
 
-If no current accepted preview exists, pressing `Развернуть` SHALL request the existing normal call-log auxiliary acquisition and open/populate the child window only from a current accepted result. It SHALL NOT bypass the serialized lane.
+If no current accepted preview exists, pressing `Развернуть` SHALL perform the existing normal call-log auxiliary acquisition and SHALL open/populate the child window only after current accepted data arrives. It SHALL NOT bypass the serialized lane.
 
 After the user directly closes an active call-log child request, the existing cancellation rule remains authoritative: that request is invalidated/retired and a later explicit network opening after that cancelled request starts fresh acquisition rather than resurrecting it.
 
@@ -198,7 +199,7 @@ All network-backed codec operations preserve current room contracts:
 - secrets never enter public presentation/errors/logs;
 - state-changing operations are never blindly replayed after ambiguous possible delivery.
 
-Unsupported-operation informational dialogs are pure local presentation and therefore do not enter the room interaction lane or stop/resume live.
+Unsupported-operation informational dialogs are pure local presentation and therefore do not enter the room interaction lane or stop/resume live. Temporary disabled states imposed by an active/retiring lifecycle remain authoritative over the common visual controls.
 
 ## Validation strategy
 
@@ -219,11 +220,14 @@ Implementation tests SHALL cover:
 - baseline width proportions/order and dark/light geometry;
 - microphone-level no-fabrication behavior;
 - supported/unsupported operation resolution from unified registry only;
-- audio target construction from authoritative current values;
+- temporary lifecycle locks still disabling common controls when required;
+- audio target construction from authoritative current values and no secondary confirmation dialog;
+- supported reboot confirmation and unsupported reboot no-I/O path;
 - no I/O on unsupported or unprovable action;
 - existing mutation/reconciliation safety for supported audio/reboot operations;
-- automatic call-log preview on expansion, exactly three newest rows and empty state;
-- duplicate-preview suppression;
+- automatic call-log preview for both post-terminal expansion and a codec already expanded when the cycle becomes terminal;
+- exactly three newest preview rows, accepted-preview reuse and empty state;
+- duplicate-preview suppression across repeated renders;
 - LIVE retirement/resume around preview;
 - collapse/switch/top-Refresh/target-change stale cancellation;
 - `Развернуть` existing child-window behavior;
