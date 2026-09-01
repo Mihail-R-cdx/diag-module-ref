@@ -86,7 +86,7 @@
 - [ ] 6.3 Run the full offline test suite; record fresh counts in the implementation report/task evidence.
 - [ ] 6.4 Run `node --version`, `npm --version`, `npm ci` when dependencies require restoration, then `./openspec.cmd validate codec-diagnostic-modern-ui --strict` and `./openspec.cmd validate --all --strict` using only the repository-local wrapper.
 - [ ] 6.5 Run `git diff --check`, `git diff --cached --check`, and review the complete feature diff for scope/secrets/Graphify exclusions.
-- [ ] 6.6 Launch the GUI detached per `RULES.md`; at `1440 x 900` evaluate the ten repository-local visual checkpoints in dark theme and verify the same geometry/readability in light theme. External screenshot comparison is optional and not validation authority. Do not commit screenshots by default.
+- [ ] 6.6 Launch the GUI detached per `RULES.md`; at `1440 x 900` evaluate the ten repository-local visual checkpoints in dark theme, explicitly verify the five mandatory status indicators and neutral unavailable states, and verify the same geometry/readability in light theme. External screenshot comparison is optional and not validation authority. Do not commit screenshots by default.
 - [ ] 6.7 Create one focused implementation commit and push the feature branch. Do not self-issue independent `APPROVE`.
 
 ## 7. Independent validation / archive gates
