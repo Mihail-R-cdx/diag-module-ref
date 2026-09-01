@@ -50,6 +50,7 @@ from core.equipment_inventory import (
 )
 from core.room_context import RoomContextResolver, RoomResolutionStatus
 from core.room_diagnostic_tree import (
+    DeviceRowStatus,
     RoomCycleStatus,
     RoomSourceStatus,
     build_room_session,
@@ -254,16 +255,6 @@ class VCSDiagnosticApp(QMainWindow):
         self.dispatch_registry = dispatch_entries()
         self.device_to_screen = {
             entry.diagnostic_model: entry.screen_key for entry in self.dispatch_registry
-        }
-        
-        self.matrix_params = {
-            'num_inputs': 8,
-            'num_outputs': 6,
-            'input_names': [
-                "Ноутбук 1", "Ноутбук 2", "Apple TV", "ВКС система",
-                "Документ-камера", "Системный ПК", "Резерв 1", "Резерв 2"
-            ],
-            'output_names': ["ТВ зал 1", "ТВ зал 2", "ВКС кам", "ВКС през", "Выход 5", "Выход 6"]
         }
         
         self.huawei_settings = {
@@ -949,20 +940,17 @@ class VCSDiagnosticApp(QMainWindow):
         """Confirm a safe widget intent; widget itself has no device authority."""
         session = self.__dict__.get("room_diagnostic_session")
         coordinator = self.__dict__.get("room_interaction_coordinator")
-        if session is None or coordinator is None or session.expanded_record_id != record_id:
+        if session is None or coordinator is None:
             return
-        row = session.row_for(record_id)
-        entry = dispatch_entry_for_model(row.diagnostic_model)
-        inputs = (row.accepted_snapshot or {}).get("inputs_num") if isinstance(row.accepted_snapshot, Mapping) else None
-        if (
-            row.diagnostic_model != "Extron IN1804"
-            or entry is None
-            or entry.mutation_binding_key != "matrix_room_route"
-            or entry.reconciliation_binding_key != "matrix_room_route_reconcile"
-            or not isinstance(input_num, int)
-            or not isinstance(inputs, int)
-            or not 1 <= input_num <= inputs
-            or output_num != 1
+        try:
+            row = session.row_for(record_id)
+        except KeyError:
+            return
+        expected_identity = session.identity
+        expected_token = row.operation_token
+        if not self._matrix_route_authority_is_current(
+            session, coordinator, record_id, output_num, input_num,
+            expected_identity, expected_token,
         ):
             return
         decision = QMessageBox.question(
@@ -972,8 +960,56 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if decision == QMessageBox.Yes:
-            coordinator.confirm_mutation({"output_num": 1, "input_num": input_num})
+        if decision == QMessageBox.Yes and self._matrix_route_authority_is_current(
+            session, coordinator, record_id, output_num, input_num,
+            expected_identity, expected_token,
+        ):
+            coordinator.confirm_mutation(
+                {"output_num": 1, "input_num": input_num},
+                expected_session_identity=expected_identity,
+                expected_record_id=record_id,
+                expected_row_token=expected_token,
+            )
+
+    @staticmethod
+    def _matrix_route_authority_is_current(
+        session, coordinator, record_id, output_num, input_num,
+        expected_identity, expected_token,
+    ):
+        """Validate immutable Matrix route proof before and after modal confirmation."""
+        if (
+            not coordinator.is_bound_session(session)
+            or session.invalidated
+            or session.identity != expected_identity
+            or session.expanded_record_id != record_id
+            or session.status not in {RoomCycleStatus.COMPLETE, RoomCycleStatus.COMPLETE_WITH_PROBLEMS}
+            or output_num != 1
+            or not isinstance(input_num, int)
+        ):
+            return False
+        try:
+            row = session.row_for(record_id)
+        except KeyError:
+            return False
+        entry = dispatch_entry_for_model(row.diagnostic_model)
+        inputs = (row.accepted_snapshot or {}).get("inputs_num") if isinstance(row.accepted_snapshot, Mapping) else None
+        return (
+            session.is_current(expected_identity, row, expected_token)
+            and row.diagnostic_model == "Extron IN1804"
+            and entry is not None
+            and entry.mutation_binding_key == "matrix_room_route"
+            and entry.reconciliation_binding_key == "matrix_room_route_reconcile"
+            and row.status is DeviceRowStatus.CONNECTED
+            and not row.stale
+            and not row.interaction_blocked
+            and not row.unconfirmed_after_command
+            and row.network_actions_enabled
+            and isinstance(inputs, int)
+            and not isinstance(inputs, bool)
+            and inputs > 0
+            and 1 <= input_num <= inputs
+            and (row.accepted_snapshot or {}).get("current_connection") != input_num
+        )
 
     def _on_room_debug_requested(self, record_id):
         session = self.__dict__.get("room_diagnostic_session")

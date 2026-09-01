@@ -1157,6 +1157,8 @@ class RoomReadOnlyPresentation(QWidget):
             and row.status is DeviceRowStatus.CONNECTED
             and (row.network_actions_enabled or live_here)
             and not row.interaction_blocked
+            and not row.unconfirmed_after_command
+            and not row.stale
             and isinstance(source.get("inputs_num"), int)
         )
         for values in normalize_matrix_presentation(source):

@@ -27,8 +27,8 @@ class MatrixScreen(BaseScreen):
 
     def __init__(self, parent=None):
         self.matrix_data = None
-        self.current_connection = 1
-        self.inputs_num = 8
+        self.current_connection = None
+        self.inputs_num = 0
         self.outputs_num = 1
         self.input_names = []
         self.output_names = ["Main Output"]
@@ -55,23 +55,12 @@ class MatrixScreen(BaseScreen):
         )
         layout.setSpacing(SPACING["md"])
 
-        params = params or {}
-        self.inputs_num = params.get("num_inputs", 8)
-        self.outputs_num = params.get("num_outputs", 1)
-        self.input_names = params.get(
-            "input_names",
-            [
-                "Ноутбук 1",
-                "Ноутбук 2",
-                "Apple TV",
-                "ВКС система",
-                "Документ-камера",
-                "Системный ПК",
-                "Резерв 1",
-                "Резерв 2",
-            ],
-        )
-        self.output_names = params.get("output_names", ["Main Output"])
+        # Constructor parameters are presentation convenience only; standalone
+        # routing authority begins solely with an accepted data snapshot.
+        self.inputs_num = 0
+        self.outputs_num = 1
+        self.input_names = []
+        self.output_names = ["Main Output"]
 
         self.routing_card = self.create_matrix_table()
         self.info_card = self.create_info_panel()

@@ -639,6 +639,91 @@ class OrchestratorTests(unittest.TestCase):
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")
 class RoomGuiCompositionTests(unittest.TestCase):
+    def _matrix_route_session(self, window, *, record_id="matrix", generation=20, bind=True):
+        from gui.diagnostic_dispatch import room_model_capabilities
+
+        matrix = record(record_id, model="Extron IN1804")
+        stock = inventory(matrix)
+        session = build_room_session(
+            inventory=stock,
+            source=resolve_room_source(stock, matrix.ip_address, room_model_capabilities()),
+            generation=generation,
+            capabilities=room_model_capabilities(),
+        )
+        session.status = RoomCycleStatus.COMPLETE
+        session.expanded_record_id = record_id
+        row = session.row_for(record_id)
+        row.status = DeviceRowStatus.CONNECTED
+        row.network_actions_enabled = True
+        row.accepted_snapshot = {"inputs_num": 4, "current_connection": 1}
+        if bind:
+            window.room_diagnostic_session = session
+            window.room_interaction_coordinator.bind_session(session)
+        return session, row
+
+    def test_matrix_confirmation_admits_one_current_exact_row(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        session, _row = self._matrix_route_session(window)
+        window._start_room_matrix_mutation = Mock()
+        confirm = Mock(wraps=window.room_interaction_coordinator.confirm_mutation)
+        window.room_interaction_coordinator.confirm_mutation = confirm
+
+        with patch("gui.main_window.QMessageBox.question", return_value=QMessageBox.Yes):
+            window._on_room_matrix_route_requested("matrix", 1, 2)
+
+        confirm.assert_called_once()
+        self.assertEqual(session.identity, confirm.call_args.kwargs["expected_session_identity"])
+        window._start_room_matrix_mutation.assert_called_once()
+        window.room_interaction_coordinator.complete(
+            window.room_interaction_coordinator.active_context,
+            success=False,
+        )
+
+    def test_matrix_confirmation_cancel_starts_no_mutation(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        self._matrix_route_session(window)
+        window._start_room_matrix_mutation = Mock()
+        window.room_interaction_coordinator.confirm_mutation = Mock()
+
+        with patch("gui.main_window.QMessageBox.question", return_value=QMessageBox.No):
+            window._on_room_matrix_route_requested("matrix", 1, 2)
+
+        window.room_interaction_coordinator.confirm_mutation.assert_not_called()
+        window._start_room_matrix_mutation.assert_not_called()
+
+    def test_matrix_confirmation_discards_superseded_exact_row(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        self._matrix_route_session(window, generation=20)
+        replacement, _row = self._matrix_route_session(
+            window, record_id="replacement", generation=21, bind=False,
+        )
+        window._start_room_matrix_mutation = Mock()
+        window.room_interaction_coordinator.confirm_mutation = Mock()
+
+        def supersede_then_accept(*_args, **_kwargs):
+            window.room_diagnostic_session = replacement
+            window.room_interaction_coordinator.bind_session(replacement)
+            return QMessageBox.Yes
+
+        with patch("gui.main_window.QMessageBox.question", side_effect=supersede_then_accept):
+            window._on_room_matrix_route_requested("matrix", 1, 2)
+
+        self.assertEqual("replacement", window.room_diagnostic_session.expanded_record_id)
+        window.room_interaction_coordinator.confirm_mutation.assert_not_called()
+        window._start_room_matrix_mutation.assert_not_called()
+
     def test_composed_pdu_ack_starts_exact_reconciliation_before_cache_replacement(self):
         from gui.diagnostic_dispatch import room_model_capabilities
         from gui.main_window import VCSDiagnosticApp

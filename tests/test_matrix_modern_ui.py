@@ -24,10 +24,16 @@ except ImportError:  # pragma: no cover
 class MatrixNormalizationTests(unittest.TestCase):
     def test_exact_current_connection_grammar_is_fail_closed(self):
         accept = ExtronIN1804Handler._parse_current_connection
-        for response, expected in (("1", 1), ("In4 All", 4), ("!\r\nIn1 All\r\n", 1)):
+        for response, expected in (
+            ("1", 1), ("4", 4), ("In1 All", 1), ("In4 All", 4),
+            ("!\r\n1\r\n", 1), ("!\r\nIn1 All\r\n", 1),
+        ):
             with self.subTest(response=response):
                 self.assertEqual(expected, accept(response, 4))
-        for response in ("", "!", "1\n2", "In1 All\nnoise", "result 1", "In01 All", "5", "In1 All 2"):
+        for response in (
+            "", "!", "1\n2", "In1 All\nnoise", "result 1", "In01 All",
+            "5", "In1 All 2", "In1All", "In 1 All", "!\n!\n1",
+        ):
             with self.subTest(response=response):
                 self.assertIsNone(accept(response, 4))
 
@@ -48,6 +54,14 @@ class MatrixNormalizationTests(unittest.TestCase):
         self.assertEqual(4, accepted["inputs_num"])
         self.assertEqual(1, accepted["current_connection"])
         self.assertEqual([True, False, False, None], accepted["hdcp_present"])
+
+    def test_parser_keeps_general_information_unknown_until_current_evidence(self):
+        parser = ExtronIN1804DataParser()
+        for model, temperature in ((None, None), ("Unknown", None), ("", "bad")):
+            with self.subTest(model=model, temperature=temperature):
+                parsed = parser.parse({"device_info": {"model": model, "temperature": temperature}})
+                self.assertIsNone(parsed["model"])
+                self.assertIsNone(parsed["temperature"])
 
     def test_only_recognized_matching_model_capability_proves_input_count(self):
         parser = ExtronIN1804DataParser()
@@ -129,6 +143,8 @@ class MatrixPresentationTests(unittest.TestCase):
         session.expanded_record_id = row.record_id
         widget = RoomDiagnosticTreeWidget()
         self.addCleanup(widget.deleteLater)
+        intents = []
+        widget.matrixRouteRequested.connect(lambda record_id, output, input_number: intents.append((record_id, output, input_number)))
         widget.render(session)
         projection = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
         self.assertIsNotNone(projection.findChild(QTableWidget, "roomMatrixRouting"))
@@ -140,6 +156,13 @@ class MatrixPresentationTests(unittest.TestCase):
         reboot = projection.findChild(QPushButton, "roomMatrixRebootButton")
         self.assertIsNotNone(reboot)
         self.assertFalse(reboot.isEnabled())
+        reboot.click()
+        self.assertEqual([], intents)
+        self.assertIsNone(projection.findChild(QPushButton, "roomMatrixExtendedButton"))
+        table.cellClicked.emit(0, 4)
+        self.assertEqual([], intents)
+        table.cellClicked.emit(1, 4)
+        self.assertEqual([(row.record_id, 1, 2)], intents)
 
         dashboard = projection.findChild(QWidget, "roomMatrixDashboard")
         widget.resize(1400, 800)
@@ -155,6 +178,24 @@ class MatrixPresentationTests(unittest.TestCase):
         for actual, expected in zip(widths, (0.08, 0.19, 0.17, 0.27, 0.29)):
             self.assertAlmostEqual(expected, actual, delta=0.03)
 
+        for changes in (
+            {"stale": True},
+            {"interaction_blocked": True},
+            {"unconfirmed_after_command": True},
+            {"network_actions_enabled": False},
+        ):
+            with self.subTest(changes=changes):
+                row.stale = False
+                row.interaction_blocked = False
+                row.unconfirmed_after_command = False
+                row.network_actions_enabled = True
+                for attribute, value in changes.items():
+                    setattr(row, attribute, value)
+                widget.render(session)
+                blocked_table = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0).findChild(QTableWidget, "roomMatrixRouting")
+                blocked_table.cellClicked.emit(1, 4)
+                self.assertEqual([(row.record_id, 1, 2)], intents)
+
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
     def test_standalone_unknown_input_count_has_no_rows_or_route_intent(self):
         from gui.screens.matrix_screen import MatrixScreen
@@ -163,12 +204,21 @@ class MatrixPresentationTests(unittest.TestCase):
         self.addCleanup(screen.deleteLater)
         intents = []
         screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        self.assertEqual(0, screen.matrix_table.rowCount())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([], intents)
         screen.update_data({"inputs_num": None, "current_connection": None})
         self.assertEqual(0, screen.matrix_table.rowCount())
         screen.on_output_cell_clicked(0, 3)
         self.assertEqual([], intents)
         screen.update_data({"inputs_num": 4, "input_names": ["A", "B", "C", "D"], "current_connection": 2})
         self.assertEqual(4, screen.matrix_table.rowCount())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+        screen.update_data({"inputs_num": None})
+        self.assertEqual(0, screen.matrix_table.rowCount())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
 
 
 class MatrixMutationOrderingTests(unittest.TestCase):

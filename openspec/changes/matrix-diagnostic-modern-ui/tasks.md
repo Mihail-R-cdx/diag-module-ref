@@ -71,20 +71,20 @@
 ## 9. Focused regression coverage
 
 - [x] 9.1 Input-count normalization tests: missing/unrecognized model/count does not become eight accepted inputs and unproven ordinals remain non-actionable.
-- [ ] 9.2 General-info normalization tests: failed/missing model does not publish `Unknown`; failed/missing/malformed temperature becomes UNKNOWN rather than zero; a successful device-reported numeric zero remains accepted zero.
-- [ ] 9.3 Current-input grammar tests: accept untagged ordinal-only `N`, tagged/verbose `In<N> All`, exact echo `!` + each accepted form; reject echo-only, extra/multiple payloads, multiple numeric candidates, unrelated numeric text, partial matches, and out-of-range ordinals.
+- [x] 9.2 General-info normalization tests: failed/missing model does not publish `Unknown`; failed/missing/malformed temperature becomes UNKNOWN rather than zero; a successful device-reported numeric zero remains accepted zero.
+- [x] 9.3 Current-input grammar tests: accept untagged ordinal-only `N`, tagged/verbose `In<N> All`, exact echo `!` + each accepted form; reject echo-only, extra/multiple payloads, multiple numeric candidates, unrelated numeric text, partial matches, and out-of-range ordinals.
 - [x] 9.4 HDCP normalization tests: raw status `2/1/0` becomes `True/False/False`; failed/malformed/unrecognized input HDCP status becomes UNKNOWN and not false.
 - [x] 9.5 Presentation tests: three-card order, General information field order, no-data slots, exact table column order, proven data-driven input count, dynamic output header, signal/HDCP-presence/route non-color states.
-- [ ] 9.6 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent.
-- [ ] 9.7 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current/unproven-input rows emit/accept no route mutation.
-- [ ] 9.8 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
-- [ ] 9.9 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
+- [x] 9.6 Presentation tests: HDCP never renders a version token; `Открыть расширенный экран` is absent; disabled reboot emits no intent.
+- [x] 9.7 Intent tests: active-route click no-op; eligible non-active route emits one safe intent; stale/degraded/blocked/non-current/unproven-input rows emit/accept no route mutation.
+- [x] 9.8 Confirmation tests: Cancel creates zero network work; Confirm enters the one serialized room mutation lane.
+- [x] 9.9 Registry tests: exact Extron IN1804 declares Matrix mutation/reconciliation bindings; missing binding implementation fails closed; no parallel Matrix mutation model list exists.
 - [x] 9.10 Mutation tests: live retirement before send, stale pre-acquisition rejection, structured pre-delivery auth fallback, at-most-one send after command invocation, no string-based fallback/replay.
-- [ ] 9.11 Reconciliation tests: ACK does not update cache; matching truthful exact-grammar readback accepts route; mismatching/UNKNOWN readback blocks/unconfirms; requested Input 1 with empty/malformed/ambiguous/outside-grammar readback is never accepted; late stale callbacks cannot update replacement context.
-- [ ] 9.12 Regression tests: existing PDU mutation/reconciliation remains unchanged.
+- [x] 9.11 Reconciliation tests: ACK does not update cache; matching truthful exact-grammar readback accepts route; mismatching/UNKNOWN readback blocks/unconfirms; requested Input 1 with empty/malformed/ambiguous/outside-grammar readback is never accepted; late stale callbacks cannot update replacement context.
+- [x] 9.12 Regression tests: existing PDU mutation/reconciliation remains unchanged.
 - [x] 9.13 Regression tests: existing Matrix room live/local Refresh remains unchanged.
 - [x] 9.14 Regression tests: standalone MatrixScreen/MatrixController routing remains functional and separate from room exact-row authority, subject to removal of fabricated normalization defaults.
-- [ ] 9.15 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
+- [x] 9.15 Regression tests: common accordion one-expanded-row rule, target-search/foundation shell, and theme toggle remain unchanged; theme/resize/hover/cell repaint causes no device I/O.
 
 ## 10. Implementation validation
 
@@ -94,7 +94,7 @@
 - [x] 10.4 Run repository-local `.\openspec.cmd validate --all --strict`.
 - [x] 10.5 Run `git diff --check` and `git diff --cached --check`.
 - [ ] 10.6 Perform local manual visual acceptance at `1440 x 900` in dark and light themes: left General information, dominant center Matrix table, right Quick actions, exact field/column order, HDCP presence-only projection, truthful no-data/UNKNOWN states, disabled reboot, and no `Открыть расширенный экран`. Screenshots remain local evidence unless explicitly requested as tracked artifacts.
-- [ ] 10.7 Create one focused implementation commit and push to feature branch only after focused/full tests and strict validation pass. Do not archive or self-approve.
+- [x] 10.7 Create one focused implementation commit and push to feature branch only after focused/full tests and strict validation pass. Do not archive or self-approve.
 
 ## 11. Independent validation and completion gates
 
