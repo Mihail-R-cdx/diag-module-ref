@@ -8,6 +8,7 @@ import threading
 import time
 
 try:
+    from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -1128,10 +1129,12 @@ class RoomGuiCompositionTests(unittest.TestCase):
             if isinstance(view, QTableWidget):
                 self.assertEqual(rows, view.rowCount())
             if screen_key == "matrix":
-                self.assertEqual("есть", view.item(0, 1).text())
+                self.assertEqual("●", view.item(0, 1).text())
+                self.assertEqual("есть", view.item(0, 1).data(Qt.UserRole))
                 self.assertEqual("есть", view.item(0, 2).text())
                 self.assertEqual("Laptop", view.item(0, 3).text())
-                self.assertEqual("активен", view.item(0, 4).text())
+                self.assertEqual("●", view.item(0, 4).text())
+                self.assertEqual("активен", view.item(0, 4).data(Qt.UserRole))
             elif snapshot is dmp_snapshot:
                 channels = view.findChildren(QWidget, "roomAudioDspChannel")
                 self.assertEqual(2, len(channels))
@@ -1182,7 +1185,8 @@ class RoomGuiCompositionTests(unittest.TestCase):
         table = presentation.findChild(QTableWidget, "roomMatrixRouting")
         self.assertIsNotNone(table)
         self.assertEqual(4, table.rowCount())
-        self.assertEqual("Нет данных", table.item(1, 1).text())
+        self.assertEqual("●", table.item(1, 1).text())
+        self.assertEqual("Нет данных", table.item(1, 1).data(Qt.UserRole))
         self.assertEqual("Нет данных", table.item(0, 2).text())
         self.assertEqual("Input 1", table.item(0, 3).text())
 

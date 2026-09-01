@@ -65,13 +65,14 @@ class RoomDiagnosticTreeWidget(QWidget):
         layout.setSpacing(16)
         upper = QWidget(self)
         upper.setObjectName("roomDiagnosticUpperCards")
-        upper.setFixedHeight(156)
+        # Keep the room summary compact while leaving room for labelled facts
+        # and the switch table above the accordion.
+        upper.setFixedHeight(186)
         self.upper_cards = upper
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
         upper_layout.setSpacing(16)
-        self.room_card = SectionCard("Комната", "⌂", upper)
-        self.room_card.header_widget.setVisible(False)
+        self.room_card = SectionCard("Информация о комнате", "ⓘ", upper)
         self.room_card.body_layout.setSpacing(6)
         self.room_name_row = QWidget(self.room_card)
         room_name_layout = QHBoxLayout(self.room_name_row)
@@ -99,36 +100,42 @@ class RoomDiagnosticTreeWidget(QWidget):
         self.room_card.body_layout.addWidget(self.room_header)
         self.room_card.body_layout.addWidget(self.room_warranty_label)
         self.room_card.body_layout.addWidget(self.occupancy_label)
-        self.network_card = SectionCard("Сетевые подключения", "⌁", upper)
-        self.network_card.header_widget.setVisible(False)
+        self.network_card = SectionCard("Сетевые подключения", "⌘", upper)
         self.network_tree = QTreeWidget(self.network_card)
         self.network_tree.setObjectName("roomNetworkConnections")
-        self.network_tree.setColumnCount(2)
-        self.network_tree.setHeaderLabels(("Коммутатор (IP) / Устройства", "Порт"))
-        self.network_tree.setHeaderHidden(True)
+        self.network_tree.setColumnCount(3)
+        self.network_tree.setHeaderLabels(("Коммутатор (IP)", "Порты", "Подключено устройств"))
+        self.network_tree.setHeaderHidden(False)
         self.network_tree.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.network_tree.verticalScrollBar().setSingleStep(10)
         self.network_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.network_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.network_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.network_tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.network_card.body_layout.addWidget(self.network_tree)
         upper_layout.addWidget(self.room_card, 1)
         upper_layout.addWidget(self.network_card, 1)
         layout.addWidget(upper)
         self.global_status = QLabel(self)
         self.global_status.setObjectName("roomDiagnosticGlobalStatus")
+        # Cycle health belongs to the persistent footer.  Keep this label as a
+        # data-bearing accessibility surface without inserting a second status
+        # line between the room facts and the accordion.
+        self.global_status.setVisible(False)
         self.tree = SmoothRoomTreeWidget(self)
         self.tree.setObjectName("roomDiagnosticRows")
         self.tree.setColumnCount(5)
         self.tree.setHeaderLabels(("", "Устройство", "Статус подключения", "IP-адрес", "Действия"))
-        self.tree.setIconSize(QSize(48, 48))
+        self.tree.setHeaderHidden(True)
+        self.tree.setIconSize(QSize(28, 28))
         self.tree.header().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.tree.header().resizeSection(0, 76)
+        self.tree.header().resizeSection(0, 44)
         self.tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
         self.tree.header().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.tree.header().resizeSection(2, 290)
+        self.tree.header().resizeSection(2, 250)
         self.tree.header().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.tree.header().resizeSection(3, 180)
-        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.tree.header().resizeSection(3, 160)
+        self.tree.header().setSectionResizeMode(4, QHeaderView.Fixed)
+        self.tree.header().resizeSection(4, 0)
         self.tree.itemExpanded.connect(self._accordion_expanded)
         self.tree.itemCollapsed.connect(self._accordion_collapsed)
         self.tree.itemClicked.connect(self._accordion_clicked)
@@ -157,15 +164,15 @@ class RoomDiagnosticTreeWidget(QWidget):
         expanded_record_id = session.expanded_record_id
         self._changing = True
         try:
-            self.room_name_label.setText(session.room_name or "—")
+            self.room_name_label.setText(f"Название комнаты:  {session.room_name or '—'}")
             self.vip_badge.setVisible(session.room_vip is True)
-            self.room_header.setText(f"Адрес: {session.room_address or '—'}")
-            self.room_warranty_label.setText("Гарантия: Нет данных")
+            self.room_header.setText(f"Адрес комнаты:  {session.room_address or '—'}")
+            self.room_warranty_label.setText("Гарантия:  нет данных")
             self.global_status.setText(
                 "Есть проблемы с соединением" if session.post_cycle_problem else session.status.value
             )
             occupied = any(row.call_activity is CallActivity.ACTIVE and not row.stale for row in session.rows)
-            self.occupancy_label.setText(f"Занятость: {'Занято' if occupied else 'Нет данных'}")
+            self.occupancy_label.setText(f"Занятость:  {'Занято' if occupied else 'Нет данных'}")
             self._render_network(session)
             self.tree.clear()
             self._by_record.clear()
@@ -198,8 +205,8 @@ class RoomDiagnosticTreeWidget(QWidget):
                         }
                     )
                 )
-                item = QTreeWidgetItem(("", row.model_label, row.status.value, row.ip_address or "—", "⋯"))
-                item.setSizeHint(0, QSize(0, 64))
+                item = QTreeWidgetItem(("", row.model_label, row.status.value, row.ip_address or "—", ""))
+                item.setSizeHint(0, QSize(0, 42))
                 item.setIcon(0, self._device_icon(row))
                 item.setText(2, f"{self._status_cue(row)}  {row.status.value}")
                 item.setForeground(2, QBrush(self._status_color(row)))
@@ -275,19 +282,18 @@ class RoomDiagnosticTreeWidget(QWidget):
                 unknown.append(record)
             else:
                 known.setdefault(record.switch_ip_address, []).append(record)
+        self.network_card.set_title(f"Сетевые подключения ({len(known) + len(unknown)} коммутаторов)")
         for switch_ip, records in sorted(known.items()):
             ports = list(dict.fromkeys(record.switch_port for record in records if record.switch_port is not None))
-            parent = QTreeWidgetItem((f"Коммутатор ({switch_ip})", ", ".join(ports) or "Нет данных"))
-            self.network_tree.addTopLevelItem(parent)
-            for record in records:
-                parent.addChild(QTreeWidgetItem((record.diagnostic_model or record.source_model or record.record_id, record.switch_port or "Нет данных")))
+            self.network_tree.addTopLevelItem(
+                QTreeWidgetItem((f"SW ({switch_ip})", ", ".join(ports) or "Нет данных", str(len(records))))
+            )
         for record in unknown:
-            parent = QTreeWidgetItem(("Коммутатор не определён", record.switch_port or "Нет данных"))
-            parent.addChild(QTreeWidgetItem((record.diagnostic_model or record.source_model or record.record_id, record.switch_port or "Нет данных")))
-            self.network_tree.addTopLevelItem(parent)
+            self.network_tree.addTopLevelItem(
+                QTreeWidgetItem(("Коммутатор не определён", record.switch_port or "Нет данных", "1"))
+            )
         if self.network_tree.topLevelItemCount() == 0:
-            self.network_tree.addTopLevelItem(QTreeWidgetItem(("Нет данных о сетевых подключениях", "")))
-        self.network_tree.expandAll()
+            self.network_tree.addTopLevelItem(QTreeWidgetItem(("Нет данных о сетевых подключениях", "", "")))
 
     def set_interaction_locked(self, locked: bool) -> None:
         """Block accordion changes while an exclusive row operation owns I/O."""
@@ -497,6 +503,24 @@ class MatrixRoutingTable(QTableWidget):
             column_width = width * ratio // 100 if column < self.columnCount() - 1 else remaining
             self.setColumnWidth(column, column_width)
             remaining -= column_width
+
+
+def _matrix_indicator_item(value: Any, *, positive: str, inactive: str) -> QTableWidgetItem:
+    """Render a matrix state as an icon while retaining its accessible meaning."""
+    item = QTableWidgetItem()
+    item.setData(Qt.UserRole, value)
+    item.setTextAlignment(Qt.AlignCenter)
+    item.setToolTip(str(value))
+    if value == positive:
+        item.setText("●")
+        item.setForeground(QBrush(QColor("#24A85A")))
+    elif value == inactive:
+        item.setText("○")
+        item.setForeground(QBrush(QColor("#6F7B8A")))
+    else:
+        item.setText("●")
+        item.setForeground(QBrush(QColor("#6F7B8A")))
+    return item
 
 
 def normalize_audio_dsp_presentation(snapshot: Any) -> list[tuple[str, str, str]]:
@@ -1126,11 +1150,18 @@ class RoomReadOnlyPresentation(QWidget):
         source = data if isinstance(data, Mapping) else {}
         dashboard = QWidget(self)
         dashboard.setObjectName("roomMatrixDashboard")
+        # A room matrix is the primary diagnostic surface.  Reserve a stable
+        # inspection height instead of collapsing it to the content of a short
+        # input list; the accordion rows naturally follow below it.
+        dashboard.setMinimumHeight(360)
+        dashboard.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
         dashboard_layout = QHBoxLayout(dashboard)
         dashboard_layout.setContentsMargins(0, 0, 0, 0)
         dashboard_layout.setSpacing(12)
         info = SectionCard("Общая информация", "▣", dashboard)
         form = QFormLayout()
+        form.setFormAlignment(Qt.AlignTop)
+        form.setVerticalSpacing(8)
         no_data = "Нет данных"
         fields = (
             ("Модель", source.get("model")),
@@ -1141,8 +1172,13 @@ class RoomReadOnlyPresentation(QWidget):
             ("Время работы", source.get("uptime")),
         )
         for label, value in fields:
-            form.addRow(label, QLabel(str(value) if value not in (None, "") else no_data, info))
+            value_label = QLabel(str(value) if value not in (None, "") else no_data, info)
+            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            form.addRow(label, value_label)
         info.body_layout.addLayout(form)
+        # Keep the compact facts directly below the heading.  The additional
+        # room-dashboard height belongs beneath the data, not between rows.
+        info.body_layout.addStretch(1)
         card = SectionCard("Матрица (входы и коммутация)", "⇄", dashboard)
         table = MatrixRoutingTable(card)
         table.setObjectName("roomMatrixRouting")
@@ -1165,7 +1201,19 @@ class RoomReadOnlyPresentation(QWidget):
             index = table.rowCount()
             table.insertRow(index)
             for column, value in enumerate(values):
-                table.setItem(index, column, QTableWidgetItem(str(value)))
+                if column == 1:
+                    table.setItem(index, column, _matrix_indicator_item(
+                        value, positive="есть", inactive="нет сигнала"
+                    ))
+                elif column == 4:
+                    table.setItem(index, column, _matrix_indicator_item(
+                        value, positive="активен", inactive="не выбран"
+                    ))
+                else:
+                    item = QTableWidgetItem(str(value))
+                    if column in {2, 3}:
+                        item.setTextAlignment(Qt.AlignCenter)
+                    table.setItem(index, column, item)
             if route_allowed and values[4] == "не выбран":
                 route_item = table.item(index, 4)
                 route_item.setToolTip("Выбрать вход для Main Output")
@@ -1190,6 +1238,8 @@ class RoomReadOnlyPresentation(QWidget):
         reboot.setEnabled(False)
         actions.add_widget(refresh)
         actions.add_widget(reboot)
+        # Likewise, the action buttons stay adjacent to the heading.
+        actions.body_layout.addStretch(1)
         dashboard_layout.addWidget(info, 25)
         dashboard_layout.addWidget(card, 53)
         dashboard_layout.addWidget(actions, 22)
