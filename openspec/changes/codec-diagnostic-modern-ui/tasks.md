@@ -81,11 +81,11 @@
 
 ## 6. Implementation validation and publication
 
-- [ ] 6.1 Run focused codec room presentation/interaction/call-log tests.
-- [ ] 6.2 Run all affected room lifecycle, dispatch/registry, codec, GUI and stale-safety suites.
-- [ ] 6.3 Run the full offline test suite; record fresh counts in the implementation report/task evidence.
-- [ ] 6.4 Run `node --version`, `npm --version`, `npm ci` when dependencies require restoration, then `./openspec.cmd validate codec-diagnostic-modern-ui --strict` and `./openspec.cmd validate --all --strict` using only the repository-local wrapper.
-- [ ] 6.5 Run `git diff --check`, `git diff --cached --check`, and review the complete feature diff for scope/secrets/Graphify exclusions.
+- [x] 6.1 Run focused codec room presentation/interaction/call-log tests.
+- [x] 6.2 Run all affected room lifecycle, dispatch/registry, codec, GUI and stale-safety suites.
+- [x] 6.3 Run the full offline test suite; record fresh counts in the implementation report/task evidence. (2026-09-02: 842 tests, OK.)
+- [x] 6.4 Run `node --version`, `npm --version`, `npm ci` when dependencies require restoration, then `./openspec.cmd validate codec-diagnostic-modern-ui --strict` and `./openspec.cmd validate --all --strict` using only the repository-local wrapper.
+- [x] 6.5 Run `git diff --check`, `git diff --cached --check`, and review the complete feature diff for scope/secrets/Graphify exclusions.
 - [ ] 6.6 Launch the GUI detached per `RULES.md`; at `1440 x 900` evaluate the ten repository-local visual checkpoints in dark theme, explicitly verify the five mandatory status indicators and neutral unavailable states, and verify the same geometry/readability in light theme. External screenshot comparison is optional and not validation authority. Do not commit screenshots by default.
 - [ ] 6.7 Create one focused implementation commit and push the feature branch. Do not self-issue independent `APPROVE`.
 
