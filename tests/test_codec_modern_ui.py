@@ -241,6 +241,18 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertEqual(20, icon.maximumWidth())
         self.assertEqual(20, icon.minimumHeight())
 
+    def test_multiline_firmware_value_has_a_dedicated_expanded_row(self):
+        presentation = RoomReadOnlyPresentation(self._row(snapshot={
+            "firmware": "V600R019C00SPC700\nBuild 2026.09.02",
+        }))
+        self.addCleanup(presentation.deleteLater)
+        firmware_row = presentation.findChild(QWidget, "roomCodecFirmwareRow")
+        self.assertIsNotNone(firmware_row)
+        self.assertGreaterEqual(firmware_row.minimumHeight(), 48)
+        value = firmware_row.findChild(QLabel, "roomCodecFieldValue")
+        self.assertEqual("V600R019C00SPC700\nBuild 2026.09.02", value.text())
+        self.assertTrue(value.wordWrap())
+
     def test_audio_has_two_meters_and_volume_controls_show_percentages(self):
         presentation = RoomReadOnlyPresentation(self._row(snapshot={
             "live_microphone": {"available": True, "normalized": 0.62},

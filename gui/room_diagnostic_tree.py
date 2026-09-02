@@ -1128,7 +1128,7 @@ class RoomReadOnlyPresentation(QWidget):
             ("MAC-адрес", ("mac_address", "mac", "MAC адрес", "MAC-адрес"), False),
             ("Серийный номер", ("serial_number", "serial", "Серийный номер"), False),
             ("Платформа", ("platform", "Платформа"), False),
-            ("Версия ПО", ("firmware", "Версия ПО", "software_version"), False),
+            ("Версия ПО", ("firmware", "Версия ПО", "software_version"), False, "multiline"),
             ("Микрофон", ("microphone_status", "mic_mute", "microphone_mute_state"), False),
             ("Камера", ("camera_status", "camera_mute", "camera_mute_state"), False),
         ), missing)
@@ -1325,11 +1325,15 @@ class RoomReadOnlyPresentation(QWidget):
         for row_spec in rows:
             label, keys, status = row_spec[:3]
             presentation = row_spec[3] if len(row_spec) > 3 else "text"
+            multiline = presentation == "multiline"
             has_normalized_value = len(row_spec) > 4
             row = QWidget(card)
-            row.setObjectName("roomCodecStatusRow" if status else "roomCodecDataRow")
-            row.setMinimumHeight(28)
-            row.setMaximumHeight(34)
+            row.setObjectName(
+                "roomCodecFirmwareRow" if multiline
+                else "roomCodecStatusRow" if status else "roomCodecDataRow"
+            )
+            row.setMinimumHeight(48 if multiline else 28)
+            row.setMaximumHeight(56 if multiline else 34)
             line = QHBoxLayout(row)
             line.setContentsMargins(0, 0, 0, 0)
             line.setSpacing(6)
@@ -1354,6 +1358,9 @@ class RoomReadOnlyPresentation(QWidget):
             value_label.setObjectName("roomCodecRegistrationValue" if presentation == "registration" else "roomCodecFieldValue")
             if presentation == "registration":
                 value_label.setProperty("semantic", semantic)
+            if multiline:
+                value_label.setTextFormat(Qt.PlainText)
+                value_label.setWordWrap(True)
             value_label.setToolTip(value_label.text())
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             line.addWidget(name, 42)
