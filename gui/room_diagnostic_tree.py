@@ -10,13 +10,14 @@ from numbers import Real
 
 from PyQt5.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QSize, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
-from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QFrame, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QFrame, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard
 
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession
 from core.room_interaction import RoomInteractionKind
 from core.call_activity import CallActivity
+from .diagnostic_dispatch import CodecMuteState, dispatch_entry_for_model, normalize_codec_audio_projection, normalize_codec_call_projection
 
 
 class SmoothRoomTreeWidget(QTreeWidget):
@@ -53,6 +54,7 @@ class RoomDiagnosticTreeWidget(QWidget):
     rowCollapsed = pyqtSignal(str)
     localRefreshRequested = pyqtSignal(str)
     auxiliaryRequested = pyqtSignal(str, str)
+    codecControlRequested = pyqtSignal(str, str, object)
     pduMutationRequested = pyqtSignal(str, int, str)
     matrixRouteRequested = pyqtSignal(str, int, int)
     debugRequested = pyqtSignal(str)
@@ -229,6 +231,11 @@ class RoomDiagnosticTreeWidget(QWidget):
                         request_local_refresh=lambda record_id=row.record_id: self.localRefreshRequested.emit(record_id),
                         request_auxiliary=(
                             lambda action, record_id=row.record_id: self.auxiliaryRequested.emit(record_id, action)
+                        ),
+                        request_codec_control=(
+                            lambda operation, value=None, record_id=row.record_id: self.codecControlRequested.emit(
+                                record_id, operation, value
+                            )
                         ),
                         request_mutation=(
                             lambda outlet, command, record_id=row.record_id: self.pduMutationRequested.emit(record_id, outlet, command)
@@ -851,6 +858,7 @@ def _audio_device_info_card(source: Any, parent=None) -> SectionCard:
     """Render only scalar, accepted device information in the dashboard column."""
     card = SectionCard("Общая информация", "ⓘ", parent)
     card.setObjectName("roomAudioDspInfo")
+    card.body_layout.setAlignment(Qt.AlignTop)
     form = QGridLayout()
     form.setContentsMargins(0, 2, 0, 0)
     form.setHorizontalSpacing(14)
@@ -971,7 +979,7 @@ class AudioDspDashboardPresentation(QWidget):
 class RoomReadOnlyPresentation(QWidget):
     """Exact-row data projection with a deliberately narrow action request."""
 
-    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_mutation=None, request_matrix_route=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, parent=None):
+    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_codec_control=None, request_mutation=None, request_matrix_route=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, parent=None):
         super().__init__(parent)
         self.setObjectName("roomReadOnlyPresentation")
         self.setProperty("recordId", row.record_id)
@@ -1005,23 +1013,11 @@ class RoomReadOnlyPresentation(QWidget):
         )
         if request_local_refresh is not None:
             refresh_button.clicked.connect(request_local_refresh)
+        is_codec_dashboard = screen_key == "codec"
         if use_audio_dashboard:
             audio_actions.append(refresh_button)
-        elif not use_matrix_dashboard:
+        elif not use_matrix_dashboard and not is_codec_dashboard:
             layout.addWidget(refresh_button)
-        if row.capability is not None and row.capability.screen_key == "codec":
-            call_log_button = QPushButton("Журнал звонков", self)
-            call_log_button.setObjectName("roomCallLogButton")
-            call_log_button.setEnabled(
-                bool(request_auxiliary)
-                and auxiliary_allowed
-                and row.status is DeviceRowStatus.CONNECTED
-                and (row.network_actions_enabled or live_here)
-                and not row.interaction_blocked
-            )
-            if request_auxiliary is not None:
-                call_log_button.clicked.connect(lambda: request_auxiliary("call_log"))
-            layout.addWidget(call_log_button)
         debug_button = QPushButton("Отладка", self)
         debug_button.setObjectName("roomLocalDebugButton")
         debug_button.setEnabled(
@@ -1062,6 +1058,15 @@ class RoomReadOnlyPresentation(QWidget):
                     audio_channel_selected=audio_channel_selected,
                     audio_actions=audio_actions,
                 )
+            if screen_key == "codec":
+                builder_kwargs.update(
+                    request_local_refresh=request_local_refresh,
+                    request_auxiliary=request_auxiliary,
+                    request_codec_control=request_codec_control,
+                    local_refresh_allowed=local_refresh_allowed,
+                    auxiliary_allowed=auxiliary_allowed,
+                    live_here=live_here,
+                )
             builder(layout, data, row, **builder_kwargs)
         else:
             self._add_fields(layout, "Диагностика", data)
@@ -1084,12 +1089,330 @@ class RoomReadOnlyPresentation(QWidget):
             return "Подключение и получение данных..."
         return ""
 
-    def _build_codec(self, layout, data, row, **_unused) -> None:
-        self._add_fields(layout, "Кодек", data, (
-            "model", "Модель", "Модель кодеков", "firmware", "Версия ПО", "Серийный номер", "serial",
-            "MAC адрес", "mac", "SIP регистрация", "SIP адрес", "Время работы", "temperature",
-            "network_speed", "Статус звонка", "Статус презентации",
-        ))
+    def _build_codec(
+        self, layout, data, row, *, request_local_refresh=None,
+        request_auxiliary=None, request_codec_control=None,
+        local_refresh_allowed=True, auxiliary_allowed=True, live_here=False, **_unused,
+    ) -> None:
+        """Build the fixed shared dashboard; widgets only publish safe intents."""
+        source = data if isinstance(data, Mapping) else {}
+        dashboard = QWidget(self)
+        dashboard.setObjectName("roomCodecDashboard")
+        dashboard.setMinimumHeight(286)
+        dashboard.setMaximumHeight(326)
+        dashboard.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        cards = QHBoxLayout(dashboard)
+        cards.setContentsMargins(0, 0, 0, 0)
+        cards.setSpacing(10)
+
+        state = SectionCard("Состояние", "ⓘ", dashboard)
+        state.setObjectName("roomCodecStateCard")
+        call = SectionCard("Вызов и презентация", "☎", dashboard)
+        call.setObjectName("roomCodecCallCard")
+        audio = SectionCard("Аудио", "♪", dashboard)
+        audio.setObjectName("roomCodecAudioCard")
+        history = SectionCard("Журнал вызовов", "=", dashboard)
+        history.setObjectName("roomCodecHistoryCard")
+        actions = SectionCard("Действия", "⚡", dashboard)
+        actions.setObjectName("roomCodecActionsCard")
+        for card in (state, call, audio, history, actions):
+            card.setMinimumHeight(286)
+            card.setMaximumHeight(326)
+            card.layout().setContentsMargins(14, 10, 14, 12)
+            card.layout().setSpacing(8)
+            card.body_layout.setAlignment(Qt.AlignTop)
+
+        missing = "Нет данных"
+        self._codec_data_rows(state, source, (
+            ("Модель", ("model", "Модель", "Модель кодеков"), False),
+            ("MAC-адрес", ("mac_address", "mac", "MAC адрес", "MAC-адрес"), False),
+            ("Серийный номер", ("serial_number", "serial", "Серийный номер"), False),
+            ("Платформа", ("platform", "Платформа"), False),
+            ("Версия ПО", ("firmware", "Версия ПО", "software_version"), False, "multiline"),
+            ("Микрофон", ("microphone_status", "mic_mute", "microphone_mute_state"), False),
+            ("Камера", ("camera_status", "camera_mute", "camera_mute_state"), False),
+        ), missing)
+        state.body_layout.addStretch(1)
+        call_projection = normalize_codec_call_projection(source, row.diagnostic_model)
+        self._codec_data_rows(call, source, (
+            ("Статус звонка", ("call_status", "Статус звонка"), False, "yes_no", call_projection.call_active),
+            ("Презентация", ("presentation_status", "Статус презентации"), False, "yes_no", call_projection.presentation_active),
+            ("Регистрация SIP/H.323", ("sip_registration", "SIP регистрация", "sip_status"), False, "registration", call_projection.registration_active),
+        ), missing)
+        call.body_layout.addStretch(1)
+
+        projection = normalize_codec_audio_projection(source, row.diagnostic_model)
+        meter_label = QLabel("Микрофон (уровень)", audio)
+        meter_label.setObjectName("roomCodecMicrophoneLevelLabel")
+        audio.body_layout.addWidget(meter_label)
+        meter = QProgressBar(audio)
+        meter.setObjectName("roomCodecMicrophoneMeter")
+        meter.setRange(0, 100)
+        meter.setTextVisible(False)
+        meter.setFixedHeight(10)
+        level = self._codec_microphone_level(source)
+        meter.setProperty("meterState", "available" if level is not None else "unavailable")
+        meter.setValue(level or 0)
+        audio.body_layout.addWidget(meter)
+        audio.body_layout.addSpacing(8)
+        controls_enabled = (
+            row.status is DeviceRowStatus.CONNECTED
+            and (row.network_actions_enabled or live_here)
+            and not row.interaction_blocked
+        )
+        self._codec_audio_row(audio, "Громкость микрофона", projection.microphone_volume,
+            projection.microphone_mute_state, "microphone_adjust", "microphone_mute",
+            request_codec_control, controls_enabled,
+            display_value=self._codec_volume_text(projection.microphone_volume))
+        self._codec_audio_row(audio, "Громкость динамиков", projection.speaker_volume,
+            projection.speaker_mute_state, "speaker_adjust", "speaker_mute",
+            request_codec_control, controls_enabled,
+            display_value=self._codec_volume_text(projection.speaker_volume, row.diagnostic_model),
+            meter_percentage=self._codec_volume_percentage(projection.speaker_volume, row.diagnostic_model))
+        audio.body_layout.addStretch(1)
+
+        snapshot = getattr(row, "call_log_snapshot", None)
+        records = tuple(getattr(snapshot, "records", ()) or ())[:3]
+        if not records:
+            empty = QLabel(missing, history)
+            empty.setObjectName("roomCodecCallLogEmpty")
+            history.body_layout.addWidget(empty)
+        for record in records:
+            direction = self._codec_call_direction(record)
+            entry = QWidget(history)
+            entry.setObjectName("roomCodecCallLogPreview")
+            entry.setMinimumHeight(52)
+            entry_layout = QHBoxLayout(entry)
+            entry_layout.setContentsMargins(0, 4, 0, 4)
+            entry_layout.setSpacing(8)
+            icon = QLabel(self._codec_call_direction_icon(direction), entry)
+            icon.setObjectName("roomCodecCallDirectionIcon")
+            icon.setProperty("direction", direction)
+            icon.setAlignment(Qt.AlignCenter)
+            icon.setFixedWidth(24)
+            details = QWidget(entry)
+            details_layout = QVBoxLayout(details)
+            details_layout.setContentsMargins(0, 0, 0, 0)
+            details_layout.setSpacing(1)
+            title = QLabel(self._codec_call_direction_title(direction), details)
+            title.setObjectName("roomCodecCallDirectionTitle")
+            number = QLabel(getattr(record, "room_number", "") or missing, details)
+            number.setObjectName("roomCodecCallNumber")
+            details_layout.addWidget(title)
+            details_layout.addWidget(number)
+            timestamp = QLabel(getattr(record, "start_display", "") or missing, entry)
+            timestamp.setObjectName("roomCodecCallTimestamp")
+            timestamp.setFixedWidth(112)
+            timestamp.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            entry_layout.addWidget(icon)
+            entry_layout.addWidget(details, 1)
+            entry_layout.addWidget(timestamp)
+            history.body_layout.addWidget(entry)
+        expand = QPushButton("Развернуть", history)
+        expand.setObjectName("roomCallLogButton")
+        expand.setFixedWidth(91)
+        expand.setMinimumHeight(34)
+        expand.setEnabled(bool(request_auxiliary) and auxiliary_allowed and controls_enabled)
+        if request_auxiliary is not None:
+            expand.clicked.connect(lambda: request_auxiliary("call_log"))
+        history.header_widget.layout().addWidget(expand)
+        history.body_layout.addStretch(1)
+
+        refresh = QPushButton("Обновить статус", actions)
+        refresh.setObjectName("roomLocalRefreshButton")
+        refresh.setMinimumHeight(36)
+        refresh.setEnabled(bool(request_local_refresh) and local_refresh_allowed and controls_enabled)
+        if request_local_refresh is not None:
+            refresh.clicked.connect(request_local_refresh)
+        reboot = QPushButton("Перезагрузить устройство", actions)
+        reboot.setObjectName("roomCodecRebootButton")
+        reboot.setMinimumHeight(36)
+        reboot.setEnabled(controls_enabled)
+        if request_codec_control is not None:
+            reboot.clicked.connect(lambda: request_codec_control("reboot", None))
+        actions.body_layout.addWidget(refresh)
+        actions.body_layout.addSpacing(10)
+        actions.body_layout.addWidget(reboot)
+        actions.body_layout.addStretch(1)
+
+        # Pixel proportions measured from the supplied codec reference:
+        # 370 / 267 / 268 / 383 / 276, excluding the uniform inter-card gaps.
+        for card, weight in ((state, 370), (call, 267), (audio, 268), (history, 383), (actions, 276)):
+            cards.addWidget(card, weight)
+        layout.addWidget(dashboard)
+
+    @staticmethod
+    def _codec_microphone_level(source: Mapping[str, Any]) -> int | None:
+        """Return only a finite accepted live meter level, scaled to percentage."""
+        sample = source.get("live_microphone")
+        if not isinstance(sample, Mapping) or sample.get("available") is False:
+            return None
+        raw = sample.get("normalized")
+        if not isinstance(raw, Real) or isinstance(raw, bool) or not isfinite(raw):
+            return None
+        return max(0, min(100, round(raw * 100)))
+
+    @staticmethod
+    def _codec_volume_percentage(volume: Any, model: str | None = None) -> int | None:
+        """Render a numeric speaker setting as a percentage without changing it."""
+        if not isinstance(volume, Real) or isinstance(volume, bool) or not isfinite(volume):
+            return None
+        entry = dispatch_entry_for_model(model)
+        controls = entry.codec_controls if entry is not None else None
+        if controls is not None and controls.speaker_minimum is not None and controls.speaker_maximum is not None:
+            span = controls.speaker_maximum - controls.speaker_minimum
+            if span > 0:
+                return max(0, min(100, round((volume - controls.speaker_minimum) * 100 / span)))
+        if 0 <= volume <= 100:
+            return round(volume)
+        return None
+
+    @classmethod
+    def _codec_volume_text(cls, volume: Any, model: str | None = None) -> str:
+        percentage = cls._codec_volume_percentage(volume, model)
+        return f"{percentage}%" if percentage is not None else "Нет данных"
+
+    @staticmethod
+    def _codec_value(source: Mapping[str, Any], keys: tuple[str, ...]):
+        for key in keys:
+            value = source.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    @staticmethod
+    def _codec_yes_no(value: Any, missing: str) -> str:
+        if value is None:
+            return missing
+        if value is True:
+            return "Да"
+        if value is False:
+            return "Нет"
+        return missing
+
+    @staticmethod
+    def _codec_registration_presentation(value: Any) -> tuple[str, str]:
+        if value is True:
+            return "✓", "positive"
+        if value is False or value is None:
+            return ("✕", "negative") if value is False else ("—", "unavailable")
+        return "—", "unavailable"
+
+    @staticmethod
+    def _codec_call_direction(record: Any) -> str:
+        direction = str(getattr(record, "direction", "unknown") or "unknown").casefold()
+        return direction if direction in {"outgoing", "incoming"} else "unknown"
+
+    @staticmethod
+    def _codec_call_direction_icon(direction: str) -> str:
+        return {"outgoing": "↗", "incoming": "↙"}.get(direction, "↔")
+
+    @staticmethod
+    def _codec_call_direction_title(direction: str) -> str:
+        return {
+            "outgoing": "Исходящий вызов",
+            "incoming": "Входящий вызов",
+        }.get(direction, "Вызов")
+
+    def _codec_data_rows(self, card, source, rows, missing) -> None:
+        for row_spec in rows:
+            label, keys, status = row_spec[:3]
+            presentation = row_spec[3] if len(row_spec) > 3 else "text"
+            multiline = presentation == "multiline"
+            has_normalized_value = len(row_spec) > 4
+            row = QWidget(card)
+            row.setObjectName(
+                "roomCodecFirmwareRow" if multiline
+                else "roomCodecStatusRow" if status else "roomCodecDataRow"
+            )
+            row.setMinimumHeight(48 if multiline else 28)
+            row.setMaximumHeight(56 if multiline else 34)
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(6)
+            name = QLabel(label, row)
+            name.setObjectName("roomCodecFieldLabel")
+            value = row_spec[4] if has_normalized_value else self._codec_value(source, keys)
+            if status:
+                dot = QLabel("•", row)
+                dot.setObjectName("roomCodecStatusDot")
+                dot.setFixedSize(10, 10)
+                # All current raw compatibility fields are informational;
+                # model adapters may later provide an explicit typed class.
+                dot.setProperty("semantic", "neutral" if value is not None else "unavailable")
+                line.addWidget(dot)
+            if presentation == "yes_no":
+                value_text = self._codec_yes_no(value, missing)
+            elif presentation == "registration":
+                value_text, semantic = self._codec_registration_presentation(value)
+            else:
+                value_text = str(value) if value is not None else missing
+            value_label = QLabel(value_text, row)
+            value_label.setObjectName("roomCodecRegistrationValue" if presentation == "registration" else "roomCodecFieldValue")
+            if presentation == "registration":
+                value_label.setProperty("semantic", semantic)
+            if multiline:
+                value_label.setTextFormat(Qt.PlainText)
+                value_label.setWordWrap(True)
+            value_label.setToolTip(value_label.text())
+            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            line.addWidget(name, 42)
+            line.addWidget(value_label, 58)
+            card.body_layout.addWidget(row)
+
+    def _codec_audio_row(
+        self, card, title, volume, mute_state, adjust_operation, mute_operation, callback, enabled,
+        *, display_value: str, meter_percentage: int | None = None,
+    ) -> None:
+        row = QWidget(card)
+        row.setObjectName(f"roomCodec{adjust_operation.title().replace('_', '')}Row")
+        block = QVBoxLayout(row)
+        block.setContentsMargins(0, 0, 0, 0)
+        block.setSpacing(4)
+        label = QLabel(title, row)
+        label.setObjectName("roomCodecAudioLabel")
+        speaker_meter = None
+        if meter_percentage is not None or adjust_operation == "speaker_adjust":
+            speaker_meter = QProgressBar(row)
+            speaker_meter.setObjectName("roomCodecSpeakerMeter")
+            speaker_meter.setRange(0, 100)
+            speaker_meter.setTextVisible(False)
+            speaker_meter.setFixedHeight(8)
+            speaker_meter.setProperty("meterState", "available" if meter_percentage is not None else "unavailable")
+            speaker_meter.setValue(meter_percentage or 0)
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(5)
+        minus = QPushButton("−", row)
+        plus = QPushButton("+", row)
+        for button, delta in ((minus, -1), (plus, 1)):
+            button.setFixedSize(30, 30)
+            button.setObjectName("roomCodecAudioMinus" if delta < 0 else "roomCodecAudioPlus")
+            button.setEnabled(enabled)
+            if callback is not None:
+                button.clicked.connect(lambda _checked=False, change=delta: callback(adjust_operation, change))
+        value = QLabel(display_value, row)
+        value.setObjectName("roomCodecAudioValue")
+        value.setMinimumWidth(38)
+        value.setAlignment(Qt.AlignCenter)
+        mute = QPushButton("🔇" if mute_state is CodecMuteState.MUTED else "🔊", row)
+        mute.setObjectName("roomCodecAudioMute")
+        mute.setFixedHeight(30)
+        mute.setMinimumWidth(40)
+        mute.setToolTip("Включить или выключить звук")
+        mute.setEnabled(enabled)
+        if callback is not None:
+            mute.clicked.connect(lambda: callback(mute_operation, "toggle"))
+        line.addWidget(minus)
+        line.addWidget(value)
+        line.addWidget(plus)
+        line.addWidget(mute)
+        line.addStretch(1)
+        block.addWidget(label)
+        if speaker_meter is not None:
+            block.addWidget(speaker_meter)
+        block.addLayout(line)
+        card.body_layout.addWidget(row)
 
     def _build_pdu(
         self,
@@ -1159,6 +1482,7 @@ class RoomReadOnlyPresentation(QWidget):
         dashboard_layout.setContentsMargins(0, 0, 0, 0)
         dashboard_layout.setSpacing(12)
         info = SectionCard("Общая информация", "▣", dashboard)
+        info.body_layout.setAlignment(Qt.AlignTop)
         form = QFormLayout()
         form.setFormAlignment(Qt.AlignTop)
         form.setVerticalSpacing(8)

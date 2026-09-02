@@ -100,6 +100,9 @@ class RoomInteractionCoordinator:
         self._pending_live_record_id: str | None = None
         self._pending_operation: tuple[RoomInteractionKind, str | None, Any] | None = None
         self._pending_global_refresh: Callable[[], None] | None = None
+        self._expanded_record_id: str | None = None
+        self._codec_preview_epochs: dict[str, int] = {}
+        self._codec_preview_attempts: set[tuple[Any, str, int]] = set()
 
     @property
     def active_context(self) -> RoomInteractionContext | None:
@@ -162,6 +165,9 @@ class RoomInteractionCoordinator:
     def bind_session(self, session: RoomDiagnosticSession | None) -> None:
         self.invalidate("room_session_changed")
         self._session = session
+        self._expanded_record_id = None
+        self._codec_preview_epochs.clear()
+        self._codec_preview_attempts.clear()
 
     def cycle_finished(self, session: RoomDiagnosticSession) -> None:
         if session is not self._session or session.invalidated:
@@ -173,6 +179,9 @@ class RoomInteractionCoordinator:
         if session is None:
             return
         session.expanded_record_id = record_id
+        if self._expanded_record_id != record_id:
+            self._expanded_record_id = record_id
+            self._codec_preview_epochs[record_id] = self._codec_preview_epochs.get(record_id, 0) + 1
         if self._active is not None and self._active.record_id != record_id:
             self._pending_live_record_id = record_id
             self._retire_active()
@@ -184,6 +193,7 @@ class RoomInteractionCoordinator:
         if session is None or session.expanded_record_id != record_id:
             return
         session.expanded_record_id = None
+        self._expanded_record_id = None
         self._pending_live_record_id = None
         self._pending_operation = None
         if self._active is not None and self._active.record_id == record_id:
@@ -415,6 +425,41 @@ class RoomInteractionCoordinator:
         row.network_actions_enabled = False
         self._notify()
         binding.live(context)
+
+    def _maybe_start_codec_preview(self) -> None:
+        """Admit exactly one automatic preview for a real expansion epoch."""
+        session = self._require_session()
+        record_id = self._expanded_record_id
+        if (
+            session is None
+            or record_id is None
+            or session.status not in {RoomCycleStatus.COMPLETE, RoomCycleStatus.COMPLETE_WITH_PROBLEMS}
+        ):
+            return
+        row = session.row_for(record_id)
+        binding = self._binding_for(row)
+        if (
+            not self._usable(row)
+            or row.capability is None
+            or row.capability.screen_key != "codec"
+            or binding is None
+            or binding.auxiliary is None
+        ):
+            return
+        epoch = self._codec_preview_epochs.get(record_id)
+        if epoch is None:
+            return
+        key = (session.identity, record_id, epoch)
+        if key in self._codec_preview_attempts:
+            return
+        # Claim before publication.  Render/theme/resize cannot create a
+        # second request even if the first one ends with ordinary failure.
+        self._codec_preview_attempts.add(key)
+        self.request_auxiliary("call_log_preview")
+
+    def request_codec_preview(self) -> None:
+        """Presentation event bridge; no renderer may call this implicitly."""
+        self._maybe_start_codec_preview()
 
     def _retire_active(self) -> None:
         context = self._active

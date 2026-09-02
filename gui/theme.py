@@ -472,6 +472,144 @@ def build_stylesheet() -> str:
         QWidget#roomReadOnlyPresentation {{
             background-color: {c["background"]};
         }}
+        QWidget#roomCodecDashboard {{
+            background: transparent;
+        }}
+        QFrame#roomCodecStateCard,
+        QFrame#roomCodecCallCard,
+        QFrame#roomCodecAudioCard,
+        QFrame#roomCodecHistoryCard,
+        QFrame#roomCodecActionsCard {{
+            background-color: {c["surface"]};
+            border: 1px solid {c["border"]};
+            border-radius: {r["md"]}px;
+        }}
+        QFrame#roomCodecStateCard:hover,
+        QFrame#roomCodecCallCard:hover,
+        QFrame#roomCodecAudioCard:hover,
+        QFrame#roomCodecHistoryCard:hover,
+        QFrame#roomCodecActionsCard:hover {{
+            border-color: {c["border_strong"]};
+        }}
+        QFrame#roomCodecStateCard QLabel#sectionCardIcon,
+        QFrame#roomCodecCallCard QLabel#sectionCardIcon,
+        QFrame#roomCodecAudioCard QLabel#sectionCardIcon,
+        QFrame#roomCodecActionsCard QLabel#sectionCardIcon {{
+            color: {c["primary"]};
+            font-size: 17pt;
+            min-width: 22px;
+        }}
+        QFrame#roomCodecCallCard QLabel#sectionCardIcon {{
+            font-size: 14pt;
+            min-width: 20px;
+            max-width: 20px;
+            min-height: 20px;
+        }}
+        QFrame#roomCodecHistoryCard QLabel#sectionCardIcon {{
+            color: {c["primary"]};
+            border: 1px solid {c["primary"]};
+            border-radius: 4px;
+            min-width: 22px;
+            max-width: 22px;
+            min-height: 18px;
+            max-height: 18px;
+            font-size: 12pt;
+            font-weight: {t["weight_semibold"]};
+            padding-bottom: 4px;
+        }}
+        QFrame#roomCodecStateCard QLabel#sectionCardTitle,
+        QFrame#roomCodecCallCard QLabel#sectionCardTitle,
+        QFrame#roomCodecAudioCard QLabel#sectionCardTitle,
+        QFrame#roomCodecHistoryCard QLabel#sectionCardTitle,
+        QFrame#roomCodecActionsCard QLabel#sectionCardTitle {{
+            font-size: 11pt;
+            font-weight: {t["weight_semibold"]};
+        }}
+        QLabel#roomCodecFieldLabel,
+        QLabel#roomCodecAudioLabel,
+        QLabel#roomCodecMicrophoneLevelLabel {{
+            color: {c["text_secondary"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QLabel#roomCodecFieldValue,
+        QLabel#roomCodecAudioValue {{
+            color: {c["text_primary"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QLabel#roomCodecRegistrationValue {{
+            font-size: 13pt;
+            font-weight: {t["weight_semibold"]};
+        }}
+        QLabel#roomCodecRegistrationValue[semantic="positive"] {{
+            color: {c["success"]};
+        }}
+        QLabel#roomCodecRegistrationValue[semantic="negative"] {{
+            color: {c["danger"]};
+        }}
+        QLabel#roomCodecRegistrationValue[semantic="unavailable"] {{
+            color: {c["text_muted"]};
+        }}
+        QLabel#roomCodecStatusDot[semantic="neutral"] {{
+            color: {c["text_muted"]};
+        }}
+        QLabel#roomCodecStatusDot[semantic="unavailable"] {{
+            color: {c["text_muted"]};
+        }}
+        QProgressBar#roomCodecMicrophoneMeter,
+        QProgressBar#roomCodecSpeakerMeter {{
+            min-height: 8px;
+            max-height: 10px;
+            border-radius: 4px;
+        }}
+        QWidget#roomCodecCallLogPreview {{
+            border-bottom: 1px solid {c["border"]};
+        }}
+        QLabel#roomCodecCallDirectionIcon {{
+            font-size: 18pt;
+        }}
+        QLabel#roomCodecCallDirectionIcon[direction="outgoing"] {{
+            color: {c["success"]};
+        }}
+        QLabel#roomCodecCallDirectionIcon[direction="incoming"] {{
+            color: {c["primary"]};
+        }}
+        QLabel#roomCodecCallDirectionIcon[direction="unknown"] {{
+            color: {c["text_muted"]};
+        }}
+        QLabel#roomCodecCallDirectionTitle {{
+            color: {c["text_primary"]};
+            font-weight: {t["weight_semibold"]};
+        }}
+        QLabel#roomCodecCallNumber,
+        QLabel#roomCodecCallTimestamp {{
+            color: {c["text_secondary"]};
+            font-size: {t["caption"]}pt;
+        }}
+        QPushButton#roomCallLogButton {{
+            min-width: 91px;
+            max-width: 91px;
+            min-height: 30px;
+            max-height: 30px;
+            font-size: {t["caption"]}pt;
+        }}
+        QPushButton#roomCodecAudioMinus,
+        QPushButton#roomCodecAudioPlus {{
+            min-width: 30px;
+            max-width: 30px;
+            min-height: 30px;
+            max-height: 30px;
+            font-size: 15pt;
+        }}
+        QPushButton#roomCodecAudioMute {{
+            min-height: 30px;
+            max-height: 30px;
+        }}
+        QPushButton#roomLocalRefreshButton,
+        QPushButton#roomCodecRebootButton {{
+            min-height: 38px;
+            text-align: left;
+            padding-left: 14px;
+        }}
         QWidget#roomMatrixDashboard {{
             background: transparent;
         }}

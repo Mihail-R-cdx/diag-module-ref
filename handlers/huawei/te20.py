@@ -663,6 +663,7 @@ class HuaweiTE20Handler(BaseHuaweiCodecHandler):
                 "_raw_end": stop_time,
                 "source_identity": item.get("id") or item.get("recordId"),
                 "_active": bool(item.get("active") or item.get("isActive")),
+                "_direction": item.get("direction") or item.get("callDirection"),
             })
         return records
 

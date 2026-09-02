@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from numbers import Real
+from typing import Any, Mapping
 
 from core.equipment_inventory import EquipmentInventory, EquipmentRecord
 from core.room_diagnostic_tree import RoomModelCapability
@@ -21,6 +23,120 @@ class ModelResolutionStatus(str, Enum):
     MODEL_UNMAPPED = "MODEL_UNMAPPED"
     MODEL_UNSUPPORTED = "MODEL_UNSUPPORTED"
     RESOLVED = "RESOLVED"
+
+
+class CodecMuteState(str, Enum):
+    """Model-neutral mute authority consumed by the shared room dashboard."""
+
+    MUTED = "MUTED"
+    UNMUTED = "UNMUTED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class CodecAudioProjection:
+    """Typed audio evidence; display strings are deliberately not authority."""
+
+    microphone_volume: float | int | None
+    microphone_mute_state: CodecMuteState
+    speaker_volume: float | int | None
+    speaker_mute_state: CodecMuteState
+
+
+@dataclass(frozen=True)
+class CodecCallProjection:
+    """Typed call-card facts normalized before shared Qt presentation."""
+
+    call_active: bool | None
+    presentation_active: bool | None
+    registration_active: bool | None
+
+
+@dataclass(frozen=True)
+class CodecControlDescriptor:
+    """Exact-model room control capability owned solely by the dispatch registry."""
+
+    speaker_adjust: bool = False
+    speaker_mute: bool = False
+    microphone_adjust: bool = False
+    microphone_mute: bool = False
+    reboot: bool = False
+    speaker_minimum: int | None = None
+    speaker_maximum: int | None = None
+    speaker_step: int | None = None
+    mutation_binding_key: str | None = None
+    reconciliation_binding_key: str | None = None
+    cleanup_binding_key: str | None = None
+
+    def supported(self, operation: str) -> bool:
+        return bool(getattr(self, operation, False))
+
+    def validate(self, model: str) -> None:
+        supported = any((
+            self.speaker_adjust, self.speaker_mute, self.microphone_adjust,
+            self.microphone_mute, self.reboot,
+        ))
+        if not supported:
+            return
+        if not all((self.mutation_binding_key, self.reconciliation_binding_key, self.cleanup_binding_key)):
+            raise ValueError(f"Codec control binding is incomplete: {model}")
+        if self.speaker_adjust or self.speaker_mute:
+            if not all(isinstance(value, int) for value in (self.speaker_minimum, self.speaker_maximum, self.speaker_step)):
+                raise ValueError(f"Codec speaker range is incomplete: {model}")
+            if self.speaker_minimum > self.speaker_maximum or self.speaker_step <= 0:
+                raise ValueError(f"Codec speaker range is invalid: {model}")
+
+
+def normalize_codec_audio_projection(data: Any, model: str | None = None) -> CodecAudioProjection:
+    """Keep numeric volumes distinct from explicit typed mute evidence.
+
+    Callers may still pass ``model`` for API compatibility, but it deliberately
+    has no effect here.  Exact-model parsers publish the canonical fields
+    consumed below before a room snapshot becomes accepted authority.
+    """
+    source: Mapping[str, Any] = data if isinstance(data, Mapping) else {}
+
+    def numeric(*keys: str):
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, Real) and not isinstance(value, bool):
+                return value
+        return None
+
+    def mute(*keys: str) -> CodecMuteState:
+        for key in keys:
+            value = source.get(key)
+            if value is True:
+                return CodecMuteState.MUTED
+            if value is False:
+                return CodecMuteState.UNMUTED
+            if isinstance(value, CodecMuteState):
+                return value
+        return CodecMuteState.UNKNOWN
+
+    speaker_volume = numeric("speaker_volume")
+    speaker_mute = mute("speaker_muted", "speaker_mute_state")
+    return CodecAudioProjection(
+        microphone_volume=numeric("microphone_volume"),
+        microphone_mute_state=mute("microphone_muted", "microphone_mute_state"),
+        speaker_volume=speaker_volume,
+        speaker_mute_state=speaker_mute,
+    )
+
+
+def normalize_codec_call_projection(data: Any, model: str | None = None) -> CodecCallProjection:
+    """Read exact-adapter canonical call-card evidence without parsing text."""
+    source: Mapping[str, Any] = data if isinstance(data, Mapping) else {}
+
+    def status(key: str) -> bool | None:
+        value = source.get(key)
+        return value if value is True or value is False else None
+
+    return CodecCallProjection(
+        call_active=status("_room_codec_call_active"),
+        presentation_active=status("_room_codec_presentation_active"),
+        registration_active=status("_room_codec_registration_active"),
+    )
 
 
 @dataclass(frozen=True)
@@ -47,6 +163,7 @@ class DiagnosticDispatchEntry:
     # derive from the binding key: validation must fail closed if a required
     # binding is accidentally removed rather than silently dropping the model.
     call_activity_required: bool = False
+    codec_controls: CodecControlDescriptor | None = None
 
     def room_capability(self) -> RoomModelCapability:
         return RoomModelCapability(
@@ -105,6 +222,7 @@ def _room_entry(
     live_binding_key: str | None = None,
     call_activity_binding_key: str | None = None,
     call_activity_required: bool = False,
+    codec_controls: CodecControlDescriptor | None = None,
 ) -> DiagnosticDispatchEntry:
     """Build the one registry entry used by both room phases.
 
@@ -127,15 +245,32 @@ def _room_entry(
         call_activity_capability=call_activity_binding_key is not None,
         call_activity_binding_key=call_activity_binding_key,
         call_activity_required=call_activity_required,
+        codec_controls=codec_controls,
+    )
+
+
+def _codec_controls(*, microphone_mute: bool, speaker_minimum: int, speaker_maximum: int, speaker_step: int) -> CodecControlDescriptor:
+    return CodecControlDescriptor(
+        speaker_adjust=True,
+        speaker_mute=True,
+        microphone_adjust=False,
+        microphone_mute=microphone_mute,
+        reboot=False,
+        speaker_minimum=speaker_minimum,
+        speaker_maximum=speaker_maximum,
+        speaker_step=speaker_step,
+        mutation_binding_key="room_codec_audio_mutation",
+        reconciliation_binding_key="room_one_shot_refresh",
+        cleanup_binding_key="room_codec_audio_cleanup",
     )
 
 
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
-    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity", call_activity_required=True),
-    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity", call_activity_required=True),
-    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity", call_activity_required=True),
-    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity", call_activity_required=True),
-    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True, call_activity_binding_key="polycom_call_activity", call_activity_required=True),
+    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
+    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
+    _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=False, speaker_minimum=0, speaker_maximum=15, speaker_step=1)),
+    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=False, speaker_minimum=0, speaker_maximum=15, speaker_step=1)),
+    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True, call_activity_binding_key="polycom_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=100, speaker_step=1)),
     _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
     _room_entry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot", pdu_mutation=True),
     _room_entry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True, pdu_mutation=True),
@@ -233,6 +368,18 @@ def validate_dispatch_registry(
             and entry.call_activity_binding_key not in available_call_activity_binding_keys
         ):
             raise ValueError(f"Dispatch call-activity binding is not bound: {entry.diagnostic_model}")
+        if entry.codec_controls is not None:
+            entry.codec_controls.validate(entry.diagnostic_model)
+            if available_room_interaction_binding_keys is not None:
+                for key in (
+                    entry.codec_controls.mutation_binding_key,
+                    entry.codec_controls.reconciliation_binding_key,
+                    entry.codec_controls.cleanup_binding_key,
+                ):
+                    if key and key not in available_room_interaction_binding_keys:
+                        raise ValueError(
+                            f"Dispatch codec control binding is not bound: {entry.diagnostic_model}"
+                        )
 
 
 def resolve_exact_model_for_ip(

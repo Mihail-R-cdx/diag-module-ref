@@ -3,8 +3,89 @@ import datetime
 from collections.abc import Mapping, Sequence
 from typing import Dict, Any
 from core.exceptions import ParseError
-from core.call_activity import publish_call_activity_evidence
+from core.call_activity import (
+    CallActivity,
+    call_activity_from_model_evidence,
+    publish_call_activity_evidence,
+)
 from utils.te20_audio import format_te20_monitor_audio_level
+
+
+def _publish_huawei_codec_evidence(
+    parsed: Dict[str, Any], raw_data: Mapping[str, Any], *,
+    call_binding: str = "huawei_call_activity",
+) -> None:
+    """Publish only documented Huawei-family protocol values as room authority.
+
+    This is deliberately an exact parser boundary.  It may understand the
+    protocol tokens below, whereas the shared room projection must never infer
+    meaning from these (or translated display) strings.
+    """
+    if "call_status" in raw_data:
+        activity = call_activity_from_model_evidence(call_binding, raw_data.get("call_status"))
+        if activity is CallActivity.ACTIVE:
+            parsed["_room_codec_call_active"] = True
+        elif activity is CallActivity.INACTIVE:
+            parsed["_room_codec_call_active"] = False
+        publish_call_activity_evidence(
+            parsed, binding_key=call_binding, evidence=raw_data.get("call_status")
+        )
+    presentation = raw_data.get("presentation_local", raw_data.get("presentation"))
+    if presentation in {"Start", "auxOpen"}:
+        parsed["_room_codec_presentation_active"] = True
+    elif presentation in {"Stop", "auxClose"}:
+        parsed["_room_codec_presentation_active"] = False
+    registration = raw_data.get("sip_status")
+    if registration in {"On", "SIP_STATE_OK"}:
+        parsed["_room_codec_registration_active"] = True
+    elif registration in {"Off", "EMPTY"}:
+        parsed["_room_codec_registration_active"] = False
+    microphone = raw_data.get("mic_mute")
+    if microphone in {"On", "Muted"}:
+        parsed["microphone_muted"] = True
+    elif microphone in {"Off", "Unmuted"}:
+        parsed["microphone_muted"] = False
+    speaker = raw_data.get("speaker_mute")
+    if speaker in {"On", "Muted"}:
+        parsed["speaker_muted"] = True
+    elif speaker in {"Off", "Unmuted"}:
+        parsed["speaker_muted"] = False
+    speaker_volume = raw_data.get("speaker_volume")
+    if isinstance(speaker_volume, (int, float)) and not isinstance(speaker_volume, bool):
+        parsed["speaker_volume"] = speaker_volume
+        if speaker not in {"On", "Muted", "Off", "Unmuted"}:
+            parsed["speaker_muted"] = speaker_volume == 0
+
+
+def _publish_polycom_codec_evidence(parsed: Dict[str, Any], raw_data: Mapping[str, Any]) -> None:
+    """Publish only documented Polycom protocol values as room authority."""
+    activity = call_activity_from_model_evidence("polycom_call_activity", raw_data.get("call_status"))
+    if activity is CallActivity.ACTIVE:
+        parsed["_room_codec_call_active"] = True
+    elif activity is CallActivity.INACTIVE:
+        parsed["_room_codec_call_active"] = False
+    publish_call_activity_evidence(
+        parsed, binding_key="polycom_call_activity", evidence=raw_data.get("call_status")
+    )
+    presentation = raw_data.get("presentation")
+    if presentation in {"Start", "Started"}:
+        parsed["_room_codec_presentation_active"] = True
+    elif presentation in {"Stop", "Stopped"}:
+        parsed["_room_codec_presentation_active"] = False
+    registration = raw_data.get("sip_status")
+    if registration == "online":
+        parsed["_room_codec_registration_active"] = True
+    elif registration == "offline":
+        parsed["_room_codec_registration_active"] = False
+    microphone = raw_data.get("mic_mute")
+    if microphone in {"on", "Muted"}:
+        parsed["microphone_muted"] = True
+    elif microphone in {"off", "Unmuted"}:
+        parsed["microphone_muted"] = False
+    speaker_volume = raw_data.get("speaker_volume")
+    if isinstance(speaker_volume, (int, float)) and not isinstance(speaker_volume, bool):
+        parsed["speaker_volume"] = speaker_volume
+        parsed["speaker_muted"] = speaker_volume == 0
 
 
 class BiampTesiraForteCIDataParser:
@@ -120,6 +201,7 @@ class HuaweiTE40DataParser:
         # Статусы SIP
         sip_status = HuaweiTE40DataParser._map_sip_status(raw_data.get('sip_status', 'Off'))
         parsed['SIP регистрация'] = sip_status
+        HuaweiTE40DataParser._publish_room_codec_evidence(parsed, raw_data)
         parsed['SIP адрес'] = raw_data.get('sip_server', 'N/A')
         parsed['SIP номер'] = raw_data.get('sip_number', 'N/A')
         
@@ -151,6 +233,7 @@ class HuaweiTE40DataParser:
         )
         if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
             parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
+            parsed['speaker_volume'] = raw_data.get('speaker_volume')
         if (
             'monitor_mic_value' in raw_data
             and raw_data.get('monitor_mic_value') is not None
@@ -283,6 +366,10 @@ class HuaweiTE40DataParser:
         else:
             return camera_status
 
+    @staticmethod
+    def _publish_room_codec_evidence(parsed: Dict[str, Any], raw_data: Mapping[str, Any]) -> None:
+        _publish_huawei_codec_evidence(parsed, raw_data)
+
 
 class HuaweiTE20DataParser:
     """Парсер данных для Huawei TE20"""
@@ -314,6 +401,7 @@ class HuaweiTE20DataParser:
         for key, value in mapping_fields.items():
             if value and value != 'N/A':
                 parsed[key] = value
+        HuaweiTE20DataParser._publish_room_codec_evidence(parsed, raw_data)
         
         # 2. Специальные поля для маппинга
         
@@ -433,6 +521,10 @@ class HuaweiTE20DataParser:
         if status_text.startswith('on') or 'выключ' in status_text or 'muted' in status_text:
             return 'Muted'
         return status
+
+    @staticmethod
+    def _publish_room_codec_evidence(parsed: Dict[str, Any], raw_data: Mapping[str, Any]) -> None:
+        _publish_huawei_codec_evidence(parsed, raw_data)
         
         
 
@@ -471,6 +563,7 @@ class HuaweiBar310DataParser:
         for source, target in direct_fields.items():
             if source in raw_data and raw_data[source] is not None:
                 parsed[target] = raw_data[source]
+        _publish_huawei_codec_evidence(parsed, raw_data, call_binding="cloudlink_call_activity")
 
         if "sip_status" in raw_data and raw_data["sip_status"] is not None:
             parsed["SIP регистрация"] = HuaweiBar310DataParser._map_sip_status(
@@ -495,12 +588,14 @@ class HuaweiBar310DataParser:
             parsed["Статус микрофона"] = raw_data["mic_connection_status"]
         if "mic_volume" in raw_data and raw_data["mic_volume"] is not None:
             parsed["Громкость микрофона"] = str(raw_data["mic_volume"])
+            parsed["microphone_volume"] = raw_data["mic_volume"]
         if "speaker_mute" in raw_data and raw_data["speaker_mute"] is not None:
             parsed["Статус динамика"] = HuaweiBar310DataParser._map_speaker_status(
                 raw_data["speaker_mute"]
             )
         if "speaker_volume" in raw_data and raw_data["speaker_volume"] is not None:
             parsed["Громкость динамиков"] = str(raw_data["speaker_volume"])
+            parsed["speaker_volume"] = raw_data["speaker_volume"]
         if "camera_status" in raw_data and raw_data["camera_status"] is not None:
             camera_states = {"On": "Подключена", "Off": "Не подключена"}
             parsed["Статус камеры"] = camera_states.get(
@@ -648,6 +743,7 @@ class PolycomDataParser:
                 parsed['SIP регистрация'] = 'Не зарегистрирован'
             else:
                 parsed['SIP регистрация'] = sip_status.capitalize()
+        _publish_polycom_codec_evidence(parsed, raw_data)
         sip_address = raw_data.get('sip_address')
         if sip_address:
             parsed['SIP адрес'] = sip_address
@@ -663,6 +759,7 @@ class PolycomDataParser:
         volume = raw_data.get('speaker_volume')
         if volume is not None:
             parsed['Громкость динамиков'] = f"{volume}%"
+            parsed['speaker_volume'] = volume
         
         # Статус микрофона
         mic_mute = raw_data.get('mic_mute')
