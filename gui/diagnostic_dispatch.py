@@ -90,8 +90,9 @@ class CodecControlDescriptor:
 def normalize_codec_audio_projection(data: Any, model: str | None = None) -> CodecAudioProjection:
     """Keep numeric volumes distinct from explicit typed mute evidence.
 
-    Legacy snapshots can contain display-oriented strings.  They remain useful
-    text evidence elsewhere, but never become mutation authority here.
+    Callers may still pass ``model`` for API compatibility, but it deliberately
+    has no effect here.  Exact-model parsers publish the canonical fields
+    consumed below before a room snapshot becomes accepted authority.
     """
     source: Mapping[str, Any] = data if isinstance(data, Mapping) else {}
 
@@ -111,55 +112,30 @@ def normalize_codec_audio_projection(data: Any, model: str | None = None) -> Cod
                 return CodecMuteState.UNMUTED
             if isinstance(value, CodecMuteState):
                 return value
-            # This mapping is deliberately model-scoped normalization, never
-            # shared presentation parsing.  The generic path stays UNKNOWN.
-            if model in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}:
-                if value == "Muted":
-                    return CodecMuteState.MUTED
-                if value == "Unmuted":
-                    return CodecMuteState.UNMUTED
         return CodecMuteState.UNKNOWN
 
-    speaker_volume = numeric("speaker_volume", "volume")
+    speaker_volume = numeric("speaker_volume")
     speaker_mute = mute("speaker_muted", "speaker_mute_state")
-    if (
-        speaker_mute is CodecMuteState.UNKNOWN
-        and model in {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"}
-        and speaker_volume is not None
-    ):
-        speaker_mute = CodecMuteState.MUTED if speaker_volume == 0 else CodecMuteState.UNMUTED
     return CodecAudioProjection(
-        microphone_volume=numeric("microphone_volume", "mic_volume"),
-        microphone_mute_state=mute("microphone_muted", "microphone_mute_state", "mic_mute"),
+        microphone_volume=numeric("microphone_volume"),
+        microphone_mute_state=mute("microphone_muted", "microphone_mute_state"),
         speaker_volume=speaker_volume,
         speaker_mute_state=speaker_mute,
     )
 
 
 def normalize_codec_call_projection(data: Any, model: str | None = None) -> CodecCallProjection:
-    """Normalize known vendor status facts without letting the Qt view parse text."""
+    """Read exact-adapter canonical call-card evidence without parsing text."""
     source: Mapping[str, Any] = data if isinstance(data, Mapping) else {}
 
-    def status(*keys: str) -> bool | None:
-        raw = next((source.get(key) for key in keys if source.get(key) not in (None, "")), None)
-        if raw is True or raw is False:
-            return raw
-        if raw is None:
-            return None
-        value = str(raw).strip().casefold()
-        if value in {"да", "yes", "true", "1", "on", "active", "активен", "активна", "ok", "success", "registered", "зарегистрирован"}:
-            return True
-        if (
-            value in {"нет", "no", "false", "0", "off", "inactive", "не активен", "не активна", "unregistered", "не зарегистрирован", "error", "failed"}
-            or value.startswith(("нет ", "не ", "not "))
-        ):
-            return False
-        return None
+    def status(key: str) -> bool | None:
+        value = source.get(key)
+        return value if value is True or value is False else None
 
     return CodecCallProjection(
-        call_active=status("call_status", "Статус звонка"),
-        presentation_active=status("presentation_status", "Статус презентации"),
-        registration_active=status("sip_registration", "SIP регистрация", "sip_status"),
+        call_active=status("_room_codec_call_active"),
+        presentation_active=status("_room_codec_presentation_active"),
+        registration_active=status("_room_codec_registration_active"),
     )
 
 

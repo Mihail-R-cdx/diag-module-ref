@@ -32,7 +32,7 @@
 
 ## 3. Typed room audio projection and interactions
 
-- [ ] 3.1 Replace ambiguous combined audio slots with separate model-neutral `microphone_volume`, `microphone_mute_state`, `speaker_volume`, `speaker_mute_state`; volumes are optional numeric and mute states are typed `MUTED | UNMUTED | UNKNOWN` or equivalent.
+- [x] 3.1 Replace ambiguous combined audio slots with separate model-neutral `microphone_volume`, `microphone_mute_state`, `speaker_volume`, `speaker_mute_state`; volumes are optional numeric and mute states are typed `MUTED | UNMUTED | UNKNOWN` or equivalent.
 - [ ] 3.2 Route room speaker/microphone intents through application composition and the existing exact-row serialized interaction coordinator; presentation widgets must not own handlers/sessions/credentials.
 - [ ] 3.3 Build supported `+ / −` only from current accepted numeric values into absolute model-valid targets using registry-bound range/step policy; do not fabricate a starting value when current evidence/range is unavailable.
 - [ ] 3.4 Implement TE20/TE40/Polycom microphone mute as typed desired `MUTED`/`UNMUTED` with typed readback; do not reinterpret it as numeric microphone gain.
@@ -64,7 +64,7 @@
 - [ ] 5.2 Assert every current codec registration matches the exact support matrix in task 1.2; a regression that turns a required current SUPPORTED operation into UNSUPPORTED must fail.
 - [ ] 5.3 Assert fixed card/field order, permanent missing-data rows, all normative baseline geometry ranges, mandatory structural checkpoints, approved dot-free status/call-value presentation (including neutral unavailable registration state), and dark/light parity.
 - [ ] 5.4 Assert microphone-level unavailable behavior and that the dashboard starts no new level I/O solely for presentation.
-- [ ] 5.5 Assert split numeric volume/mute-state typing; shared GUI never treats `Muted`/`Unmuted` as numeric volume or parses display strings for mutation authority.
+- [x] 5.5 Assert split numeric volume/mute-state typing; shared GUI never treats `Muted`/`Unmuted` as numeric volume or parses display strings for mutation authority.
 - [ ] 5.6 Assert supported speaker `+/-`, mute and restore target construction; current zero + no accepted restore target -> informational unavailable + zero handler/session/network I/O.
 - [ ] 5.7 Assert old widget-local remembered volume, fallback `1`, minimum/default and optimistic requested/ACK values cannot become room restore authority.
 - [ ] 5.8 Assert TE20/TE40/Polycom microphone mute succeeds only through typed mute/readback; all five `microphone_adjust` capabilities remain unsupported.

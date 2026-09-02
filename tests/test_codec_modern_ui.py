@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QLabel, QProgressBar, QPushButton, QWidget
@@ -10,7 +11,12 @@ from core.room_diagnostic_tree import (
 )
 from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator
 from core.codec_call_history import CallRecord, snapshot_from_records
-from gui.diagnostic_dispatch import dispatch_entry_for_model, normalize_codec_audio_projection
+from gui.diagnostic_dispatch import (
+    CodecMuteState,
+    dispatch_entry_for_model,
+    normalize_codec_audio_projection,
+    normalize_codec_call_projection,
+)
 from gui.room_diagnostic_tree import RoomReadOnlyPresentation
 
 
@@ -68,9 +74,9 @@ class ModernCodecDashboardTests(unittest.TestCase):
 
     def test_call_fields_use_yes_no_and_registration_uses_semantic_icon(self):
         presentation = RoomReadOnlyPresentation(self._row(snapshot={
-            "call_status": "Нет активного звонка",
-            "presentation_status": "Активна",
-            "sip_registration": "Зарегистрирован",
+            "_room_codec_call_active": False,
+            "_room_codec_presentation_active": True,
+            "_room_codec_registration_active": True,
         }))
         self.addCleanup(presentation.deleteLater)
         values = [label.text() for label in presentation.findChildren(QLabel, "roomCodecFieldValue")]
@@ -104,15 +110,108 @@ class ModernCodecDashboardTests(unittest.TestCase):
         finally:
             apply_theme(self.app, "dark")
 
-    def test_audio_projection_never_parses_display_mute_strings(self):
-        projection = normalize_codec_audio_projection({
+    def test_shared_projections_reject_display_string_authority_for_every_model(self):
+        raw = {
             "speaker_volume": 7,
             "mic_mute": "Muted",
             "speaker_mute": "Unmuted",
+            "call_status": "active",
+            "presentation_status": "активен",
+            "sip_registration": "registered",
+        }
+        for model in MODELS:
+            with self.subTest(model=model):
+                audio = normalize_codec_audio_projection(raw, model)
+                call = normalize_codec_call_projection(raw, model)
+                self.assertEqual(7, audio.speaker_volume)
+                self.assertIs(CodecMuteState.UNKNOWN, audio.microphone_mute_state)
+                self.assertIs(CodecMuteState.UNKNOWN, audio.speaker_mute_state)
+                self.assertIsNone(call.call_active)
+                self.assertIsNone(call.presentation_active)
+                self.assertIsNone(call.registration_active)
+
+    def test_exact_parser_boundaries_publish_canonical_codec_authority(self):
+        from core.parser import (
+            HuaweiBar310DataParser,
+            HuaweiTE20DataParser,
+            HuaweiTE40DataParser,
+            PolycomDataParser,
+        )
+
+        cases = (
+            ("Huawei TE20", HuaweiTE20DataParser.parse_raw_data, {
+                "call_status": "Calling", "presentation_local": "Start",
+                "sip_status": "On", "mic_mute": "Muted", "speaker_volume": 7,
+            }),
+            ("Huawei TE40", HuaweiTE40DataParser.parse_raw_data, {
+                "call_status": "Connected", "presentation": "auxOpen",
+                "sip_status": "SIP_STATE_OK", "mic_mute": "Unmuted", "speaker_volume": 7,
+            }),
+            ("CloudLink Bar 310", HuaweiBar310DataParser.parse_raw_data, {
+                "model": "Huawei CloudLink Bar 310", "version": "V1", "call_status": "Connected",
+                "presentation": "Start", "sip_status": "On", "speaker_volume": 7,
+            }),
+            ("CloudLink Box 310", lambda raw: HuaweiBar310DataParser.parse_raw_data(raw, "Huawei CloudLink Box 310"), {
+                "model": "Huawei CloudLink Box 310", "version": "V1", "call_status": "No Call",
+                "presentation": "Stop", "sip_status": "Off", "speaker_volume": 0,
+            }),
+            ("Polycom RPG 310", PolycomDataParser.parse_raw_data, {
+                "call_status": "Active", "presentation": "Started", "sip_status": "online",
+                "mic_mute": "on", "speaker_volume": 7,
+            }),
+        )
+        for model, parser, raw in cases:
+            with self.subTest(model=model):
+                snapshot = parser(raw)
+                audio = normalize_codec_audio_projection(snapshot, model)
+                call = normalize_codec_call_projection(snapshot, model)
+                self.assertIsNotNone(call.call_active)
+                self.assertIsNotNone(call.presentation_active)
+                self.assertIsNotNone(call.registration_active)
+                self.assertIsNot(CodecMuteState.UNKNOWN, audio.speaker_mute_state)
+                if model in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}:
+                    self.assertIsNot(CodecMuteState.UNKNOWN, audio.microphone_mute_state)
+
+    def test_exact_parser_boundaries_fail_closed_for_malformed_vendor_text(self):
+        from core.parser import HuaweiTE40DataParser, PolycomDataParser
+
+        huawei = HuaweiTE40DataParser.parse_raw_data({
+            "call_status": "not active despite the word active",
+            "presentation": "almost Start", "sip_status": "registered-ish",
+            "mic_mute": "Muted later", "speaker_volume": "0",
         })
-        self.assertEqual(7, projection.speaker_volume)
-        self.assertEqual("UNKNOWN", projection.microphone_mute_state.value)
-        self.assertEqual("UNKNOWN", projection.speaker_mute_state.value)
+        polycom = PolycomDataParser.parse_raw_data({
+            "call_status": "Active-ish", "presentation": "Stopped?",
+            "sip_status": "online-now", "mic_mute": "onward", "speaker_volume": "0",
+        })
+        for model, snapshot in (("Huawei TE40", huawei), ("Polycom RPG 310", polycom)):
+            with self.subTest(model=model):
+                audio = normalize_codec_audio_projection(snapshot, model)
+                call = normalize_codec_call_projection(snapshot, model)
+                self.assertIs(CodecMuteState.UNKNOWN, audio.microphone_mute_state)
+                self.assertIsNone(audio.speaker_volume)
+                self.assertIs(CodecMuteState.UNKNOWN, audio.speaker_mute_state)
+                self.assertIsNone(call.call_active)
+                self.assertIsNone(call.presentation_active)
+                self.assertIsNone(call.registration_active)
+
+    def test_raw_display_mute_cannot_build_a_room_mutation_target(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        session = SimpleNamespace(identity="generation-1")
+        row = self._row(snapshot={"mic_mute": "Muted"})
+        controls = dispatch_entry_for_model("Huawei TE40").codec_controls
+        window = SimpleNamespace(_room_codec_restore_volumes={})
+        command = VCSDiagnosticApp._codec_command_from_current_evidence(
+            window, session, row, controls, "microphone_mute", "toggle",
+        )
+        self.assertIsNone(command)
+
+        row.accepted_snapshot = {"microphone_muted": True}
+        command = VCSDiagnosticApp._codec_command_from_current_evidence(
+            window, session, row, controls, "microphone_mute", "toggle",
+        )
+        self.assertEqual({"operation": "microphone_mute", "target": False}, command)
 
     def test_microphone_meter_uses_only_finite_accepted_live_evidence(self):
         presentation = RoomReadOnlyPresentation(self._row(snapshot={
