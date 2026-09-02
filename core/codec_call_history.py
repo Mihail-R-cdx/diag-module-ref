@@ -37,6 +37,7 @@ class CallRecord:
     speed: str = ""
     start_display: str = ""
     duration_display: str = ""
+    direction: str = "unknown"
 
     @property
     def has_usable_duration(self) -> bool:
@@ -113,6 +114,18 @@ def format_duration(seconds: Optional[int], active: bool = False) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def normalize_call_direction(value: Any) -> str:
+    """Normalize only explicit vendor direction evidence for presentation."""
+    if value is None:
+        return "unknown"
+    text = str(value).strip().casefold()
+    if text in {"outgoing", "outbound", "dialed", "placed", "исходящий"}:
+        return "outgoing"
+    if text in {"incoming", "inbound", "received", "входящий"}:
+        return "incoming"
+    return "unknown"
+
+
 def record_from_vendor(
     item: dict[str, Any], *, source_identity: Optional[str] = None,
     start_key: str = "startTime", end_key: str = "endTime",
@@ -134,6 +147,9 @@ def record_from_vendor(
     room = next((item.get(key) for key in room_keys if item.get(key) not in (None, "")), "")
     speed = item.get(speed_key, "")
     identity = source_identity or item.get("id") or item.get("recordId")
+    direction = normalize_call_direction(
+        item.get("direction", item.get("callDirection", item.get("call_direction")))
+    )
     return CallRecord(
         source_identity=str(identity) if identity not in (None, "") else None,
         start_at=start_at,
@@ -142,6 +158,7 @@ def record_from_vendor(
         room_number=str(room), speed=str(speed or ""),
         start_display=format_start(start_at, start_raw),
         duration_display=format_duration(seconds, active),
+        direction=direction,
     )
 
 
@@ -257,6 +274,9 @@ def snapshot_from_display_records(
             speed=str(item.get("speed") or ""),
             start_display=str(item.get("start_time") or ""),
             duration_display=duration_text,
+            direction=normalize_call_direction(
+                item.get("_direction", item.get("direction", item.get("call_direction")))
+            ),
         ))
     return snapshot_from_records(
         normalized,

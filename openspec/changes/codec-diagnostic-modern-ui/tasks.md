@@ -20,14 +20,14 @@
 
 ## 2. Unified codec dashboard presentation
 
-- [ ] 2.1 Replace the room codec flat-field projection with the one shared five-card dashboard: `Состояние`, `Вызов и презентация`, `Аудио`, `Журнал вызовов`, `Действия`.
-- [ ] 2.2 Preserve exact `Состояние` row order: model, MAC, serial, platform, software version, microphone, camera.
-- [ ] 2.3 Preserve exact `Вызов и презентация` row order: call status, presentation, SIP/H.323 registration.
-- [ ] 2.4 Render missing/unusable values as `Нет данных`; never hide a required card/row because one model lacks the value. For `Микрофон`, `Камера`, `Статус звонка`, `Презентация`, and `Регистрация SIP/H.323`, always render the required `8-10 px` semantic status indicator plus textual state; unavailable evidence uses a neutral unavailable indicator + `Нет данных`, and shared GUI code must not derive indicator semantics from localized strings/model names.
-- [ ] 2.5 Implement Audio with horizontal current microphone-level indicator followed by microphone and speaker rows in the exact `− | value | + | mute` geometry and approved size ranges.
-- [ ] 2.6 Reuse only existing current accepted/live level evidence; do not add a meter poll solely to populate the visual slot.
-- [ ] 2.7 Implement Actions with two full-width vertical buttons in order: `Обновить статус`, then `Перезагрузить устройство`; refresh is existing Local Refresh alias and reboot follows current unsupported local-only path.
-- [ ] 2.8 Meet repository-local baseline geometry: five-card weights `23:17:18:25:17` within ±4 points, card height `286-326 px`, card gaps `10-14 px`, padding `14-18 px`, and all detailed typography/control/call-row ranges in the presentation spec.
+- [x] 2.1 Replace the room codec flat-field projection with the one shared five-card dashboard: `Состояние`, `Вызов и презентация`, `Аудио`, `Журнал вызовов`, `Действия`.
+- [x] 2.2 Preserve exact `Состояние` row order: model, MAC, serial, platform, software version, microphone, camera.
+- [x] 2.3 Preserve exact `Вызов и презентация` row order: call status, presentation, SIP/H.323 registration.
+- [x] 2.4 Render missing/unusable values as `Нет данных`; never hide a required card/row because one model lacks the value. Use the approved dot-free, right-aligned value columns; call/presentation use normalized `Да`/`Нет`, while registration uses its semantic icon and neutral unavailable state without shared-GUI localized-string parsing.
+- [x] 2.5 Implement Audio with horizontal current microphone-level indicator followed by microphone and speaker rows in the exact `− | value | + | mute` geometry and approved size ranges.
+- [x] 2.6 Reuse only existing current accepted/live level evidence; do not add a meter poll solely to populate the visual slot.
+- [x] 2.7 Implement Actions with two full-width vertical buttons in order: `Обновить статус`, then `Перезагрузить устройство`; refresh is existing Local Refresh alias and reboot follows current unsupported local-only path.
+- [x] 2.8 Meet repository-local baseline geometry: five-card weights `23:17:18:25:17` within ±4 points, card height `286-326 px`, card gaps `10-14 px`, padding `14-18 px`, and all detailed typography/control/call-row ranges in the presentation spec.
 - [ ] 2.9 At `1440 x 900` satisfy all mandatory visual checkpoints, including required indicator checkpoint 9, and at least `9/10` total repository-local checkpoints; preserve the same geometry/order in light theme. External screenshot access must not be required.
 
 ## 3. Typed room audio projection and interactions
@@ -53,7 +53,7 @@
 - [ ] 4.7 Allow a new automatic attempt only after an approved new expansion/context boundary: collapse+re-expand, row switch then later re-expand, new room generation/top Refresh, or new valid context after invalidation.
 - [ ] 4.8 Keep accepted full call-log result exact-row/generation bound; preview takes only the first three records from the typed normalized newest-first result.
 - [ ] 4.9 Use `CallHistorySnapshot` chronology contract (or exact equivalent): typed comparable `start_at` descending; missing chronology after timestamped records; deterministic stable order for equal/missing chronology; never sort localized display strings.
-- [ ] 4.10 Preserve safe direction/peer/timestamp presentation and `Нет данных` for missing subfields/empty preview.
+- [x] 4.10 Preserve safe direction/peer/timestamp presentation and `Нет данных` for missing subfields/empty preview.
 - [ ] 4.11 Collapse, row switch, top Refresh, target/context/credential invalidation and shutdown must cancel/invalidate active preview authority and reject late callbacks.
 - [ ] 4.12 `Развернуть` reuses current accepted full preview without I/O; if no accepted result exists, including after failed/no-data automatic preview, it may submit one explicit fresh auxiliary request without resetting the completed automatic-attempt marker.
 - [ ] 4.13 Preserve existing direct child-window close cancellation and fresh explicit reopen behavior for a cancelled active request.
@@ -62,7 +62,7 @@
 
 - [ ] 5.1 Cover the unified dashboard for all five exact codec registrations while proving runtime authority comes only from the unified registry.
 - [ ] 5.2 Assert every current codec registration matches the exact support matrix in task 1.2; a regression that turns a required current SUPPORTED operation into UNSUPPORTED must fail.
-- [ ] 5.3 Assert fixed card/field order, permanent missing-data rows, all normative baseline geometry ranges, mandatory structural checkpoints, mandatory five-row status-indicator map (including neutral unavailable indicator + `Нет данных`), and dark/light parity.
+- [ ] 5.3 Assert fixed card/field order, permanent missing-data rows, all normative baseline geometry ranges, mandatory structural checkpoints, approved dot-free status/call-value presentation (including neutral unavailable registration state), and dark/light parity.
 - [ ] 5.4 Assert microphone-level unavailable behavior and that the dashboard starts no new level I/O solely for presentation.
 - [ ] 5.5 Assert split numeric volume/mute-state typing; shared GUI never treats `Muted`/`Unmuted` as numeric volume or parses display strings for mutation authority.
 - [ ] 5.6 Assert supported speaker `+/-`, mute and restore target construction; current zero + no accepted restore target -> informational unavailable + zero handler/session/network I/O.

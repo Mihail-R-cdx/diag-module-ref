@@ -436,6 +436,7 @@ class PolycomRPG310Handler:
                 "_duration_seconds": entry.get("duration"),
                 "source_identity": entry.get("id") or entry.get("recordId"),
                 "_active": bool(entry.get("active") or entry.get("isActive")),
+                "_direction": entry.get("direction") or entry.get("callDirection"),
             })
         return records
 

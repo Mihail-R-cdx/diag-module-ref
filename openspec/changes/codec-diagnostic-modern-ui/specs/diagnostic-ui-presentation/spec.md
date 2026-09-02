@@ -90,19 +90,9 @@ At baseline each row SHALL use the common `28-34 px` row height. Label and value
 
 For either card, absent, stale-unusable, failed, malformed or otherwise unavailable current evidence SHALL render `Нет данных` in the corresponding slot. The shared dashboard SHALL NOT hide a required row/card, invent `Unknown`, invent numeric zero, copy another model's value, or infer semantic values from model-name/localized-string substrings.
 
-The following five reference-status rows SHALL always render one leading/adjacent semantic status dot plus the textual state/value:
+The approved five-card visual layout uses no leading status dots in `Состояние` or `Вызов и презентация`; all values in their right column SHALL align to the right edge. `Микрофон` and `Камера` use their safe textual value. `Статус звонка` and `Презентация` render `Да` or `Нет` only from typed/structured or exact-adapter-normalized boolean evidence; unavailable evidence remains `Нет данных`.
 
-```text
-Состояние / Микрофон
-Состояние / Камера
-Вызов и презентация / Статус звонка
-Вызов и презентация / Презентация
-Вызов и презентация / Регистрация SIP/H.323
-```
-
-For current normalized evidence that has an approved semantic state, the indicator class SHALL be derived from that same typed/structured model-neutral or exact-model-normalized evidence used for the textual value. Shared presentation SHALL NOT determine indicator meaning by parsing localized display strings, model names or substrings. If the available evidence has a textual value but no approved semantic class, the presentation SHALL use a neutral informational indicator rather than guess positive/negative state. If evidence is unavailable, the row SHALL show a neutral unavailable indicator together with the text `Нет данных`.
-
-Known positive/active/healthy and known negative/inactive/error states MAY use distinct shared-theme colors/icons, but color SHALL NOT be the sole carrier of meaning and the indicator SHALL NOT replace the textual value. Legitimate current false/zero values SHALL remain distinguishable from missing evidence where the approved model normalization defines them.
+`Регистрация SIP/H.323` SHALL use a non-text icon in the right value column: `✓` for confirmed registration and `✕` for confirmed failure. The shared GUI SHALL receive this semantic state from the same typed/structured or exact-adapter-normalized evidence and SHALL NOT parse localized display strings, model names or substrings. If registration evidence is unavailable, it SHALL render a neutral `—` icon; icon color is supplementary and never the sole meaning.
 
 #### Scenario: Model lacks one field
 
@@ -112,13 +102,13 @@ Known positive/active/healthy and known negative/inactive/error states MAY use d
 - **AND** its value is `Нет данных`
 - **AND** neighboring rows are not shifted into a different model-specific layout
 
-#### Scenario: Required codec status row has no current evidence
+#### Scenario: Call-card status has no current evidence
 
-- **GIVEN** one of the five required status-indicator rows has no current usable normalized evidence
+- **GIVEN** current call, presentation or registration evidence has no usable normalized semantic state
 - **WHEN** the codec state/call cards are rendered
-- **THEN** that row remains in its fixed position
-- **AND** it renders the neutral unavailable status indicator plus `Нет данных`
-- **AND** the GUI does not omit the indicator or infer a colored state from a localized fallback string
+- **THEN** each row remains in its fixed position
+- **AND** call/presentation render `Нет данных` while registration renders a neutral `—` icon
+- **AND** the GUI does not infer a state from a localized fallback string
 
 ### Requirement: Codec audio card has fixed meter and control-row geometry without fabricated authority
 
@@ -244,7 +234,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use the following t
 6. `Аудио` uses horizontal meter then microphone row then speaker row with the required control placement/sizing and distinct numeric/mute semantics;
 7. `Журнал вызовов` reserves three-row density, uses direction + primary peer + secondary timestamp anatomy, and places `Развернуть` after the preview;
 8. `Действия` uses exactly two vertically stacked full-width actions in required order/sizing;
-9. all five required status rows (`Микрофон`, `Камера`, `Статус звонка`, `Презентация`, `Регистрация SIP/H.323`) show the required `8-10 px` semantic status indicator plus textual state; unavailable evidence uses the neutral unavailable indicator + `Нет данных`, and color is not the sole meaning;
+9. `Состояние` and `Вызов и презентация` use dot-free, right-aligned value columns; call/presentation use normalized `Да`/`Нет`, and registration uses the required non-text semantic icon with a neutral unavailable state;
 10. light theme preserves the same geometry/order and readable semantic states without device I/O.
 
 Checkpoints 1, 5, 6, 7, 8 and 9 are mandatory structural/semantic checkpoints and cannot be waived by approximate similarity. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints to meet the product target of approximately 90% visual correspondence. Font rasterization and one-pixel antialiasing differences are not acceptance failures when these repository-local ranges/checkpoints are satisfied.
