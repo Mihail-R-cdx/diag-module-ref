@@ -120,7 +120,7 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 - **THEN** the operation remains on its existing legacy compatibility/control path
 - **AND** modern read evidence does not authorize migration or blind replay
 
-#### Scenario: CloudLink microphone gain network capability remains disabled
+#### Scenario: CloudLink microphone gain is disabled
 - **GIVEN** exact model is `CloudLink Bar 310` or `CloudLink Box 310`
 - **WHEN** user/application requests microphone-gain mutation through any network-capable boundary
 - **THEN** the operation is unavailable/disabled before device network I/O
