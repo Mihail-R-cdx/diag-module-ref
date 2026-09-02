@@ -715,6 +715,9 @@ class VCSDiagnosticApp(QMainWindow):
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.bind_session(None)
+        # Restore targets are authoritative only for the current room context.
+        # A replacement session must never retain prior room-generation evidence.
+        self.__dict__.get("_room_codec_restore_volumes", {}).clear()
         self._close_room_child_presentations()
         controller = self.__dict__.get("room_diagnostic_controller")
         if controller is not None:

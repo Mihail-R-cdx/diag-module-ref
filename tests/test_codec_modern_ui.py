@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QLabel, QProgressBar, QPushButton, QWidget
@@ -213,6 +214,50 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         self.assertEqual({"operation": "microphone_mute", "target": False}, command)
 
+    def test_speaker_targets_use_current_accepted_authority_and_scoped_restore(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        session = SimpleNamespace(identity="generation-1")
+        controls = dispatch_entry_for_model("Huawei TE40").codec_controls
+        window = SimpleNamespace(_room_codec_restore_volumes={})
+        row = self._row(snapshot={"speaker_volume": 20})
+        self.assertEqual(
+            {"operation": "speaker_volume", "target": 21},
+            VCSDiagnosticApp._codec_command_from_current_evidence(
+                window, session, row, controls, "speaker_adjust", 1,
+            ),
+        )
+        self.assertEqual(
+            {"operation": "speaker_volume", "target": 0},
+            VCSDiagnosticApp._codec_command_from_current_evidence(
+                window, session, row, controls, "speaker_mute", "toggle",
+            ),
+        )
+        row.accepted_snapshot = {"speaker_volume": 0}
+        self.assertEqual(
+            {"operation": "speaker_volume", "target": 20},
+            VCSDiagnosticApp._codec_command_from_current_evidence(
+                window, session, row, controls, "speaker_mute", "toggle",
+            ),
+        )
+        fresh_window = SimpleNamespace(_room_codec_restore_volumes={})
+        self.assertIsNone(VCSDiagnosticApp._codec_command_from_current_evidence(
+            fresh_window, session, row, controls, "speaker_mute", "toggle",
+        ))
+        self.assertIsNone(VCSDiagnosticApp._codec_command_from_current_evidence(
+            fresh_window, session, self._row(snapshot={}), controls, "speaker_adjust", 1,
+        ))
+
+    def test_room_context_invalidation_clears_speaker_restore_authority(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = SimpleNamespace(
+            _room_codec_restore_volumes={("old-generation", "codec-1"): 20},
+            _close_room_child_presentations=lambda: None,
+        )
+        VCSDiagnosticApp._clear_room_diagnostic_session(window)
+        self.assertEqual({}, window._room_codec_restore_volumes)
+
     def test_microphone_meter_uses_only_finite_accepted_live_evidence(self):
         presentation = RoomReadOnlyPresentation(self._row(snapshot={
             "live_microphone": {"available": True, "normalized": 0.62},
@@ -223,7 +268,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertEqual(62, meter.value())
         self.assertEqual("available", meter.property("meterState"))
         self.assertEqual(
-            "62%",
+            "Нет данных",
             presentation.findChildren(QLabel, "roomCodecAudioValue")[0].text(),
         )
 
@@ -249,15 +294,21 @@ class ModernCodecDashboardTests(unittest.TestCase):
         firmware_row = presentation.findChild(QWidget, "roomCodecFirmwareRow")
         self.assertIsNotNone(firmware_row)
         self.assertGreaterEqual(firmware_row.minimumHeight(), 48)
+        self.assertLessEqual(firmware_row.maximumHeight(), 56)
         value = firmware_row.findChild(QLabel, "roomCodecFieldValue")
         self.assertEqual("V600R019C00SPC700\nBuild 2026.09.02", value.text())
+        self.assertEqual(Qt.PlainText, value.textFormat())
         self.assertTrue(value.wordWrap())
+        missing = RoomReadOnlyPresentation(self._row())
+        self.addCleanup(missing.deleteLater)
+        missing_row = missing.findChild(QWidget, "roomCodecFirmwareRow")
+        self.assertEqual("Нет данных", missing_row.findChild(QLabel, "roomCodecFieldValue").text())
 
     def test_audio_has_two_meters_and_volume_controls_show_percentages(self):
         presentation = RoomReadOnlyPresentation(self._row(snapshot={
             "live_microphone": {"available": True, "normalized": 0.62},
             "speaker_volume": 12,
-            "microphone_volume": 62,
+            "microphone_volume": 41,
         }))
         self.addCleanup(presentation.deleteLater)
         meters = presentation.findChildren(QProgressBar)
@@ -266,7 +317,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertIsNotNone(speaker)
         self.assertEqual(57, speaker.value())
         values = [label.text() for label in presentation.findChildren(QLabel, "roomCodecAudioValue")]
-        self.assertEqual(["62%", "57%"], values)
+        self.assertEqual(["41%", "57%"], values)
 
     def test_call_log_uses_direction_icons_from_typed_records(self):
         now = datetime(2026, 9, 2, 10, 0)
@@ -299,6 +350,32 @@ class ModernCodecDashboardTests(unittest.TestCase):
         buttons[0].click()
         self.assertEqual([("microphone_adjust", 1)], intents)
 
+    def test_unsupported_codec_affordances_stop_before_coordinator_admission(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        coordinator = Mock()
+        for model, operation in (
+            *((model, "reboot") for model in MODELS),
+            ("CloudLink Bar 310", "microphone_adjust"),
+            ("CloudLink Box 310", "microphone_adjust"),
+        ):
+            with self.subTest(model=model, operation=operation):
+                row = self._row(model)
+                session = SimpleNamespace(
+                    expanded_record_id=row.record_id,
+                    row_for=lambda _record_id, current=row: current,
+                )
+                window = SimpleNamespace(
+                    room_diagnostic_session=session,
+                    room_interaction_coordinator=coordinator,
+                )
+                with patch("gui.main_window.QMessageBox.information") as information:
+                    VCSDiagnosticApp._on_room_codec_control_requested(
+                        window, row.record_id, operation, 1,
+                    )
+                information.assert_called_once()
+        coordinator.confirm_mutation.assert_not_called()
+
     def test_preview_is_one_shot_per_real_expansion_epoch(self):
         row = self._row()
         session = RoomDiagnosticSession(
@@ -323,6 +400,27 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.expand(row.record_id)
         coordinator.request_codec_preview()
         self.assertEqual(["call_log_preview", "call_log_preview"], requests)
+
+    def test_preterminal_codec_expansion_defers_its_single_preview_attempt(self):
+        row = self._row()
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], status=RoomCycleStatus.ACTIVE,
+        )
+        requests = []
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda _model: RoomInteractionBindings(
+                auxiliary=lambda _context, action: requests.append(action),
+            ),
+        )
+        coordinator.bind_session(session)
+        coordinator.expand(row.record_id)
+        coordinator.request_codec_preview()
+        self.assertEqual([], requests)
+        session.status = RoomCycleStatus.COMPLETE
+        coordinator.cycle_finished(session)
+        coordinator.request_codec_preview()
+        self.assertEqual(["call_log_preview"], requests)
 
 
 if __name__ == "__main__":
