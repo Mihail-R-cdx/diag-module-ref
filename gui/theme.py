@@ -499,6 +499,12 @@ def build_stylesheet() -> str:
             font-size: 17pt;
             min-width: 22px;
         }}
+        QFrame#roomCodecCallCard QLabel#sectionCardIcon {{
+            font-size: 14pt;
+            min-width: 20px;
+            max-width: 20px;
+            min-height: 20px;
+        }}
         QFrame#roomCodecHistoryCard QLabel#sectionCardIcon {{
             color: {c["primary"]};
             border: 1px solid {c["primary"]};

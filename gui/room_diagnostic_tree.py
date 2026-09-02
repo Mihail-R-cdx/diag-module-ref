@@ -1160,10 +1160,17 @@ class RoomReadOnlyPresentation(QWidget):
             and (row.network_actions_enabled or live_here)
             and not row.interaction_blocked
         )
+        microphone_display = (
+            self._codec_volume_text(projection.microphone_volume)
+            if projection.microphone_volume is not None
+            else f"{level}%" if level is not None else missing
+        )
         self._codec_audio_row(audio, "Громкость микрофона", projection.microphone_volume,
             projection.microphone_mute_state, "microphone_adjust", "microphone_mute",
             request_codec_control, controls_enabled,
-            display_value=self._codec_volume_text(projection.microphone_volume))
+            # The live level is display-only; mutation authority remains the
+            # separate accepted numeric microphone setting.
+            display_value=microphone_display)
         self._codec_audio_row(audio, "Громкость динамиков", projection.speaker_volume,
             projection.speaker_mute_state, "speaker_adjust", "speaker_mute",
             request_codec_control, controls_enabled,

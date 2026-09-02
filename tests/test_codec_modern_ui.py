@@ -222,6 +222,24 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertIsNotNone(meter)
         self.assertEqual(62, meter.value())
         self.assertEqual("available", meter.property("meterState"))
+        self.assertEqual(
+            "62%",
+            presentation.findChildren(QLabel, "roomCodecAudioValue")[0].text(),
+        )
+
+    def test_call_card_icon_uses_compact_codec_specific_size(self):
+        from gui.theme import apply_theme
+
+        presentation = RoomReadOnlyPresentation(self._row())
+        self.addCleanup(presentation.deleteLater)
+        apply_theme(presentation, "dark")
+        self.app.processEvents()
+        call_card = presentation.findChild(QWidget, "roomCodecCallCard")
+        icon = call_card.findChild(QLabel, "sectionCardIcon")
+        self.assertEqual("☎", icon.text())
+        self.assertEqual(20, icon.minimumWidth())
+        self.assertEqual(20, icon.maximumWidth())
+        self.assertEqual(20, icon.minimumHeight())
 
     def test_audio_has_two_meters_and_volume_controls_show_percentages(self):
         presentation = RoomReadOnlyPresentation(self._row(snapshot={
