@@ -6,7 +6,8 @@
 - [ ] 1.2 Keep the current exact-row/application authority; do not embed or promote standalone PDU widget state into room capability ownership.
 - [ ] 1.3 Render `Основная информация` with exactly `Модель`, `Серийный номер`, `MAC-адрес` in that order. Use exact current room-record/application evidence and render missing serial/MAC as `—` without adding PDU device reads.
 - [ ] 1.4 Remove PDU expanded-card rows for IP, firmware, switch connection, device state, input power, temperature, humidity, overload or other screenshot-only fields.
-- [ ] 1.5 When a current PDU row is expanded, add exactly one far-right local-refresh icon to its header; do not add a kebab/overflow menu or a second right-side collapse action.
+- [ ] 1.5 Implement the narrow modified common-header contract: every non-PDU row and every collapsed PDU row keeps the common no-right-action header; only the current expanded PDU row appends exactly one far-right Local Refresh icon. Keep the left chevron as the sole expand/collapse control; do not add a kebab/overflow menu or a second right-side collapse action.
+- [ ] 1.6 Remove/suppress the previous generic expanded-content `Локальный опрос` (or equivalent legacy generic Local Refresh control) for the modern PDU presentation so that an expanded PDU exposes exactly two visible refresh entry points: header Refresh and `Обновить статус`.
 
 ## 2. Outlet table and fixed controls
 
@@ -21,14 +22,15 @@
 
 ## 3. Refresh and mutation wiring
 
-- [ ] 3.1 Wire the PDU header refresh icon and `Обновить статус` to the same existing exact-row `LOCAL_REFRESH` intent/lifecycle. They must share eligibility/locks and must not create parallel refresh lanes or generations.
-- [ ] 3.2 Keep supported per-outlet `Вкл` / `Выкл` / `Перезапуск` on the existing PDU controller/core operation path and existing confirmation plus `MUTATION -> RECONCILIATION` lifecycle.
-- [ ] 3.3 Keep `Включить всё` / `Выключить всё` on the existing application-owned bulk operation path; do not implement bulk by driving individual Qt buttons and do not add bulk reboot.
-- [ ] 3.4 For fixed controls unsupported by the exact PDU model, resolve support before room interaction admission and show a local informational popup equivalent to `Команда не поддерживается` with zero LIVE invalidation, credential selection, handler/session acquisition, mutation generation or device I/O.
-- [ ] 3.5 Preserve current Aten capability support: refresh, individual ON/OFF/REBOOT and bulk ON/OFF remain real existing operations.
-- [ ] 3.6 Preserve current PCS4i capability support: refresh, individual ON/OFF and bulk ON/OFF remain real existing operations; fixed `Перезапуск` remains visible but local-only unsupported with zero device I/O.
-- [ ] 3.7 Preserve existing stale/currentness, credential ownership, ambiguous-mutation blocking, mandatory reconciliation and GUI-thread isolation contracts.
-- [ ] 3.8 Preserve removal of PDU-hosted related-codec enrichment; no PDU refresh/mutation may start a related-codec lookup/session/status/meter lifecycle.
+- [ ] 3.1 Wire the PDU header Refresh icon and `Обновить статус` to the same existing exact-row `LOCAL_REFRESH` intent/lifecycle. They must share eligibility/locks/currentness/stale suppression and must not create parallel refresh lanes or generations. Header Refresh must not collapse/re-expand the row or change selected `record_id`.
+- [ ] 3.2 Ensure no third generic Local Refresh control is rendered or wired for the modern PDU surface; legacy `Локальный опрос` must not coexist with the two approved aliases.
+- [ ] 3.3 Keep supported per-outlet `Вкл` / `Выкл` / `Перезапуск` on the existing PDU controller/core operation path and existing confirmation plus `MUTATION -> RECONCILIATION` lifecycle.
+- [ ] 3.4 Keep `Включить всё` / `Выключить всё` on the existing application-owned bulk operation path; do not implement bulk by driving individual Qt buttons and do not add bulk reboot.
+- [ ] 3.5 For fixed controls unsupported by the exact PDU model, resolve support before room interaction admission and show a local informational popup equivalent to `Команда не поддерживается` with zero LIVE invalidation, credential selection, handler/session acquisition, mutation generation or device I/O.
+- [ ] 3.6 Preserve current Aten capability support: refresh, individual ON/OFF/REBOOT and bulk ON/OFF remain real existing operations.
+- [ ] 3.7 Preserve current PCS4i capability support: refresh, individual ON/OFF and bulk ON/OFF remain real existing operations; fixed `Перезапуск` remains visible but local-only unsupported with zero device I/O.
+- [ ] 3.8 Preserve existing stale/currentness, credential ownership, ambiguous-mutation blocking, mandatory reconciliation and GUI-thread isolation contracts.
+- [ ] 3.9 Preserve removal of PDU-hosted related-codec enrichment; no PDU refresh/mutation may start a related-codec lookup/session/status/meter lifecycle.
 
 ## 4. Regression coverage
 
@@ -38,13 +40,15 @@
 - [ ] 4.4 Assert eight-row baseline density, arbitrary-row scrolling behavior and deterministic numeric outlet ordering.
 - [ ] 4.5 Assert power cells remain `—` and dashboard construction/refresh introduces no new power-specific acquisition path.
 - [ ] 4.6 Assert ON/OFF explicit status text and semantic colors, plus `Вкл`/`Выкл`/`Перезапуск` action order and styling hooks.
-- [ ] 4.7 Assert both PDU refresh affordances submit the same Local Refresh intent and cannot create concurrent refresh ownership.
-- [ ] 4.8 Assert Aten individual ON/OFF/REBOOT and bulk ON/OFF continue through existing controller/application lifecycle and mandatory reconciliation.
-- [ ] 4.9 Assert PCS4i individual ON/OFF and bulk ON/OFF remain supported, while visible `Перезапуск` produces `Команда не поддерживается` locally and causes zero PDU network I/O; no bulk reboot exists.
-- [ ] 4.10 Assert programmatic unsupported operations still fail closed before handler acquisition.
-- [ ] 4.11 Assert mutation ACK/request state never directly becomes accepted outlet state; only successful current reconciliation replaces cache.
-- [ ] 4.12 Assert legacy PDU related-codec enrichment remains absent after redesign.
-- [ ] 4.13 Assert dark/light theme parity and header contains only the PDU refresh action on the right: no kebab/overflow and no extra right collapse action.
+- [ ] 4.7 Assert header Refresh and `Обновить статус` submit the same exact-row Local Refresh intent, share one lifecycle owner and cannot create concurrent refresh ownership or independent generations.
+- [ ] 4.8 Assert the modern expanded PDU presentation contains **exactly two** visible refresh entry points and does not render the old generic `Локальный опрос`/legacy Local Refresh control as a third entry point.
+- [ ] 4.9 Assert collapsed PDU rows and all non-PDU rows retain the common no-right-action accordion header; only the current expanded PDU row has the single far-right Refresh, which does not change expanded selection.
+- [ ] 4.10 Assert Aten individual ON/OFF/REBOOT and bulk ON/OFF continue through existing controller/application lifecycle and mandatory reconciliation.
+- [ ] 4.11 Assert PCS4i individual ON/OFF and bulk ON/OFF remain supported, while visible `Перезапуск` produces `Команда не поддерживается` locally and causes zero PDU network I/O; no bulk reboot exists.
+- [ ] 4.12 Assert programmatic unsupported operations still fail closed before handler acquisition.
+- [ ] 4.13 Assert mutation ACK/request state never directly becomes accepted outlet state; only successful current reconciliation replaces cache.
+- [ ] 4.14 Assert legacy PDU related-codec enrichment remains absent after redesign.
+- [ ] 4.15 Assert dark/light theme parity and header contains only the approved PDU Refresh action on the right when expanded: no kebab/overflow and no extra right collapse action.
 
 ## 5. Implementation validation and publication
 
@@ -58,6 +62,6 @@
 ## 6. Independent validation / archive gates
 
 - [ ] 6.1 Independent validator uses a separate clean detached worktree from current `origin/agent/pdu-diagnostic-modern-ui`, proves local/remote SHA equality and reruns fresh focused/full tests, strict validation and Git checks.
-- [ ] 6.2 Independent validator performs a disposable archive-applicability check because this change uses a `MODIFIED Requirement` and will replace an existing root requirement on archive.
+- [ ] 6.2 Independent validator performs a disposable archive-applicability check because this change uses `MODIFIED Requirements` and will replace existing root requirements on archive.
 - [ ] 6.3 Archive only after an independent permitting verdict; then run post-archive `validate --all --strict`, full offline tests, Git checks and review archive/root-spec diff before dedicated archive commit/push.
 - [ ] 6.4 Merge only with explicit user authorization after rechecking current remote archive HEAD and current `master`.

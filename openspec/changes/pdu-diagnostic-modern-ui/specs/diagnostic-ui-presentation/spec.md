@@ -1,5 +1,74 @@
 # diagnostic-ui-presentation Delta
 
+## MODIFIED Requirements
+
+### Requirement: Equipment rows share one non-color accordion header contract
+
+Every room equipment record SHALL use one compact top-level row layout equivalent to:
+
+```text
+expand chevron -> device-class icon -> model label -> status cue + status text -> IP
+```
+
+At baseline size a collapsed row SHALL remain within the `38-46 px` height range, targeting about `42 px`. The device-class icon SHALL be approximately `28 x 28 px` and the chevron/icon cluster SHALL remain compact. Model text SHALL receive the largest flexible width, and status and IP SHALL remain readable without forcing the row into multiple lines under ordinary baseline content. The tree header and trailing common overflow/action placeholder are intentionally not visible.
+
+Status SHALL remain understandable without color alone. The row SHALL retain explicit text/non-color meaning for connected, waiting, connecting, unsupported, missing-IP, ambiguous-IP, failed, connection-lost, and other approved states. Color MAY reinforce but SHALL NOT be the only meaning.
+
+Exactly one room equipment row MAY be expanded at a time. Expanding another expandable row SHALL collapse the previous row. Accordion changes SHALL remain presentation/current-selection behavior and SHALL NOT reorder the automatic room acquisition queue.
+
+By default, including every non-PDU equipment row and every collapsed PDU row, the top-level row SHALL contain no right-side device action. The absence of a common row action SHALL NOT create, imply, or require a hidden/disabled placeholder or an alternate direct network path.
+
+As one narrow family-specific exception, the **current expanded PDU row only** MAY append exactly one far-right Refresh affordance after the common identity/status/IP content. This exception SHALL NOT change the common left chevron, device-class icon, exact model, explicit status or IP anatomy; the left chevron remains the sole expand/collapse control. The PDU header Refresh SHALL NOT collapse/re-expand the row, change current expanded `record_id`, infer target from displayed text, call a handler directly, own credentials/sessions, or create an independent refresh lane/generation. It SHALL publish only the existing exact-row `LOCAL_REFRESH` intent defined by `room-device-interaction-lifecycle` and SHALL obey the same eligibility, locks, currentness and stale-result rules as every other Local Refresh entry point.
+
+All authorized device controls other than that single expanded-PDU header Refresh exception SHALL remain inside expanded content and through current application intent/controller boundaries. No non-PDU family receives a right-side row action from this exception, and a collapsed PDU row SHALL NOT retain the Refresh affordance.
+
+For the modern PDU expanded presentation, the pre-existing generic expanded-content refresh affordance labelled `Локальный опрос` (or an equivalent legacy generic Local Refresh control) SHALL NOT be rendered in addition to the new family dashboard. Exactly two visible PDU Local Refresh entry points SHALL exist while the PDU row is expanded:
+
+```text
+far-right PDU header Refresh
+`Обновить статус` inside `Управление розетками`
+```
+
+Both SHALL be aliases of the same exact-row `LOCAL_REFRESH` lifecycle. Rendering a third generic refresh entry point is prohibited.
+
+#### Scenario: Another device row is expanded
+
+- **GIVEN** one expandable equipment row is open
+- **WHEN** the operator expands a second row
+- **THEN** the first row collapses
+- **AND** only the second row owns current expanded presentation selection
+- **AND** automatic queue order is unchanged
+
+#### Scenario: Compact row remains understandable without color
+
+- **WHEN** a compact equipment row renders any approved connection state
+- **THEN** it displays explicit status text/non-color meaning in addition to optional color
+- **AND** no visible common overflow placeholder or alternate direct network path is required
+
+#### Scenario: Collapsed PDU row uses the common header without a family action
+
+- **GIVEN** a current supported PDU row is collapsed
+- **WHEN** its top-level row is rendered
+- **THEN** it uses the common chevron, icon, model, status and IP anatomy
+- **AND** no right-side PDU Refresh action is visible
+
+#### Scenario: Expanded PDU row uses the narrow header Refresh exception
+
+- **GIVEN** a current supported PDU row is the current expanded exact row
+- **WHEN** its top-level row is rendered
+- **THEN** the common identity/status/IP anatomy remains intact
+- **AND** exactly one far-right PDU Refresh affordance is visible
+- **AND** the common left chevron remains the only expand/collapse control
+- **AND** activating Refresh does not change expanded selection and can only request the existing exact-row `LOCAL_REFRESH`
+
+#### Scenario: Modern expanded PDU exposes exactly two Local Refresh entry points
+
+- **GIVEN** the modern PDU dashboard is visible
+- **WHEN** the operator inspects available refresh controls
+- **THEN** the visible refresh entry points are exactly the header Refresh and `Обновить статус`
+- **AND** no generic `Локальный опрос` or other third refresh affordance is rendered
+- **AND** both visible controls resolve to the same exact-row `LOCAL_REFRESH` lifecycle
+
 ## ADDED Requirements
 
 ### Requirement: Expanded room PDU presentation uses one self-contained two-card dashboard contract
@@ -39,20 +108,23 @@ The dashboard SHALL be presentation/application-intent only and SHALL NOT own ex
 
 ### Requirement: Expanded PDU header keeps only one family-specific refresh action
 
-The common room accordion chevron, device-class icon, exact model label, explicit status cue/text and IP presentation SHALL remain governed by the shared room foundation. For the current expanded PDU row only, the far-right family-specific header action surface SHALL contain exactly one local Refresh icon/control.
+The modified common accordion-header contract above governs the PDU row. The common room accordion chevron, device-class icon, exact model label, explicit status cue/text and IP presentation remain intact. For the current expanded PDU row only, the narrow exception permits exactly one far-right family-specific Refresh icon/control.
 
-The PDU expanded header SHALL NOT add a kebab/overflow menu and SHALL NOT add a second right-side collapse/expand affordance. The common left accordion chevron remains the sole expand/collapse control.
+The PDU expanded header SHALL NOT add a kebab/overflow menu and SHALL NOT add a second right-side collapse/expand affordance. The common left accordion chevron remains the sole expand/collapse control. A collapsed PDU row SHALL have no right-side family action.
 
-The family-specific refresh icon SHALL publish only the existing exact-row Local Refresh intent described by `room-device-interaction-lifecycle`; it SHALL NOT call a handler directly, own a second refresh generation or infer target from displayed text.
+The family-specific Refresh icon SHALL publish only the existing exact-row Local Refresh intent described by `room-device-interaction-lifecycle`; it SHALL NOT call a handler directly, own a second refresh generation, infer target from displayed text, collapse/re-expand the row or change the current exact-row selection.
+
+The modern PDU dashboard SHALL NOT retain the old generic expanded-content `Локальный опрос` control. Together with `Обновить статус` inside `Управление розетками`, the header Refresh forms the complete set of exactly two visible PDU Local Refresh entry points, and both are aliases of the same lifecycle.
 
 At baseline the refresh action target SHALL be approximately `32-40 px` square and visually subordinate to the model/status identity.
 
 #### Scenario: Expanded PDU header is rendered
 
 - **WHEN** a supported PDU row becomes the current expanded row
-- **THEN** exactly one far-right PDU refresh action is present
+- **THEN** exactly one far-right PDU Refresh action is present
 - **AND** no PDU kebab/overflow action or additional right-side collapse action is present
 - **AND** the common left chevron remains the expand/collapse affordance
+- **AND** no legacy generic `Локальный опрос` is rendered in the expanded body
 
 ### Requirement: PDU information card has exactly three fixed room-record-backed rows
 
@@ -177,7 +249,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 6. ON/OFF/unavailable states use the required explicit text plus green/red/neutral semantic cues and never rely on color alone;
 7. every current power cell renders `—` and the placeholder column remains visibly aligned;
 8. every action cell groups `Вкл`, `Выкл`, `Перезапуск` in order with green/red/neutral semantic treatment and no bulk reboot exists;
-9. the expanded PDU header has exactly one far-right PDU refresh action and no kebab/overflow or second right-side collapse action;
+9. the current expanded PDU header has exactly one far-right PDU Refresh action, no kebab/overflow or second right-side collapse action, and the expanded presentation contains no third legacy/generic `Локальный опрос` refresh affordance;
 10. light theme preserves the same card/table/control geometry, ordering and readable semantic states without device I/O.
 
 Checkpoints 1, 2, 3, 4, 6, 8 and 9 are mandatory structural/semantic checkpoints and cannot be waived by approximate similarity. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints to meet the product target of approximately 90% visual correspondence. Font rasterization, standard-icon glyph variation and one-pixel antialiasing differences are not acceptance failures when these repository-local ranges/checkpoints are satisfied.

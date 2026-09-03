@@ -28,6 +28,8 @@ This change therefore does not redesign PDU networking. It redesigns the room-mo
 
 The common room shell, room/network summary cards, target-search, non-PDU device families, protocol handlers, credential semantics and mutation policy are not redesigned here. The screenshot outside the expanded PDU region has no normative effect.
 
+The one intentional common-shell exception is narrowly limited to the **current expanded PDU row header**: the shared accordion-header requirement is explicitly modified so that this row alone may append one far-right Local Refresh affordance. Collapsed PDU rows and every non-PDU row retain the common no-right-action header contract.
+
 ## Decision 1: One common two-card PDU dashboard
 
 The current expanded PDU row uses one family template for every supported exact PDU registration. The baseline body is horizontally divided into:
@@ -143,21 +145,33 @@ This is particularly important for PCS4i: `Перезапуск` remains visible
 
 Programmatic unsupported operations remain fail-closed under the existing core capability checks even if no GUI affordance is involved.
 
-## Decision 7: Both refresh affordances are one Local Refresh
+## Decision 7: The common header gets one narrow PDU-only exception and exactly two refresh entry points remain
 
-When the PDU row is expanded, its common row/header may add one small refresh icon at the far right. There is no kebab menu and no additional right-side collapse button; the common left accordion chevron remains the only expand/collapse affordance.
-
-The outlet card also contains `Обновить статус`.
-
-These two controls are aliases only:
+The foundation accordion header remains the default authority for every row:
 
 ```text
-header refresh icon ----\
-                         -> exact-row LOCAL_REFRESH
-Обновить статус --------/
+chevron -> device icon -> model -> status -> IP
 ```
 
-They share eligibility, lock state, cancellation/currentness and result handling. They cannot create concurrent PDU refreshes or independent generations. Rendering/theme/hover does not start refresh.
+Every non-PDU row and every **collapsed** PDU row retains that common no-right-action contract.
+
+Only while a supported PDU row is the **current expanded exact row**, its header appends one small Refresh icon at the far right. This is an explicit modification of the common accordion-header requirement rather than an additional contradictory family rule. There is no kebab menu and no additional right-side collapse button; the common left accordion chevron remains the only expand/collapse affordance. The header Refresh does not collapse/re-expand the row, change current selection or derive a target from displayed text.
+
+The outlet card contains the second refresh entry point, `Обновить статус`.
+
+The modern PDU dashboard removes the previous generic expanded-content `Локальный опрос`/legacy Local Refresh affordance. It must not survive as a third refresh control.
+
+Therefore the complete visible refresh set for an expanded PDU is exactly:
+
+```text
+header Refresh icon -------\
+                            -> same exact-row LOCAL_REFRESH
+Обновить статус -----------/
+```
+
+Both controls share eligibility, lock state, cancellation/currentness, stale-result rejection and result handling. Neither creates a second PDU refresh lane or generation, and neither directly acquires a handler or performs I/O. Rendering/theme/hover does not start refresh.
+
+Collapsing the PDU row removes the family header Refresh and leaves the ordinary common collapsed header.
 
 ## Decision 8: Bulk actions reuse current sequential policy
 
@@ -179,9 +193,11 @@ Pixel-perfect font rasterization, one-pixel antialiasing differences and platfor
 
 ## Implementation boundaries
 
-Likely production touch points include the current room-mode PDU view/composition and shared theme styles. Existing `PDUController`, `core.pdu` operation policy and handler transports should be reused rather than copied into a new presentation-specific controller. Minimal refactoring is allowed only where needed to expose safe presentation data/intents without changing ownership.
+Likely production touch points include the current room-mode PDU view/composition and the common equipment-row header presentation needed for the single expanded-PDU Refresh exception, plus shared theme styles. Existing `PDUController`, `core.pdu` operation policy and handler transports should be reused rather than copied into a new presentation-specific controller. Minimal refactoring is allowed only where needed to expose safe presentation data/intents without changing ownership.
 
-Tests must prove that the redesigned dashboard does not accidentally restore legacy PDU-hosted codec enrichment, create a new network lane, add power reads, or promote PCS4i reboot support.
+Implementation must explicitly remove/suppress the old generic room expanded-content `Локальный опрос` for the modern PDU surface so that exactly two refresh entry points remain. It must not alter common header behavior for non-PDU rows or collapsed PDU rows.
+
+Tests must prove that the redesigned dashboard does not accidentally restore legacy PDU-hosted codec enrichment, create a new network lane, add power reads, retain a third generic refresh, or promote PCS4i reboot support.
 
 ## Validation strategy
 
