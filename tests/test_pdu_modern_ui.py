@@ -8,7 +8,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget, QToolButton
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget, QWidget
 except ImportError:
     QApplication = None
 
@@ -79,6 +80,15 @@ class ModernPDUDashboardTests(unittest.TestCase):
             ["Модель", "Серийный номер", "MAC-адрес"],
             [row.name_label.text() for row in presentation.findChildren(ParameterRow)],
         )
+        self.assertTrue(
+            all(
+                not row.value_display.hasFrame()
+                and row.value_display.alignment() == (Qt.AlignRight | Qt.AlignVCenter)
+                and row.value_display.minimumWidth() == 143
+                and row.value_display.maximumWidth() == 468
+                for row in presentation.findChildren(ParameterRow)
+            )
+        )
 
     def test_information_metadata_and_outlet_semantics_are_exact(self):
         presentation = self._presentation(self._row(serial=None, mac=""))
@@ -95,6 +105,13 @@ class ModernPDUDashboardTests(unittest.TestCase):
         actions = table.cellWidget(0, 4).findChildren(SemanticButton)
         self.assertEqual(["Вкл", "Выкл", "Перезапуск"], [button.text() for button in actions])
         self.assertEqual(["success", "danger", "secondary"], [button.role() for button in actions])
+        top_actions = presentation.findChild(QWidget, "roomPduTopActions")
+        self.assertEqual(26, top_actions.maximumHeight())
+        outlet_card = presentation.findChild(SectionCard, "roomPduOutletCard")
+        self.assertIs(top_actions.parentWidget(), outlet_card.header_widget)
+        self.assertFalse(presentation.findChild(QPushButton, "roomLocalDebugButton"))
+        self.assertEqual((9, 31, 12, 20, 28), table.column_ratios)
+        self.assertFalse(outlet_card.icon_label.pixmap().isNull())
 
     def test_arbitrary_outlets_scroll_without_power_acquisition(self):
         row = self._row()
@@ -110,7 +127,7 @@ class ModernPDUDashboardTests(unittest.TestCase):
         self.assertGreater(table.verticalScrollBar().maximum(), 0)
         self.assertTrue(all(table.item(index, 3).text() == "—" for index in range(table.rowCount())))
 
-    def test_expanded_pdu_has_exactly_two_refresh_controls_and_header_exception(self):
+    def test_expanded_pdu_has_only_card_refresh_and_no_header_action(self):
         row = self._row()
         session = RoomDiagnosticSession(
             RoomDiagnosticSessionIdentity("snapshot", 1, "192.0.2.44", "pdu-1", "room"),
@@ -124,15 +141,14 @@ class ModernPDUDashboardTests(unittest.TestCase):
         tree = RoomDiagnosticTreeWidget()
         tree.render(session)
         self.assertIsNotNone(tree.findChild(QTableWidget, "roomPduOutlets"))
-        self.assertIsNotNone(tree.findChild(QToolButton, "roomPduHeaderRefresh"))
         presentation = tree.findChild(RoomReadOnlyPresentation)
         self.assertIsNotNone(presentation.findChild(SemanticButton, "roomPduRefreshButton"))
         self.assertFalse(any(button.text() == "Локальный опрос" for button in presentation.findChildren(QPushButton)))
         session.expanded_record_id = None
         tree.render(session)
-        self.assertIsNone(tree.findChild(QToolButton, "roomPduHeaderRefresh"))
+        self.assertIsNone(tree.tree.itemWidget(tree.tree.topLevelItem(0), 4))
 
-    def test_header_and_card_refresh_publish_the_same_exact_row_intent(self):
+    def test_card_refresh_publishes_the_exact_row_intent(self):
         row = self._row()
         session = RoomDiagnosticSession(
             RoomDiagnosticSessionIdentity("snapshot", 1, "192.0.2.44", "pdu-1", "room"),
@@ -143,9 +159,8 @@ class ModernPDUDashboardTests(unittest.TestCase):
         received = []
         tree.localRefreshRequested.connect(received.append)
         tree.render(session)
-        tree.findChild(QToolButton, "roomPduHeaderRefresh").clicked.emit()
         tree.findChild(SemanticButton, "roomPduRefreshButton").clicked.emit()
-        self.assertEqual(["pdu-1", "pdu-1"], received)
+        self.assertEqual(["pdu-1"], received)
 
     def test_room_bulk_mutation_reuses_core_bulk_operation(self):
         controller = RoomDiagnosticController(

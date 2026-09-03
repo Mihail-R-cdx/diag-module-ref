@@ -6,8 +6,8 @@
 - [x] 1.2 Keep the current exact-row/application authority; do not embed or promote standalone PDU widget state into room capability ownership.
 - [x] 1.3 Render `Основная информация` with exactly `Модель`, `Серийный номер`, `MAC-адрес` in that order. Use exact current room-record/application evidence and render missing serial/MAC as `—` without adding PDU device reads.
 - [x] 1.4 Remove PDU expanded-card rows for IP, firmware, switch connection, device state, input power, temperature, humidity, overload or other screenshot-only fields.
-- [x] 1.5 Implement the narrow modified common-header contract: every non-PDU row and every collapsed PDU row keeps the common no-right-action header; only the current expanded PDU row appends exactly one far-right Local Refresh icon. Keep the left chevron as the sole expand/collapse control; do not add a kebab/overflow menu or a second right-side collapse action.
-- [x] 1.6 Remove/suppress the previous generic expanded-content `Локальный опрос` (or equivalent legacy generic Local Refresh control) for the modern PDU presentation so that an expanded PDU exposes exactly two visible refresh entry points: header Refresh and `Обновить статус`.
+- [x] 1.5 Keep every PDU row, including the expanded row, on the common no-right-action header after IP. Keep the left chevron as the sole expand/collapse control; do not add a Power, Refresh, kebab/overflow menu or a second right-side collapse action.
+- [x] 1.6 Remove/suppress the previous generic expanded-content `Локальный опрос` (or equivalent legacy generic Local Refresh control) and all PDU header refresh controls; `Обновить статус` is the sole visible PDU Local Refresh entry point.
 
 ## 2. Outlet table and fixed controls
 
@@ -22,7 +22,7 @@
 
 ## 3. Refresh and mutation wiring
 
-- [x] 3.1 Wire the PDU header Refresh icon and `Обновить статус` to the same existing exact-row `LOCAL_REFRESH` intent/lifecycle. They must share eligibility/locks/currentness/stale suppression and must not create parallel refresh lanes or generations. Header Refresh must not collapse/re-expand the row or change selected `record_id`.
+- [x] 3.1 Wire `Обновить статус` to the existing exact-row `LOCAL_REFRESH` intent/lifecycle. It must share existing eligibility/locks/currentness/stale suppression and must not create a parallel refresh lane or generation.
 - [x] 3.2 Ensure no third generic Local Refresh control is rendered or wired for the modern PDU surface; legacy `Локальный опрос` must not coexist with the two approved aliases.
 - [x] 3.3 Keep supported per-outlet `Вкл` / `Выкл` / `Перезапуск` on the existing PDU controller/core operation path and existing confirmation plus `MUTATION -> RECONCILIATION` lifecycle.
 - [x] 3.4 Keep `Включить всё` / `Выключить всё` on the existing application-owned bulk operation path; do not implement bulk by driving individual Qt buttons and do not add bulk reboot.
@@ -40,9 +40,9 @@
 - [x] 4.4 Assert eight-row baseline density, arbitrary-row scrolling behavior and deterministic numeric outlet ordering.
 - [x] 4.5 Assert power cells remain `—` and dashboard construction/refresh introduces no new power-specific acquisition path.
 - [x] 4.6 Assert ON/OFF explicit status text and semantic colors, plus `Вкл`/`Выкл`/`Перезапуск` action order and styling hooks.
-- [x] 4.7 Assert header Refresh and `Обновить статус` submit the same exact-row Local Refresh intent, share one lifecycle owner and cannot create concurrent refresh ownership or independent generations.
-- [x] 4.8 Assert the modern expanded PDU presentation contains **exactly two** visible refresh entry points and does not render the old generic `Локальный опрос`/legacy Local Refresh control as a third entry point.
-- [x] 4.9 Assert collapsed PDU rows and all non-PDU rows retain the common no-right-action accordion header; only the current expanded PDU row has the single far-right Refresh, which does not change expanded selection.
+- [x] 4.7 Assert `Обновить статус` submits the exact-row Local Refresh intent and cannot create concurrent refresh ownership or an independent generation.
+- [x] 4.8 Assert the modern expanded PDU presentation contains **exactly one** visible refresh entry point and does not render the old generic `Локальный опрос`/legacy Local Refresh control.
+- [x] 4.9 Assert all PDU rows and non-PDU rows retain the common no-right-action accordion header after IP; no expanded PDU header action is rendered.
 - [x] 4.10 Assert Aten individual ON/OFF/REBOOT and bulk ON/OFF continue through existing controller/application lifecycle and mandatory reconciliation.
 - [x] 4.11 Assert PCS4i individual ON/OFF and bulk ON/OFF remain supported, while visible `Перезапуск` produces `Команда не поддерживается` locally and causes zero PDU network I/O; no bulk reboot exists.
 - [x] 4.12 Assert programmatic unsupported operations still fail closed before handler acquisition.
@@ -57,7 +57,7 @@
 - [x] 5.3 Run the full offline test suite and report fresh counts; do not reuse historical counts.
 - [x] 5.4 Run repository-supported Node/npm checks and use only repository-local `./openspec.cmd validate pdu-diagnostic-modern-ui --strict` and `./openspec.cmd validate --all --strict`.
 - [x] 5.5 Run `git diff --check`, `git diff --cached --check`, review the complete feature diff for scope/secrets/Graphify exclusions, then create one focused implementation commit and push. Implementation session must not self-issue independent `APPROVE`.
-- [ ] 5.6 Launch the GUI detached per `RULES.md`. At `1440 x 900` with an eight-outlet Aten fixture evaluate all ten repository-local PDU visual checkpoints in dark theme and confirm the same geometry/readability in light theme. All mandatory checkpoints and at least `9/10` total must pass. Screenshots remain local by default.
+- [x] 5.6 Launch the GUI detached per `RULES.md`. At `1440 x 900` with an eight-outlet Aten fixture evaluate all ten repository-local PDU visual checkpoints in dark theme and confirm the same geometry/readability in light theme. All mandatory checkpoints and at least `9/10` total must pass. Screenshots remain local by default.
 
 ## 6. Independent validation / archive gates
 

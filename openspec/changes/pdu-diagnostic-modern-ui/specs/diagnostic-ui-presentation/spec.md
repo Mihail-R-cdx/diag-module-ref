@@ -16,20 +16,9 @@ Status SHALL remain understandable without color alone. The row SHALL retain exp
 
 Exactly one room equipment row MAY be expanded at a time. Expanding another expandable row SHALL collapse the previous row. Accordion changes SHALL remain presentation/current-selection behavior and SHALL NOT reorder the automatic room acquisition queue.
 
-By default, including every non-PDU equipment row and every collapsed PDU row, the top-level row SHALL contain no right-side device action. The absence of a common row action SHALL NOT create, imply, or require a hidden/disabled placeholder or an alternate direct network path.
+Every room equipment row, including an expanded PDU row, SHALL contain no right-side device action after the common identity/status/IP content. The absence of a row action SHALL NOT create, imply, or require a hidden/disabled placeholder or an alternate direct network path.
 
-As one narrow family-specific exception, the **current expanded PDU row only** MAY append exactly one far-right Refresh affordance after the common identity/status/IP content. This exception SHALL NOT change the common left chevron, device-class icon, exact model, explicit status or IP anatomy; the left chevron remains the sole expand/collapse control. The PDU header Refresh SHALL NOT collapse/re-expand the row, change current expanded `record_id`, infer target from displayed text, call a handler directly, own credentials/sessions, or create an independent refresh lane/generation. It SHALL publish only the existing exact-row `LOCAL_REFRESH` intent defined by `room-device-interaction-lifecycle` and SHALL obey the same eligibility, locks, currentness and stale-result rules as every other Local Refresh entry point.
-
-All authorized device controls other than that single expanded-PDU header Refresh exception SHALL remain inside expanded content and through current application intent/controller boundaries. No non-PDU family receives a right-side row action from this exception, and a collapsed PDU row SHALL NOT retain the Refresh affordance.
-
-For the modern PDU expanded presentation, the pre-existing generic expanded-content refresh affordance labelled `Локальный опрос` (or an equivalent legacy generic Local Refresh control) SHALL NOT be rendered in addition to the new family dashboard. Exactly two visible PDU Local Refresh entry points SHALL exist while the PDU row is expanded:
-
-```text
-far-right PDU header Refresh
-`Обновить статус` inside `Управление розетками`
-```
-
-Both SHALL be aliases of the same exact-row `LOCAL_REFRESH` lifecycle. Rendering a third generic refresh entry point is prohibited.
+All authorized PDU controls SHALL remain inside expanded content and through current application intent/controller boundaries. For the modern PDU dashboard, the pre-existing generic expanded-content refresh affordance labelled `Локальный опрос` (or an equivalent legacy generic Local Refresh control) SHALL NOT be rendered. `Обновить статус` inside `Управление розетками` is the sole visible PDU Local Refresh entry point and SHALL publish only the existing exact-row `LOCAL_REFRESH` lifecycle.
 
 #### Scenario: Another device row is expanded
 
@@ -45,29 +34,20 @@ Both SHALL be aliases of the same exact-row `LOCAL_REFRESH` lifecycle. Rendering
 - **THEN** it displays explicit status text/non-color meaning in addition to optional color
 - **AND** no visible common overflow placeholder or alternate direct network path is required
 
-#### Scenario: Collapsed PDU row uses the common header without a family action
+#### Scenario: PDU row uses the common header without a family action
 
-- **GIVEN** a current supported PDU row is collapsed
+- **GIVEN** a current supported PDU row is collapsed or expanded
 - **WHEN** its top-level row is rendered
 - **THEN** it uses the common chevron, icon, model, status and IP anatomy
-- **AND** no right-side PDU Refresh action is visible
+- **AND** no right-side PDU action is visible
 
-#### Scenario: Expanded PDU row uses the narrow header Refresh exception
-
-- **GIVEN** a current supported PDU row is the current expanded exact row
-- **WHEN** its top-level row is rendered
-- **THEN** the common identity/status/IP anatomy remains intact
-- **AND** exactly one far-right PDU Refresh affordance is visible
-- **AND** the common left chevron remains the only expand/collapse control
-- **AND** activating Refresh does not change expanded selection and can only request the existing exact-row `LOCAL_REFRESH`
-
-#### Scenario: Modern expanded PDU exposes exactly two Local Refresh entry points
+#### Scenario: Modern expanded PDU exposes one Local Refresh entry point
 
 - **GIVEN** the modern PDU dashboard is visible
 - **WHEN** the operator inspects available refresh controls
-- **THEN** the visible refresh entry points are exactly the header Refresh and `Обновить статус`
-- **AND** no generic `Локальный опрос` or other third refresh affordance is rendered
-- **AND** both visible controls resolve to the same exact-row `LOCAL_REFRESH` lifecycle
+- **THEN** the visible refresh entry point is exactly `Обновить статус`
+- **AND** no generic `Локальный опрос` or header refresh affordance is rendered
+- **AND** the control resolves to the existing exact-row `LOCAL_REFRESH` lifecycle
 
 ## ADDED Requirements
 
@@ -83,7 +63,7 @@ At the common `1440 x 900` logical-pixel baseline viewport, the expanded PDU bod
 Основная информация | Управление розетками
 ```
 
-Their target relative width weights SHALL be `22:78`. Per-card tuning of approximately `±4` percentage points MAY accommodate Qt metrics, but the outlet-management card SHALL remain visually dominant and the information card SHALL remain a narrow supporting card. Horizontal gap SHALL be `10-14 px`, card internal padding `14-18 px`, and target expanded body height approximately `350-410 px`. The two cards SHALL have aligned tops and approximately aligned bottoms at baseline.
+Their target relative width weights SHALL be `30:70`. Per-card tuning of approximately `±4` percentage points MAY accommodate Qt metrics, but the outlet-management card SHALL remain visually dominant and the information card SHALL remain a supporting card wide enough for a right-aligned value column. Horizontal gap SHALL be `10-14 px`, card internal padding `14-18 px`, and target expanded body height approximately `350-410 px`. The two cards SHALL have aligned tops and approximately aligned bottoms at baseline.
 
 At the common minimum supported room window, deterministic reflow or controlled scrolling MAY occur, but both cards, all fixed controls and current outlet rows SHALL remain reachable. Reflow SHALL preserve the information-before-outlets logical order.
 
@@ -106,23 +86,14 @@ The dashboard SHALL be presentation/application-intent only and SHALL NOT own ex
 - **THEN** two-card geometry, field/table/control order and state meaning remain unchanged
 - **AND** theme switching starts no PDU device I/O
 
-### Requirement: Expanded PDU header keeps only one family-specific refresh action
+### Requirement: PDU header preserves the common no-right-action anatomy
 
-The modified common accordion-header contract above governs the PDU row. The common room accordion chevron, device-class icon, exact model label, explicit status cue/text and IP presentation remain intact. For the current expanded PDU row only, the narrow exception permits exactly one far-right family-specific Refresh icon/control.
-
-The PDU expanded header SHALL NOT add a kebab/overflow menu and SHALL NOT add a second right-side collapse/expand affordance. The common left accordion chevron remains the sole expand/collapse control. A collapsed PDU row SHALL have no right-side family action.
-
-The family-specific Refresh icon SHALL publish only the existing exact-row Local Refresh intent described by `room-device-interaction-lifecycle`; it SHALL NOT call a handler directly, own a second refresh generation, infer target from displayed text, collapse/re-expand the row or change the current exact-row selection.
-
-The modern PDU dashboard SHALL NOT retain the old generic expanded-content `Локальный опрос` control. Together with `Обновить статус` inside `Управление розетками`, the header Refresh forms the complete set of exactly two visible PDU Local Refresh entry points, and both are aliases of the same lifecycle.
-
-At baseline the refresh action target SHALL be approximately `32-40 px` square and visually subordinate to the model/status identity.
+The common room accordion chevron, device-class icon, exact model label, explicit status cue/text and IP presentation remain intact for every PDU state. The expanded PDU header SHALL NOT add Refresh, Power, kebab/overflow, or a second right-side collapse/expand affordance. The common left chevron remains the sole expand/collapse control.
 
 #### Scenario: Expanded PDU header is rendered
 
 - **WHEN** a supported PDU row becomes the current expanded row
-- **THEN** exactly one far-right PDU Refresh action is present
-- **AND** no PDU kebab/overflow action or additional right-side collapse action is present
+- **THEN** it contains no right-side PDU action after IP
 - **AND** the common left chevron remains the expand/collapse affordance
 - **AND** no legacy generic `Локальный опрос` is rendered in the expanded body
 
@@ -157,7 +128,7 @@ This dedicated PDU information card SHALL NOT add rows for IP address, firmware,
 
 ### Requirement: PDU outlet-management card uses one fixed five-column table and fixed action anatomy
 
-`Управление розетками` SHALL place this top action strip above the outlet table in exact left-to-right order:
+`Управление розетками` SHALL place this compact action strip in the same header row as the card title, before the outlet table, in exact left-to-right order:
 
 ```text
 Обновить статус | Включить всё | Выключить всё
@@ -169,7 +140,7 @@ The table SHALL have exactly these visible columns in this order:
 Розетка | Имя розетки | Состояние | Текущая мощность | Действия
 ```
 
-At baseline, target relative column weights SHALL be approximately `9:24:16:18:33`, with approximately `±3` percentage points of tuning per column where needed for platform Qt metrics. Table header target height SHALL be `32-40 px`, ordinary outlet row height `36-44 px`, and inter-control spacing in the action cell `6-10 px`.
+At baseline, target relative column weights SHALL be approximately `9:31:12:20:28`, with approximately `±3` percentage points of tuning per column where needed for platform Qt metrics. Table header target height SHALL be `32-40 px`, ordinary outlet row height `28-32 px`, and inter-control spacing in the action cell `4-6 px`.
 
 Current outlet records SHALL be rendered in deterministic ascending numeric outlet-number order. The baseline visual acceptance fixture SHALL contain eight outlet rows. If the current exact PDU exposes more rows than fit within the approved body height, a controlled vertical scrolling region SHALL keep all rows reachable without changing their authoritative order or shrinking them below the approved density.
 
@@ -191,7 +162,7 @@ Every outlet `Действия` cell SHALL preserve the fixed visible control or
 Вкл | Выкл | Перезапуск
 ```
 
-`Вкл` SHALL use green semantic styling, `Выкл` red/destructive semantic styling, and `Перезапуск` neutral/secondary styling. Target control height SHALL be `28-34 px`; the two shorter power buttons SHOULD occupy approximately `54-76 px` each and `Перезапуск` approximately `92-124 px` where baseline width permits. Fixed visibility does not imply network support; support behavior is defined by `device-diagnostics-and-control` and `room-device-interaction-lifecycle`.
+`Вкл` SHALL use green semantic styling, `Выкл` red/destructive semantic styling, and `Перезапуск` neutral/secondary styling. Target control height SHALL be `24 px`; the two shorter power buttons SHOULD occupy approximately `54-76 px` each and `Перезапуск` approximately `92-124 px` where baseline width permits. Fixed visibility does not imply network support; support behavior is defined by `device-diagnostics-and-control` and `room-device-interaction-lifecycle`.
 
 No bulk reboot control SHALL be rendered.
 
@@ -241,7 +212,7 @@ Temporary enabled/disabled state during active/retiring room lifecycles SHALL ob
 
 Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repository-local checkpoints; access to the external screenshot is unnecessary:
 
-1. the expanded PDU body contains exactly two cards in `Основная информация | Управление розетками` order and approximately the approved `22:78` weight hierarchy;
+1. the expanded PDU body contains exactly two cards in `Основная информация | Управление розетками` order and approximately the approved `30:70` weight hierarchy;
 2. `Основная информация` contains exactly `Модель`, `Серийный номер`, `MAC-адрес` in order with no extra PDU information rows;
 3. the outlet card action strip contains exactly `Обновить статус`, `Включить всё`, `Выключить всё` in order;
 4. the outlet table exposes exactly `Розетка`, `Имя розетки`, `Состояние`, `Текущая мощность`, `Действия` in order and within the approved column hierarchy;
@@ -249,7 +220,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 6. ON/OFF/unavailable states use the required explicit text plus green/red/neutral semantic cues and never rely on color alone;
 7. every current power cell renders `—` and the placeholder column remains visibly aligned;
 8. every action cell groups `Вкл`, `Выкл`, `Перезапуск` in order with green/red/neutral semantic treatment and no bulk reboot exists;
-9. the current expanded PDU header has exactly one far-right PDU Refresh action, no kebab/overflow or second right-side collapse action, and the expanded presentation contains no third legacy/generic `Локальный опрос` refresh affordance;
+9. the current expanded PDU header has no right-side action after IP, no kebab/overflow or second right-side collapse action, and the expanded presentation contains no legacy/generic `Локальный опрос` refresh affordance;
 10. light theme preserves the same card/table/control geometry, ordering and readable semantic states without device I/O.
 
 Checkpoints 1, 2, 3, 4, 6, 8 and 9 are mandatory structural/semantic checkpoints and cannot be waived by approximate similarity. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints to meet the product target of approximately 90% visual correspondence. Font rasterization, standard-icon glyph variation and one-pixel antialiasing differences are not acceptance failures when these repository-local ranges/checkpoints are satisfied.

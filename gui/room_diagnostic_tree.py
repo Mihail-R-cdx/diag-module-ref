@@ -9,8 +9,8 @@ from math import floor, isfinite
 from numbers import Real
 
 from PyQt5.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QSize, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QBrush
-from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QFrame, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtGui import QColor, QBrush, QIcon, QPainter, QPixmap, QPolygon
+from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QFrame, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard, SemanticButton, StatusIndicator
 
@@ -18,6 +18,22 @@ from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiag
 from core.room_interaction import RoomInteractionKind
 from core.call_activity import CallActivity
 from .diagnostic_dispatch import CodecMuteState, dispatch_entry_for_model, normalize_codec_audio_projection, normalize_codec_call_projection
+
+
+def _room_pdu_lightning_icon() -> QIcon:
+    """Return a font-independent lightning glyph for the outlet-control card."""
+    pixmap = QPixmap(20, 20)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#58a6ff"))
+    painter.drawPolygon(QPolygon((
+        QPoint(11, 1), QPoint(3, 11), QPoint(9, 11),
+        QPoint(7, 19), QPoint(17, 7), QPoint(11, 7),
+    )))
+    painter.end()
+    return QIcon(pixmap)
 
 
 class SmoothRoomTreeWidget(QTreeWidget):
@@ -165,16 +181,7 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._audio_selection = None
         self._prune_audio_selection(session)
         expanded_record_id = session.expanded_record_id
-        expanded_pdu = next(
-            (
-                row for row in session.rows
-                if row.record_id == expanded_record_id
-                and row.capability is not None
-                and row.capability.screen_key == "pdu"
-            ),
-            None,
-        )
-        self.tree.header().resizeSection(4, 42 if expanded_pdu is not None else 0)
+        self.tree.header().resizeSection(4, 0)
         self._changing = True
         try:
             self.room_name_label.setText(f"Название комнаты:  {session.room_name or '—'}")
@@ -187,12 +194,6 @@ class RoomDiagnosticTreeWidget(QWidget):
             occupied = any(row.call_activity is CallActivity.ACTIVE and not row.stale for row in session.rows)
             self.occupancy_label.setText(f"Занятость:  {'Занято' if occupied else 'Нет данных'}")
             self._render_network(session)
-            # ``QTreeWidget.clear`` can defer destruction of item widgets.
-            # Detach the narrow PDU-only header action first so a collapsed
-            # row has no residual right-side affordance between repaints.
-            for header_refresh in self.tree.findChildren(QToolButton, "roomPduHeaderRefresh"):
-                header_refresh.setParent(None)
-                header_refresh.deleteLater()
             self.tree.clear()
             self._by_record.clear()
             for row in session.rows:
@@ -288,18 +289,6 @@ class RoomDiagnosticTreeWidget(QWidget):
                         0,
                         presentation,
                     )
-                if row is expanded_pdu:
-                    refresh = QToolButton(self.tree)
-                    refresh.setObjectName("roomPduHeaderRefresh")
-                    refresh.setText("↻")
-                    refresh.setToolTip("Обновить статус")
-                    refresh.setAccessibleName("Обновить статус PDU")
-                    refresh.setFixedSize(32, 32)
-                    refresh.setEnabled(actions_allowed and row.status is DeviceRowStatus.CONNECTED and (row.network_actions_enabled or live_here) and not row.interaction_blocked)
-                    refresh.clicked.connect(
-                        lambda _checked=False, record_id=row.record_id: self.localRefreshRequested.emit(record_id)
-                    )
-                    self.tree.setItemWidget(item, 4, refresh)
                 self._by_record[row.record_id] = item
             self.tree.doItemsLayout()
             if expanded_record_id and expanded_record_id in self._by_record:
@@ -547,7 +536,7 @@ class MatrixRoutingTable(QTableWidget):
 class RoomPduOutletTable(QTableWidget):
     """Five-column PDU table with fixed presentation proportions."""
 
-    column_ratios = (9, 24, 16, 18, 33)
+    column_ratios = (9, 31, 12, 20, 28)
 
     def __init__(self, parent=None):
         super().__init__(0, len(self.column_ratios), parent)
@@ -1105,17 +1094,18 @@ class RoomReadOnlyPresentation(QWidget):
             audio_actions.append(refresh_button)
         elif refresh_button is not None and not use_matrix_dashboard and not is_codec_dashboard:
             layout.addWidget(refresh_button)
-        debug_button = QPushButton("Отладка", self)
-        debug_button.setObjectName("roomLocalDebugButton")
-        debug_button.setEnabled(
-            bool(request_debug) and debug_allowed and row.accepted_snapshot is not None
-        )
-        if request_debug is not None:
-            debug_button.clicked.connect(request_debug)
-        if use_audio_dashboard:
-            audio_actions.append(debug_button)
-        elif not use_matrix_dashboard:
-            layout.addWidget(debug_button)
+        if screen_key != "pdu":
+            debug_button = QPushButton("Отладка", self)
+            debug_button.setObjectName("roomLocalDebugButton")
+            debug_button.setEnabled(
+                bool(request_debug) and debug_allowed and row.accepted_snapshot is not None
+            )
+            if request_debug is not None:
+                debug_button.clicked.connect(request_debug)
+            if use_audio_dashboard:
+                audio_actions.append(debug_button)
+            elif not use_matrix_dashboard:
+                layout.addWidget(debug_button)
         if row.warnings:
             warnings = QLabel("Предупреждения: " + "; ".join(row.warnings), self)
             warnings.setObjectName("roomPresentationWarnings")
@@ -1534,10 +1524,11 @@ class RoomReadOnlyPresentation(QWidget):
         info.setObjectName("roomPduInfoCard")
         controls = SectionCard("Управление розетками", "⏻", dashboard)
         controls.setObjectName("roomPduOutletCard")
+        controls.set_icon(_room_pdu_lightning_icon())
         for card in (info, controls):
             card.body_layout.setAlignment(Qt.AlignTop)
-        cards.addWidget(info, 22)
-        cards.addWidget(controls, 78)
+        cards.addWidget(info, 30)
+        cards.addWidget(controls, 70)
 
         for label, value in (
             ("Модель", row.diagnostic_model),
@@ -1546,6 +1537,14 @@ class RoomReadOnlyPresentation(QWidget):
         ):
             parameter = ParameterRow(label, _room_pdu_display_value(value), info, compact=True)
             parameter.setObjectName("roomPduInfoRow")
+            # The PDU information card is a compact label/value summary, not a
+            # form: values should read as a right-aligned text column without
+            # individual input-field chrome.
+            parameter.value_display.setFrame(False)
+            parameter.value_display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            parameter.value_display.setProperty("pduInfoValue", True)
+            parameter.value_display.setMinimumWidth(143)
+            parameter.value_display.setMaximumWidth(468)
             info.add_widget(parameter)
         info.body_layout.addStretch(1)
 
@@ -1569,6 +1568,7 @@ class RoomReadOnlyPresentation(QWidget):
         )
         actions = QWidget(controls)
         actions.setObjectName("roomPduTopActions")
+        actions.setFixedHeight(26)
         actions_layout = QHBoxLayout(actions)
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(8)
@@ -1591,7 +1591,7 @@ class RoomReadOnlyPresentation(QWidget):
         if request_bulk_mutation is not None:
             bulk_off.clicked.connect(lambda _checked=False: request_bulk_mutation("off"))
         actions_layout.addWidget(bulk_off)
-        controls.add_widget(actions)
+        controls.header_widget.layout().addWidget(actions)
 
         table = RoomPduOutletTable(controls)
         table.setObjectName("roomPduOutlets")
@@ -1620,8 +1620,8 @@ class RoomReadOnlyPresentation(QWidget):
             action_cell = QWidget(table)
             action_cell.setObjectName("roomPduOutletActions")
             action_layout = QHBoxLayout(action_cell)
-            action_layout.setContentsMargins(4, 2, 4, 2)
-            action_layout.setSpacing(6)
+            action_layout.setContentsMargins(3, 1, 3, 1)
+            action_layout.setSpacing(4)
             for command, label, role in (
                 ("on", "Вкл", "success"),
                 ("off", "Выкл", "danger"),
@@ -1630,6 +1630,7 @@ class RoomReadOnlyPresentation(QWidget):
                 button = SemanticButton(label, role, action_cell)
                 button.setObjectName(f"roomPdu{command.title()}Button")
                 button.setMinimumWidth(52 if command != "reboot" else 96)
+                button.setFixedHeight(24)
                 button.setEnabled(bool(request_mutation) and controls_enabled and isinstance(outlet_number, int))
                 if request_mutation is not None and isinstance(outlet_number, int):
                     button.clicked.connect(

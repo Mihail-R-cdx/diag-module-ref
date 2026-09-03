@@ -497,8 +497,7 @@ class VCSDiagnosticApp(QMainWindow):
         main_layout.addWidget(top_panel)
         self.setTabOrder(self.ip_entry, self.password_btn)
         self.setTabOrder(self.password_btn, self.refresh_btn)
-        self.setTabOrder(self.refresh_btn, self.debug_btn)
-        self.setTabOrder(self.debug_btn, self.theme_btn)
+        self.setTabOrder(self.refresh_btn, self.theme_btn)
         
         # 2. Создаем контейнер для экранов
         self.screen_container = QStackedWidget()
@@ -629,6 +628,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.debug_btn.setObjectName("debugButton")
         self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
+        # Legacy global debug remains available to its existing internal owner,
+        # but is not a room/operator control beside a codec address.
+        self.debug_btn.hide()
         self.theme_btn = QPushButton("☀")
         self.theme_btn.setObjectName("themeToggleButton")
         self.theme_btn.setProperty("uiRole", "secondary")
