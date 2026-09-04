@@ -2,7 +2,7 @@
 
 ## Context
 
-The modern room codec dashboard is a presentation over the existing room diagnostic/application authority. The five baseline codec models are:
+The modern room codec dashboard is a presentation over existing application-owned room diagnostic authority. The baseline codec models are:
 
 ```text
 Huawei TE20
@@ -12,46 +12,47 @@ CloudLink Box 310
 Polycom RPG 310
 ```
 
-The approved architecture already establishes the important ownership boundaries:
+Existing approved boundaries remain authoritative:
 
-- exact row authority is immutable room generation + canonical `record_id` + exact `diagnostic_model` + exact IP + operation/currentness token;
+- exact row authority is room generation + canonical `record_id` + exact `diagnostic_model` + exact IP + current operation token;
 - one application-owned serialized room interaction lane owns `LIVE`, `LOCAL_REFRESH`, `AUXILIARY_READ`, `MUTATION`, and `RECONCILIATION`;
-- unified exact-model registration is capability authority;
-- presentation does not own credentials, handler/session objects, retries, timers, request generations, or blocking I/O;
-- call-log reads are read-only auxiliary work and existing Huawei/Polycom retrieval/lifecycle ownership remains authoritative;
-- state-changing commands are not complete at send/ACK and require accepted readback/reconciliation;
+- unified exact-model registration is the capability authority;
+- presentation owns no credentials, handler/session objects, retries, timers, request generations, or blocking I/O;
+- call-log reads are read-only auxiliary work and existing Huawei/Polycom retrieval ownership remains authoritative;
+- state-changing commands are incomplete until accepted readback/reconciliation;
 - stale work is rejected before handler acquisition/I/O where separable and again before publication;
-- typed failures take precedence over text heuristics;
-- CloudLink live microphone metering is currently approved only for exact `CloudLink Bar 310` and `CloudLink Box 310`.
+- typed failures take precedence over public strings;
+- CloudLink live microphone metering is approved only for exact `CloudLink Bar 310` and `CloudLink Box 310`.
 
-The implementation must correct stability/presentation gaps inside those boundaries rather than introduce widget-owned fixes.
+This change corrects presentation/stability defects inside those boundaries. It does not create widget-owned fixes or new protocol capability.
 
 ## Goals
 
-1. Make call-history preview, direction, duration, and usage-statistics behavior semantically consistent across the five baseline codecs.
-2. Make `CloudLink Box 310` a mandatory end-to-end regression oracle for call history/statistics.
-3. Simplify the modern codec dashboard by removing `Платформа`, codec-local `Отладка`, and any speaker-volume scale/bar.
-4. Show accepted current speaker volume as a true percentage without making GUI percentage state mutation authority.
-5. Make microphone meter capability and data availability unambiguous for all five baseline models.
-6. Ensure speaker-volume controls and codec Local Refresh terminate through the already-approved serialized lifecycle and cannot remain stuck due to a second presentation-owned pending state.
-7. Preserve stale-result, credential, secret-safety, GUI-thread, and mutation ambiguity contracts.
+1. Make call-history preview, direction, duration, and usage-statistics semantics consistent across all five baseline codecs.
+2. Preserve fresh explicit detailed-journal acquisition while allowing the automatic room-card preview to use its own accepted snapshot.
+3. Make the mandatory one-attempt-per-expansion-epoch automatic preview contract testable.
+4. Make `CloudLink Box 310` a mandatory end-to-end call-history/statistics regression oracle.
+5. Remove `Платформа`, codec-local `Отладка`, and any speaker-volume scale/bar from the modern codec dashboard.
+6. Define a normative display-only speaker-volume percentage mapping from the existing exact-model registry ranges.
+7. Make microphone meter capability/data availability explicit.
+8. Correct speaker mutation and Local Refresh stability without adding parallel lifecycle ownership.
 
 ## Non-goals
 
 - New codec protocol discovery or new device support.
 - New CloudLink auth/session behavior.
 - New live microphone polling for TE20, TE40, or Polycom RPG 310.
-- Reworking the 30/90-day/100-record usage-statistics product rules.
-- Redesigning the detailed call-log window hierarchy.
+- Reworking 30/90-day/100-record usage-statistics product rules.
+- Replacing the detailed call-log window hierarchy.
 - Changing non-codec Debug behavior.
-- Changing raw codec speaker-volume mutation semantics unless required to correctly project already-supported accepted state.
-- Adding GUI-local retries to make controls appear responsive.
+- Replacing canonical/raw speaker-volume mutation authority with GUI percentage state.
+- Assuming the root cause of MIH-23 before reproduction evidence exists.
 
 ## Decisions
 
-### 1. One normalized call-history record remains the source for preview, dialog, direction, duration, and statistics
+### 1. One normalized call-history record contract, but acquisition epochs remain distinct
 
-The five model-specific adapters SHALL normalize source records into the same application-level call-history record contract before presentation.
+All five model-specific adapters SHALL normalize source records into one application-level call-history record contract before presentation.
 
 This change adds typed direction:
 
@@ -59,43 +60,55 @@ This change adds typed direction:
 CallDirection = INCOMING | OUTGOING | UNKNOWN
 ```
 
-and preserves machine-readable duration semantics already required by the root specification. Presentation SHALL render direction only from `CallDirection`; it SHALL NOT derive direction from icon color, localized text, model name, peer formatting, or whether one vendor happens to expose a field.
+The visible semantic mapping is deterministic:
 
-A completed record with accepted non-negative duration SHALL render duration for every baseline model. Missing/unparseable duration remains visible as unavailable and follows the existing partial-calculation warning contract; it is not silently replaced with zero. Active records remain `Активный` and contribute zero to usage as already approved.
+```text
+INCOMING -> incoming semantic icon/cue with non-color/accessibility meaning `Входящий`
+OUTGOING -> outgoing semantic icon/cue with non-color/accessibility meaning `Исходящий`
+UNKNOWN  -> neutral direction cue with non-color/accessibility meaning `Направление неизвестно`
+```
 
-The same accepted normalized snapshot SHALL drive:
+The concrete glyph/Qt asset MAY vary, but the semantic role binding SHALL NOT be swapped. Presentation SHALL render direction only from `CallDirection` and SHALL NOT infer it from icon color, localized source text, model name, peer formatting, record position, or vendor branch.
 
-- the three-row modern room preview;
-- the existing detailed call-log presentation;
-- duration display;
-- direction cues;
-- usage statistics.
+Machine-readable duration semantics remain those of the current root specification. Accepted completed non-negative duration is rendered for every baseline model. Missing/unparseable duration remains visible as unavailable and follows the existing partial-calculation warning contract; active records remain `Активный` and contribute zero until completed.
 
-No second parser or vendor-specific GUI branch is permitted.
+The automatic room-card preview and an explicit detailed-journal opening MAY therefore show snapshots from different acquisition epochs. What is shared is the normalized record type, chronology semantics, direction/duration semantics, and statistics calculation contract — not a cross-open cache.
 
-### 2. Initial room call-history preview reuses existing `AUXILIARY_READ` authority
+### 2. Automatic room preview admission remains mandatory exactly once per eligible expansion epoch
 
-The modern room dashboard may automatically attempt call-history preview only through the application-owned room call-history auxiliary binding already defined by the room lifecycle. The presentation publishes intent/consumes accepted state; it never invokes a handler directly.
+The existing root lifecycle requirement remains unchanged and authoritative.
 
-Automatic preview is accepted only for the exact current row/generation and must obey the serialized lane. If another lifecycle owns/retains the lane, preview waits, is skipped, or is superseded according to the existing lifecycle policy; it must not create concurrency merely to populate the card.
+For every eligible codec expansion epoch, the application SHALL admit exactly one automatic call-history preview intent through the existing serialized `AUXILIARY_READ` lane. Duplicate Qt expansion notifications, re-render, resize, repaint, theme changes, or rebuilding the same already-expanded row SHALL NOT admit a second intent.
 
-A later explicit `Развернуть` uses the current accepted snapshot if available; otherwise it uses the existing explicit serialized auxiliary acquisition. The change introduces no cross-open cache and no second reader.
+If the row is expanded before the automatic room cycle is terminal, application authority retains the current expansion epoch and admits its one preview intent after the cycle becomes terminal if that exact row/epoch remains current and eligible. Pre-terminal expansion itself performs no device I/O.
 
-`CloudLink Box 310` is a mandatory end-to-end regression case from exact model registration through retrieval/normalization to preview/dialog/statistics presentation.
+If another lifecycle owns or is retiring from the lane when the automatic preview intent is admitted, the preview remains application-owned pending work behind the existing lifecycle/handoff boundary. It SHALL NOT be silently dropped merely because the lane is busy, and it SHALL NOT acquire a handler/session concurrently. A later stale, cancelled, superseded, or failed-currentness/cleanup gate MAY prevent device I/O.
 
-### 3. `Платформа` is removed only from modern codec presentation
+### 3. Explicit detailed journal always starts a fresh serialized acquisition
 
-The modern `Состояние` card no longer renders a `Платформа` row. The field may remain in parser/handler/model-neutral diagnostic data because other code or diagnostics may legitimately use it.
+The existing call-log freshness policy is preserved:
 
-Therefore implementation SHALL NOT delete or stop collecting `platform` merely to satisfy this presentation change. The presentation projection simply does not allocate/render that slot.
+```text
+room-card automatic preview
+    -> may render its accepted automatic-preview snapshot
 
-### 4. Codec-local Debug is a visibility exception, not a capability rewrite
+explicit `Развернуть` / explicit detailed journal opening
+    -> always starts a fresh serialized exact-row `AUXILIARY_READ`
+```
 
-The modern codec dashboard SHALL expose no `Отладка` affordance. This mirrors the already-approved PDU presentation exception.
+An accepted automatic-preview snapshot SHALL NOT substitute for the required explicit read. Once the fresh explicit acquisition has accepted data, the detailed dialog, its latest-record presentation, and its statistics use that fresh accepted acquisition result. Expanding/collapsing sections inside the already-open detailed dialog continues to reuse that same explicit-load data without another request, exactly as the root spec requires.
 
-The underlying local accumulated terminal/log data is not reclassified and no network behavior changes. Debug remains available wherever another approved device-family presentation still exposes it. No hidden codec alternate command/debug path is added.
+No cross-open call-history cache or second reader is introduced.
 
-### 5. Speaker display percentage is distinct from canonical mutation state
+`CloudLink Box 310` is a mandatory end-to-end regression from exact registry identity through approved retrieval/session path, normalization, room preview, fresh explicit journal load, and statistics.
+
+### 4. `Платформа` and codec-local Debug are presentation-only removals
+
+The modern `Состояние` card no longer renders `Платформа`, but implementation SHALL NOT delete or stop collecting internal `platform` evidence merely for this change.
+
+The modern codec dashboard SHALL expose no `Отладка` affordance. Existing accumulated log/terminal data and Debug presentation for other approved device families remain unchanged. No hidden codec alternate network/debug path is added.
+
+### 5. Speaker percentage has one normative application-owned conversion
 
 The application projection adds:
 
@@ -103,38 +116,46 @@ The application projection adds:
 speaker_volume_percent: Optional[int]  # 0..100 when authoritative
 ```
 
-This field is display-only accepted evidence. It SHALL be produced from the exact model's accepted speaker-volume state using an explicit application/adapter mapping whose source semantics are already supported/proven for that model.
+The exact-model registry already owns the canonical speaker bounds. Current approved baseline ranges are:
 
-Rules:
+```text
+Huawei TE20          0..21
+Huawei TE40          0..21
+CloudLink Bar 310    0..15
+CloudLink Box 310    0..15
+Polycom RPG 310      0..100
+```
 
-- exact numeric `0` is valid accepted `0%`;
-- values are presented only after normalization to the closed `0..100` range according to the model's approved semantics;
-- absence, malformed evidence, stale evidence, or an unproven source-to-percent mapping yields no percentage and renders `Нет данных`;
-- presentation SHALL NOT guess a range from one observed value, clamp an unknown wire scale into a percent, parse a localized string, or use widget history/defaults;
-- the value displayed immediately after a click is not authoritative merely because the UI knows the requested target;
-- accepted post-mutation percentage changes only when the existing reconciliation/accepted-state path publishes current exact-row evidence.
+For accepted numeric `speaker_volume = V`, registry minimum `MIN`, and maximum `MAX`, percentage SHALL be calculated only when `MAX > MIN` and `MIN <= V <= MAX`:
 
-The existing canonical/raw `speaker_volume` state and model-specific target conversion remain mutation/reconciliation authority. `speaker_volume_percent` SHALL NOT be reverse-converted by the GUI into a wire target.
+```text
+scaled  = 100 * (V - MIN) / (MAX - MIN)
+percent = floor(scaled + 0.5)
+```
 
-For each of the five baseline registrations, implementation tests SHALL prove the mapping from the already-supported current speaker-volume source into `speaker_volume_percent`, or prove the source is currently unavailable for that exact snapshot and retain `Нет данных` without inventing data.
+This is nearest-integer rounding with half values rounded upward for this non-negative closed range. No runtime clamping is allowed: out-of-range, malformed, stale, or missing evidence yields no accepted percentage and presentation shows `Нет данных`.
 
-### 6. Speaker control has no presentation-owned pending lifecycle
+Current acceptance oracles include:
 
-A `−` or `+` click is resolved through exact-model capability authority and the common room lock matrix.
+```text
+TE20/TE40:       0 -> 0%, 10 -> 48%, 21 -> 100%
+Bar310/Box310:   0 -> 0%,  7 -> 47%, 15 -> 100%
+Polycom RPG310:  0 -> 0%, 42 -> 42%, 100 -> 100%
+```
 
-If unsupported, the existing local informational path performs zero network I/O.
+The mapping is produced in application/adapter projection using the existing unified registry; no second range table or Qt-owned conversion is permitted. Canonical/raw `speaker_volume` and existing model-specific mutation target conversion remain mutation/reconciliation authority. A requested target or send/ACK does not update accepted percentage until current exact-row reconciliation/status evidence is accepted.
 
-If supported and admitted, exactly one existing `MUTATION` -> `RECONCILIATION` lifecycle owns the operation. The presentation MAY show disabled/busy state derived from that lifecycle, but SHALL NOT maintain an independent pending flag/timer that can outlive or disagree with lifecycle authority.
+### 6. Speaker controls have no presentation-owned pending lifecycle
 
-The control becomes eligible again only from an accepted terminal lifecycle state for the same still-current usable row. Ambiguous send/result or failed reconciliation remains blocked/unconfirmed according to the existing mutation contract; the UI SHALL NOT clear uncertainty by blind resend.
+A supported `−`/`+` click enters only the existing exact-row `MUTATION` -> mandatory `RECONCILIATION` lifecycle. Presentation MAY derive disabled/busy state from that lifecycle but SHALL NOT own an independent pending timer/flag, retry owner, credential fallback, or direct status request.
 
-### 7. The modern room microphone meter uses three explicit semantic states
+Unsupported actions remain local informational affordances with zero room network admission/I/O. Ambiguous send/result or failed reconciliation follows the existing blocked/unconfirmed contract and SHALL NOT be cleared by blind resend or optimistic percentage.
 
-The modern room `Аудио` card has a permanent microphone-level slot, but network support comes only from unified application capability authority and existing approved live bindings.
+### 7. Microphone meter capability and runtime availability are separate
 
-Current baseline semantics are:
+Current modern-room live-meter capability remains:
 
-| Exact model | Modern room live microphone meter |
+| Exact model | Capability |
 | --- | --- |
 | Huawei TE20 | `UNSUPPORTED` |
 | Huawei TE40 | `UNSUPPORTED` |
@@ -142,26 +163,15 @@ Current baseline semantics are:
 | CloudLink Box 310 | `SUPPORTED` |
 | Polycom RPG 310 | `UNSUPPORTED` |
 
-For `SUPPORTED` Bar/Box rows:
+For supported Bar/Box rows, accepted numeric zero is observed silence, an accepted current sample renders the approved fill, and absence of a current accepted sample renders `Нет данных`. For unsupported rows, the permanent slot renders `Не поддерживается` and performs zero meter network activity. This change does not modify CloudLink endpoint/session contracts.
 
-- accepted numeric zero is valid observed silence and renders as 0 fill;
-- an accepted current sample renders the approved normalized fill;
-- no accepted current sample renders `Нет данных`/unavailable;
-- a meter-cycle failure does not convert accepted ordinary codec status into failure.
+### 8. Local Refresh architecture is fixed; defect root cause is not assumed
 
-For `UNSUPPORTED` TE20/TE40/Polycom rows:
+`Обновить статус` remains an alias of the one exact-row `LOCAL_REFRESH` lifecycle. The architecture prohibits a second codec-specific refresh owner, direct widget-to-handler dispatch, duplicate current-operation error presentation, string-based failure reclassification, stale cache mutation, and stale-row modal publication regardless of the eventual defect location.
 
-- the permanent meter slot renders `Не поддерживается` with an inactive/non-authoritative indicator;
-- rendering performs zero handler/session/credential/network activity;
-- legacy/standalone methods or historical polling behavior do not implicitly approve modern room support.
+Before implementation changes, MIH-23 SHALL be reproduced separately for TE20, TE40, Bar 310, Box 310, and Polycom RPG 310. Evidence SHALL classify the failing boundary as either common lifecycle/composition or model-specific adapter/typed-failure behavior. Implementation SHALL correct the proven root cause inside the approved ownership boundary rather than assume duplicate callbacks are the cause.
 
-This change does not modify CloudLink Bar/Box endpoint/session contracts in `cloudlink-live-microphone-metering`.
-
-### 8. Codec Local Refresh has one completion/presentation path
-
-`Обновить статус` remains an alias of the one exact-row `LOCAL_REFRESH` lifecycle.
-
-The presentation consumes a typed terminal result classified by currentness:
+Presentation terminal semantics remain:
 
 ```text
 ACCEPTED_SUCCESS
@@ -170,65 +180,58 @@ STALE_OR_SUPERSEDED
 CANCELLED
 ```
 
-- `ACCEPTED_SUCCESS`: atomically accepted row data is rendered; no error modal is shown.
-- `ACCEPTED_TERMINAL_FAILURE`: the existing row failure transition is applied and at most one non-secret user-facing error presentation may be emitted for that accepted current operation.
-- `STALE_OR_SUPERSEDED` and `CANCELLED`: no current-row error modal and no cache mutation are allowed.
+- accepted success publishes accepted exact-row usable data and no error modal;
+- accepted terminal failure follows the existing row failure contract and emits at most one non-secret current-operation error presentation;
+- stale/superseded/cancelled outcomes mutate no current cache and emit no current-row error modal.
 
-The presentation SHALL NOT separately interpret worker/handler callbacks and then also react to application lifecycle completion. This prevents the current erroneous/duplicate error path and keeps stale old-row callbacks silent.
+Queued stale work remains rejectable before handler acquisition/I/O where separable.
 
-### 9. Credentials, retries, stale work, and GUI thread remain unchanged
+### 9. Credentials, retries, secrets, and GUI thread remain unchanged
 
-All corrected flows remain within existing application/composition ownership:
-
-- application selects credentials/fallback candidates;
-- handler/worker never iterates credentials;
-- credential advancement requires structured authentication failure;
-- transport/session recovery remains separate from credential fallback;
-- queued stale work is rejected before handler acquisition and I/O where separable;
-- publication rechecks exact row/generation/currentness;
-- no codec network operation blocks the Qt GUI thread;
-- secrets never enter public errors, dialogs, logs, normalized presentation records, or test snapshots.
+Application/composition remains credential selection/fallback authority; handler/worker never iterates credentials; candidate advancement requires structured authentication failure; transport/session recovery remains separate; publication rechecks currentness; network I/O stays off the Qt GUI thread; secrets never enter public errors, dialogs, logs, normalized records, or test snapshots.
 
 ## Risks / Trade-offs
 
-### Risk: display percentage is confused with mutation authority
+### Risk: percentage becomes mutation authority
 
-Mitigation: `speaker_volume_percent` is explicitly display-only. Mutation/reconciliation remains based on the existing canonical model-specific volume state and target conversion.
+Mitigation: percentage is display-only; canonical/raw state plus approved mutation/reconciliation remains authoritative.
 
-### Risk: fixing missing call history creates a second automatic reader
+### Risk: missing preview is "fixed" by a second reader
 
-Mitigation: automatic preview is explicitly routed through the existing serialized auxiliary binding and current snapshot; no widget-owned request path is permitted.
+Mitigation: exactly-one automatic admission is mandatory through the existing serialized auxiliary lane; no widget-owned network owner is allowed.
 
-### Risk: unsupported microphone meter is accidentally treated as missing telemetry
+### Risk: explicit journal shows stale automatic-preview data
 
-Mitigation: capability state (`SUPPORTED`/`UNSUPPORTED`) is resolved before runtime data availability. `UNSUPPORTED` and `Нет данных` have different presentation semantics and different test oracles.
+Mitigation: explicit opening always starts a fresh serialized acquisition and never treats the automatic preview snapshot as a substitute.
 
-### Risk: removing Debug hides needed logs during validation
+### Risk: Local Refresh fix targets an assumed cause
 
-Mitigation: only the modern codec dashboard affordance is removed. Existing internal logs/test diagnostics remain available; no log source is deleted by this change.
+Mitigation: model-by-model reproduction/classification is an implementation gate before code changes.
 
-### Risk: archive delta conflicts with current root requirements
+### Risk: archive delta conflicts with current roots
 
-Mitigation: this change intentionally uses `MODIFIED Requirements`. Before `READY FOR ARCHIVE`, independent validation must perform the repository-required disposable archive-applicability check against the then-current root specs.
+Mitigation: the change uses `MODIFIED Requirements`; independent validation must perform the required disposable archive-applicability check before `READY FOR ARCHIVE`.
 
 ## Validation Strategy
 
 Implementation validation SHALL include:
 
-- exact-model focused call-history tests for all five baseline codecs;
-- explicit `CloudLink Box 310` end-to-end call-history/statistics regression coverage;
-- typed incoming/outgoing/unknown direction and completed/active/missing-duration cases;
-- modern dashboard structure tests proving `Платформа` and codec `Отладка` are absent without removing non-codec Debug;
-- speaker percentage projection tests for each baseline codec and stale/missing evidence;
-- volume mutation lifecycle tests for supported/unsupported, success reconciliation, ambiguous/failed reconciliation, stale completion, and no duplicate/presentation-owned pending state;
-- microphone-meter tests for Bar/Box supported data and no-data, plus TE20/TE40/Polycom unsupported with zero meter I/O;
-- Local Refresh success/failure/stale/cancelled tests with no duplicate or stale error modal;
-- GUI-thread/non-blocking and stale-before-I/O coverage on affected paths;
+- call-history parity for all five baseline codecs;
+- exactly-one automatic preview admission per expansion epoch, including pre-terminal expansion, duplicate Qt notifications, busy/retiring lane, row switch, stale/cancelled gates, and no concurrent I/O;
+- fresh explicit `Развернуть` acquisition even when automatic preview data already exists;
+- Box 310 end-to-end preview plus fresh detailed/statistics regression;
+- normalized `INCOMING`/`OUTGOING`/`UNKNOWN` plus visible semantic cue-role mapping tests;
+- completed/active/missing-duration cases;
+- dashboard tests proving `Платформа` and codec `Отладка` are absent without deleting internal data/non-codec Debug;
+- speaker-percent min/max/intermediate/zero and out-of-range/no-data cases for each distinct approved range;
+- volume mutation lifecycle tests for supported/unsupported, reconciliation success, ambiguous/failed reconciliation, stale completion, and no presentation-owned pending state;
+- microphone-meter tests for Bar/Box supported data/zero/no-data and TE20/TE40/Polycom unsupported with zero meter I/O;
+- Local Refresh model-by-model reproduction evidence before fixes, then success/failure/stale/cancelled regression tests at the proven boundary;
+- GUI-thread/non-blocking and stale-before-I/O coverage;
 - full offline test suite;
-- `git diff --check`;
-- `./openspec.cmd` is NOT an allowed substitute on non-Windows shells; repository validation SHALL use the exact repository-local command required by `RULES.md` in the supported project environment:
-  `.\openspec.cmd validate codec-diagnostic-ui-stability --strict` and `.\openspec.cmd validate --all --strict`.
+- `git diff --check` and `git diff --cached --check`;
+- repository-local `.\openspec.cmd validate codec-diagnostic-ui-stability --strict` and `.\openspec.cmd validate --all --strict`.
 
 ## Open Questions
 
-None. Protocol capability expansion is intentionally out of scope; unsupported meter models remain unsupported until separately approved evidence exists.
+None at product-contract level. The MIH-23 Local Refresh root cause is intentionally not presumed; model-by-model reproduction/classification is a required implementation evidence gate, not an unresolved architecture choice.

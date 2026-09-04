@@ -140,3 +140,38 @@ Supported clicks SHALL publish only safe typed exact-row intents to application 
 - **AND** the network capability remains unsupported
 - **AND** no room network interaction is started
 - **AND** current LIVE, cache and row authority remain unchanged
+
+## ADDED Requirements
+
+### Requirement: Codec call-history direction cue maps typed direction to the correct visible semantic role
+
+Every modern room codec call-history record that renders a direction cue SHALL bind the cue to normalized `CallDirection` without vendor/model-specific reversal:
+
+```text
+INCOMING -> incoming semantic cue; non-color/accessibility meaning `Входящий`
+OUTGOING -> outgoing semantic cue; non-color/accessibility meaning `Исходящий`
+UNKNOWN  -> neutral semantic cue; non-color/accessibility meaning `Направление неизвестно`
+```
+
+The concrete icon glyph or Qt asset MAY vary with the shared theme, but the semantic role SHALL be testable independently of color and SHALL NOT be swapped between `INCOMING` and `OUTGOING`. Presentation SHALL NOT infer direction from localized source strings, peer formatting, icon color, or model identity.
+
+#### Scenario: Incoming record uses incoming visible role
+
+- **GIVEN** the normalized record direction is `INCOMING`
+- **WHEN** a room-preview or detailed call row renders its direction cue
+- **THEN** the visible/non-color semantic role is `Входящий`
+- **AND** the outgoing semantic role is not used
+
+#### Scenario: Outgoing record uses outgoing visible role
+
+- **GIVEN** the normalized record direction is `OUTGOING`
+- **WHEN** a room-preview or detailed call row renders its direction cue
+- **THEN** the visible/non-color semantic role is `Исходящий`
+- **AND** the incoming semantic role is not used
+
+#### Scenario: Unknown direction is neutral
+
+- **GIVEN** the normalized record direction is `UNKNOWN`
+- **WHEN** the direction cue renders
+- **THEN** it uses a neutral semantic role equivalent to `Направление неизвестно`
+- **AND** it does not falsely claim incoming or outgoing direction
