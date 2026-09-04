@@ -9,7 +9,22 @@ A reviewed fixed common dashboard MAY retain a visible local-only affordance for
 
 For codec dashboards, the existing codec-specific local-only presentation exception remains limited to the reviewed common codec affordances already approved by the codec presentation contract. For the dedicated common PDU dashboard, the exception is limited to fixed PDU controls required by `diagnostic-ui-presentation`; it does not authorize arbitrary unsupported PDU actions or direct widget-to-handler dispatch.
 
-PCS4i REBOOT SHALL remain unsupported as a network operation and SHALL NOT enter the state-changing room lifecycle. The fixed common PDU dashboard MAY nevertheless retain its visible per-outlet `Перезапуск` affordance as local-only unsupported presentation. Activating that PCS4i affordance while the common room lock matrix otherwise permits input SHALL report locally that the command is unsupported before room interaction admission and SHALL perform zero PDU device I/O. No PCS4i bulk REBOOT and no general PDU bulk REBOOT control is authorized.
+The existing standalone/shared `PDUScreen` contract remains unchanged by this
+change. When that screen renders supported outlet controls for Extron IPL T
+PCS4i, it SHALL expose ON and OFF only; REBOOT SHALL NOT be shown as an
+operator action on that surface.
+
+PCS4i REBOOT SHALL remain unsupported as a network operation and SHALL NOT
+enter the state-changing room lifecycle. Separately, the fixed common **room**
+PDU dashboard MAY retain its visible per-outlet `Перезапуск` affordance as
+local-only unsupported presentation. That room-dashboard affordance SHALL NOT
+extend to, or change the supported-control rendering of, the standalone/shared
+`PDUScreen`. Activating the room-dashboard affordance while the common room
+lock matrix otherwise permits input SHALL report locally that the command is
+unsupported before room interaction admission, with zero LIVE invalidation,
+credential selection, handler/session acquisition, mutation generation, device
+I/O, or accepted-state mutation. No PCS4i bulk REBOOT and no general PDU bulk
+REBOOT control is authorized on either surface.
 
 #### Scenario: Extron routing action
 - **WHEN** an operator selects an actionable Extron input/output-1 cell with a connected handler
@@ -23,13 +38,20 @@ PCS4i REBOOT SHALL remain unsupported as a network operation and SHALL NOT enter
 - **WHEN** an operator confirms an `on` or `off` action for a PCS4i outlet from 1 through 4
 - **THEN** the application executes the matching PCS4i handler action through the background PDU command path and reports its outcome
 
+#### Scenario: PCS4i reboot is not available
+- **GIVEN** selected device is Extron IPL T PCS4i
+- **WHEN** `PDUScreen` renders supported outlet controls
+- **THEN** ON is available
+- **AND** OFF is available
+- **AND** REBOOT is not available to the operator
+
 #### Scenario: PCS4i fixed reboot affordance remains network-unsupported
 - **GIVEN** selected exact device is `Extron IPL T PCS4i`
-- **AND** the fixed common room PDU dashboard is otherwise eligible for user input
+- **AND** the fixed common room PDU dashboard, rather than `PDUScreen`, is otherwise eligible for user input
 - **WHEN** the operator activates the visible per-outlet `Перезапуск` affordance
 - **THEN** the application reports locally that the command is unsupported
 - **AND** REBOOT remains unavailable as a PCS4i network capability
-- **AND** no room mutation generation, handler/session acquisition or device network I/O starts
+- **AND** no room interaction admission, LIVE invalidation, credential selection, handler/session acquisition, mutation generation, device I/O, or accepted-state mutation starts
 
 #### Scenario: Unsupported SIP update
 - **WHEN** a codec handler does not implement SIP server update
