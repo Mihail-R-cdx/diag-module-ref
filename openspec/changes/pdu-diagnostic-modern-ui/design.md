@@ -28,7 +28,7 @@ This change therefore does not redesign PDU networking. It redesigns the room-mo
 
 The common room shell, room/network summary cards, target-search, non-PDU device families, protocol handlers, credential semantics and mutation policy are not redesigned here. The screenshot outside the expanded PDU region has no normative effect.
 
-The one intentional common-shell exception is narrowly limited to the **current expanded PDU row header**: the shared accordion-header requirement is explicitly modified so that this row alone may append one far-right Local Refresh affordance. Collapsed PDU rows and every non-PDU row retain the common no-right-action header contract.
+The ordinary common shell is not redesigned. Its narrow accepted presentation scope here is that every PDU header ends at IP with no right-side action, the legacy global toolbar `Отладка` control is hidden, and the modern expanded PDU dashboard omits a local `Отладка` control. These visibility decisions do not alter other device-family Debug presentation, target authority, device capability, or network/lifecycle ownership.
 
 ## Decision 1: One common two-card PDU dashboard
 
@@ -38,7 +38,7 @@ The current expanded PDU row uses one family template for every supported exact 
 Основная информация | Управление розетками
 ```
 
-Target relative weights at `1440 x 900` are `22:78`, with approximately ±4 percentage points of Qt/layout tuning permitted. The left card is intentionally narrow and informational; the right card dominates because the outlet table/actions are the primary PDU task.
+Target relative weights at `1440 x 900` are `30:70`, with approximately ±4 percentage points of Qt/layout tuning permitted. The information card remains wide enough for compact right-aligned, chrome-free values; the outlet card is dominant because its table/actions are the primary PDU task.
 
 Both cards use the shared room card border/radius/palette and align their top and bottom edges at baseline. Expected baseline body height is approximately `350-410 px`; controlled vertical scrolling is acceptable when current outlet count or available window height requires it.
 
@@ -76,13 +76,13 @@ Target column weights are approximately:
 
 ```text
 Розетка             9
-Имя розетки         24
-Состояние           16
-Текущая мощность    18
-Действия            33
+Имя розетки         31
+Состояние           12
+Текущая мощность    20
+Действия            28
 ```
 
-Each column may tune by roughly ±3 percentage points as long as labels and action buttons remain readable and the same hierarchy is preserved.
+Each column may tune by roughly ±3 percentage points as long as labels and action buttons remain readable and the same hierarchy is preserved. Ordinary outlet rows are `28-32 px`; controls are `24 px` high with `4-6 px` action spacing. The compact top action strip belongs in the outlet-card title/header row, not in a separate large row below it.
 
 Outlet records are sorted numerically ascending by authoritative outlet number. The baseline screenshot/acceptance fixture uses eight outlets. More rows remain reachable through a vertical scrolling region rather than shrinking rows below the approved density or reordering them.
 
@@ -145,7 +145,7 @@ This is particularly important for PCS4i: `Перезапуск` remains visible
 
 Programmatic unsupported operations remain fail-closed under the existing core capability checks even if no GUI affordance is involved.
 
-## Decision 7: The common header gets one narrow PDU-only exception and exactly two refresh entry points remain
+## Decision 7: The common header ends at IP and the outlet card owns the sole visible PDU refresh
 
 The foundation accordion header remains the default authority for every row:
 
@@ -153,39 +153,33 @@ The foundation accordion header remains the default authority for every row:
 chevron -> device icon -> model -> status -> IP
 ```
 
-Every non-PDU row and every **collapsed** PDU row retains that common no-right-action contract.
+Every PDU and non-PDU row retains that common no-right-action contract. There is no header Refresh, Power, kebab, overflow, or second collapse action; the common left chevron remains the only expand/collapse affordance.
 
-Only while a supported PDU row is the **current expanded exact row**, its header appends one small Refresh icon at the far right. This is an explicit modification of the common accordion-header requirement rather than an additional contradictory family rule. There is no kebab menu and no additional right-side collapse button; the common left accordion chevron remains the only expand/collapse affordance. The header Refresh does not collapse/re-expand the row, change current selection or derive a target from displayed text.
+The sole visible PDU refresh is `Обновить статус` inside the `Управление розетками` card. The previous generic expanded-content `Локальный опрос`/legacy Local Refresh control is absent.
 
-The outlet card contains the second refresh entry point, `Обновить статус`.
+`Обновить статус` publishes the existing exact-row `LOCAL_REFRESH` lifecycle. It uses the existing eligibility, lock state, immutable current row context, cancellation/currentness and stale-result rejection; it neither creates an independent generation nor directly acquires a handler/session or performs I/O. Rendering, theme changes and hover do not start refresh.
 
-The modern PDU dashboard removes the previous generic expanded-content `Локальный опрос`/legacy Local Refresh affordance. It must not survive as a third refresh control.
+## Decision 8: Management-card lightning icon is a presentation-only landmark
 
-Therefore the complete visible refresh set for an expanded PDU is exactly:
+`Управление розетками` uses a lightning visual icon to make the control-oriented card quickly distinguishable from information. The icon uses the existing font-independent painted treatment rather than a platform-font glyph, so visual meaning is stable across platforms. Rendering it is presentation-only and cannot start device I/O.
 
-```text
-header Refresh icon -------\
-                            -> same exact-row LOCAL_REFRESH
-Обновить статус -----------/
-```
+## Decision 9: Debug visibility is deliberately narrow
 
-Both controls share eligibility, lock state, cancellation/currentness, stale-result rejection and result handling. Neither creates a second PDU refresh lane or generation, and neither directly acquires a handler or performs I/O. Rendering/theme/hover does not start refresh.
+The legacy global toolbar `Отладка` control is hidden, and the modern expanded PDU dashboard omits a local `Отладка` affordance. This changes visibility only: it neither changes PDU capability nor creates an alternate Debug path, credentials/session ownership, generation, handler acquisition, or device I/O. Existing exact-row Debug presentation for other device families remains governed by its root/family contracts.
 
-Collapsing the PDU row removes the family header Refresh and leaves the ordinary common collapsed header.
-
-## Decision 8: Bulk actions reuse current sequential policy
+## Decision 10: Bulk actions reuse current sequential policy
 
 `Включить всё` and `Выключить всё` reuse current application-owned bulk PDU semantics, including deterministic outlet sequence, supported individual capability prerequisite, state-changing safety, currentness checks and existing terminal/partial-completion handling.
 
 The dashboard does not implement bulk operations by clicking individual Qt buttons in a loop and does not own timing/retry policy.
 
-## Decision 9: Existing mutation/reconciliation stays authoritative
+## Decision 11: Existing mutation/reconciliation stays authoritative
 
 Individual `Вкл`, `Выкл`, supported `Перезапуск`, and bulk actions continue to use the existing state-changing lifecycle. A visual button press/ACK never updates accepted outlet state directly. Only current accepted mandatory reconciliation may atomically replace the exact PDU row cache.
 
 Ambiguous mutation result remains blocked/unconfirmed under the existing room lifecycle. This change does not make repeated clicking or alternate credentials a retry policy.
 
-## Decision 10: 90% visual target is repository-local and measurable
+## Decision 12: 90% visual target is repository-local and measurable
 
 Independent validation does not require the original screenshot. The PDU presentation spec defines ten visual checkpoints. Mandatory structural/semantic checkpoints must all pass, and at least 9 of 10 total checkpoints must pass at `1440 x 900` in dark theme. Light theme must preserve the same geometry and state semantics.
 
@@ -193,11 +187,11 @@ Pixel-perfect font rasterization, one-pixel antialiasing differences and platfor
 
 ## Implementation boundaries
 
-Likely production touch points include the current room-mode PDU view/composition and the common equipment-row header presentation needed for the single expanded-PDU Refresh exception, plus shared theme styles. Existing `PDUController`, `core.pdu` operation policy and handler transports should be reused rather than copied into a new presentation-specific controller. Minimal refactoring is allowed only where needed to expose safe presentation data/intents without changing ownership.
+Likely production touch points include the current room-mode PDU view/composition, shared theme styles, and the existing legacy toolbar visibility. Existing `PDUController`, `core.pdu` operation policy and handler transports should be reused rather than copied into a new presentation-specific controller. Minimal refactoring is allowed only where needed to expose safe presentation data/intents without changing ownership.
 
-Implementation must explicitly remove/suppress the old generic room expanded-content `Локальный опрос` for the modern PDU surface so that exactly two refresh entry points remain. It must not alter common header behavior for non-PDU rows or collapsed PDU rows.
+Implementation must retain the common header for every PDU/non-PDU row, explicitly omit the generic expanded-content `Локальный опрос` from the modern PDU surface, and keep `Обновить статус` as the sole visible PDU refresh. It must not alter non-PDU Debug behavior.
 
-Tests must prove that the redesigned dashboard does not accidentally restore legacy PDU-hosted codec enrichment, create a new network lane, add power reads, retain a third generic refresh, or promote PCS4i reboot support.
+Tests must prove that the redesigned dashboard does not accidentally restore legacy PDU-hosted codec enrichment, create a new network lane, add power reads, restore a generic legacy refresh, or promote PCS4i reboot support.
 
 ## Validation strategy
 

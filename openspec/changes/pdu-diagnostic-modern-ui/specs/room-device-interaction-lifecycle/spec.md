@@ -1,19 +1,35 @@
 # room-device-interaction-lifecycle Delta
 
+## MODIFIED Requirements
+
+### Requirement: Debug is local exact-row presentation
+
+The current `Отладка` action in room mode SHALL be bound to the exact current expanded supported non-PDU row and SHALL display only that row's accumulated terminal/log presentation. Opening or closing Debug SHALL NOT by itself create device network I/O, stop live, select credentials, or acquire a handler/session.
+
+When no supported expandable row is current, Debug SHALL be unavailable. Switching/collapsing the row SHALL close/invalidate the row-specific Debug presentation so logs cannot be attributed to another record. Any future Debug sub-action that performs device I/O SHALL explicitly enter an approved auxiliary-read or state-changing lifecycle; this change SHALL NOT create an arbitrary network command console.
+
+The modern expanded PDU dashboard intentionally exposes no local `Отладка` affordance. This is a presentation-visibility exception only: it does not change PDU network capability, create an alternate Debug path, authorize hidden direct commands, or alter approved exact-row Debug controls for other device families.
+
+#### Scenario: Modern PDU row omits local Debug
+
+- **WHEN** a current supported PDU row is expanded in the modern dashboard
+- **THEN** no local `Отладка` control is visible
+- **AND** no Debug network capability or alternate lifecycle is created
+
+#### Scenario: Non-PDU Debug remains exact-row presentation
+
+- **GIVEN** a current expanded supported non-PDU row has approved Debug presentation
+- **WHEN** the operator opens Debug
+- **THEN** Debug shows that exact row's local accumulated log/terminal state
+- **AND** opening it creates no device I/O, credential/session acquisition, or change to row authority
+
 ## ADDED Requirements
 
 ### Requirement: Fixed PDU dashboard reuses the existing exact-row refresh and mutation lifecycle
 
 The dedicated common room PDU dashboard SHALL remain a presentation/application-intent surface over the existing exact-row room interaction architecture. It SHALL NOT introduce a PDU-specific interaction lane, direct widget-to-handler path, alternate credential owner, optimistic accepted-state owner, or independent request generation.
 
-The two visible PDU refresh affordances:
-
-```text
-expanded-row far-right refresh icon
-`Обновить статус`
-```
-
-SHALL be strict aliases of the same existing exact-row `LOCAL_REFRESH` intent/lifecycle. They SHALL share one eligibility state, one lock state, one current exact-row context and one operation token/generation. Accepting either refresh while another Local Refresh or incompatible room network lifecycle is active/retiring SHALL follow the existing serialized interaction policy rather than creating a concurrent PDU refresh.
+The sole visible PDU refresh control, `Обновить статус`, SHALL publish the existing exact-row `LOCAL_REFRESH` intent/lifecycle. It SHALL use the existing eligibility state, lock state, current exact-row context, operation token/generation, stale-result suppression, and serialized interaction policy. Activating it while another Local Refresh or incompatible room network lifecycle is active/retiring SHALL not create a concurrent PDU refresh.
 
 A supported individual PDU action (`Вкл`, `Выкл`, or supported `Перезапуск`) and supported bulk action (`Включить всё` or `Выключить всё`) SHALL enter only the existing state-changing room path after its existing explicit confirmation boundary. Existing LIVE retirement where applicable, exact-row currentness, credential ownership, no-blind-retry policy, mutation ambiguity handling and mandatory reconciliation remain unchanged. A command ACK/request result SHALL NOT become accepted outlet state; only successful current reconciliation MAY atomically replace the exact PDU row cache.
 
@@ -23,13 +39,13 @@ Bulk ON/OFF SHALL reuse the current application-owned bulk policy and determinis
 
 PDU dashboard rendering, theme switching, hover, scrolling, resizing and power-placeholder presentation SHALL perform no network interaction.
 
-#### Scenario: Header refresh and text refresh are one lifecycle
+#### Scenario: Sole PDU text refresh uses the existing lifecycle
 
 - **GIVEN** a current expanded connected PDU row is eligible for Local Refresh
-- **WHEN** the operator activates either the header refresh icon or `Обновить статус`
+- **WHEN** the operator activates `Обновить статус`
 - **THEN** the same existing exact-row `LOCAL_REFRESH` intent/lifecycle is requested
-- **AND** neither affordance owns a separate worker/session/generation
-- **AND** the other refresh affordance follows the same active/retiring lock state
+- **AND** the control owns no separate worker/session/generation
+- **AND** it follows the existing active/retiring lock state
 
 #### Scenario: Supported Aten outlet mutation keeps mandatory reconciliation
 
@@ -61,7 +77,7 @@ The modern PDU dashboard SHALL continue to present/control only that exact PDU. 
 
 #### Scenario: Modern PDU local refresh remains PDU-only
 
-- **WHEN** either modern PDU refresh affordance completes an accepted exact-row refresh
+- **WHEN** the modern PDU `Обновить статус` control completes an accepted exact-row refresh
 - **THEN** only current PDU data/presentation is eligible to update
 - **AND** no related-codec lookup/session/status/meter lifecycle starts
 - **AND** codec data remains owned by its own exact room row

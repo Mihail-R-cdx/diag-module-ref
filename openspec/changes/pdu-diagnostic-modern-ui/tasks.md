@@ -17,13 +17,15 @@
 - [x] 2.4 Render current power as `—` for every outlet in this change. Add no worker/handler/timer/network request solely to populate power. Do not fabricate `0 Вт`.
 - [x] 2.5 Render state with explicit text plus semantic cue: ON uses green reinforcement, OFF red reinforcement, unavailable neutral `—`; never rely on color alone.
 - [x] 2.6 Render the `Действия` cell in exact order `Вкл`, `Выкл`, `Перезапуск`, with green/red/neutral semantic styling respectively.
-- [x] 2.7 Meet baseline geometry from the presentation spec: approximately `22:78` card weights, approved gaps/padding/table row ranges and five-column proportions, without hiding required controls.
-- [x] 2.8 Preserve the same geometry/order in light theme; theme switch/repaint/resize/scrolling perform no device I/O.
+- [x] 2.7 Meet baseline geometry from the presentation spec: approximately `30:70` card weights; `9:31:12:20:28` table proportions; `28-32 px` rows; `24 px` action buttons; and `4-6 px` action spacing, without hiding required controls.
+- [x] 2.8 Keep the compact top action strip in the outlet-card header row and render a font-independent lightning icon for `Управление розетками`; both remain presentation-only.
+- [x] 2.9 Render information-card values as a compact right-aligned, chrome-free value column.
+- [x] 2.10 Preserve the same geometry/order in light theme; theme switch/repaint/resize/scrolling perform no device I/O.
 
 ## 3. Refresh and mutation wiring
 
 - [x] 3.1 Wire `Обновить статус` to the existing exact-row `LOCAL_REFRESH` intent/lifecycle. It must share existing eligibility/locks/currentness/stale suppression and must not create a parallel refresh lane or generation.
-- [x] 3.2 Ensure no third generic Local Refresh control is rendered or wired for the modern PDU surface; legacy `Локальный опрос` must not coexist with the two approved aliases.
+- [x] 3.2 Ensure the legacy generic `Локальный опрос`/Local Refresh control and every PDU header refresh control are absent; `Обновить статус` remains the sole visible PDU refresh.
 - [x] 3.3 Keep supported per-outlet `Вкл` / `Выкл` / `Перезапуск` on the existing PDU controller/core operation path and existing confirmation plus `MUTATION -> RECONCILIATION` lifecycle.
 - [x] 3.4 Keep `Включить всё` / `Выключить всё` on the existing application-owned bulk operation path; do not implement bulk by driving individual Qt buttons and do not add bulk reboot.
 - [x] 3.5 For fixed controls unsupported by the exact PDU model, resolve support before room interaction admission and show a local informational popup equivalent to `Команда не поддерживается` with zero LIVE invalidation, credential selection, handler/session acquisition, mutation generation or device I/O.
@@ -31,6 +33,7 @@
 - [x] 3.7 Preserve current PCS4i capability support: refresh, individual ON/OFF and bulk ON/OFF remain real existing operations; fixed `Перезапуск` remains visible but local-only unsupported with zero device I/O.
 - [x] 3.8 Preserve existing stale/currentness, credential ownership, ambiguous-mutation blocking, mandatory reconciliation and GUI-thread isolation contracts.
 - [x] 3.9 Preserve removal of PDU-hosted related-codec enrichment; no PDU refresh/mutation may start a related-codec lookup/session/status/meter lifecycle.
+- [x] 3.10 Keep local `Отладка` absent from the modern expanded PDU dashboard and the legacy global toolbar `Отладка` control hidden, without changing non-PDU exact-row Debug behavior or network/lifecycle authority.
 
 ## 4. Regression coverage
 
@@ -48,7 +51,8 @@
 - [x] 4.12 Assert programmatic unsupported operations still fail closed before handler acquisition.
 - [x] 4.13 Assert mutation ACK/request state never directly becomes accepted outlet state; only successful current reconciliation replaces cache.
 - [x] 4.14 Assert legacy PDU related-codec enrichment remains absent after redesign.
-- [x] 4.15 Assert dark/light theme parity and header contains only the approved PDU Refresh action on the right when expanded: no kebab/overflow and no extra right collapse action.
+- [x] 4.15 Assert dark/light theme parity and that every PDU header has no action after IP: no Refresh, Power, kebab/overflow, or extra right collapse action.
+- [x] 4.16 Assert the font-independent lightning icon, chrome-free right-aligned information values, hidden legacy global `Отладка`, absent local PDU `Отладка`, and preserved non-PDU exact-row Debug behavior.
 
 ## 5. Implementation validation and publication
 

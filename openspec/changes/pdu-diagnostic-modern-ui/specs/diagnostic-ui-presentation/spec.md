@@ -71,6 +71,8 @@ Dark theme SHALL be the baseline theme. Light theme SHALL preserve the same card
 
 The dashboard SHALL be presentation/application-intent only and SHALL NOT own exact-row identity, credentials, handler/session instances, request generations, capability support, retries or accepted PDU state.
 
+`Основная информация` values SHALL render as a compact right-aligned value column without the visual chrome of separate input fields. `Управление розетками` SHALL include a font-independent lightning visual icon in its card header. The icon distinguishes the control-oriented card only; rendering it performs no device I/O and creates no device authority.
+
 #### Scenario: Current Aten row opens at baseline size
 
 - **GIVEN** a current connected `Aten PE8208AV` room row is expanded at `1440 x 900`
@@ -108,6 +110,8 @@ MAC-адрес
 ```
 
 `Модель` SHALL use the exact current row/application diagnostic model identity. `Серийный номер` SHALL use usable current exact canonical room-record `serial_number` evidence. `MAC-адрес` SHALL use usable current exact canonical room-record `mac_address` evidence. A model-neutral current PDU presentation projection MAY carry those same exact-record values, but Qt state SHALL NOT become a competing source of authority.
+
+The fixed values SHALL remain compact, right-aligned and chrome-free; they are presentation of accepted evidence, not editable input controls.
 
 If serial number or MAC address is absent/unusable, the fixed value SHALL render `—`. The GUI SHALL NOT hide a required row, copy another room record's metadata, query the PDU solely to fill the row, or infer values from display strings.
 
@@ -166,6 +170,8 @@ Every outlet `Действия` cell SHALL preserve the fixed visible control or
 
 No bulk reboot control SHALL be rendered.
 
+The modern expanded PDU dashboard SHALL NOT render a local `Отладка` control. This is a presentation-only visibility decision: it does not change PDU device capability, introduce a Debug network path, or alter exact-row Debug presentation required for another device family.
+
 #### Scenario: Eight-outlet Aten data is rendered
 
 - **GIVEN** current accepted Aten data contains outlets 1 through 8
@@ -221,7 +227,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 7. every current power cell renders `—` and the placeholder column remains visibly aligned;
 8. every action cell groups `Вкл`, `Выкл`, `Перезапуск` in order with green/red/neutral semantic treatment and no bulk reboot exists;
 9. the current expanded PDU header has no right-side action after IP, no kebab/overflow or second right-side collapse action, and the expanded presentation contains no legacy/generic `Локальный опрос` refresh affordance;
-10. light theme preserves the same card/table/control geometry, ordering and readable semantic states without device I/O.
+10. `Управление розетками` has its font-independent lightning icon, `Основная информация` values are compact/right-aligned/chrome-free, no local PDU `Отладка` is visible, and light theme preserves the same card/table/control geometry, ordering and readable semantic states without device I/O.
 
 Checkpoints 1, 2, 3, 4, 6, 8 and 9 are mandatory structural/semantic checkpoints and cannot be waived by approximate similarity. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints to meet the product target of approximately 90% visual correspondence. Font rasterization, standard-icon glyph variation and one-pixel antialiasing differences are not acceptance failures when these repository-local ranges/checkpoints are satisfied.
 
