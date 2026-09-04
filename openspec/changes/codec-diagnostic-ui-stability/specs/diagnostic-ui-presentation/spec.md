@@ -160,7 +160,7 @@ The card SHALL contain a visible `Развернуть` action anchored after th
 
 While that explicit acquisition is pending, the already accepted room-card preview MAY remain visible as preview-only evidence for its own acquisition epoch. It SHALL NOT be promoted to fresh detailed/statistics authority merely to avoid a loading state.
 
-The existing detailed call-log window and its usage-statistics presentation SHALL open/populate authoritative detailed content only from the fresh explicit acquisition result after application authority accepts that result for the same exact row/generation/currentness. If the fresh explicit acquisition becomes stale, is cancelled/superseded, or otherwise fails currentness before acceptance, it SHALL NOT populate/repopulate the detailed window, publish detailed statistics, mutate replacement presentation, or emit a current-row result for a replacement context.
+The detailed call-log window MAY open immediately in its existing loading state when the operator activates `Развернуть`, but it SHALL NOT populate authoritative call rows or usage statistics from the automatic-preview snapshot. Its authoritative detailed rows/statistics SHALL populate only from the fresh explicit acquisition result after application authority accepts that result for the same exact row/generation/currentness. If the fresh explicit acquisition becomes stale, is cancelled/superseded, or otherwise fails currentness before acceptance, it SHALL NOT populate/repopulate authoritative detailed content, publish detailed statistics, mutate replacement presentation, or emit a current-row result for a replacement context.
 
 Expanding or collapsing sections inside one already-open detailed call-log load SHALL continue to reuse that load's already accepted records and SHALL NOT start another device request solely for the section toggle.
 
@@ -179,15 +179,16 @@ The card SHALL NOT own call-log network acquisition. Automatic preview authority
 - **GIVEN** current exact row/generation has an accepted full automatic-preview snapshot
 - **WHEN** the operator activates `Развернуть`
 - **THEN** one fresh serialized exact-row call-log `AUXILIARY_READ` is started
-- **AND** the existing preview MAY remain visible while that acquisition is pending
+- **AND** the existing room-card preview MAY remain visible while that acquisition is pending
+- **AND** the detailed window MAY show only its loading state before fresh acceptance
 - **AND** the preview snapshot is not used as the detailed-load/statistics result
-- **AND** detailed content/statistics publish only from the fresh current accepted result
+- **AND** authoritative detailed content/statistics publish only from the fresh current accepted result
 
 #### Scenario: Fresh explicit opening becomes stale or cancelled
 
 - **GIVEN** a fresh explicit detailed-journal acquisition has started for row/generation A
 - **WHEN** A becomes stale, cancelled, or superseded before its result is accepted
-- **THEN** its result does not populate or repopulate the detailed window
+- **THEN** its result does not populate or repopulate authoritative detailed content
 - **AND** it publishes no detailed statistics into the replacement context
 - **AND** it does not mutate the current room-card preview for another row/generation
 
