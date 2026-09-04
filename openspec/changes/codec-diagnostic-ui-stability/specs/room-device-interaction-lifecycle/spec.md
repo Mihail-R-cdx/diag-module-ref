@@ -33,6 +33,51 @@ For another device family whose approved presentation retains Debug, the action 
 - **AND** opening it creates no device I/O, credential/session acquisition, or change to row authority
 - **AND** active live may continue because local Debug creates no network lifecycle
 
+### Requirement: Codec call-log acquisition result and explicit detail request are separate from automatic-attempt authority
+
+The existing room call-log application/controller boundary SHALL separate normalized acquisition/result ownership from the side effect of showing `CallLogWindow`. Automatic room preview and explicit detailed-journal opening SHALL use the same approved call-log capability, parser/normalizer contract, credential authority, and serialized room `AUXILIARY_READ` lane, but they SHALL remain distinct acquisition epochs/results.
+
+A current accepted automatic-preview result SHALL remain bound to its immutable exact row/generation/expansion epoch and MAY populate only the inline three-record preview plus other preview-owned presentation state approved for that automatic acquisition. It SHALL NOT become the accepted load result for a later explicit detailed-journal opening.
+
+Every eligible explicit `Развернуть` / detailed call-log opening SHALL be treated as a new operator auxiliary intent and SHALL start one fresh serialized exact-row call-log `AUXILIARY_READ` even when a current accepted full automatic-preview result already exists. The detailed child window MAY open immediately in its existing loading state, while the already accepted room-card preview MAY remain visible as preview-only evidence. The preview result SHALL NOT suppress the fresh device read and SHALL NOT populate authoritative detailed rows or usage statistics for that explicit load.
+
+Only a fresh explicit result accepted for the same current exact row/generation/currentness MAY populate authoritative detailed call rows and usage statistics for that opening. If the explicit acquisition becomes stale, cancelled, superseded, or otherwise fails currentness before acceptance, it SHALL NOT populate/repopulate authoritative detailed content, publish detailed statistics, mutate replacement presentation, or emit a current-row result for a replacement context.
+
+The explicit detail acquisition SHALL NOT clear, reuse, or reset the completed automatic-attempt marker for the current expansion epoch, and its completion SHALL NOT cause an automatic retry loop. Automatic preview remains exactly-once per eligible expansion epoch under the existing requirement; explicit openings are operator-driven fresh acquisitions and do not create another automatic attempt.
+
+The existing direct child-window close rule remains authoritative for an active explicit window-owned network request: user close invalidates/cancels that exact request, bounded cleanup follows, late callbacks cannot reopen it, and a later explicit opening starts a new fresh acquisition. A completed automatic-preview result from the same current row remains a distinct preview acquisition and SHALL NOT be confused with or substituted for the cancelled explicit child-window request.
+
+#### Scenario: Detail opens with fresh acquisition despite current preview
+
+- **GIVEN** a completed accepted automatic-preview result belongs to the current exact codec row/generation
+- **WHEN** the operator clicks `Развернуть`
+- **THEN** one fresh serialized exact-row call-log `AUXILIARY_READ` is admitted for the explicit opening
+- **AND** the room-card preview MAY remain visible while that request is pending
+- **AND** the detailed window MAY show only its loading state before fresh acceptance
+- **AND** the automatic-preview result is not promoted to authoritative detailed/statistics state
+
+#### Scenario: Fresh detail result becomes authoritative only after current acceptance
+
+- **GIVEN** one explicit detailed-journal acquisition is active for the current exact row/generation
+- **WHEN** application authority accepts its fresh normalized result while that context is still current
+- **THEN** that explicit result may populate the detailed window and usage statistics
+- **AND** the automatic-preview result remains a separate acquisition result
+
+#### Scenario: Explicit detail becomes stale or cancelled
+
+- **GIVEN** a fresh explicit detailed-journal acquisition exists for row/generation A
+- **WHEN** A loses authority or the child request is cancelled before result acceptance
+- **THEN** its late result cannot populate authoritative detailed content or statistics
+- **AND** it cannot update a replacement row/context
+- **AND** the automatic-attempt marker is not reset or retried
+
+#### Scenario: Reopening after explicit cancellation is fresh again
+
+- **GIVEN** an explicit child-window request was cancelled by close or supersession
+- **WHEN** the operator later explicitly opens the detailed journal again for an eligible current exact row
+- **THEN** a new fresh serialized call-log acquisition is required
+- **AND** neither the cancelled request nor any automatic-preview result substitutes for that new explicit load
+
 ## ADDED Requirements
 
 ### Requirement: Codec Local Refresh publishes one typed terminal outcome to presentation

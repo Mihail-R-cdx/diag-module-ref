@@ -1,5 +1,52 @@
 # device-diagnostics-and-control Delta
 
+## MODIFIED Requirements
+
+### Requirement: Room call-log preview uses one typed newest-first chronology authority
+
+Automatic inline call-log preview and the detailed call-log window SHALL use the same application-owned normalized call-history record schema, parser/normalizer semantics, chronology rules, and exact-model retrieval authority. This change SHALL NOT create a second parser/schema solely for the three-row preview or for the fresh detailed-journal load.
+
+Automatic preview and explicit detailed opening MAY nevertheless consume **different accepted `CallHistorySnapshot` instances (or equivalent typed normalized results)** because they are distinct acquisition epochs. The automatic-preview snapshot is authoritative only for the preview acquisition that produced it. Every explicit detailed-journal opening is a fresh serialized call-log acquisition and its detailed rows/statistics SHALL use only that explicit load's current accepted normalized result.
+
+The normalized result for every acquisition SHALL establish chronology before presentation. Records SHALL already be ordered newest-first using typed comparable `start_at` evidence. A record with no parseable/comparable `start_at` SHALL sort after every record with proven chronology. Ordering among equal timestamps or records lacking chronology SHALL preserve deterministic normalized acceptance/source order; presentation SHALL NOT sort localized `start_display` strings lexicographically and SHALL NOT guess missing timestamps.
+
+For an accepted automatic-preview acquisition, the room preview SHALL take the first three records of that accepted newest-first normalized result. For an accepted explicit detailed acquisition, the detailed call-log window and usage-statistics calculation SHALL consume that explicit load's normalized result under the existing call-log product contract. All five current codec call-log adapters SHALL preserve/use the same model-neutral chronology and record semantics in both acquisition types.
+
+Because preview and detailed opening are distinct acquisition epochs, their accepted datasets MAY differ when device history changes between reads. Such difference SHALL NOT be treated as parser divergence when both snapshots were independently normalized under the same chronology/schema contract. Presentation SHALL NOT force the detailed load back to the older automatic-preview snapshot merely to make both surfaces identical.
+
+If an acquisition/normalization cannot prove records, that acquisition's result is unavailable/empty rather than fabricated. Safe display timestamp text may remain present for a record whose typed chronology is unavailable, but that text SHALL NOT promote the record ahead of timestamped records or become sorting authority. A stale/cancelled/superseded acquisition result SHALL NOT become authority for another acquisition epoch or replacement row/context.
+
+#### Scenario: Preview and detailed opening use one normalization authority but separate accepted snapshots
+
+- **GIVEN** an automatic preview has accepted normalized call history for a current exact codec row
+- **WHEN** the operator later explicitly opens the detailed journal and a fresh call-log acquisition is accepted
+- **THEN** preview remains derived from the automatic-preview snapshot
+- **AND** detailed rows/statistics derive from the fresh explicit snapshot
+- **AND** both snapshots use the same application-owned record schema, exact-model normalizer, and newest-first chronology rules
+- **AND** no second GUI parser or chronology implementation exists
+
+#### Scenario: Device history changes between preview and explicit opening
+
+- **GIVEN** device call history changes after automatic preview was accepted
+- **WHEN** a later fresh explicit detailed acquisition is accepted
+- **THEN** the detailed snapshot MAY contain newer or otherwise different accepted records than the preview snapshot
+- **AND** the implementation does not overwrite the fresh detailed result with the older preview solely to force dataset identity
+- **AND** both datasets remain comparable under the same normalized semantics
+
+#### Scenario: Missing timestamp does not become newest
+
+- **GIVEN** accepted normalized call records include records with typed `start_at` and one record with only unparseable/missing chronology
+- **WHEN** ordering is established for either automatic preview or fresh detailed acquisition
+- **THEN** all records with proven timestamps are ordered newest-first ahead of the unknown-chronology record
+- **AND** no display-string sort or guessed timestamp is used
+
+#### Scenario: Stale acquisition does not cross epochs
+
+- **GIVEN** a preview or explicit detailed call-log acquisition loses exact row/generation/currentness before acceptance
+- **WHEN** its late normalized result arrives
+- **THEN** that result does not become authority for the other acquisition epoch or a replacement row/context
+- **AND** no GUI cache promotes it to current call-history state
+
 ## ADDED Requirements
 
 ### Requirement: Modern room codec speaker volume exposes accepted display percentage without replacing mutation authority
