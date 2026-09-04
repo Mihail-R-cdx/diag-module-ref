@@ -10,6 +10,14 @@ When no supported expandable row is current, Debug SHALL be unavailable. Switchi
 
 The modern expanded PDU dashboard intentionally exposes no local `Отладка` affordance. This is a presentation-visibility exception only: it does not change PDU network capability, create an alternate Debug path, authorize hidden direct commands, or alter approved exact-row Debug controls for other device families.
 
+#### Scenario: Debug opens while live is active
+
+- **GIVEN** the current exact supported non-PDU row has active live
+- **WHEN** the operator opens Debug
+- **THEN** Debug shows that exact row's local accumulated log/terminal state
+- **AND** opening Debug creates no device I/O, credential selection, or handler/session acquisition
+- **AND** live continues because opening Debug creates no device I/O
+
 #### Scenario: Modern PDU row omits local Debug
 
 - **WHEN** a current supported PDU row is expanded in the modern dashboard
