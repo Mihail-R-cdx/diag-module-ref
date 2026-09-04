@@ -949,32 +949,9 @@ class VCSDiagnosticApp(QMainWindow):
             coordinator.request_local_refresh()
 
     def _on_room_auxiliary_requested(self, _record_id, action):
-        if action == "call_log":
-            session = self.__dict__.get("room_diagnostic_session")
-            if session is not None:
-                try:
-                    row = session.row_for(_record_id)
-                except KeyError:
-                    row = None
-                snapshot = getattr(row, "call_log_snapshot", None) if row is not None else None
-                if snapshot is not None:
-                    self._show_room_call_log_snapshot(_record_id, snapshot)
-                    return
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.request_auxiliary(action)
-
-    def _show_room_call_log_snapshot(self, record_id, snapshot):
-        """Open a detailed view from accepted exact-row data without I/O."""
-        window = CallLogWindow(self, self.colors)
-        window.set_snapshot(snapshot)
-        self._room_accepted_call_log_windows[record_id] = window
-        window.finished.connect(
-            lambda _result, key=record_id: self._room_accepted_call_log_windows.pop(key, None)
-        )
-        window.show()
-        window.raise_()
-        window.activateWindow()
 
     def _on_room_codec_control_requested(self, record_id, operation, value):
         """Resolve fixed codec affordances before coordinator admission.
@@ -1768,6 +1745,7 @@ class VCSDiagnosticApp(QMainWindow):
             window.show()
             window.raise_()
             window.activateWindow()
+        self.__dict__.setdefault("_room_call_log_actions", {})[context] = action
         candidates = self._room_credential_candidates(
             context.diagnostic_model, context.ip_address
         )
@@ -1792,6 +1770,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _on_room_call_log_window_closed(self, context):
         self._room_call_log_windows.pop(context, None)
+        self.__dict__.setdefault("_room_call_log_actions", {}).pop(context, None)
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.child_window_closed(context)
@@ -1810,11 +1789,12 @@ class VCSDiagnosticApp(QMainWindow):
             window.status_label.setText(warning or "Не удалось загрузить журнал звонков")
         coordinator = self.__dict__.get("room_interaction_coordinator")
         accepted_current = coordinator is not None and coordinator.active_context == context
-        if success and accepted_current:
+        action = self.__dict__.setdefault("_room_call_log_actions", {}).pop(context, None)
+        if success and accepted_current and action == "call_log_preview":
             session = self.__dict__.get("room_diagnostic_session")
             if session is not None:
                 try:
-                    session.row_for(context.record_id).call_log_snapshot = data
+                    session.row_for(context.record_id).call_log_preview_snapshot = data
                 except KeyError:
                     pass
         if coordinator is not None:
@@ -1838,6 +1818,7 @@ class VCSDiagnosticApp(QMainWindow):
                 )
 
     def _on_room_call_log_cleanup_finished(self, context, timed_out):
+        self.__dict__.setdefault("_room_call_log_actions", {}).pop(context, None)
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.cleanup_finished(context, timed_out=timed_out)

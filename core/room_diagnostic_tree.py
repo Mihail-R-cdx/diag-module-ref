@@ -113,6 +113,8 @@ class DeviceRowState:
     unconfirmed_after_command: bool = False
     last_safe_operation_error: str | None = None
     call_activity: CallActivity = CallActivity.UNKNOWN
+    # Automatic preview is distinct from an explicit detailed-journal load.
+    call_log_preview_snapshot: Any | None = None
     # Canonical room-record evidence projected by the room UI.  It is kept
     # alongside the exact row identity rather than fetched from a device.
     serial_number: str | None = None

@@ -99,6 +99,7 @@ class RoomInteractionCoordinator:
         self._active: RoomInteractionContext | None = None
         self._pending_live_record_id: str | None = None
         self._pending_operation: tuple[RoomInteractionKind, str | None, Any] | None = None
+        self._pending_codec_preview = False
         self._pending_global_refresh: Callable[[], None] | None = None
         self._expanded_record_id: str | None = None
         self._codec_preview_epochs: dict[str, int] = {}
@@ -168,6 +169,7 @@ class RoomInteractionCoordinator:
         self._expanded_record_id = None
         self._codec_preview_epochs.clear()
         self._codec_preview_attempts.clear()
+        self._pending_codec_preview = False
 
     def cycle_finished(self, session: RoomDiagnosticSession) -> None:
         if session is not self._session or session.invalidated:
@@ -196,6 +198,7 @@ class RoomInteractionCoordinator:
         self._expanded_record_id = None
         self._pending_live_record_id = None
         self._pending_operation = None
+        self._pending_codec_preview = False
         if self._active is not None and self._active.record_id == record_id:
             self._retire_active()
         self._notify()
@@ -337,6 +340,8 @@ class RoomInteractionCoordinator:
         if pending is not None:
             kind, action, command = pending
             self._start_user_operation(kind, action=action, command=command)
+        elif self._pending_codec_preview:
+            self._start_user_operation(RoomInteractionKind.AUXILIARY_READ, action="call_log_preview")
         else:
             self._start_eligible_live()
         self._notify()
@@ -365,6 +370,7 @@ class RoomInteractionCoordinator:
         self._active = None
         self._pending_live_record_id = None
         self._pending_operation = None
+        self._pending_codec_preview = False
         self._pending_global_refresh = None
         if active is not None:
             binding = self._binding_for_context(active)
@@ -386,8 +392,14 @@ class RoomInteractionCoordinator:
             if self._active.kind is RoomInteractionKind.LIVE:
                 self._pending_live_record_id = None
                 self._pending_operation = (kind, action, command)
+                if kind is RoomInteractionKind.AUXILIARY_READ and action == "call_log_preview":
+                    self._pending_codec_preview = True
                 self._retire_active()
                 # No user operation may acquire resources before cleanup.
+            elif kind is RoomInteractionKind.AUXILIARY_READ and action == "call_log_preview":
+                # A mandatory automatic preview remains application-owned
+                # pending work while another serialized operation owns the lane.
+                self._pending_codec_preview = True
             return None
         context = self._new_context(row, kind)
         binding = self._binding_for(row)
@@ -399,6 +411,8 @@ class RoomInteractionCoordinator:
         if callback is None:
             return None
         self._active = context
+        if kind is RoomInteractionKind.AUXILIARY_READ and action == "call_log_preview":
+            self._pending_codec_preview = False
         row.interaction_state = RoomInteractionState.ACTIVE
         row.network_actions_enabled = False
         self._notify()
@@ -494,7 +508,15 @@ class RoomInteractionCoordinator:
             row.live_state = RoomLiveState.INACTIVE
             if not row.interaction_blocked:
                 row.network_actions_enabled = True
-        self._start_eligible_live()
+        pending = self._pending_operation
+        self._pending_operation = None
+        if pending is not None:
+            kind, action, command = pending
+            self._start_user_operation(kind, action=action, command=command)
+        elif self._pending_codec_preview:
+            self._start_user_operation(RoomInteractionKind.AUXILIARY_READ, action="call_log_preview")
+        else:
+            self._start_eligible_live()
         self._notify()
 
     def _replace_kind(self, context: RoomInteractionContext, kind: RoomInteractionKind) -> RoomInteractionContext:

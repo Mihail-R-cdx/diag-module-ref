@@ -205,6 +205,19 @@ class CodecCallHistoryTests(unittest.TestCase):
         self.assertEqual(now - timedelta(minutes=99), snapshot.records[-1].start_at)
         self.assertEqual(TerminationReason.PRODUCT_LIMIT_REACHED, snapshot.termination_reason)
 
+    def test_unknown_chronology_follows_proven_timestamps_in_source_order(self):
+        now = datetime(2026, 6, 30, 12)
+        snapshot = snapshot_from_records([
+            CallRecord("unknown-first", None, 60),
+            CallRecord("older", now - timedelta(hours=2), 60),
+            CallRecord("newer", now - timedelta(hours=1), 60),
+            CallRecord("unknown-second", None, 60),
+        ], reference_now=now, source_ended=True)
+        self.assertEqual(
+            ("newer", "older", "unknown-first", "unknown-second"),
+            tuple(record.source_identity for record in snapshot.records),
+        )
+
     def test_explicit_datetime_is_not_device_time_without_device_authority(self):
         snapshot = snapshot_from_records(
             [], reference_now=datetime(2026, 6, 10, 12), source_ended=True,

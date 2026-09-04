@@ -27,6 +27,14 @@ class TerminationReason(str, Enum):
     OPERATIONAL_FAILURE = "operational_failure"
 
 
+class CallDirection(str, Enum):
+    """Normalized, presentation-independent call direction evidence."""
+
+    INCOMING = "INCOMING"
+    OUTGOING = "OUTGOING"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class CallRecord:
     source_identity: Optional[str]
@@ -37,7 +45,13 @@ class CallRecord:
     speed: str = ""
     start_display: str = ""
     duration_display: str = ""
-    direction: str = "unknown"
+    direction: CallDirection = CallDirection.UNKNOWN
+
+    def __post_init__(self) -> None:
+        # Keep old adapters/test fixtures source-compatible while making every
+        # published normalized record carry the typed direction contract.
+        if not isinstance(self.direction, CallDirection):
+            object.__setattr__(self, "direction", normalize_call_direction(self.direction))
 
     @property
     def has_usable_duration(self) -> bool:
@@ -114,16 +128,18 @@ def format_duration(seconds: Optional[int], active: bool = False) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-def normalize_call_direction(value: Any) -> str:
+def normalize_call_direction(value: Any) -> CallDirection:
     """Normalize only explicit vendor direction evidence for presentation."""
+    if isinstance(value, CallDirection):
+        return value
     if value is None:
-        return "unknown"
+        return CallDirection.UNKNOWN
     text = str(value).strip().casefold()
     if text in {"outgoing", "outbound", "dialed", "placed", "исходящий"}:
-        return "outgoing"
+        return CallDirection.OUTGOING
     if text in {"incoming", "inbound", "received", "входящий"}:
-        return "incoming"
-    return "unknown"
+        return CallDirection.INCOMING
+    return CallDirection.UNKNOWN
 
 
 def record_from_vendor(

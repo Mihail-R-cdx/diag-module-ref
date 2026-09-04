@@ -17,6 +17,7 @@ from .components import ParameterRow, SectionCard, SemanticButton, StatusIndicat
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession
 from core.room_interaction import RoomInteractionKind
 from core.call_activity import CallActivity
+from core.codec_call_history import CallDirection
 from .diagnostic_dispatch import CodecMuteState, dispatch_entry_for_model, normalize_codec_audio_projection, normalize_codec_call_projection
 
 
@@ -1077,7 +1078,7 @@ class RoomReadOnlyPresentation(QWidget):
         use_matrix_dashboard = screen_key == "matrix"
         audio_actions = []
         refresh_button = None
-        if screen_key != "pdu":
+        if screen_key not in {"pdu", "codec"}:
             refresh_button = QPushButton("Локальный опрос", self)
             refresh_button.setObjectName("roomLocalRefreshButton")
             refresh_button.setEnabled(
@@ -1094,7 +1095,7 @@ class RoomReadOnlyPresentation(QWidget):
             audio_actions.append(refresh_button)
         elif refresh_button is not None and not use_matrix_dashboard and not is_codec_dashboard:
             layout.addWidget(refresh_button)
-        if screen_key != "pdu":
+        if screen_key not in {"pdu", "codec"}:
             debug_button = QPushButton("Отладка", self)
             debug_button.setObjectName("roomLocalDebugButton")
             debug_button.setEnabled(
@@ -1212,7 +1213,6 @@ class RoomReadOnlyPresentation(QWidget):
             ("Модель", ("model", "Модель", "Модель кодеков"), False),
             ("MAC-адрес", ("mac_address", "mac", "MAC адрес", "MAC-адрес"), False),
             ("Серийный номер", ("serial_number", "serial", "Серийный номер"), False),
-            ("Платформа", ("platform", "Платформа"), False),
             ("Версия ПО", ("firmware", "Версия ПО", "software_version"), False, "multiline"),
             ("Микрофон", ("microphone_status", "mic_mute", "microphone_mute_state"), False),
             ("Камера", ("camera_status", "camera_mute", "camera_mute_state"), False),
@@ -1230,15 +1230,23 @@ class RoomReadOnlyPresentation(QWidget):
         meter_label = QLabel("Микрофон (уровень)", audio)
         meter_label.setObjectName("roomCodecMicrophoneLevelLabel")
         audio.body_layout.addWidget(meter_label)
-        meter = QProgressBar(audio)
-        meter.setObjectName("roomCodecMicrophoneMeter")
-        meter.setRange(0, 100)
-        meter.setTextVisible(False)
-        meter.setFixedHeight(10)
-        level = self._codec_microphone_level(source)
-        meter.setProperty("meterState", "available" if level is not None else "unavailable")
-        meter.setValue(level or 0)
-        audio.body_layout.addWidget(meter)
+        meter_supported = self._codec_microphone_meter_supported(row.diagnostic_model)
+        meter_state = QLabel("", audio)
+        meter_state.setObjectName("roomCodecMicrophoneMeterState")
+        if meter_supported:
+            meter = QProgressBar(audio)
+            meter.setObjectName("roomCodecMicrophoneMeter")
+            meter.setRange(0, 100)
+            meter.setTextVisible(False)
+            meter.setFixedHeight(10)
+            level = self._codec_microphone_level(source)
+            meter.setProperty("meterState", "available" if level is not None else "unavailable")
+            meter.setValue(level or 0)
+            meter_state.setText("" if level is not None else missing)
+            audio.body_layout.addWidget(meter)
+        else:
+            meter_state.setText("Не поддерживается")
+        audio.body_layout.addWidget(meter_state)
         audio.body_layout.addSpacing(8)
         controls_enabled = (
             row.status is DeviceRowStatus.CONNECTED
@@ -1252,11 +1260,10 @@ class RoomReadOnlyPresentation(QWidget):
         self._codec_audio_row(audio, "Громкость динамиков", projection.speaker_volume,
             projection.speaker_mute_state, "speaker_adjust", "speaker_mute",
             request_codec_control, controls_enabled,
-            display_value=self._codec_volume_text(projection.speaker_volume, row.diagnostic_model),
-            meter_percentage=self._codec_volume_percentage(projection.speaker_volume, row.diagnostic_model))
+            display_value=self._codec_volume_text(projection.speaker_volume_percent))
         audio.body_layout.addStretch(1)
 
-        snapshot = getattr(row, "call_log_snapshot", None)
+        snapshot = getattr(row, "call_log_preview_snapshot", None)
         records = tuple(getattr(snapshot, "records", ()) or ())[:3]
         if not records:
             empty = QLabel(missing, history)
@@ -1295,12 +1302,11 @@ class RoomReadOnlyPresentation(QWidget):
             history.body_layout.addWidget(entry)
         expand = QPushButton("Развернуть", history)
         expand.setObjectName("roomCallLogButton")
-        expand.setFixedWidth(91)
         expand.setMinimumHeight(34)
         expand.setEnabled(bool(request_auxiliary) and auxiliary_allowed and controls_enabled)
         if request_auxiliary is not None:
             expand.clicked.connect(lambda: request_auxiliary("call_log"))
-        history.header_widget.layout().addWidget(expand)
+        history.body_layout.addWidget(expand)
         history.body_layout.addStretch(1)
 
         refresh = QPushButton("Обновить статус", actions)
@@ -1338,23 +1344,12 @@ class RoomReadOnlyPresentation(QWidget):
         return max(0, min(100, round(raw * 100)))
 
     @staticmethod
-    def _codec_volume_percentage(volume: Any, model: str | None = None) -> int | None:
-        """Render a numeric speaker setting as a percentage without changing it."""
-        if not isinstance(volume, Real) or isinstance(volume, bool) or not isfinite(volume):
-            return None
+    def _codec_microphone_meter_supported(model: str | None) -> bool:
         entry = dispatch_entry_for_model(model)
-        controls = entry.codec_controls if entry is not None else None
-        if controls is not None and controls.speaker_minimum is not None and controls.speaker_maximum is not None:
-            span = controls.speaker_maximum - controls.speaker_minimum
-            if span > 0:
-                return max(0, min(100, round((volume - controls.speaker_minimum) * 100 / span)))
-        if 0 <= volume <= 100:
-            return round(volume)
-        return None
+        return bool(entry is not None and entry.live_binding_key == "cloudlink_room_live")
 
     @classmethod
-    def _codec_volume_text(cls, volume: Any, model: str | None = None) -> str:
-        percentage = cls._codec_volume_percentage(volume, model)
+    def _codec_volume_text(cls, percentage: int | None) -> str:
         return f"{percentage}%" if percentage is not None else "Нет данных"
 
     @staticmethod
@@ -1385,8 +1380,12 @@ class RoomReadOnlyPresentation(QWidget):
 
     @staticmethod
     def _codec_call_direction(record: Any) -> str:
-        direction = str(getattr(record, "direction", "unknown") or "unknown").casefold()
-        return direction if direction in {"outgoing", "incoming"} else "unknown"
+        direction = getattr(record, "direction", CallDirection.UNKNOWN)
+        if direction is CallDirection.INCOMING:
+            return "incoming"
+        if direction is CallDirection.OUTGOING:
+            return "outgoing"
+        return "unknown"
 
     @staticmethod
     def _codec_call_direction_icon(direction: str) -> str:
@@ -1395,9 +1394,9 @@ class RoomReadOnlyPresentation(QWidget):
     @staticmethod
     def _codec_call_direction_title(direction: str) -> str:
         return {
-            "outgoing": "Исходящий вызов",
-            "incoming": "Входящий вызов",
-        }.get(direction, "Вызов")
+            "outgoing": "Исходящий",
+            "incoming": "Входящий",
+        }.get(direction, "Направление неизвестно")
 
     def _codec_data_rows(self, card, source, rows, missing) -> None:
         for row_spec in rows:
@@ -1447,7 +1446,7 @@ class RoomReadOnlyPresentation(QWidget):
 
     def _codec_audio_row(
         self, card, title, volume, mute_state, adjust_operation, mute_operation, callback, enabled,
-        *, display_value: str, meter_percentage: int | None = None,
+        *, display_value: str,
     ) -> None:
         row = QWidget(card)
         row.setObjectName(f"roomCodec{adjust_operation.title().replace('_', '')}Row")
@@ -1456,15 +1455,6 @@ class RoomReadOnlyPresentation(QWidget):
         block.setSpacing(4)
         label = QLabel(title, row)
         label.setObjectName("roomCodecAudioLabel")
-        speaker_meter = None
-        if meter_percentage is not None or adjust_operation == "speaker_adjust":
-            speaker_meter = QProgressBar(row)
-            speaker_meter.setObjectName("roomCodecSpeakerMeter")
-            speaker_meter.setRange(0, 100)
-            speaker_meter.setTextVisible(False)
-            speaker_meter.setFixedHeight(8)
-            speaker_meter.setProperty("meterState", "available" if meter_percentage is not None else "unavailable")
-            speaker_meter.setValue(meter_percentage or 0)
         line = QHBoxLayout()
         line.setContentsMargins(0, 0, 0, 0)
         line.setSpacing(5)
@@ -1494,8 +1484,6 @@ class RoomReadOnlyPresentation(QWidget):
         line.addWidget(mute)
         line.addStretch(1)
         block.addWidget(label)
-        if speaker_meter is not None:
-            block.addWidget(speaker_meter)
         block.addLayout(line)
         card.body_layout.addWidget(row)
 
