@@ -141,6 +141,63 @@ Supported clicks SHALL publish only safe typed exact-row intents to application 
 - **AND** no room network interaction is started
 - **AND** current LIVE, cache and row authority remain unchanged
 
+### Requirement: Codec call-log card uses normalized newest-first order and reserves three-row preview density
+
+The `Журнал вызовов` card SHALL render at most the first three records from the current accepted normalized newest-first automatic-preview call-log result defined by `device-diagnostics-and-control`. Presentation SHALL NOT re-sort localized timestamp/display strings or manufacture chronology.
+
+At baseline the preview region SHALL reserve visual capacity for three compact records so card height does not change merely because one or two calls are present. Each rendered record row SHALL target `52-64 px` height and contain:
+
+```text
+direction/non-color cue        18-22 px visual target
+peer/number/display identity   primary line, 10-11 pt
+safe timestamp                 secondary line, 9-10 pt
+row separator                  subtle shared-theme divider except after last visible row
+```
+
+Missing peer or timestamp subfields SHALL render `Нет данных` in that subfield. If zero current accepted automatic-preview records are available, the preview region SHALL display one clear `Нет данных` empty state rather than three fabricated empty records.
+
+The card SHALL contain a visible `Развернуть` action anchored after the preview region, with target height `34-40 px` and full/near-full card-body width. Every explicit activation of `Развернуть` for an eligible current exact row SHALL start a fresh serialized exact-row call-log `AUXILIARY_READ`, even when the card already has a current accepted full automatic-preview snapshot. The accepted automatic-preview snapshot SHALL NOT be treated as the detailed-window load result and SHALL NOT suppress the fresh device read.
+
+While that explicit acquisition is pending, the already accepted room-card preview MAY remain visible as preview-only evidence for its own acquisition epoch. It SHALL NOT be promoted to fresh detailed/statistics authority merely to avoid a loading state.
+
+The existing detailed call-log window and its usage-statistics presentation SHALL open/populate authoritative detailed content only from the fresh explicit acquisition result after application authority accepts that result for the same exact row/generation/currentness. If the fresh explicit acquisition becomes stale, is cancelled/superseded, or otherwise fails currentness before acceptance, it SHALL NOT populate/repopulate the detailed window, publish detailed statistics, mutate replacement presentation, or emit a current-row result for a replacement context.
+
+Expanding or collapsing sections inside one already-open detailed call-log load SHALL continue to reuse that load's already accepted records and SHALL NOT start another device request solely for the section toggle.
+
+The card SHALL NOT own call-log network acquisition. Automatic preview authority, explicit auxiliary-read admission, expansion epochs, cancellation, LIVE handoff, duplicate suppression, stale-result/currentness authority, and serialized lane ownership are defined by `room-device-interaction-lifecycle` and `codec-call-log-usage-statistics`.
+
+#### Scenario: More than three automatic-preview records are accepted
+
+- **GIVEN** current accepted automatic-preview call-log data contains more than three records in normalized newest-first order
+- **WHEN** the preview card renders
+- **THEN** exactly the first three normalized records are shown
+- **AND** presentation performs no second chronology sort
+- **AND** `Развернуть` remains available for a fresh explicit detailed-journal load
+
+#### Scenario: Existing preview does not replace fresh explicit opening
+
+- **GIVEN** current exact row/generation has an accepted full automatic-preview snapshot
+- **WHEN** the operator activates `Развернуть`
+- **THEN** one fresh serialized exact-row call-log `AUXILIARY_READ` is started
+- **AND** the existing preview MAY remain visible while that acquisition is pending
+- **AND** the preview snapshot is not used as the detailed-load/statistics result
+- **AND** detailed content/statistics publish only from the fresh current accepted result
+
+#### Scenario: Fresh explicit opening becomes stale or cancelled
+
+- **GIVEN** a fresh explicit detailed-journal acquisition has started for row/generation A
+- **WHEN** A becomes stale, cancelled, or superseded before its result is accepted
+- **THEN** its result does not populate or repopulate the detailed window
+- **AND** it publishes no detailed statistics into the replacement context
+- **AND** it does not mutate the current room-card preview for another row/generation
+
+#### Scenario: Call log has no accepted automatic-preview data
+
+- **WHEN** the current exact codec has no accepted automatic-preview records
+- **THEN** the preview region displays `Нет данных`
+- **AND** the `Развернуть` action remains present
+- **AND** activating `Развернуть` still starts the same fresh serialized exact-row call-log acquisition
+
 ## ADDED Requirements
 
 ### Requirement: Codec call-history direction cue maps typed direction to the correct visible semantic role
