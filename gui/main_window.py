@@ -415,6 +415,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.room_diagnostic_tree.pduMutationRequested.connect(
             self._on_room_pdu_mutation_requested
         )
+        self.room_diagnostic_tree.pduBulkMutationRequested.connect(
+            self._on_room_pdu_bulk_mutation_requested
+        )
         self.room_diagnostic_tree.matrixRouteRequested.connect(
             self._on_room_matrix_route_requested
         )
@@ -494,8 +497,7 @@ class VCSDiagnosticApp(QMainWindow):
         main_layout.addWidget(top_panel)
         self.setTabOrder(self.ip_entry, self.password_btn)
         self.setTabOrder(self.password_btn, self.refresh_btn)
-        self.setTabOrder(self.refresh_btn, self.debug_btn)
-        self.setTabOrder(self.debug_btn, self.theme_btn)
+        self.setTabOrder(self.refresh_btn, self.theme_btn)
         
         # 2. Создаем контейнер для экранов
         self.screen_container = QStackedWidget()
@@ -626,6 +628,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.debug_btn.setObjectName("debugButton")
         self.debug_btn.setProperty("uiRole", "secondary")
         self.debug_btn.clicked.connect(self.show_debug_window)
+        # Legacy global debug remains available to its existing internal owner,
+        # but is not a room/operator control beside a codec address.
+        self.debug_btn.hide()
         self.theme_btn = QPushButton("☀")
         self.theme_btn.setObjectName("themeToggleButton")
         self.theme_btn.setProperty("uiRole", "secondary")
@@ -1032,9 +1037,46 @@ class VCSDiagnosticApp(QMainWindow):
             }
         return None
 
-    def _on_room_pdu_mutation_requested(self, _record_id, outlet_number, command):
+    def _current_room_pdu_action(self, record_id):
+        """Return current exact-row PDU authority without consulting widgets."""
+        session = self.__dict__.get("room_diagnostic_session")
         coordinator = self.__dict__.get("room_interaction_coordinator")
-        if coordinator is None:
+        if session is None or coordinator is None or session.expanded_record_id != record_id:
+            return None, None
+        try:
+            row = session.row_for(record_id)
+        except KeyError:
+            return None, None
+        if (
+            not coordinator.is_bound_session(session)
+            or row.diagnostic_model not in PDU_DEVICE_NAMES
+            or row.status is not DeviceRowStatus.CONNECTED
+            or row.stale
+            or row.interaction_blocked
+            or not row.network_actions_enabled
+        ):
+            return None, None
+        return session, row
+
+    @staticmethod
+    def _show_unsupported_room_pdu_operation():
+        QMessageBox.information(
+            None,
+            "Операция недоступна",
+            "Команда не поддерживается",
+        )
+
+    def _on_room_pdu_mutation_requested(self, record_id, outlet_number, command):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        session, row = self._current_room_pdu_action(record_id)
+        if coordinator is None or session is None or row is None:
+            return
+        try:
+            ensure_pdu_operation_supported(row.diagnostic_model, command)
+        except Exception:
+            # Fixed shared controls must reject unsupported capabilities before
+            # coordinator admission, credential selection, or handler creation.
+            self._show_unsupported_room_pdu_operation()
             return
         labels = {
             "on": "включить",
@@ -1051,9 +1093,47 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if decision == QMessageBox.Yes:
+        current_session, current_row = self._current_room_pdu_action(record_id)
+        if decision == QMessageBox.Yes and current_session is session and current_row is row:
             coordinator.confirm_mutation(
-                {"outlet_number": outlet_number, "operation": command}
+                {"outlet_number": outlet_number, "operation": command},
+                expected_session_identity=session.identity,
+                expected_record_id=record_id,
+                expected_row_token=row.operation_token,
+            )
+
+    def _on_room_pdu_bulk_mutation_requested(self, record_id, command):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        session, row = self._current_room_pdu_action(record_id)
+        if coordinator is None or session is None or row is None:
+            return
+        operation = {"on": BULK_COMMAND_ON, "off": BULK_COMMAND_OFF}.get(command)
+        if operation is None:
+            return
+        try:
+            ensure_pdu_operation_supported(row.diagnostic_model, operation)
+            snapshot = row.accepted_snapshot if isinstance(row.accepted_snapshot, Mapping) else {}
+            outlet_sequence = build_pdu_bulk_outlet_sequence(
+                row.diagnostic_model, snapshot.get("outlets", ())
+            )
+        except Exception:
+            self._show_unsupported_room_pdu_operation()
+            return
+        label = "включить" if command == "on" else "выключить"
+        decision = QMessageBox.question(
+            self,
+            "Подтверждение команды PDU",
+            f"Подтвердите: {label} все розетки по очереди.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        current_session, current_row = self._current_room_pdu_action(record_id)
+        if decision == QMessageBox.Yes and current_session is session and current_row is row:
+            coordinator.confirm_mutation(
+                {"operation": operation, "outlet_sequence": outlet_sequence},
+                expected_session_identity=session.identity,
+                expected_record_id=record_id,
+                expected_row_token=row.operation_token,
             )
 
     def _on_room_matrix_route_requested(self, record_id, output_num, input_num):

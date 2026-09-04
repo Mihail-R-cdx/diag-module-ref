@@ -7,7 +7,12 @@ import threading
 from PyQt5.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal
 
 from core.exceptions import AuthenticationError
-from core.pdu import PDUOperationDescriptor, execute_pdu_command
+from core.pdu import (
+    PDUOperationDescriptor,
+    execute_pdu_bulk,
+    execute_pdu_command,
+    is_pdu_bulk_operation,
+)
 from handlers.extron.in1804 import ExtronIN1804Handler
 from core.room_interaction import RoomInteractionContext
 from core.room_diagnostic_tree import (
@@ -229,16 +234,35 @@ class RoomDiagnosticController(QObject):
             self.pduMutationFinished.emit(context, False, None, True, "Некорректная команда PDU")
             return
         try:
-            outlet_number = int(command["outlet_number"])
             operation = str(command["operation"])
             entry = dispatch_entry_for_model(context.diagnostic_model)
             if entry is None or entry.mutation_binding_key != "room_pdu_mutation":
                 raise ValueError("PDU mutation is unavailable")
             if credential is None:
                 raise ValueError("Credentials не настроены")
-            descriptor = PDUOperationDescriptor(context.row_operation_token, context.room_generation, context.diagnostic_model, context.ip_address, operation, outlet_number=outlet_number, credential_index=(None if not credential else candidate_index))
+            outlet_number = None
+            outlet_sequence = ()
+            if is_pdu_bulk_operation(operation):
+                outlet_sequence = tuple(command.get("outlet_sequence") or ())
+            else:
+                outlet_number = int(command["outlet_number"])
+            descriptor = PDUOperationDescriptor(
+                context.row_operation_token,
+                context.room_generation,
+                context.diagnostic_model,
+                context.ip_address,
+                operation,
+                outlet_number=outlet_number,
+                credential_index=(None if not credential else candidate_index),
+                outlet_sequence=outlet_sequence,
+            )
             try:
-                result = execute_pdu_command(descriptor=descriptor, credentials=credential, is_current=lambda _descriptor: not cancelled.is_set())
+                execute = execute_pdu_bulk if is_pdu_bulk_operation(operation) else execute_pdu_command
+                result = execute(
+                    descriptor=descriptor,
+                    credentials=credential,
+                    is_current=lambda _descriptor: not cancelled.is_set(),
+                )
             except AuthenticationError:
                 self.pduMutationFinished.emit(context, False, RoomAuthenticationRejected(candidate_index), False, None)
                 return

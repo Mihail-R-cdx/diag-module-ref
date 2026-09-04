@@ -113,6 +113,10 @@ class DeviceRowState:
     unconfirmed_after_command: bool = False
     last_safe_operation_error: str | None = None
     call_activity: CallActivity = CallActivity.UNKNOWN
+    # Canonical room-record evidence projected by the room UI.  It is kept
+    # alongside the exact row identity rather than fetched from a device.
+    serial_number: str | None = None
+    mac_address: str | None = None
 
     @property
     def eligible(self) -> bool:
@@ -304,7 +308,16 @@ def _row_state(record: EquipmentRecord, capability: RoomModelCapability | None, 
         status = DeviceRowStatus.AMBIGUOUS_IP
     else:
         status = DeviceRowStatus.WAITING
-    return DeviceRowState(record.record_id, record.diagnostic_model, record.ip_address, record.source_model, status, capability)
+    return DeviceRowState(
+        record.record_id,
+        record.diagnostic_model,
+        record.ip_address,
+        record.source_model,
+        status,
+        capability,
+        serial_number=record.serial_number,
+        mac_address=record.mac_address,
+    )
 
 
 class RoomDiagnosticOrchestrator:

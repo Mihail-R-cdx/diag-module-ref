@@ -139,6 +139,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
         self.assertEqual("primary", self.window.refresh_btn.property("uiRole"))
         self.assertEqual("secondary", self.window.password_btn.property("uiRole"))
         self.assertEqual("secondary", self.window.debug_btn.property("uiRole"))
+        self.assertFalse(self.window.debug_btn.isVisible())
         self.assertEqual("card", self.window.placeholder_widget.property("uiRole"))
         self.assertEqual("screenContainer", self.window.screen_container.objectName())
         self.assertEqual("inactive", self.window.connection_indicator.property("status"))
@@ -160,7 +161,6 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
             self.window.ip_entry,
             self.window.password_btn,
             self.window.refresh_btn,
-            self.window.debug_btn,
             self.window.theme_btn,
         )
         for control in controls:
@@ -185,7 +185,6 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
             self.window.ip_entry,
             self.window.password_btn,
             self.window.refresh_btn,
-            self.window.debug_btn,
             self.window.theme_btn,
         )
         before_geometry = tuple((control.objectName(), control.geometry()) for control in controls)
@@ -285,7 +284,6 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
                     self.window.ip_entry,
                     self.window.password_btn,
                     self.window.refresh_btn,
-                    self.window.debug_btn,
                 )
                 for index, left_control in enumerate(controls):
                     self.assertGreater(left_control.width(), 0)
@@ -335,7 +333,7 @@ class ThemeOffscreenSmokeTest(unittest.TestCase):
             focus_next = focus_next.nextInFocusChain()
         self.assertIs(self.window.password_btn, focus_next)
         self.assertIs(self.window.refresh_btn, self.window.password_btn.nextInFocusChain())
-        self.assertIs(self.window.debug_btn, self.window.refresh_btn.nextInFocusChain())
+        self.assertIs(self.window.theme_btn, self.window.refresh_btn.nextInFocusChain())
 
 
 if __name__ == "__main__":

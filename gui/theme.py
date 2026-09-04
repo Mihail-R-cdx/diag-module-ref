@@ -347,6 +347,11 @@ def build_stylesheet() -> str:
         QLineEdit[uiRole="valueDisplay"] {{
             background-color: {c["surface_raised"]};
         }}
+        QLineEdit[pduInfoValue="true"] {{
+            background-color: transparent;
+            border: none;
+            padding: 0;
+        }}
         QLineEdit[toolbarControl="true"],
         QPushButton[toolbarControl="true"] {{
             min-height: {s["toolbar_control_min_height"]}px;
@@ -430,6 +435,20 @@ def build_stylesheet() -> str:
             border-bottom: 1px solid {c["border"]};
             padding: 8px;
             font-weight: {t["weight_semibold"]};
+        }}
+        QTableWidget#roomPduOutlets {{
+            font-size: {t["body"] - 2}pt;
+        }}
+        QTableWidget#roomPduOutlets QHeaderView::section {{
+            font-size: {t["body"] - 2}pt;
+            padding: 5px 6px;
+        }}
+        QWidget#roomPduTopActions QPushButton,
+        QWidget#roomPduOutletActions QPushButton {{
+            font-size: {t["body"] - 2}pt;
+            min-height: 24px;
+            max-height: 24px;
+            padding: 1px 7px;
         }}
         QLabel#roomName {{
             color: {c["text_primary"]};

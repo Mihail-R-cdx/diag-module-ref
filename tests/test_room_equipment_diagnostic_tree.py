@@ -1161,8 +1161,12 @@ class RoomGuiCompositionTests(unittest.TestCase):
         )
         self.addCleanup(presentation.deleteLater)
         table = presentation.findChild(QTableWidget, "roomPduOutlets")
-        self.assertEqual(6, table.columnCount())
-        table.cellWidget(0, 3).click()
+        self.assertEqual(5, table.columnCount())
+        self.assertEqual(
+            ["Розетка", "Имя розетки", "Состояние", "Текущая мощность", "Действия"],
+            [table.horizontalHeaderItem(index).text() for index in range(table.columnCount())],
+        )
+        table.cellWidget(0, 4).findChild(QPushButton, "roomPduOnButton").clicked.emit()
         self.assertEqual([(1, "on")], intents)
 
     def test_matrix_presentation_handles_empty_real_parser_signal_status(self):
