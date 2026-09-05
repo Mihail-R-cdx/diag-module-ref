@@ -28,8 +28,8 @@ except ImportError:  # pragma: no cover
     QApplication = None
 
 
-def record(record_id, *, room_id, name, address=None, ip=None, port=None, switch=None, model="Huawei TE40"):
-    return EquipmentRecord(record_id, model, model, ip, None, None, room_id, name, "video_codec", None, address, switch, port)
+def record(record_id, *, room_id, name, address=None, ip=None, port=None, switch=None, model="Huawei TE40", vip=None):
+    return EquipmentRecord(record_id, model, model, ip, None, None, room_id, name, "video_codec", vip, address, switch, port)
 
 
 def inventory(*records):
@@ -221,7 +221,6 @@ class RoomPresentationTests(unittest.TestCase):
         )
         caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter", call_activity_binding_key="huawei_call_activity")}
         session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
-        session.room_vip = True
         session.rows[0].call_activity = CallActivity.ACTIVE
         widget = RoomDiagnosticTreeWidget()
         self.addCleanup(widget.deleteLater)
@@ -234,9 +233,6 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertIn("Занято", widget.occupancy_label.text())
         self.assertIn("Room", widget.room_name_label.text())
         self.assertIn("Гарантия:", widget.room_warranty_label.text())
-        self.assertFalse(widget.vip_badge.isHidden())
-        self.assertEqual("VIP", widget.vip_badge.text())
-        self.assertNotIn("VIP:", widget.room_header.text())
         self.assertFalse(widget.room_card.header_widget.isHidden())
         self.assertFalse(widget.network_card.header_widget.isHidden())
         self.assertEqual(186, widget.upper_cards.height())
@@ -251,13 +247,54 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertTrue(widget.tree.topLevelItem(0).child(0).isFirstColumnSpanned())
 
         session.rows[0].stale = True
-        session.room_vip = False
         widget.render(session)
         self.assertIn("Нет данных", widget.occupancy_label.text())
-        self.assertTrue(widget.vip_badge.isHidden())
-        session.room_vip = None
-        widget.render(session)
-        self.assertTrue(widget.vip_badge.isHidden())
+
+    def test_canonical_vip_badge_is_effectively_visible_and_false_or_none_is_hidden(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")}
+        vip_inventory = inventory(
+            record(
+                "VIP", room_id="r", name="A deliberately long canonical VIP room name for layout coverage",
+                address="Address", ip="192.0.2.1", vip=True,
+            )
+        )
+        vip_session = build_room_session_from_room(
+            inventory=vip_inventory, room_id="r", generation=1, capabilities=caps
+        )
+        self.assertIs(vip_session.room_vip, True)
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        widget.resize(900, 700)
+        widget.show()
+        widget.render(vip_session)
+        QApplication.processEvents()
+
+        badge = widget.vip_badge
+        self.assertTrue(widget.isVisible())
+        self.assertTrue(widget.room_card.isVisible())
+        self.assertTrue(widget.room_name_row.isVisible())
+        self.assertTrue(badge.isVisible())
+        self.assertGreater(badge.geometry().width(), 0)
+        self.assertGreater(badge.geometry().height(), 0)
+        self.assertFalse(badge.visibleRegion().isEmpty())
+        self.assertTrue(widget.room_card.rect().contains(badge.mapTo(widget.room_card, badge.rect().center())))
+        self.assertEqual("VIP", badge.text())
+        self.assertEqual("VIP-переговорная", badge.toolTip())
+
+        for vip_value in (False, None):
+            with self.subTest(vip_value=vip_value):
+                current_inventory = inventory(
+                    record("VIP", room_id="r", name="Room", address="Address", ip="192.0.2.1", vip=vip_value)
+                )
+                current_session = build_room_session_from_room(
+                    inventory=current_inventory, room_id="r", generation=1, capabilities=caps
+                )
+                self.assertIs(current_session.room_vip, vip_value)
+                widget.render(current_session)
+                QApplication.processEvents()
+                self.assertFalse(badge.isVisible())
 
     def test_network_disclosure_is_context_scoped_and_pruned(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
