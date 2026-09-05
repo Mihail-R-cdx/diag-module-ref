@@ -7,16 +7,20 @@
 - [x] 1.3 Verify no existing `agent/room-diagnostic-ui-presentation-stability` branch and no existing PR for this change at design time.
 - [x] 1.4 Read MIH-19 and MIH-14 through MIH-18 from Linear and confirm they remain one change scope.
 - [x] 1.5 Re-read current root `diagnostic-ui-presentation` and `room-device-interaction-lifecycle` specs; use archived changes only for artifact format/history, not as authority.
-- [x] 1.6 Inspect current room presentation, session/controller/composition boundaries, and focused room/Audio GUI tests for render, scroll, network disclosure, Audio popup, expanded row, session identity/generation, and VIP behavior.
-- [x] 1.7 Architecture review this change and obtain `APPROVE` before implementation.
+- [x] 1.6 Inspect current room presentation, session/controller/composition boundaries, focused room/Audio GUI tests, and `SmoothRoomTreeWidget` animation ownership for render, scroll, network disclosure, Audio popup, expanded row, session identity/generation, and VIP behavior.
+- [x] 1.7 Resolve the architecture-review finding that an in-flight persistent smooth-scroll animation could overwrite same-context restore or leak motion into a replacement context.
+- [ ] 1.8 Obtain final architecture `APPROVE` after re-review of the resolved finding and before implementation.
 
 ## 2. Presentation context state
 
 - [ ] 2.1 Before implementation, re-check current remote `master`, feature branch/PR state if any, and commits added after architecture approval; stop for re-review if ownership/contracts materially changed.
 - [ ] 2.2 Introduce a room-presentation state boundary keyed only by current application-produced `RoomDiagnosticSessionIdentity`; do not store handlers/sessions, credentials, controllers/workers, secrets, accepted device data, or network authority in it.
-- [ ] 2.3 Capture/restore equipment viewport for same-identity re-render using the approved visual anchor + clamped scrollbar fallback; new identity/clear discards the prior viewport.
-- [ ] 2.4 Ensure programmatic scroll/disclosure restoration is signal-safe and emits no room/device interaction intent or I/O.
-- [ ] 2.5 Preserve existing Audio selected-channel local state semantics while keeping it independent from popup visibility.
+- [ ] 2.3 Treat the equipment tree's in-flight smooth-scroll animation as transient presentation activity: stop it at the current actual scrollbar value before any destructive same-identity snapshot/rebuild, before identity replacement, and before `clear_presentation()` establishes a new/default viewport; never resume an old trajectory after restore/reset.
+- [ ] 2.4 If implementation adds deferred scroll callbacks or multiple animation instances beyond the current single persistent `QPropertyAnimation`, fence them by current presentation/render epoch so a stale render/context cannot write scrollbar state.
+- [ ] 2.5 Capture/restore equipment viewport for same-identity re-render using the approved visual anchor + clamped scrollbar fallback only after transient scroll motion has been revoked; new identity/clear discards the prior viewport.
+- [ ] 2.6 Ensure programmatic animation stop, scroll restoration, and disclosure restoration are signal-safe and emit no room/device interaction intent or I/O.
+- [ ] 2.7 Preserve existing Audio selected-channel local state semantics while keeping it independent from popup visibility.
+- [ ] 2.8 Add focused scroll-animation regressions: (a) same-identity `render()` during active smooth scroll remains at the restored viewport after event processing beyond the old animation duration; (b) identity replacement and `clear_presentation()` during active smooth scroll prevent old motion from continuing in the new/default context.
 
 ## 3. Network disclosure stability
 
@@ -48,12 +52,12 @@
 
 - [ ] 6.1 Preserve `session.expanded_record_id` / application coordinator as current row authority; do not duplicate it in room presentation state.
 - [ ] 6.2 Preserve application-owned credential selection/fallback, handler/session ownership, serialized network lane, typed-failure precedence, stale-result rejection, and no network I/O in the Qt GUI thread.
-- [ ] 6.3 Prove scroll/disclosure/popup/VIP presentation changes alone never admit Local Refresh, auxiliary, live, mutation, reconciliation, handler/session, credential, worker, retry, or protocol activity.
+- [ ] 6.3 Prove scroll-animation revocation, scroll/disclosure/popup/VIP presentation changes alone never admit Local Refresh, auxiliary, live, mutation, reconciliation, handler/session, credential, worker, retry, or protocol activity.
 - [ ] 6.4 Keep secrets absent from presentation state, logs/errors/tooltips, and test fixtures.
 
 ## 7. Focused and full implementation validation
 
-- [ ] 7.1 Run focused room foundation/tree and Audio DSP presentation tests covering every changed source/test module.
+- [ ] 7.1 Run focused room foundation/tree and Audio DSP presentation tests covering every changed source/test module, including both active-smooth-scroll lifecycle regressions from task 2.8.
 - [ ] 7.2 Run relevant room interaction/lifecycle regression tests protecting current exact-row/network ownership.
 - [ ] 7.3 Run the full offline project test suite and record fresh results.
 - [ ] 7.4 Run `.\openspec.cmd validate room-diagnostic-ui-presentation-stability --strict` using repository-local tooling only.
@@ -64,10 +68,10 @@
 ## 8. Independent validation
 
 - [ ] 8.1 Validate the exact current remote feature HEAD in a separate clean detached worktree and verify local HEAD equals `origin/<feature-branch>` before tests.
-- [ ] 8.2 Repeat focused GUI/lifecycle tests with fresh results.
+- [ ] 8.2 Repeat focused GUI/lifecycle tests with fresh results, including same-identity and replacement/clear active-scroll-animation cases.
 - [ ] 8.3 Repeat the full offline project test suite.
 - [ ] 8.4 Repeat strict change validation and `validate --all --strict` using repository-local commands only.
-- [ ] 8.5 Run Git diff checks and review implementation against every approved requirement, especially same-context vs new-context state boundaries and zero-I/O restoration.
+- [ ] 8.5 Run Git diff checks and review implementation against every approved requirement, especially same-context vs new-context state boundaries, smooth-scroll revocation, and zero-I/O restoration.
 - [ ] 8.6 Audit the modified network and Audio requirements against then-current root specs with the repository-required archive-applicability discipline where applicable.
 - [ ] 8.7 Issue the independent implementation verdict according to current `RULES.md`; do not self-fix findings in the validation session.
 

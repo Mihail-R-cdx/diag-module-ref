@@ -63,18 +63,19 @@ For an incoming render:
 ```text
 incoming identity == active presentation identity
     -> same-context render
+    -> revoke in-flight transient scroll motion at its current actual viewport
     -> snapshot safe local presentation state
     -> rebuild from authoritative session data
     -> restore/revalidate only safe state
 
 incoming identity != active presentation identity
     -> context replacement
-    -> revoke popup/transient state
+    -> revoke popup/transient state and in-flight scroll motion
     -> discard prior scroll/disclosure state
     -> rebuild with defaults from the new authoritative session
 ```
 
-`clear_presentation()` is an unconditional revocation boundary equivalent to no active presentation context.
+`clear_presentation()` is an unconditional revocation boundary equivalent to no active presentation context. It SHALL stop any in-flight equipment scroll animation before setting/allowing the cleared/default viewport.
 
 No local state snapshot may contain credentials, handler/session objects, workers/controllers, `RoomInteractionContext`, operation tokens used as network authority, secrets, accepted device data, or mutable `RoomDiagnosticSession` ownership.
 
@@ -103,6 +104,8 @@ RoomPresentationState
     network_expanded_switch_keys: set of safe presentation switch keys
 ```
 
+The in-flight smooth-scroll trajectory is explicitly NOT part of `equipment_viewport` and is not restorable state. It is transient activity owned by the current equipment tree/render epoch and is revoked before destructive rebuild or context replacement.
+
 The existing Audio channel selection may remain implemented separately, but it follows the same already-approved current-room identity scoping and channel-pruning rules. It SHALL NOT be used to drive popup visibility.
 
 `network_expanded_switch_keys` is presentation-only. For a canonical known switch it may use the exact canonical `switch_ip_address` only as a visual row key. A record-bound unknown-switch row has no disclosure child group and therefore no persisted expanded key. The key SHALL NOT be used for routing, handler acquisition, device access, or topology inference.
@@ -125,7 +128,13 @@ This state is invalidated not only by room/session identity replacement, but als
 
 ### 3. Equipment scroll restoration preserves the viewport, not canonical state
 
-Before a same-context destructive rebuild, the presentation SHALL capture the equipment viewport. Preferred representation is a visual anchor:
+The existing `SmoothRoomTreeWidget` owns a persistent `QPropertyAnimation` that writes `verticalScrollBar().value`. That animation is transient presentation activity and SHALL NOT survive any destructive equipment-tree render transaction.
+
+Before a same-context snapshot/rebuild, the presentation SHALL stop the in-flight smooth-scroll animation first, leaving the scrollbar at the value actually reached at that moment. Snapshot capture then observes that settled current viewport; the old animation trajectory/end value is discarded and SHALL NOT resume after restore.
+
+Before identity replacement or `clear_presentation()`, the same animation SHALL be stopped before the new/default viewport is established. No animation begun in a prior render or presentation context may retain the ability to write the scrollbar after restore/reset. With the current single persistent `QPropertyAnimation`, explicit lifecycle `stop()` at these boundaries is sufficient; if implementation introduces deferred scroll callbacks or multiple animation instances, they SHALL additionally be fenced by the current presentation/render epoch.
+
+After transient scroll motion has been revoked, before a same-context destructive rebuild the presentation SHALL capture the equipment viewport. Preferred representation is a visual anchor:
 
 ```text
 first visible canonical top-level record_id + pixel offset from viewport top
@@ -245,6 +254,7 @@ Implementation may correct layout/icon styling/visibility so the existing indica
 
 The following remain pure presentation events:
 
+- stopping/revoking smooth-scroll animation at render/context boundaries;
 - scroll capture/restore;
 - network disclosure capture/restore;
 - Audio popup show/hide/reposition/rebind;
@@ -260,6 +270,10 @@ If disabled Audio controls later become authorized by another approved change, a
 ### Risk: UI-state cache becomes a second room/session authority
 
 Mitigation: the cache is keyed by application-produced immutable identity, contains only safe visual state, and is discarded on identity replacement. Authoritative data is always rebuilt from the current session.
+
+### Risk: old smooth-scroll animation overwrites a restored or new-context viewport
+
+Mitigation: smooth-scroll motion is transient, never snapshotted as restorable state, and is synchronously stopped before same-context capture/rebuild and before identity replacement/clear establishes a new/default viewport. No old trajectory may resume after restore; any future deferred scroll mechanism must be presentation-epoch fenced.
 
 ### Risk: network disclosure reintroduces topology inference
 
@@ -287,6 +301,8 @@ Implementation validation SHALL include:
 
 - VIP true/false/null regression proving the visible indicator uses only current `session.room_vip`;
 - equipment scroll/viewport preservation through repeated same-identity `render()` and background-style updates;
+- same-identity `render()` while smooth-scroll animation is active, followed by event processing long enough to exceed the old animation duration, proving the restored viewport is not subsequently changed by the pre-render trajectory;
+- identity replacement and `clear_presentation()` while smooth-scroll animation is active, followed by event processing, proving old motion cannot continue into the new/default context;
 - identity replacement and `clear_presentation()` tests proving old scroll state is not restored;
 - network known-switch parent disclosure with deterministic canonical children and unchanged summary ports/count;
 - unknown-switch record rows staying ungrouped/non-disclosable;
@@ -304,4 +320,4 @@ Implementation validation SHALL include:
 
 ## Open Questions
 
-None at product-contract level. Concrete Qt helper/class placement may vary during implementation, but ownership, identity keys, invalidation conditions, disclosure content, and no-I/O constraints above are normative.
+None at product-contract level. Concrete Qt helper/class placement may vary during implementation, but ownership, identity keys, invalidation conditions, disclosure content, smooth-scroll revocation boundary, and no-I/O constraints above are normative.
