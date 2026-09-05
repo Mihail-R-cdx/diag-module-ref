@@ -12,6 +12,14 @@ The modern expanded **codec** dashboard intentionally exposes no local `Отла
 
 For another device family whose approved presentation retains Debug, the action remains local exact-row presentation and remains outside the serialized network lane because it performs no device I/O.
 
+#### Scenario: Debug opens while live is active
+
+- **GIVEN** a current exact supported non-codec/non-PDU row with an approved Debug affordance has active live
+- **WHEN** the operator opens Debug
+- **THEN** Debug shows that exact row's local accumulated log/terminal state
+- **AND** opening Debug creates no device I/O, credential selection, or handler/session acquisition
+- **AND** live continues because opening Debug creates no device I/O
+
 #### Scenario: Modern codec row omits local Debug
 
 - **WHEN** a current supported codec row is expanded in the modern five-card dashboard
@@ -25,7 +33,7 @@ For another device family whose approved presentation retains Debug, the action 
 - **THEN** no local `Отладка` control is visible
 - **AND** no Debug network capability or alternate lifecycle is created
 
-#### Scenario: Another approved device family retains Debug
+#### Scenario: Non-PDU Debug remains exact-row presentation
 
 - **GIVEN** a current expanded supported non-codec/non-PDU row has an approved visible Debug presentation
 - **WHEN** the operator opens Debug
@@ -47,7 +55,7 @@ The explicit detail acquisition SHALL NOT clear, reuse, or reset the completed a
 
 The existing direct child-window close rule remains authoritative for an active explicit window-owned network request: user close invalidates/cancels that exact request, bounded cleanup follows, late callbacks cannot reopen it, and a later explicit opening starts a new fresh acquisition. A completed automatic-preview result from the same current row remains a distinct preview acquisition and SHALL NOT be confused with or substituted for the cancelled explicit child-window request.
 
-#### Scenario: Detail opens with fresh acquisition despite current preview
+#### Scenario: Detail opens from current completed preview
 
 - **GIVEN** a completed accepted automatic-preview result belongs to the current exact codec row/generation
 - **WHEN** the operator clicks `Развернуть`
@@ -62,6 +70,15 @@ The existing direct child-window close rule remains authoritative for an active 
 - **WHEN** application authority accepts its fresh normalized result while that context is still current
 - **THEN** that explicit result may populate the detailed window and usage statistics
 - **AND** the automatic-preview result remains a separate acquisition result
+
+#### Scenario: Failed automatic preview can be retried only by explicit detail intent
+
+- **GIVEN** the current expansion epoch's automatic preview completed with an ordinary failure/no-data result
+- **WHEN** no explicit call-log action occurs
+- **THEN** presentation events cause zero further automatic call-log I/O
+- **WHEN** the operator explicitly clicks `Развернуть`
+- **THEN** one fresh call-log auxiliary acquisition is admitted through the serialized lane
+- **AND** the automatic-attempt marker for that expansion epoch remains completed
 
 #### Scenario: Explicit detail becomes stale or cancelled
 

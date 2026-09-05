@@ -72,4 +72,4 @@ This change is authored against current `master`:
 
 `705daee00cd51cd1f4dfd100238f9bcdc33d01ec`
 
-Because this change contains `MODIFIED Requirements`, independent validation SHALL include the repository-required disposable archive-applicability check before `READY FOR ARCHIVE`.
+Because this change explicitly replaces the legacy call-log requirement through `REMOVED Requirements` plus `ADDED Requirements` and retains other `MODIFIED Requirements`, independent validation SHALL include the repository-required disposable archive-applicability check before `READY FOR ARCHIVE`.

@@ -1,8 +1,16 @@
 # device-diagnostics-and-control Delta
 
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: Room call-log preview uses one typed newest-first chronology authority
+
+**Reason:** The old requirement bound automatic preview and detailed presentation to one accepted result. That coupling no longer matches the approved distinct-acquisition architecture.
+
+**Migration:** The added requirement below replaces it. It preserves the shared typed schema, parser/normalizer, chronology, newest-first, and exact-model retrieval authority while separating automatic-preview and explicit-detail acquisition/result authority.
+
+## ADDED Requirements
+
+### Requirement: Room call-log preview and detail share typed chronology authority across separate acquisitions
 
 Automatic inline call-log preview and the detailed call-log window SHALL use the same application-owned normalized call-history record schema, parser/normalizer semantics, chronology rules, and exact-model retrieval authority. This change SHALL NOT create a second parser/schema solely for the three-row preview or for the fresh detailed-journal load.
 
@@ -46,8 +54,6 @@ If an acquisition/normalization cannot prove records, that acquisition's result 
 - **WHEN** its late normalized result arrives
 - **THEN** that result does not become authority for the other acquisition epoch or a replacement row/context
 - **AND** no GUI cache promotes it to current call-history state
-
-## ADDED Requirements
 
 ### Requirement: Modern room codec speaker volume exposes accepted display percentage without replacing mutation authority
 

@@ -33,9 +33,10 @@ The approved five-card visual layout uses no leading status dots in `Состо�
 
 `Регистрация SIP/H.323` SHALL use a non-text icon in the right value column: `✓` for confirmed registration and `✕` for confirmed failure. The shared GUI SHALL receive this semantic state from the same typed/structured or exact-adapter-normalized evidence and SHALL NOT parse localized display strings, model names or substrings. If registration evidence is unavailable, it SHALL render a neutral `—` icon; icon color is supplementary and never the sole meaning.
 
-#### Scenario: State card renders the reduced permanent row set
+#### Scenario: Model lacks one field
 
-- **WHEN** a current supported codec `Состояние` card is rendered
+- **GIVEN** current accepted codec evidence has no usable `Платформа` value
+- **WHEN** `Состояние` is rendered
 - **THEN** it contains exactly `Модель`, `MAC-адрес`, `Серийный номер`, `Версия ПО`, `Микрофон`, and `Камера` in the required order
 - **AND** no `Платформа` row is visible
 - **AND** internal platform evidence MAY remain available outside this presentation
@@ -102,7 +103,7 @@ Supported clicks SHALL publish only safe typed exact-row intents to application 
 - **THEN** the microphone meter renders the approved normalized fill, including 0 fill for accepted numeric zero
 - **AND** no presentation-owned meter request is started
 
-#### Scenario: Supported CloudLink meter has no current sample
+#### Scenario: Codec has no current microphone level evidence
 
 - **GIVEN** the exact current model is `CloudLink Bar 310` or `CloudLink Box 310`
 - **AND** no compatible current accepted live meter sample is available
@@ -166,7 +167,7 @@ Expanding or collapsing sections inside one already-open detailed call-log load 
 
 The card SHALL NOT own call-log network acquisition. Automatic preview authority, explicit auxiliary-read admission, expansion epochs, cancellation, LIVE handoff, duplicate suppression, stale-result/currentness authority, and serialized lane ownership are defined by `room-device-interaction-lifecycle` and `codec-call-log-usage-statistics`.
 
-#### Scenario: More than three automatic-preview records are accepted
+#### Scenario: More than three call records are accepted
 
 - **GIVEN** current accepted automatic-preview call-log data contains more than three records in normalized newest-first order
 - **WHEN** the preview card renders
@@ -192,7 +193,7 @@ The card SHALL NOT own call-log network acquisition. Automatic preview authority
 - **AND** it publishes no detailed statistics into the replacement context
 - **AND** it does not mutate the current room-card preview for another row/generation
 
-#### Scenario: Call log has no accepted automatic-preview data
+#### Scenario: Call log has no accepted data
 
 - **WHEN** the current exact codec has no accepted automatic-preview records
 - **THEN** the preview region displays `Нет данных`
