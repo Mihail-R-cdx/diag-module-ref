@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from math import floor, isfinite
 from numbers import Real
 from typing import Any, Mapping
 
@@ -41,6 +42,7 @@ class CodecAudioProjection:
     microphone_mute_state: CodecMuteState
     speaker_volume: float | int | None
     speaker_mute_state: CodecMuteState
+    speaker_volume_percent: int | None = None
 
 
 @dataclass(frozen=True)
@@ -116,11 +118,29 @@ def normalize_codec_audio_projection(data: Any, model: str | None = None) -> Cod
 
     speaker_volume = numeric("speaker_volume")
     speaker_mute = mute("speaker_muted", "speaker_mute_state")
+    entry = dispatch_entry_for_model(model)
+    controls = entry.codec_controls if entry is not None else None
+    speaker_volume_percent = None
+    if (
+        isinstance(speaker_volume, Real)
+        and not isinstance(speaker_volume, bool)
+        and isfinite(speaker_volume)
+        and controls is not None
+        and isinstance(controls.speaker_minimum, int)
+        and isinstance(controls.speaker_maximum, int)
+        and controls.speaker_maximum > controls.speaker_minimum
+        and controls.speaker_minimum <= speaker_volume <= controls.speaker_maximum
+    ):
+        scaled = 100 * (speaker_volume - controls.speaker_minimum) / (
+            controls.speaker_maximum - controls.speaker_minimum
+        )
+        speaker_volume_percent = floor(scaled + 0.5)
     return CodecAudioProjection(
         microphone_volume=numeric("microphone_volume"),
         microphone_mute_state=mute("microphone_muted", "microphone_mute_state"),
         speaker_volume=speaker_volume,
         speaker_mute_state=speaker_mute,
+        speaker_volume_percent=speaker_volume_percent,
     )
 
 

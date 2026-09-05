@@ -1,12 +1,14 @@
+import threading
 import unittest
+from unittest.mock import Mock
 
 from core.room_diagnostic_tree import DeviceRowState, DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession, RoomDiagnosticSessionIdentity
-from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator, RoomInteractionKind
+from core.room_interaction import RoomInteractionBindings, RoomInteractionContext, RoomInteractionCoordinator, RoomInteractionKind
 
 
-def session():
-    row_a = DeviceRowState("a", "Huawei TE20", "192.0.2.10", None, DeviceRowStatus.CONNECTED)
-    row_b = DeviceRowState("b", "Huawei TE20", "192.0.2.11", None, DeviceRowStatus.CONNECTED)
+def session(model="Huawei TE20"):
+    row_a = DeviceRowState("a", model, "192.0.2.10", None, DeviceRowStatus.CONNECTED)
+    row_b = DeviceRowState("b", model, "192.0.2.11", None, DeviceRowStatus.CONNECTED)
     return RoomDiagnosticSession(
         RoomDiagnosticSessionIdentity("s", 1, "192.0.2.1", "a", "r"),
         None, None, None, [row_a, row_b],
@@ -95,6 +97,54 @@ class RoomInteractionCoordinatorTests(unittest.TestCase):
         self.assertFalse(coordinator.has_exclusive_operation)
         self.assertTrue(current.row_for("a").network_actions_enabled)
         self.assertEqual({"serial": "new"}, current.row_for("a").accepted_snapshot)
+
+    def test_local_refresh_terminal_semantics_are_exact_row_scoped_for_all_codecs(self):
+        models = (
+            "Huawei TE20", "Huawei TE40", "CloudLink Bar 310",
+            "CloudLink Box 310", "Polycom RPG 310",
+        )
+        for model in models:
+            with self.subTest(model=model):
+                bindings = RoomInteractionBindings(
+                    local_refresh=lambda _context: None,
+                    cancel=lambda _context: None,
+                    cleanup=lambda _context: False,
+                )
+                coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+                current = session(model)
+                current.row_for("b").accepted_snapshot = {"replacement": True}
+                coordinator.bind_session(current)
+                context = coordinator.request_local_refresh()
+                coordinator.expand("b")
+                coordinator.complete(context, success=False, connection_lost=True, warning="old failure")
+                self.assertEqual({"replacement": True}, current.row_for("b").accepted_snapshot)
+                self.assertIsNone(current.row_for("b").last_safe_operation_error)
+
+    def test_cancelled_local_refresh_is_rejected_before_ping_for_all_codecs(self):
+        from gui.room_diagnostic_controller import RoomDiagnosticController
+        from gui.diagnostic_dispatch import dispatch_entry_for_model
+
+        ping = Mock(side_effect=AssertionError("cancelled refresh must not ping"))
+        controller = RoomDiagnosticController(
+            candidate_provider=lambda *_args: (), ping=ping,
+            persist_success=lambda *_args: None, starting_index=lambda *_args: 0,
+        )
+        cleanup = []
+        controller.localRefreshCleanupFinished.connect(lambda context, timed_out: cleanup.append((context, timed_out)))
+        for index, model in enumerate((
+            "Huawei TE20", "Huawei TE40", "CloudLink Bar 310",
+            "CloudLink Box 310", "Polycom RPG 310",
+        )):
+            with self.subTest(model=model):
+                entry = dispatch_entry_for_model(model)
+                self.assertEqual("room_one_shot_refresh", entry.local_refresh_binding_key)
+                self.assertIn(entry.room_adapter_key, {"codec_one_shot", "polycom_one_shot"})
+                context = RoomInteractionContext("s", 1, str(index), model, "192.0.2.10", 1, index, 0, RoomInteractionKind.LOCAL_REFRESH)
+                cancelled = threading.Event()
+                cancelled.set()
+                controller._run_local_refresh(context, cancelled, credential={"username": "u"})
+        self.assertEqual(5, len(cleanup))
+        ping.assert_not_called()
 
     def test_auxiliary_close_cancels_exact_context_and_releases_lane(self):
         calls = []

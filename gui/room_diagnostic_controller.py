@@ -278,6 +278,11 @@ class RoomDiagnosticController(QObject):
             )
 
     def _run_local_refresh(self, context: RoomInteractionContext, cancelled: threading.Event, credential=None, candidate_index: int | None = None) -> None:
+        # Cancellation/supersession is a currentness boundary, not a failed
+        # refresh.  Reject before reachability, handler acquisition, or I/O.
+        if cancelled.is_set():
+            self.localRefreshCleanupFinished.emit(context, False)
+            return
         entry = dispatch_entry_for_model(context.diagnostic_model)
         if entry is None or entry.local_refresh_binding_key != "room_one_shot_refresh":
             self.localRefreshFinished.emit(context, False, None, False, "Локальное обновление недоступно")
@@ -293,6 +298,9 @@ class RoomDiagnosticController(QObject):
             self.localRefreshFinished.emit(
                 context, False, None, True, "Устройство недоступно"
             )
+            return
+        if cancelled.is_set():
+            self.localRefreshCleanupFinished.emit(context, False)
             return
         adapter = build_room_one_shot_adapters(self._cleanup_policy).get(entry.room_adapter_key)
         if adapter is None:

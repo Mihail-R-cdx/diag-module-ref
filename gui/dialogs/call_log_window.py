@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.codec_call_history import (
-    CallHistorySnapshot, CallRecord, calculate_usage, snapshot_from_display_records,
+    CallDirection, CallHistorySnapshot, CallRecord, calculate_usage, snapshot_from_display_records,
     usage_warnings,
 )
 
@@ -16,7 +16,7 @@ class CallLogWindow(QDialog):
     MAX_ROWS = 20
     PREVIEW_ROWS = 2
     HEADERS = (
-        "Номер комнаты", "Дата и время начала звонка", "Продолжительность звонка", "Скорость",
+        "Номер комнаты", "Дата и время начала звонка", "Продолжительность звонка", "Скорость", "Направление",
     )
 
     def __init__(self, parent=None, colors=None):
@@ -107,18 +107,26 @@ class CallLogWindow(QDialog):
     def _fill(self, table, records):
         table.setRowCount(len(records))
         for row, record in enumerate(records):
-            room, start, duration, speed = self.normalize_record(record, row)
-            for column, value in enumerate((room, start, duration, speed)):
+            room, start, duration, speed, direction = self.normalize_record(record, row)
+            for column, value in enumerate((room, start, duration, speed, direction)):
                 item = QTableWidgetItem(str(value))
                 item.setTextAlignment(Qt.AlignCenter)
                 table.setItem(row, column, item)
 
     def normalize_record(self, record, row):
         if isinstance(record, CallRecord):
-            return record.room_number, record.start_display, record.duration_display, record.speed
+            return record.room_number, record.start_display, record.duration_display, record.speed, self._direction_text(record.direction)
         if isinstance(record, dict):
-            return (record.get("room_number", record.get("call_number", "")), record.get("start_time", ""), record.get("duration", ""), record.get("speed", ""))
+            return (record.get("room_number", record.get("call_number", "")), record.get("start_time", ""), record.get("duration", ""), record.get("speed", ""), self._direction_text(record.get("direction")))
         if isinstance(record, (list, tuple)):
-            values = list(record) + [""] * 4
-            return tuple(values[:4])
-        return "", "", "", ""
+            values = list(record) + [""] * 5
+            return tuple(values[:5])
+        return "", "", "", "", "Направление неизвестно"
+
+    @staticmethod
+    def _direction_text(direction) -> str:
+        if direction is CallDirection.INCOMING:
+            return "Входящий"
+        if direction is CallDirection.OUTGOING:
+            return "Исходящий"
+        return "Направление неизвестно"

@@ -1058,8 +1058,8 @@ class RoomGuiCompositionTests(unittest.TestCase):
         self.assertFalse(a_view.findChild(QPushButton, "roomLocalRefreshButton").isEnabled())
         self.assertFalse(a_view.findChild(QPushButton, "roomCallLogButton").isEnabled())
         self.assertFalse(b_view.findChild(QPushButton, "roomLocalRefreshButton").isEnabled())
-        self.assertTrue(a_view.findChild(QPushButton, "roomLocalDebugButton").isEnabled())
-        self.assertFalse(b_view.findChild(QPushButton, "roomLocalDebugButton").isEnabled())
+        self.assertIsNone(a_view.findChild(QPushButton, "roomLocalDebugButton"))
+        self.assertIsNone(b_view.findChild(QPushButton, "roomLocalDebugButton"))
 
     def test_active_live_keeps_same_exact_row_local_refresh_available(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget

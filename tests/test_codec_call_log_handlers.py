@@ -2,7 +2,7 @@ from datetime import datetime
 import unittest
 
 from core.codec_call_history import (
-    CallRecord, TerminationReason, calculate_usage, snapshot_from_display_records,
+    CallDirection, CallRecord, TerminationReason, calculate_usage, snapshot_from_display_records,
     snapshot_from_records,
 )
 from core.exceptions import ProtocolError
@@ -138,6 +138,34 @@ class CodecCallLogHandlerTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaises(ProtocolError):
                     parser(payload)
+
+    def test_all_five_codec_identities_normalize_typed_direction_and_duration_semantics(self):
+        completed = {
+            "_raw_start": "10.06.2026 09:00:00", "_raw_end": "10.06.2026 09:01:00",
+            "_direction": "incoming", "source_identity": "completed",
+        }
+        active = {
+            "_raw_start": "10.06.2026 09:02:00", "_active": True,
+            "_direction": "outgoing", "source_identity": "active",
+        }
+        missing = {
+            "_raw_start": "10.06.2026 09:03:00", "_direction": "unrecognized",
+            "source_identity": "missing",
+        }
+        for model in (
+            "Huawei TE20", "Huawei TE40", "CloudLink Bar 310",
+            "CloudLink Box 310", "Polycom RPG 310",
+        ):
+            with self.subTest(model=model):
+                snapshot = snapshot_from_display_records((completed, active, missing), source_ended=True)
+                records = {record.source_identity: record for record in snapshot.records}
+                self.assertIs(CallDirection.INCOMING, records["completed"].direction)
+                self.assertEqual(60, records["completed"].duration_seconds)
+                self.assertIs(CallDirection.OUTGOING, records["active"].direction)
+                self.assertTrue(records["active"].active)
+                self.assertIsNone(records["active"].duration_seconds)
+                self.assertIs(CallDirection.UNKNOWN, records["missing"].direction)
+                self.assertIsNone(records["missing"].duration_seconds)
 
 
 if __name__ == "__main__":

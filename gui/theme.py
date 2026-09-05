@@ -574,8 +574,7 @@ def build_stylesheet() -> str:
         QLabel#roomCodecStatusDot[semantic="unavailable"] {{
             color: {c["text_muted"]};
         }}
-        QProgressBar#roomCodecMicrophoneMeter,
-        QProgressBar#roomCodecSpeakerMeter {{
+        QProgressBar#roomCodecMicrophoneMeter {{
             min-height: 8px;
             max-height: 10px;
             border-radius: 4px;
@@ -605,8 +604,6 @@ def build_stylesheet() -> str:
             font-size: {t["caption"]}pt;
         }}
         QPushButton#roomCallLogButton {{
-            min-width: 91px;
-            max-width: 91px;
             min-height: 30px;
             max-height: 30px;
             font-size: {t["caption"]}pt;
