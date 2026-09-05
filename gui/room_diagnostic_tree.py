@@ -828,7 +828,12 @@ class AudioPopupCoordinator(QWidget):
         self.popup.pointerLeft.connect(self.popup_left)
 
     def begin_render(self, session: RoomDiagnosticSession, same_context: bool) -> None:
-        if not same_context:
+        # Incoming authoritative evidence is checked before the room tree clears
+        # disposable sources.  A same-identity refresh cannot keep a popup whose
+        # expanded row, Audio family, or exact channel is already obsolete.
+        if not same_context or (
+            self._target is not None and not self._target_is_current(session)
+        ):
             self.revoke()
         self._session = session
         self._sources.clear()

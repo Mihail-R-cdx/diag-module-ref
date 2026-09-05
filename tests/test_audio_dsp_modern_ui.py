@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -146,6 +148,41 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
         session.rows[0].accepted_snapshot["meter_sections"][0]["channels"] = []
         widget.render(session)
         self.assertIsNone(coordinator._target)
+
+    def test_incoming_same_context_invalidation_revokes_before_disposable_tree_clear(self):
+        """Incoming row/channel evidence revokes the popup before widgets die."""
+        for case in ("expanded_row_replaced", "channel_disappeared"):
+            with self.subTest(case=case):
+                session = self._session()
+                widget = self._render(session)
+                coordinator = widget._audio_popup
+                channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+                coordinator.enter_source("dmp-record", "Inputs", "40000", "Input 1", channel)
+                events = []
+                original_revoke = coordinator.revoke
+                original_clear = widget.tree.clear
+
+                if case == "expanded_row_replaced":
+                    session.rows.append(replace(session.rows[0], record_id="other-current-record"))
+                    session.expanded_record_id = "other-current-record"
+                else:
+                    session.rows[0].accepted_snapshot["meter_sections"][0]["channels"] = []
+
+                def revoke_spy():
+                    events.append("revoke")
+                    return original_revoke()
+
+                def clear_spy():
+                    events.append("clear")
+                    return original_clear()
+
+                with patch.object(coordinator, "revoke", side_effect=revoke_spy), patch.object(
+                    widget.tree, "clear", side_effect=clear_spy
+                ):
+                    widget.render(session)
+
+                self.assertIsNone(coordinator._target)
+                self.assertLess(events.index("revoke"), events.index("clear"))
 
     def test_popup_switches_targets_without_old_hide_affecting_new_target(self):
         widget = self._render(self._session())

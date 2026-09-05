@@ -192,6 +192,15 @@ Enabling any of these controls requires a later approved capability defining exa
 - **AND** current gain/value is shown as `—` or equivalent no-data text when no authoritative field exists
 - **AND** interacting with the disabled presentation starts no device I/O or mutation intent
 
+#### Scenario: Selected channel exposes only disabled future controls
+
+- **GIVEN** a current room Audio DSP meter channel is locally selected for visual emphasis
+- **AND** its local future controls are visible only because the current hover/current-expanded-row popup contract permits them
+- **WHEN** the future controls are presented for that selected channel
+- **THEN** `-`, `+`, and `Mute` are disabled/non-actionable
+- **AND** current gain/value is shown as `—` or equivalent no-data text when no authoritative field exists
+- **AND** selection does not authorize mutation, device I/O, or keep the popup open after hover ownership is lost
+
 #### Scenario: Local selection does not authorize or pin future controls
 
 - **GIVEN** one Audio DSP channel remains locally selected for visual emphasis
