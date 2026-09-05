@@ -545,6 +545,116 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.cleanup_finished(busy)
         self.assertEqual([], [item for item in requests if item[0] == "call_log_preview"])
 
+    def test_live_preview_handoff_discards_stale_codec_preview_and_starts_non_codec_live(self):
+        codec = self._row("CloudLink Bar 310")
+        matrix = DeviceRowState(
+            "matrix-1", "Extron IN1804", "192.0.2.11", "Extron IN1804",
+            DeviceRowStatus.CONNECTED,
+            capability=RoomModelCapability("Extron IN1804", "matrix", "route", "adapter"),
+            accepted_snapshot={},
+        )
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [codec, matrix], status=RoomCycleStatus.COMPLETE,
+        )
+        calls = []
+        codec_bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        matrix_bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda model: matrix_bindings if model == "Extron IN1804" else codec_bindings,
+        )
+        coordinator.bind_session(session)
+        coordinator.expand(codec.record_id)
+        retiring_live = coordinator.active_context
+        coordinator.request_codec_preview()
+        coordinator.expand(matrix.record_id)
+        coordinator.cleanup_finished(retiring_live)
+
+        self.assertEqual([("live", "codec-1"), ("live", "matrix-1")], calls)
+        self.assertEqual("matrix-1", coordinator.active_context.record_id)
+        self.assertIsNone(coordinator._pending_operation)
+
+    def test_live_preview_handoff_starts_only_current_codec_preview(self):
+        first = self._row("CloudLink Box 310")
+        second = self._row("Huawei TE20")
+        second.record_id, second.ip_address = "codec-2", "192.0.2.11"
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [first, second], status=RoomCycleStatus.COMPLETE,
+        )
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        coordinator.expand(first.record_id)
+        retiring_live = coordinator.active_context
+        coordinator.request_codec_preview()
+        coordinator.expand(second.record_id)
+        coordinator.request_codec_preview()
+        coordinator.cleanup_finished(retiring_live)
+
+        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-2")], calls)
+        self.assertEqual("codec-2", coordinator.active_context.record_id)
+        self.assertEqual(1, [call for call in calls if call[0] == "call_log_preview"].count(("call_log_preview", "codec-2")))
+        self.assertNotIn(("call_log_preview", "codec-1"), calls)
+
+    def test_live_preview_handoff_starts_current_preview_once_after_cleanup(self):
+        row = self._row("CloudLink Bar 310")
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], status=RoomCycleStatus.COMPLETE,
+        )
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        coordinator.expand(row.record_id)
+        retiring_live = coordinator.active_context
+        coordinator.request_codec_preview()
+        coordinator.cleanup_finished(retiring_live)
+
+        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-1")], calls)
+        self.assertEqual(1, calls.count(("call_log_preview", "codec-1")))
+
+    def test_live_preview_handoff_collapse_does_not_resurrect_work(self):
+        row = self._row("CloudLink Box 310")
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], status=RoomCycleStatus.COMPLETE,
+        )
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        coordinator.expand(row.record_id)
+        retiring_live = coordinator.active_context
+        coordinator.request_codec_preview()
+        coordinator.collapse(row.record_id)
+        coordinator.cleanup_finished(retiring_live)
+
+        self.assertEqual([("live", "codec-1")], calls)
+        self.assertIsNone(coordinator.active_context)
+        self.assertIsNone(coordinator._pending_operation)
+
     def test_preview_is_not_dropped_when_explicit_detail_arrives_during_live_retirement(self):
         row = self._row()
         session = RoomDiagnosticSession(

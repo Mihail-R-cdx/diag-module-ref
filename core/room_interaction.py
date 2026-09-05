@@ -404,7 +404,15 @@ class RoomInteractionCoordinator:
         if self._active is not None:
             if self._active.kind is RoomInteractionKind.LIVE:
                 self._pending_live_record_id = None
-                self._pending_operation = (kind, action, command)
+                # Automatic preview work has its own immutable pending
+                # authority.  Mirroring it into the generic user-operation
+                # slot would let a stale marker consume cleanup handoff after
+                # its row/epoch identity has been discarded.
+                if not (
+                    kind is RoomInteractionKind.AUXILIARY_READ
+                    and action == "call_log_preview"
+                ):
+                    self._pending_operation = (kind, action, command)
                 self._retire_active()
                 # No user operation may acquire resources before cleanup.
             elif kind is RoomInteractionKind.AUXILIARY_READ and action == "call_log_preview":
