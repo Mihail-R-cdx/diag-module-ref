@@ -61,7 +61,7 @@
 - [x] 7.3 Run `.\openspec.cmd validate codec-diagnostic-ui-stability --strict`.
 - [x] 7.4 Run `.\openspec.cmd validate --all --strict`.
 - [x] 7.5 Run `git diff --check` and `git diff --cached --check`; verify diff contains no Graphify output or unrelated changes.
-- [ ] 7.6 Commit only approved implementation/regression scope and push the focused feature commit when explicitly authorized.
+- [x] 7.6 Commit only approved implementation/regression scope and push the focused feature commit when explicitly authorized.
 
 ## 8. Independent validation
 
