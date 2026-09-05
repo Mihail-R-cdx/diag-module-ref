@@ -228,6 +228,8 @@ class RoomPresentationTests(unittest.TestCase):
         widget.render(session)
         self.assertEqual("Gi1/0/1, Gi1/0/2", widget.network_tree.topLevelItem(0).text(1))
         self.assertEqual("2", widget.network_tree.topLevelItem(0).text(2))
+        self.assertEqual(2, widget.network_tree.topLevelItem(0).childCount())
+        self.assertEqual("Huawei TE40", widget.network_tree.topLevelItem(0).child(0).text(0))
         self.assertEqual("Коммутатор не определён", widget.network_tree.topLevelItem(1).text(0))
         self.assertIn("Занято", widget.occupancy_label.text())
         self.assertIn("Room", widget.room_name_label.text())
@@ -253,6 +255,74 @@ class RoomPresentationTests(unittest.TestCase):
         widget.render(session)
         self.assertIn("Нет данных", widget.occupancy_label.text())
         self.assertTrue(widget.vip_badge.isHidden())
+        session.room_vip = None
+        widget.render(session)
+        self.assertTrue(widget.vip_badge.isHidden())
+
+    def test_network_disclosure_is_context_scoped_and_pruned(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        inv = inventory(
+            record("A", room_id="r", name="Room", ip="192.0.2.1", switch="10.0.0.1", port="Gi1/0/1"),
+            record("B", room_id="r", name="Room", ip="192.0.2.2", switch="10.0.0.2", port="Gi1/0/2"),
+        )
+        caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")}
+        session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        widget.render(session)
+        first = widget.network_tree.topLevelItem(0)
+        first.setExpanded(True)
+        self.assertIn("10.0.0.1", widget._network_expanded_switches)
+        widget.render(session)
+        self.assertTrue(widget.network_tree.topLevelItem(0).isExpanded())
+        widget.network_tree.topLevelItem(0).setExpanded(False)
+        widget.render(session)
+        self.assertFalse(widget.network_tree.topLevelItem(0).isExpanded())
+        session.records = tuple(record for record in session.records if record.switch_ip_address != "10.0.0.1")
+        widget.render(session)
+        self.assertNotIn("10.0.0.1", widget._network_expanded_switches)
+        new_session = build_room_session_from_room(inventory=inv, room_id="r", generation=2, capabilities=caps)
+        widget.render(new_session)
+        self.assertEqual(set(), widget._network_expanded_switches)
+        self.assertFalse(widget.network_tree.topLevelItem(0).isExpanded())
+
+    def test_same_context_scroll_stops_old_animation_and_new_context_drops_viewport(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        inv = inventory(*[
+            record(str(index), room_id="r", name="Room", ip=f"192.0.2.{index}")
+            for index in range(1, 24)
+        ])
+        caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")}
+        session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        widget.resize(720, 260)
+        widget.show()
+        widget.render(session)
+        QApplication.processEvents()
+        bar = widget.tree.verticalScrollBar()
+        bar.setValue(min(bar.maximum(), 120))
+        widget.tree._scroll_animation.setStartValue(bar.value())
+        widget.tree._scroll_animation.setEndValue(bar.maximum())
+        widget.tree._scroll_animation.start()
+        QApplication.processEvents()
+        widget.render(session)
+        settled = bar.value()
+        from PyQt5.QtTest import QTest
+        QTest.qWait(320)
+        self.assertEqual(settled, bar.value())
+        new_session = build_room_session_from_room(inventory=inv, room_id="r", generation=2, capabilities=caps)
+        widget.render(new_session)
+        self.assertEqual(bar.minimum(), bar.value())
+        bar.setValue(min(bar.maximum(), 120))
+        widget.tree._scroll_animation.setStartValue(bar.value())
+        widget.tree._scroll_animation.setEndValue(bar.maximum())
+        widget.tree._scroll_animation.start()
+        widget.clear_presentation()
+        QTest.qWait(320)
+        self.assertEqual(bar.minimum(), bar.value())
 
     def test_pdu_room_projection_opens_with_live_actions_available(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
