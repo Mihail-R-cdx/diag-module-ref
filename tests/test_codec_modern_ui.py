@@ -477,6 +477,74 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.complete(explicit, success=True, data={})
         self.assertEqual(["call_log", "call_log_preview"], requests)
 
+    def test_pending_preview_identity_is_not_transferred_between_codec_rows(self):
+        first = self._row("Huawei TE20")
+        second = self._row("CloudLink Box 310")
+        second.record_id, second.ip_address = "codec-2", "192.0.2.11"
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [first, second], status=RoomCycleStatus.COMPLETE,
+        )
+        requests = []
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda _model: RoomInteractionBindings(
+                auxiliary=lambda context, action: requests.append((action, context.record_id)),
+                cancel=lambda _context: None, cleanup=lambda _context: False,
+            ),
+        )
+        coordinator.bind_session(session)
+        coordinator.expand(first.record_id)
+        busy = coordinator.request_auxiliary("call_log")
+        coordinator.request_codec_preview()
+        coordinator.expand(second.record_id)
+        coordinator.request_codec_preview()
+        coordinator.cleanup_finished(busy)
+
+        self.assertEqual([("call_log", "codec-1"), ("call_log_preview", "codec-2")], requests)
+        coordinator.complete(coordinator.active_context, success=True, data={})
+        coordinator.request_codec_preview()
+        self.assertEqual(1, [action for action, _record in requests].count("call_log_preview"))
+
+    def test_pending_preview_is_discarded_for_non_codec_switch_and_collapse(self):
+        first = self._row("Huawei TE20")
+        non_codec = DeviceRowState(
+            "matrix-1", "Extron IN1804", "192.0.2.11", "Extron IN1804",
+            DeviceRowStatus.CONNECTED,
+            capability=RoomModelCapability("Extron IN1804", "matrix", "route", "adapter"),
+            accepted_snapshot={},
+        )
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [first, non_codec], status=RoomCycleStatus.COMPLETE,
+        )
+        requests = []
+        codec_bindings = RoomInteractionBindings(
+            auxiliary=lambda context, action: requests.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        matrix_bindings = RoomInteractionBindings(
+            live=lambda context: requests.append(("live", context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda model: matrix_bindings if model == "Extron IN1804" else codec_bindings,
+        )
+        coordinator.bind_session(session)
+        coordinator.expand(first.record_id)
+        busy = coordinator.request_auxiliary("call_log")
+        coordinator.request_codec_preview()
+        coordinator.expand(non_codec.record_id)
+        coordinator.cleanup_finished(busy)
+        self.assertEqual([("call_log", "codec-1"), ("live", "matrix-1")], requests)
+
+        coordinator.bind_session(session)
+        coordinator.expand(first.record_id)
+        busy = coordinator.request_auxiliary("call_log")
+        coordinator.request_codec_preview()
+        coordinator.collapse(first.record_id)
+        coordinator.cleanup_finished(busy)
+        self.assertEqual([], [item for item in requests if item[0] == "call_log_preview"])
+
     def test_preview_is_not_dropped_when_explicit_detail_arrives_during_live_retirement(self):
         row = self._row()
         session = RoomDiagnosticSession(
@@ -514,6 +582,71 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         VCSDiagnosticApp._on_room_auxiliary_requested(window, row.record_id, "call_log")
         coordinator.request_auxiliary.assert_called_once_with("call_log")
+
+    def test_stale_call_log_result_has_no_publication_or_success_persistence(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        row = self._row()
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], expanded_record_id=row.record_id,
+            status=RoomCycleStatus.COMPLETE,
+        )
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda _model: RoomInteractionBindings(auxiliary=lambda *_args: None),
+        )
+        coordinator.bind_session(session)
+        context = coordinator.request_auxiliary("call_log_preview")
+        row.operation_token += 1  # retirement leaves active_context but invalidates authority
+        detail_window = SimpleNamespace(set_snapshot=Mock(), status_label=SimpleNamespace(setText=Mock()))
+        credential_index, profile = Mock(), Mock()
+        window = SimpleNamespace(
+            room_interaction_coordinator=coordinator,
+            room_diagnostic_session=session,
+            _room_call_log_actions={context: "call_log_preview"},
+            _room_call_log_windows={context: detail_window},
+            _room_credential_attempts={context: (({"username": "u"},), 0, None)},
+            room_call_log_controller=SimpleNamespace(take_success_evidence=Mock(return_value={"connection_profile": {"mode": "x"}})),
+            set_current_credential_index=credential_index,
+            set_device_connection_profile=profile,
+        )
+        VCSDiagnosticApp._on_room_call_log_finished(window, context, True, {"fresh": True}, False, None)
+
+        self.assertIsNone(row.call_log_preview_snapshot)
+        detail_window.set_snapshot.assert_not_called()
+        detail_window.status_label.setText.assert_not_called()
+        credential_index.assert_not_called()
+        profile.assert_not_called()
+
+    def test_stale_local_refresh_success_does_not_persist_credential(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        row = self._row()
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], expanded_record_id=row.record_id,
+            status=RoomCycleStatus.COMPLETE,
+        )
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda _model: RoomInteractionBindings(local_refresh=lambda *_args: None),
+        )
+        coordinator.bind_session(session)
+        context = coordinator.request_local_refresh()
+        row.operation_token += 1
+        credential_index = Mock()
+        controller = SimpleNamespace(forget_local_refresh=Mock())
+        window = SimpleNamespace(
+            room_interaction_coordinator=coordinator,
+            _room_matrix_reconciliation_requests={},
+            _room_credential_attempts={context: (({"username": "u"},), 0, None)},
+            _room_live_inflight=set(),
+            room_diagnostic_controller=controller,
+            set_current_credential_index=credential_index,
+        )
+        VCSDiagnosticApp._on_room_local_refresh_finished(window, context, True, {"fresh": True}, False, None)
+
+        credential_index.assert_not_called()
+        controller.forget_local_refresh.assert_called_once_with(context)
 
     def test_cloudlink_box_310_preview_and_fresh_detail_regression_oracle(self):
         from gui.dialogs.call_log_window import CallLogWindow

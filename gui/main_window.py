@@ -1778,6 +1778,14 @@ class VCSDiagnosticApp(QMainWindow):
     def _on_room_call_log_finished(
         self, context, success, data, connection_lost, warning
     ):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        # A late callback may still name the active context while retirement
+        # has already advanced its row operation token. Full coordinator
+        # currentness is the authority for every result-side effect.
+        if coordinator is None or not coordinator.accepts_context(context):
+            self.__dict__.setdefault("_room_call_log_actions", {}).pop(context, None)
+            self._room_credential_attempts.pop(context, None)
+            return
         if isinstance(data, RoomAuthenticationRejected):
             if self._retry_room_authentication(context):
                 return
@@ -1787,10 +1795,8 @@ class VCSDiagnosticApp(QMainWindow):
             window.set_snapshot(data)
         elif window is not None:
             window.status_label.setText(warning or "Не удалось загрузить журнал звонков")
-        coordinator = self.__dict__.get("room_interaction_coordinator")
-        accepted_current = coordinator is not None and coordinator.active_context == context
         action = self.__dict__.setdefault("_room_call_log_actions", {}).pop(context, None)
-        if success and accepted_current and action == "call_log_preview":
+        if success and action == "call_log_preview":
             session = self.__dict__.get("room_diagnostic_session")
             if session is not None:
                 try:
@@ -1806,7 +1812,7 @@ class VCSDiagnosticApp(QMainWindow):
                 warning=warning,
             )
         attempt = self._room_credential_attempts.pop(context, None)
-        if success and accepted_current and attempt is not None:
+        if success and attempt is not None:
             self.set_current_credential_index(context.diagnostic_model, attempt[1], context.ip_address)
             evidence = self.room_call_log_controller.take_success_evidence(context)
             profile = evidence.get("connection_profile") if evidence else None
@@ -1831,6 +1837,17 @@ class VCSDiagnosticApp(QMainWindow):
         connection_lost,
         warning,
     ):
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        # Reject stale/cancelled results before auth fallback, persistence, or
+        # presentation. ``active_context`` alone is insufficient after a row
+        # operation token has been retired.
+        if coordinator is None or not coordinator.accepts_context(context):
+            self._room_matrix_reconciliation_requests.pop(context, None)
+            self._room_credential_attempts.pop(context, None)
+            if context.kind is RoomInteractionKind.LIVE:
+                self._room_live_inflight.discard(context)
+            self.room_diagnostic_controller.forget_local_refresh(context)
+            return
         if isinstance(data, RoomAuthenticationRejected):
             if self._retry_room_authentication(context):
                 return
@@ -1842,18 +1859,15 @@ class VCSDiagnosticApp(QMainWindow):
             or data.get("current_connection") != requested_input
         ):
             success, data, connection_lost, warning = False, None, False, "Коммутация Matrix не подтверждена"
-        coordinator = self.__dict__.get("room_interaction_coordinator")
-        accepted_current = coordinator is not None and coordinator.active_context == context
-        if coordinator is not None:
-            coordinator.complete(
-                context,
-                success=success,
-                data=data,
-                connection_lost=connection_lost,
-                warning=warning,
-            )
+        coordinator.complete(
+            context,
+            success=success,
+            data=data,
+            connection_lost=connection_lost,
+            warning=warning,
+        )
         attempt = self._room_credential_attempts.pop(context, None)
-        if success and accepted_current and attempt is not None:
+        if success and attempt is not None:
             self.set_current_credential_index(context.diagnostic_model, attempt[1], context.ip_address)
         if context.kind is RoomInteractionKind.LIVE:
             self._room_live_inflight.discard(context)

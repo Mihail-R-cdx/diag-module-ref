@@ -32,27 +32,27 @@
 - [x] 4.2 Implement the approved application-owned conversion using exact-model registry bounds only: `scaled = 100 * (V - MIN) / (MAX - MIN)` and `percent = floor(scaled + 0.5)` when `MAX > MIN` and `MIN <= V <= MAX`; do not clamp out-of-range values.
 - [x] 4.3 Add normative mapping tests for each distinct range: TE20/TE40 `0->0`, `10->48`, `21->100`; Bar/Box `0->0`, `7->47`, `15->100`; Polycom `0->0`, `42->42`, `100->100`; also cover malformed/out-of-range/stale/missing evidence -> absent percentage.
 - [x] 4.4 Render `<N>%` between `−` and `+` only when current accepted percentage exists; render `Нет данных` otherwise.
-- [ ] 4.5 Keep canonical/raw speaker volume and existing model-specific mutation target conversion as mutation/reconciliation authority; never reverse-convert GUI percentage into a mutation target.
-- [ ] 4.6 Remove/avoid any independent presentation-owned pending flag/timer that can outlive or disagree with authoritative `MUTATION -> RECONCILIATION` lifecycle.
-- [ ] 4.7 Test supported and unsupported clicks, accepted reconciliation success, ambiguous send/result, reconciliation failure/timeout, stale completion, exact-row switching, and no blind resend/optimistic accepted percentage.
+- [x] 4.5 Keep canonical/raw speaker volume and existing model-specific mutation target conversion as mutation/reconciliation authority; never reverse-convert GUI percentage into a mutation target.
+- [x] 4.6 Remove/avoid any independent presentation-owned pending flag/timer that can outlive or disagree with authoritative `MUTATION -> RECONCILIATION` lifecycle.
+- [x] 4.7 Test supported and unsupported clicks, accepted reconciliation success, ambiguous send/result, reconciliation failure/timeout, stale completion, exact-row switching, and no blind resend/optimistic accepted percentage.
 
 ## 5. Microphone meter semantics
 
-- [ ] 5.1 Resolve modern room microphone-meter capability from unified registration/approved live binding, not model strings in Qt presentation.
-- [ ] 5.2 Keep Bar 310 and Box 310 `SUPPORTED`; distinguish accepted numeric zero from missing current sample (`Нет данных`).
-- [ ] 5.3 Render TE20, TE40, and Polycom RPG 310 as `Не поддерживается` for the modern room live microphone meter and prove rendering performs zero meter network I/O.
-- [ ] 5.4 Preserve current CloudLink Bar/Box meter endpoints, session ownership, one-second serialization, stale rejection, and ordinary-status isolation.
-- [ ] 5.5 Add exact-model focused tests covering `SUPPORTED with data`, `SUPPORTED with zero`, `SUPPORTED with no data`, and `UNSUPPORTED` as applicable.
+- [x] 5.1 Resolve modern room microphone-meter capability from unified registration/approved live binding, not model strings in Qt presentation.
+- [x] 5.2 Keep Bar 310 and Box 310 `SUPPORTED`; distinguish accepted numeric zero from missing current sample (`Нет данных`).
+- [x] 5.3 Render TE20, TE40, and Polycom RPG 310 as `Не поддерживается` for the modern room live microphone meter and prove rendering performs zero meter network I/O.
+- [x] 5.4 Preserve current CloudLink Bar/Box meter endpoints, session ownership, one-second serialization, stale rejection, and ordinary-status isolation.
+- [x] 5.5 Add exact-model focused tests covering `SUPPORTED with data`, `SUPPORTED with zero`, `SUPPORTED with no data`, and `UNSUPPORTED` as applicable.
 
 ## 6. Codec Local Refresh investigation and correction
 
-- [ ] 6.1 Before changing implementation, reproduce MIH-23 separately on `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310` using current remote feature source/test baseline.
-- [ ] 6.2 Record enough failing-boundary evidence to classify the defect as common lifecycle/composition vs model-specific adapter/typed-failure behavior. Do not treat duplicate callbacks, presentation code, or one model path as the root cause until this evidence exists.
-- [ ] 6.3 Keep `Обновить статус` as a pure alias of the existing exact-row `LOCAL_REFRESH` intent/lifecycle and correct only the proven root-cause boundary.
-- [ ] 6.4 Do not introduce a second codec-specific refresh owner, direct presentation-to-handler path, string heuristic, or duplicate current-operation error owner.
-- [ ] 6.5 Ensure accepted success updates exact-row cache with no error modal; accepted terminal failure follows existing row failure contract with at most one non-secret current-operation error presentation.
-- [ ] 6.6 Ensure stale/superseded/cancelled completion mutates no current cache and produces no current-row error modal; preserve stale-before-handler/I/O rejection where separable.
-- [ ] 6.7 Add model-specific and common-lifecycle regression coverage according to the reproduced root cause, including success, usable-success-with-warning where applicable, terminal typed failure, stale completion, cancellation/supersession, and GUI-thread non-blocking behavior.
+- [x] 6.1 Before changing implementation, reproduce MIH-23 separately on `Huawei TE20`, `Huawei TE40`, `CloudLink Bar 310`, `CloudLink Box 310`, and `Polycom RPG 310` using current remote feature source/test baseline.
+- [x] 6.2 Record enough failing-boundary evidence to classify the defect as common lifecycle/composition vs model-specific adapter/typed-failure behavior. Do not treat duplicate callbacks, presentation code, or one model path as the root cause until this evidence exists.
+- [x] 6.3 Keep `Обновить статус` as a pure alias of the existing exact-row `LOCAL_REFRESH` intent/lifecycle and correct only the proven root-cause boundary.
+- [x] 6.4 Do not introduce a second codec-specific refresh owner, direct presentation-to-handler path, string heuristic, or duplicate current-operation error owner.
+- [x] 6.5 Ensure accepted success updates exact-row cache with no error modal; accepted terminal failure follows existing row failure contract with at most one non-secret current-operation error presentation.
+- [x] 6.6 Ensure stale/superseded/cancelled completion mutates no current cache and produces no current-row error modal; preserve stale-before-handler/I/O rejection where separable.
+- [x] 6.7 Add model-specific and common-lifecycle regression coverage according to the reproduced root cause, including success, usable-success-with-warning where applicable, terminal typed failure, stale completion, cancellation/supersession, and GUI-thread non-blocking behavior.
 
 ## 7. Focused and full implementation validation
 

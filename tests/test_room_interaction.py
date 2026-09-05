@@ -122,6 +122,7 @@ class RoomInteractionCoordinatorTests(unittest.TestCase):
 
     def test_cancelled_local_refresh_is_rejected_before_ping_for_all_codecs(self):
         from gui.room_diagnostic_controller import RoomDiagnosticController
+        from gui.diagnostic_dispatch import dispatch_entry_for_model
 
         ping = Mock(side_effect=AssertionError("cancelled refresh must not ping"))
         controller = RoomDiagnosticController(
@@ -135,6 +136,9 @@ class RoomInteractionCoordinatorTests(unittest.TestCase):
             "CloudLink Box 310", "Polycom RPG 310",
         )):
             with self.subTest(model=model):
+                entry = dispatch_entry_for_model(model)
+                self.assertEqual("room_one_shot_refresh", entry.local_refresh_binding_key)
+                self.assertIn(entry.room_adapter_key, {"codec_one_shot", "polycom_one_shot"})
                 context = RoomInteractionContext("s", 1, str(index), model, "192.0.2.10", 1, index, 0, RoomInteractionKind.LOCAL_REFRESH)
                 cancelled = threading.Event()
                 cancelled.set()
