@@ -1,8 +1,8 @@
 # diagnostic-ui-presentation Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Codec state and call cards keep permanent slots with deterministic row geometry
+### Requirement: Modern codec state and call cards use reduced permanent row geometry
 
 The `Состояние` card SHALL permanently render these rows in this exact order:
 
@@ -33,10 +33,9 @@ The approved five-card visual layout uses no leading status dots in `Состо�
 
 `Регистрация SIP/H.323` SHALL use a non-text icon in the right value column: `✓` for confirmed registration and `✕` for confirmed failure. The shared GUI SHALL receive this semantic state from the same typed/structured or exact-adapter-normalized evidence and SHALL NOT parse localized display strings, model names or substrings. If registration evidence is unavailable, it SHALL render a neutral `—` icon; icon color is supplementary and never the sole meaning.
 
-#### Scenario: Model lacks one field
+#### Scenario: State card renders the reduced permanent row set
 
-- **GIVEN** current accepted codec evidence has no usable `Платформа` value
-- **WHEN** `Состояние` is rendered
+- **WHEN** a current supported codec `Состояние` card is rendered
 - **THEN** it contains exactly `Модель`, `MAC-адрес`, `Серийный номер`, `Версия ПО`, `Микрофон`, and `Камера` in the required order
 - **AND** no `Платформа` row is visible
 - **AND** internal platform evidence MAY remain available outside this presentation
@@ -49,7 +48,7 @@ The approved five-card visual layout uses no leading status dots in `Состо�
 - **AND** call/presentation render `Нет данных` while registration renders a neutral `—` icon
 - **AND** the GUI does not infer a state from a localized fallback string
 
-### Requirement: Codec audio card has fixed meter and control-row geometry without fabricated authority
+### Requirement: Codec audio card distinguishes supported live-meter evidence from unsupported capability
 
 The `Аудио` card SHALL permanently contain, in this order:
 
@@ -103,7 +102,7 @@ Supported clicks SHALL publish only safe typed exact-row intents to application 
 - **THEN** the microphone meter renders the approved normalized fill, including 0 fill for accepted numeric zero
 - **AND** no presentation-owned meter request is started
 
-#### Scenario: Codec has no current microphone level evidence
+#### Scenario: Supported CloudLink meter has no current sample
 
 - **GIVEN** the exact current model is `CloudLink Bar 310` or `CloudLink Box 310`
 - **AND** no compatible current accepted live meter sample is available
@@ -141,6 +140,41 @@ Supported clicks SHALL publish only safe typed exact-row intents to application 
 - **AND** the network capability remains unsupported
 - **AND** no room network interaction is started
 - **AND** current LIVE, cache and row authority remain unchanged
+
+### Requirement: Codec call-history direction cue maps typed direction to the correct visible semantic role
+
+Every modern room codec call-history record that renders a direction cue SHALL bind the cue to normalized `CallDirection` without vendor/model-specific reversal:
+
+```text
+INCOMING -> incoming semantic cue; non-color/accessibility meaning `Входящий`
+OUTGOING -> outgoing semantic cue; non-color/accessibility meaning `Исходящий`
+UNKNOWN  -> neutral semantic cue; non-color/accessibility meaning `Направление неизвестно`
+```
+
+The concrete icon glyph or Qt asset MAY vary with the shared theme, but the semantic role SHALL be testable independently of color and SHALL NOT be swapped between `INCOMING` and `OUTGOING`. Presentation SHALL NOT infer direction from localized source strings, peer formatting, icon color, or model identity.
+
+#### Scenario: Incoming record uses incoming visible role
+
+- **GIVEN** the normalized record direction is `INCOMING`
+- **WHEN** a room-preview or detailed call row renders its direction cue
+- **THEN** the visible/non-color semantic role is `Входящий`
+- **AND** the outgoing semantic role is not used
+
+#### Scenario: Outgoing record uses outgoing visible role
+
+- **GIVEN** the normalized record direction is `OUTGOING`
+- **WHEN** a room-preview or detailed call row renders its direction cue
+- **THEN** the visible/non-color semantic role is `Исходящий`
+- **AND** the incoming semantic role is not used
+
+#### Scenario: Unknown direction is neutral
+
+- **GIVEN** the normalized record direction is `UNKNOWN`
+- **WHEN** the direction cue renders
+- **THEN** it uses a neutral semantic role equivalent to `Направление неизвестно`
+- **AND** it does not falsely claim incoming or outgoing direction
+
+## MODIFIED Requirements
 
 ### Requirement: Codec call-log card uses normalized newest-first order and reserves three-row preview density
 
@@ -200,37 +234,17 @@ The card SHALL NOT own call-log network acquisition. Automatic preview authority
 - **AND** the `Развернуть` action remains present
 - **AND** activating `Развернуть` still starts the same fresh serialized exact-row call-log acquisition
 
-## ADDED Requirements
 
-### Requirement: Codec call-history direction cue maps typed direction to the correct visible semantic role
+## REMOVED Requirements
 
-Every modern room codec call-history record that renders a direction cue SHALL bind the cue to normalized `CallDirection` without vendor/model-specific reversal:
+### Requirement: Codec state and call cards keep permanent slots with deterministic row geometry
 
-```text
-INCOMING -> incoming semantic cue; non-color/accessibility meaning `Входящий`
-OUTGOING -> outgoing semantic cue; non-color/accessibility meaning `Исходящий`
-UNKNOWN  -> neutral semantic cue; non-color/accessibility meaning `Направление неизвестно`
-```
+**Reason:** The legacy requirement permanently retained a `Платформа` row and required it to show `Нет данных` when unavailable. The approved modern codec dashboard instead removes that presentation row unconditionally.
 
-The concrete icon glyph or Qt asset MAY vary with the shared theme, but the semantic role SHALL be testable independently of color and SHALL NOT be swapped between `INCOMING` and `OUTGOING`. Presentation SHALL NOT infer direction from localized source strings, peer formatting, icon color, or model identity.
+**Migration:** Use the added reduced-geometry requirement: the modern `Состояние` card renders exactly its six approved rows, excludes `Платформа`, and preserves internal platform evidence for other approved consumers.
 
-#### Scenario: Incoming record uses incoming visible role
+### Requirement: Codec audio card has fixed meter and control-row geometry without fabricated authority
 
-- **GIVEN** the normalized record direction is `INCOMING`
-- **WHEN** a room-preview or detailed call row renders its direction cue
-- **THEN** the visible/non-color semantic role is `Входящий`
-- **AND** the outgoing semantic role is not used
+**Reason:** The legacy requirement treated absent microphone-level evidence as one generic unavailable state. The approved modern dashboard distinguishes no sample for supported Bar/Box meter capability from explicit unsupported capability for TE20/TE40/Polycom.
 
-#### Scenario: Outgoing record uses outgoing visible role
-
-- **GIVEN** the normalized record direction is `OUTGOING`
-- **WHEN** a room-preview or detailed call row renders its direction cue
-- **THEN** the visible/non-color semantic role is `Исходящий`
-- **AND** the incoming semantic role is not used
-
-#### Scenario: Unknown direction is neutral
-
-- **GIVEN** the normalized record direction is `UNKNOWN`
-- **WHEN** the direction cue renders
-- **THEN** it uses a neutral semantic role equivalent to `Направление неизвестно`
-- **AND** it does not falsely claim incoming or outgoing direction
+**Migration:** Use the added capability-aware audio-card requirement: supported Bar/Box rows render `Нет данных` only when their current meter sample is unavailable, while unsupported models render `Не поддерживается` with zero meter I/O.

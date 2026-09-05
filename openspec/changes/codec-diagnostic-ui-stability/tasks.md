@@ -70,7 +70,7 @@
 - [ ] 8.3 Repeat the full offline test suite.
 - [ ] 8.4 Repeat strict change validation and `validate --all --strict` using repository-local commands only.
 - [ ] 8.5 Run `git diff --check` and `git diff --cached --check`, verify the detached worktree remains clean, and review implementation against every approved requirement.
-- [ ] 8.6 Audit the explicit `REMOVED`/`ADDED` call-log replacement and every remaining `MODIFIED Requirement` against then-current root specs through the required disposable archive-applicability check outside the primary feature branch/worktree.
+- [ ] 8.6 Audit every explicit `REMOVED`/`ADDED` replacement and every remaining `MODIFIED Requirement` against then-current root specs through the required disposable archive-applicability check outside the primary feature branch/worktree.
 - [ ] 8.7 Issue independent `APPROVE`, `APPROVE WITH NON-BLOCKING NOTES`, or `CHANGES REQUIRED` according to current `RULES.md`; do not self-fix findings in the validation session.
 
 ## 9. Archive and post-archive checks

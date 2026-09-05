@@ -1,8 +1,8 @@
 # room-device-interaction-lifecycle Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Debug is local exact-row presentation
+### Requirement: Debug visibility is exact-row presentation for approved non-codec/non-PDU families
 
 The current `Отладка` action in room mode SHALL be bound to the exact current expanded supported row only on device-family presentations that explicitly retain the approved Debug affordance. Opening or closing Debug SHALL NOT by itself create device network I/O, stop live, select credentials, or acquire a handler/session.
 
@@ -12,7 +12,7 @@ The modern expanded **codec** dashboard intentionally exposes no local `Отла
 
 For another device family whose approved presentation retains Debug, the action remains local exact-row presentation and remains outside the serialized network lane because it performs no device I/O.
 
-#### Scenario: Debug opens while live is active
+#### Scenario: Retained-family Debug opens while live is active
 
 - **GIVEN** a current exact supported non-codec/non-PDU row with an approved Debug affordance has active live
 - **WHEN** the operator opens Debug
@@ -33,7 +33,7 @@ For another device family whose approved presentation retains Debug, the action 
 - **THEN** no local `Отладка` control is visible
 - **AND** no Debug network capability or alternate lifecycle is created
 
-#### Scenario: Non-PDU Debug remains exact-row presentation
+#### Scenario: Other approved device family Debug remains exact-row presentation
 
 - **GIVEN** a current expanded supported non-codec/non-PDU row has an approved visible Debug presentation
 - **WHEN** the operator opens Debug
@@ -41,7 +41,7 @@ For another device family whose approved presentation retains Debug, the action 
 - **AND** opening it creates no device I/O, credential/session acquisition, or change to row authority
 - **AND** active live may continue because local Debug creates no network lifecycle
 
-### Requirement: Codec call-log acquisition result and explicit detail request are separate from automatic-attempt authority
+### Requirement: Codec automatic preview and explicit detail retain distinct call-log acquisition authority
 
 The existing room call-log application/controller boundary SHALL separate normalized acquisition/result ownership from the side effect of showing `CallLogWindow`. Automatic room preview and explicit detailed-journal opening SHALL use the same approved call-log capability, parser/normalizer contract, credential authority, and serialized room `AUXILIARY_READ` lane, but they SHALL remain distinct acquisition epochs/results.
 
@@ -55,7 +55,7 @@ The explicit detail acquisition SHALL NOT clear, reuse, or reset the completed a
 
 The existing direct child-window close rule remains authoritative for an active explicit window-owned network request: user close invalidates/cancels that exact request, bounded cleanup follows, late callbacks cannot reopen it, and a later explicit opening starts a new fresh acquisition. A completed automatic-preview result from the same current row remains a distinct preview acquisition and SHALL NOT be confused with or substituted for the cancelled explicit child-window request.
 
-#### Scenario: Detail opens from current completed preview
+#### Scenario: Detail opens with fresh acquisition despite current preview
 
 - **GIVEN** a completed accepted automatic-preview result belongs to the current exact codec row/generation
 - **WHEN** the operator clicks `Развернуть`
@@ -94,8 +94,6 @@ The existing direct child-window close rule remains authoritative for an active 
 - **WHEN** the operator later explicitly opens the detailed journal again for an eligible current exact row
 - **THEN** a new fresh serialized call-log acquisition is required
 - **AND** neither the cancelled request nor any automatic-preview result substitutes for that new explicit load
-
-## ADDED Requirements
 
 ### Requirement: Codec Local Refresh publishes one typed terminal outcome to presentation
 
@@ -172,3 +170,17 @@ A stale/superseded mutation/reconciliation completion SHALL NOT re-enable contro
 - **WHEN** its common visible affordance is activated while otherwise eligible
 - **THEN** the approved local informational result is shown
 - **AND** no room network lifecycle starts
+
+## REMOVED Requirements
+
+### Requirement: Debug is local exact-row presentation
+
+**Reason:** The legacy requirement described Debug as available for the current supported non-PDU row, which no longer truthfully describes the modern codec dashboard after its local Debug affordance was removed.
+
+**Migration:** Use the added exact-row Debug visibility requirement: modern codec and PDU dashboards expose no Debug affordance, while only explicitly approved non-codec/non-PDU families retain local Debug presentation.
+
+### Requirement: Codec call-log acquisition result and explicit detail request are separate from automatic-attempt authority
+
+**Reason:** The legacy requirement allowed a current accepted automatic preview to populate detail without a second read. The approved architecture instead requires distinct automatic-preview and explicit-detail acquisitions.
+
+**Migration:** Use the added distinct-acquisition requirement: every eligible explicit `Развернуть` starts a fresh serialized exact-row `AUXILIARY_READ`, and only its fresh accepted result is authoritative for detailed rows and statistics.

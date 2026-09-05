@@ -210,7 +210,7 @@ Mitigation: model-by-model reproduction/classification is an implementation gate
 
 ### Risk: archive delta conflicts with current roots
 
-Mitigation: the legacy call-log contract is explicitly represented as `REMOVED Requirements` plus a separately named `ADDED Requirement`, while all remaining `MODIFIED Requirements` retain current root scenarios; independent validation must perform the required disposable archive-applicability check before `READY FOR ARCHIVE`.
+Mitigation: legacy call-log, Debug, state-card, and audio-card contracts are explicitly represented as `REMOVED Requirements` plus separately named `ADDED Requirements` where their scenario identities no longer describe approved behavior. Remaining `MODIFIED Requirements` retain only truthful scenario identities; independent validation must perform the required disposable archive-applicability check before `READY FOR ARCHIVE`.
 
 ## Validation Strategy
 
