@@ -98,6 +98,18 @@ Successful mutation transport/ACK SHALL remain non-authoritative. Only the readb
 - **WHEN** the operator requests unmute while authoritative volume is `0`
 - **THEN** the remembered positive value is restored and confirmed by the same authoritative getter
 
+#### Scenario: First unmute starts from zero without remembered positive volume
+
+- **GIVEN** the current exact codec model supports speaker mute/unmute
+- **AND** the first authoritative speaker volume observed for the exact record/session is `0`
+- **AND** no remembered positive speaker volume exists for that exact record/session
+- **WHEN** the operator requests speaker unmute
+- **THEN** the application SHALL use fallback target `1` when `1` is inside the exact-model speaker range
+- **AND** SHALL submit that target through the same serialized speaker-volume mutation path
+- **AND** SHALL confirm final state with `get_speaker_volume`
+- **AND** SHALL remember the confirmed positive result for subsequent mute/unmute operations
+- **AND** SHALL NOT require a full codec refresh merely to choose the fallback target
+
 #### Scenario: Audio mutation readback fails
 
 - **WHEN** a codec audio mutation may have been delivered but targeted authoritative readback cannot confirm final state
