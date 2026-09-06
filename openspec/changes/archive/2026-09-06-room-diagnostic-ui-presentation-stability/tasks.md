@@ -67,18 +67,20 @@
 
 ## 8. Independent validation
 
-- [ ] 8.1 Validate the exact current remote feature HEAD in a separate clean detached worktree and verify local HEAD equals `origin/<feature-branch>` before tests.
-- [ ] 8.2 Repeat focused GUI/lifecycle tests with fresh results, including same-identity and replacement/clear active-scroll-animation cases.
-- [ ] 8.3 Repeat the full offline project test suite.
-- [ ] 8.4 Repeat strict change validation and `validate --all --strict` using repository-local commands only.
-- [ ] 8.5 Run Git diff checks and review implementation against every approved requirement, especially same-context vs new-context state boundaries, smooth-scroll revocation, and zero-I/O restoration.
-- [ ] 8.6 Audit the modified network and Audio requirements against then-current root specs with the repository-required archive-applicability discipline where applicable.
-- [ ] 8.7 Issue the independent implementation verdict according to current `RULES.md`; do not self-fix findings in the validation session.
+Independent validation of published feature HEAD `4496a2f8a477626c439a857c0f0d2b491e26e490` completed before this archive session with verdict: `APPROVE`. This archive session records that independent result but does not claim to have performed it.
+
+- [x] 8.1 Validate the exact current remote feature HEAD in a separate clean detached worktree and verify local HEAD equals `origin/<feature-branch>` before tests.
+- [x] 8.2 Repeat focused GUI/lifecycle tests with fresh results, including same-identity and replacement/clear active-scroll-animation cases.
+- [x] 8.3 Repeat the full offline project test suite.
+- [x] 8.4 Repeat strict change validation and `validate --all --strict` using repository-local commands only.
+- [x] 8.5 Run Git diff checks and review implementation against every approved requirement, especially same-context vs new-context state boundaries, smooth-scroll revocation, and zero-I/O restoration.
+- [x] 8.6 Audit the modified network and Audio requirements against then-current root specs with the repository-required archive-applicability discipline where applicable.
+- [x] 8.7 Issue the independent implementation verdict according to current `RULES.md`; do not self-fix findings in the validation session.
 
 ## 9. Archive and completion
 
-- [ ] 9.1 Archive only after permitting independent validation and explicit authorization using repository-local OpenSpec tooling.
-- [ ] 9.2 Review archive/root-spec diff, especially replacement of network child-row/disclosure and Audio popup pinning semantics.
-- [ ] 9.3 Run required post-archive strict validation, full offline tests, and Git checks.
+- [x] 9.1 Archive only after permitting independent validation and explicit authorization using repository-local OpenSpec tooling.
+- [x] 9.2 Review archive/root-spec diff, especially replacement of network child-row/disclosure and Audio popup pinning semantics.
+- [x] 9.3 Run required post-archive strict validation, full offline tests, and Git checks.
 - [ ] 9.4 Create/push a dedicated archive commit only with explicit authorization and verify remote archive HEAD.
 - [ ] 9.5 Before merge, re-check current `master`, PR state/Draft/base/head, remote feature/archive HEAD, merge state/mergeability, and new commits; do not merge without explicit user authorization.
