@@ -13,7 +13,7 @@
 - [x] 2.1 Create proposal, design, delta specs, and task plan.
 - [x] 2.2 Review exact current root specs and implementation against this design for contradictions or missing model-specific behavior.
 - [x] 2.3 Perform independent architecture review; result: `CHANGES REQUIRED` with 2 HIGH and 2 MEDIUM findings.
-- [x] 2.4 Resolve the architecture findings by adding the normative exact-model capability matrix, microphone normalization contract, hardware gate rules, and explicit defect/action inventory.
+- [x] 2.4 Resolve the architecture findings by adding the normative exact-model capability matrix, microphone normalization contract, hardware gate rules, explicit defect/action inventory, and first-unmute fallback semantics.
 - [ ] 2.5 Resolve every `UNCONFIRMED` hardware-availability row to `AVAILABLE` or `UNAVAILABLE`; implementation SHALL NOT start while any row remains `UNCONFIRMED`.
 - [ ] 2.6 Obtain final architecture `APPROVE` before implementation.
 
@@ -58,12 +58,13 @@
 - [ ] 7.1 Restore speaker `-/+` through one serialized model-specific operation plus targeted `get_speaker_volume` readback.
 - [ ] 7.2 Enforce exact step/range from the matrix: TE20/TE40 `0..21/1`, Bar/Box `0..15/1`, RPG310 `0..100/2`.
 - [ ] 7.3 Restore supported speaker zero/restore mute semantics from authoritative speaker-volume evidence.
-- [ ] 7.4 Restore TE20/TE40/RPG310 microphone mute semantics; do not reinterpret them as numeric microphone gain.
-- [ ] 7.5 Bar/Box microphone `-/+` is disabled/hidden or unmistakably local-only; no gain network I/O is admitted.
-- [ ] 7.6 Reboot is disabled/hidden or unmistakably local-only for all five models; no reboot network I/O is introduced by this change.
-- [ ] 7.7 Preserve blocked/unconfirmed safety when mutation readback cannot confirm final state; no blind replay.
-- [ ] 7.8 Ensure Local Refresh and every in-scope codec action terminate/cleanup without indefinite UI lock on all typed outcomes.
-- [ ] 7.9 Add regressions for success, auth rejection, ordinary failure, transport loss, cancellation, cleanup timeout, and stale late callbacks.
+- [ ] 7.4 For first unmute when authoritative speaker volume is `0` and no remembered positive value exists for the exact record/session, use fallback target `1` and confirm it with `get_speaker_volume`; no full refresh is required to choose the fallback.
+- [ ] 7.5 Restore TE20/TE40/RPG310 microphone mute semantics; do not reinterpret them as numeric microphone gain.
+- [ ] 7.6 Bar/Box microphone `-/+` is disabled/hidden or unmistakably local-only; no gain network I/O is admitted.
+- [ ] 7.7 Reboot is disabled/hidden or unmistakably local-only for all five models; no reboot network I/O is introduced by this change.
+- [ ] 7.8 Preserve blocked/unconfirmed safety when mutation readback cannot confirm final state; no blind replay.
+- [ ] 7.9 Ensure Local Refresh and every in-scope codec action terminate/cleanup without indefinite UI lock on all typed outcomes.
+- [ ] 7.10 Add regressions for success, auth rejection, ordinary failure, transport loss, cancellation, cleanup timeout, and stale late callbacks.
 
 ## 8. Defect/action acceptance inventory
 
@@ -74,11 +75,12 @@ For every row marked `In scope = YES` in `design.md`, produce explicit acceptanc
 - [ ] 8.3 CloudLink Bar/Box live microphone bar: verify continuous operation and no preview starvation.
 - [ ] 8.4 TE20/TE40 live audio: verify microphone and speaker monitor presentation.
 - [ ] 8.5 Speaker `-/+`: verify exact range/step/readback per model; Polycom must move by `2`.
-- [ ] 8.6 Speaker mute: verify zero/restore semantics and authoritative readback per model.
-- [ ] 8.7 TE20/TE40/RPG310 microphone mute: verify supported mute/readback path.
-- [ ] 8.8 Bar/Box microphone gain affordance: verify no normal actionable network control and zero gain I/O.
-- [ ] 8.9 Reboot affordance: verify no normal actionable network control and zero reboot I/O for all five models.
-- [ ] 8.10 Verify no in-scope action leaves row/top controls or room lane permanently locked after success/failure/cancel/timeout.
+- [ ] 8.6 Speaker mute: verify positive -> mute -> unmute zero/restore semantics and authoritative readback per model.
+- [ ] 8.7 First unmute edge case: start with authoritative `speaker_volume=0` and no remembered positive value, press Unmute, verify target/readback `1` and subsequent remembered state.
+- [ ] 8.8 TE20/TE40/RPG310 microphone mute: verify supported mute/readback path.
+- [ ] 8.9 Bar/Box microphone gain affordance: verify no normal actionable network control and zero gain I/O.
+- [ ] 8.10 Reboot affordance: verify no normal actionable network control and zero reboot I/O for all five models.
+- [ ] 8.11 Verify no in-scope action leaves row/top controls or room lane permanently locked after success/failure/cancel/timeout.
 
 ## 9. Hardware-backed acceptance
 
