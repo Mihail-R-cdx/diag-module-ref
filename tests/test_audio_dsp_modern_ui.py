@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -108,8 +110,7 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
 
     def test_local_controls_are_separate_disabled_popup_affordances(self):
         widget = self._render(self._session())
-        channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
-        controls = channel._local_controls
+        controls = widget._audio_popup.popup
         self.assertTrue(bool(controls.windowFlags() & Qt.Tool))
         self.assertEqual(176, controls.width())
         self.assertGreaterEqual(
@@ -117,6 +118,81 @@ class ModernAudioDspRoomPresentationTests(unittest.TestCase):
         )
         for name in ("roomAudioDspGainDown", "roomAudioDspGainValue", "roomAudioDspGainUp", "roomAudioDspMute"):
             self.assertFalse(controls.findChild(QPushButton, name).isEnabled())
+
+    def test_popup_target_is_room_owned_and_selection_does_not_pin_it(self):
+        widget = self._render(self._session())
+        channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+        coordinator = widget._audio_popup
+        coordinator.enter_source("dmp-record", "Inputs", "40000", "Input 1", channel)
+        self.assertEqual("dmp-record", coordinator._target.record_id)
+        channel.selected.emit("Inputs", "40000")
+        QApplication.processEvents()
+        coordinator.leave_source(channel)
+        coordinator._hide_if_current()
+        self.assertIsNone(coordinator._target)
+        self.assertEqual(("dmp-record", "Inputs", "40000"), widget._audio_selection)
+
+    def test_popup_rejects_stale_target_after_row_collapse_or_channel_disappearance(self):
+        session = self._session()
+        widget = self._render(session)
+        channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+        coordinator = widget._audio_popup
+        coordinator.enter_source("dmp-record", "Inputs", "40000", "Input 1", channel)
+        widget.tree.topLevelItem(0).setExpanded(False)
+        QApplication.processEvents()
+        self.assertIsNone(coordinator._target)
+        widget.tree.topLevelItem(0).setExpanded(True)
+        QApplication.processEvents()
+        channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+        coordinator.enter_source("dmp-record", "Inputs", "40000", "Input 1", channel)
+        session.rows[0].accepted_snapshot["meter_sections"][0]["channels"] = []
+        widget.render(session)
+        self.assertIsNone(coordinator._target)
+
+    def test_incoming_same_context_invalidation_revokes_before_disposable_tree_clear(self):
+        """Incoming row/channel evidence revokes the popup before widgets die."""
+        for case in ("expanded_row_replaced", "channel_disappeared"):
+            with self.subTest(case=case):
+                session = self._session()
+                widget = self._render(session)
+                coordinator = widget._audio_popup
+                channel = widget.findChildren(QWidget, "roomAudioDspChannel")[0]
+                coordinator.enter_source("dmp-record", "Inputs", "40000", "Input 1", channel)
+                events = []
+                original_revoke = coordinator.revoke
+                original_clear = widget.tree.clear
+
+                if case == "expanded_row_replaced":
+                    session.rows.append(replace(session.rows[0], record_id="other-current-record"))
+                    session.expanded_record_id = "other-current-record"
+                else:
+                    session.rows[0].accepted_snapshot["meter_sections"][0]["channels"] = []
+
+                def revoke_spy():
+                    events.append("revoke")
+                    return original_revoke()
+
+                def clear_spy():
+                    events.append("clear")
+                    return original_clear()
+
+                with patch.object(coordinator, "revoke", side_effect=revoke_spy), patch.object(
+                    widget.tree, "clear", side_effect=clear_spy
+                ):
+                    widget.render(session)
+
+                self.assertIsNone(coordinator._target)
+                self.assertLess(events.index("revoke"), events.index("clear"))
+
+    def test_popup_switches_targets_without_old_hide_affecting_new_target(self):
+        widget = self._render(self._session())
+        first, second = widget.findChildren(QWidget, "roomAudioDspChannel")[:2]
+        coordinator = widget._audio_popup
+        coordinator.enter_source("dmp-record", "Inputs", "40000", "Input 1", first)
+        coordinator.leave_source(first)
+        coordinator.enter_source("dmp-record", "Inputs", "40001", "Input 2", second)
+        coordinator._hide_if_current()
+        self.assertEqual("40001", coordinator._target.oid)
 
     def test_dashboard_reflows_below_its_wide_viewport_breakpoint(self):
         widget = self._render(self._session())

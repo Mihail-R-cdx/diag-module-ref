@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from math import floor, isfinite
 from numbers import Real
 
 from PyQt5.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QSize, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QBrush, QIcon, QPainter, QPixmap, QPolygon
+from PyQt5.QtGui import QColor, QBrush, QCursor, QIcon, QPainter, QPixmap, QPolygon
 from PyQt5.QtWidgets import QAbstractItemView, QFormLayout, QFrame, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSizePolicy, QStyle, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from .components import ParameterRow, SectionCard, SemanticButton, StatusIndicator
@@ -47,6 +48,10 @@ class SmoothRoomTreeWidget(QTreeWidget):
         self._scroll_animation = QPropertyAnimation(self.verticalScrollBar(), b"value", self)
         self._scroll_animation.setDuration(260)
         self._scroll_animation.setEasingCurve(QEasingCurve.InOutCubic)
+
+    def stop_smooth_scroll(self) -> None:
+        """Revoke transient motion before a destructive presentation rebuild."""
+        self._scroll_animation.stop()
 
     def wheelEvent(self, event) -> None:
         delta = event.angleDelta().y()
@@ -131,6 +136,8 @@ class RoomDiagnosticTreeWidget(QWidget):
         self.network_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.network_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
         self.network_tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.network_tree.itemExpanded.connect(self._network_item_expanded)
+        self.network_tree.itemCollapsed.connect(self._network_item_collapsed)
         self.network_card.body_layout.addWidget(self.network_tree)
         upper_layout.addWidget(self.room_card, 1)
         upper_layout.addWidget(self.network_card, 1)
@@ -171,12 +178,24 @@ class RoomDiagnosticTreeWidget(QWidget):
         # disposable exact-row child widgets because render() rebuilds them.
         self._audio_selection_context = None
         self._audio_selection: tuple[str, str, str] | None = None
+        self._presentation_identity = None
+        self._network_expanded_switches: set[str] = set()
+        self._network_restoring = False
+        self._audio_popup = AudioPopupCoordinator(self)
 
     def render(self, session: RoomDiagnosticSession) -> None:
         # `expanded_record_id` belongs to the application session.  Rendering a
         # progress callback must not replace a user's secondary selection with the
         # source row again.
+        same_context = self._presentation_identity == session.identity
+        # An old animation is a write-capable transient, never restorable state.
+        self.tree.stop_smooth_scroll()
+        viewport = self._capture_viewport() if same_context else None
+        if not same_context:
+            self._network_expanded_switches.clear()
+        self._audio_popup.begin_render(session, same_context)
         self._session = session
+        self._presentation_identity = session.identity
         if self._audio_selection_context != session.identity:
             self._audio_selection_context = session.identity
             self._audio_selection = None
@@ -282,6 +301,7 @@ class RoomDiagnosticTreeWidget(QWidget):
                                 record_id, section, oid
                             )
                         ),
+                        audio_popup=self._audio_popup,
                         parent=self.tree,
                     )
                     presentation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -296,11 +316,16 @@ class RoomDiagnosticTreeWidget(QWidget):
                 item = self._by_record[expanded_record_id]
                 if item.data(0, Qt.UserRole + 1):
                     item.setExpanded(True)
+            self.tree.doItemsLayout()
+            if viewport is not None:
+                self._restore_viewport(viewport)
         finally:
             self._changing = False
+        self._audio_popup.finish_render(session)
         self.tree.setEnabled(not self._interaction_locked)
 
     def _render_network(self, session: RoomDiagnosticSession) -> None:
+        self._network_restoring = True
         self.network_tree.clear()
         known: dict[str, list] = {}
         unknown: list = []
@@ -312,17 +337,55 @@ class RoomDiagnosticTreeWidget(QWidget):
             else:
                 known.setdefault(record.switch_ip_address, []).append(record)
         self.network_card.set_title(f"Сетевые подключения ({len(known) + len(unknown)} коммутаторов)")
+        self._network_expanded_switches.intersection_update(known)
         for switch_ip, records in sorted(known.items()):
             ports = list(dict.fromkeys(record.switch_port for record in records if record.switch_port is not None))
-            self.network_tree.addTopLevelItem(
-                QTreeWidgetItem((f"SW ({switch_ip})", ", ".join(ports) or "Нет данных", str(len(records))))
-            )
+            parent = QTreeWidgetItem((f"SW ({switch_ip})", ", ".join(ports) or "Нет данных", str(len(records))))
+            parent.setData(0, Qt.UserRole, switch_ip)
+            for record in records:
+                label = record.diagnostic_model or record.record_id
+                child = QTreeWidgetItem((str(label), record.switch_port or "Нет данных", ""))
+                child.setFlags(child.flags() & ~Qt.ItemIsSelectable)
+                parent.addChild(child)
+            self.network_tree.addTopLevelItem(parent)
+            parent.setExpanded(switch_ip in self._network_expanded_switches)
         for record in unknown:
             self.network_tree.addTopLevelItem(
                 QTreeWidgetItem(("Коммутатор не определён", record.switch_port or "Нет данных", "1"))
             )
         if self.network_tree.topLevelItemCount() == 0:
             self.network_tree.addTopLevelItem(QTreeWidgetItem(("Нет данных о сетевых подключениях", "", "")))
+        self._network_restoring = False
+
+    def _network_item_expanded(self, item: QTreeWidgetItem) -> None:
+        if not self._network_restoring:
+            key = item.data(0, Qt.UserRole)
+            if key:
+                self._network_expanded_switches.add(str(key))
+
+    def _network_item_collapsed(self, item: QTreeWidgetItem) -> None:
+        if not self._network_restoring:
+            key = item.data(0, Qt.UserRole)
+            if key:
+                self._network_expanded_switches.discard(str(key))
+
+    def _capture_viewport(self):
+        scroll_bar = self.tree.verticalScrollBar()
+        item = self.tree.itemAt(QPoint(0, 0))
+        while item is not None and item.parent() is not None:
+            item = item.parent()
+        record_id = item.data(0, Qt.UserRole) if item is not None else None
+        offset = self.tree.visualItemRect(item).top() if item is not None else 0
+        return (record_id, offset, scroll_bar.value())
+
+    def _restore_viewport(self, viewport) -> None:
+        record_id, offset, fallback = viewport
+        scroll_bar = self.tree.verticalScrollBar()
+        value = fallback
+        item = self._by_record.get(record_id)
+        if item is not None:
+            value = scroll_bar.value() + self.tree.visualItemRect(item).top() - offset
+        scroll_bar.setValue(max(scroll_bar.minimum(), min(scroll_bar.maximum(), value)))
 
     def set_interaction_locked(self, locked: bool) -> None:
         """Block accordion changes while an exclusive row operation owns I/O."""
@@ -334,6 +397,10 @@ class RoomDiagnosticTreeWidget(QWidget):
         This is intentionally presentation-only: it neither resolves inventory nor
         starts, stops, or otherwise owns device I/O.
         """
+        self.tree.stop_smooth_scroll()
+        self._audio_popup.revoke()
+        self._presentation_identity = None
+        self._network_expanded_switches.clear()
         self._changing = True
         try:
             self.tree.clear()
@@ -461,6 +528,7 @@ class RoomDiagnosticTreeWidget(QWidget):
                 if other is not item:
                     other.setExpanded(False)
             if self._session is not None:
+                self._audio_popup.revoke_unless_record(item.data(0, Qt.UserRole))
                 self._session.expanded_record_id = item.data(0, Qt.UserRole)
                 self.rowExpanded.emit(self._session.expanded_record_id)
         finally:
@@ -471,6 +539,7 @@ class RoomDiagnosticTreeWidget(QWidget):
             return
         if self._session is not None and self._session.expanded_record_id == item.data(0, Qt.UserRole):
             record_id = self._session.expanded_record_id
+            self._audio_popup.revoke_for_record(record_id)
             self._session.expanded_record_id = None
             self.rowCollapsed.emit(record_id)
 
@@ -728,15 +797,175 @@ def _audio_meter_label(section: str, channel_name: Any) -> str:
     return name[len(prefix):] if prefix and name.startswith(prefix) else name
 
 
+@dataclass(frozen=True)
+class AudioPopupTarget:
+    """Safe, presentation-only identity for one current Audio channel."""
+
+    room_identity: object
+    record_id: str
+    section: str
+    oid: str
+
+
+class AudioPopupCoordinator(QWidget):
+    """One room-owned hover popup, independent from disposable meter widgets."""
+
+    def __init__(self, parent: RoomDiagnosticTreeWidget):
+        super().__init__(parent)
+        self._room = parent
+        self._session: RoomDiagnosticSession | None = None
+        self._target: AudioPopupTarget | None = None
+        self._sources: dict[AudioPopupTarget, AudioDspChannelColumn] = {}
+        self._source_hover = False
+        self._epoch = 0
+        self._pending_hide_epoch: int | None = None
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.setInterval(180)
+        self._hide_timer.timeout.connect(self._hide_if_current)
+        self.popup = AudioDspLocalControls("Канал", parent)
+        self.popup.pointerEntered.connect(self.popup_entered)
+        self.popup.pointerLeft.connect(self.popup_left)
+
+    def begin_render(self, session: RoomDiagnosticSession, same_context: bool) -> None:
+        # Incoming authoritative evidence is checked before the room tree clears
+        # disposable sources.  A same-identity refresh cannot keep a popup whose
+        # expanded row, Audio family, or exact channel is already obsolete.
+        if not same_context or (
+            self._target is not None and not self._target_is_current(session)
+        ):
+            self.revoke()
+        self._session = session
+        self._sources.clear()
+
+    def register(self, record_id: str, section: str, oid: str, channel_name: str, source) -> None:
+        if self._session is None:
+            return
+        target = AudioPopupTarget(self._session.identity, record_id, section, oid)
+        self._sources[target] = source
+        if target == self._target:
+            self.popup.set_channel_name(channel_name)
+
+    def finish_render(self, session: RoomDiagnosticSession) -> None:
+        if self._target is None:
+            return
+        if not self._target_is_current(session) or self._target not in self._sources:
+            self.revoke()
+            return
+        source = self._sources[self._target]
+        # A retained hover fact is rechecked using the replacement source; old
+        # QWidget references are never evidence across a render boundary.
+        self._source_hover = self._cursor_over(source)
+        if self._source_hover or self._cursor_over(self.popup):
+            self._show_for_current_target()
+        else:
+            self.revoke()
+
+    def enter_source(self, record_id: str, section: str, oid: str, channel_name: str, source) -> None:
+        if self._session is None:
+            return
+        target = AudioPopupTarget(self._session.identity, record_id, section, oid)
+        self._sources[target] = source
+        if not self._target_is_current(self._session, target):
+            return
+        self._epoch += 1
+        self._hide_timer.stop()
+        self._pending_hide_epoch = None
+        self._target = target
+        self._source_hover = True
+        self.popup.set_channel_name(channel_name)
+        self._show_for_current_target()
+
+    def leave_source(self, source) -> None:
+        if self._target is None or self._sources.get(self._target) is not source:
+            return
+        self._source_hover = False
+        if not self._cursor_over(self.popup):
+            self._schedule_hide()
+
+    def popup_entered(self) -> None:
+        self._hide_timer.stop()
+        self._pending_hide_epoch = None
+
+    def popup_left(self) -> None:
+        if not self._source_hover and not self._cursor_over(self._sources.get(self._target)):
+            self._schedule_hide()
+
+    def revoke_for_record(self, record_id: str | None) -> None:
+        if self._target is not None and self._target.record_id == record_id:
+            self.revoke()
+
+    def revoke_unless_record(self, record_id: str) -> None:
+        if self._target is not None and self._target.record_id != record_id:
+            self.revoke()
+
+    def revoke(self) -> None:
+        self._epoch += 1
+        self._hide_timer.stop()
+        self.popup.hide()
+        self._target = None
+        self._source_hover = False
+
+    def _schedule_hide(self) -> None:
+        if self._target is not None:
+            self._pending_hide_epoch = self._epoch
+            self._hide_timer.start()
+
+    def _hide_if_current(self) -> None:
+        # The timer belongs to this coordinator; entering another scale increments
+        # the epoch and stops it before the old target can affect the new one.
+        if (
+            self._pending_hide_epoch != self._epoch
+            or self._target is None
+            or self._source_hover
+            or self._cursor_over(self.popup)
+        ):
+            return
+        self.revoke()
+
+    def _target_is_current(self, session: RoomDiagnosticSession, target=None) -> bool:
+        target = target or self._target
+        if target is None or target.room_identity != session.identity:
+            return False
+        if session.expanded_record_id != target.record_id:
+            return False
+        row = next((row for row in session.rows if row.record_id == target.record_id), None)
+        return bool(
+            row is not None
+            and row.capability is not None
+            and row.capability.screen_key == "audio_dsp"
+            and _audio_channel_exists(row.accepted_snapshot, target.section, target.oid)
+        )
+
+    @staticmethod
+    def _cursor_over(widget) -> bool:
+        return bool(widget is not None and widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(QCursor.pos())))
+
+    def _show_for_current_target(self) -> None:
+        if self._target is None:
+            return
+        source = self._sources.get(self._target)
+        if source is None or not source.isVisible():
+            return
+        popup_size = self.popup.sizeHint()
+        origin = source.mapToGlobal(QPoint(source.width() + 8, max(0, (source.height() - popup_size.height()) // 2)))
+        self.popup.move(origin)
+        self.popup.show()
+        self.popup.raise_()
+
+
 class AudioDspChannelColumn(QFrame):
     """A click-only local DMP channel projection with no device authority."""
 
     selected = pyqtSignal(str, str)
 
-    def __init__(self, section: str, channel: Mapping[str, Any], is_selected: bool, parent=None):
+    def __init__(self, section: str, channel: Mapping[str, Any], is_selected: bool, coordinator=None, record_id=None, parent=None):
         super().__init__(parent)
         self._section = section
         self._oid = str(channel.get("oid"))
+        self._channel_name = str(channel.get("name") or "Канал")
+        self._coordinator = coordinator
+        self._record_id = record_id
         self.setObjectName("roomAudioDspChannel")
         self.setProperty("audioSelected", is_selected)
         self.setProperty("presentationOnly", True)
@@ -773,13 +1002,8 @@ class AudioDspChannelColumn(QFrame):
             segment.setProperty("segmentIndex", index)
             track_layout.addWidget(segment)
         layout.addWidget(track, 1, Qt.AlignHCenter)
-        self._local_controls = AudioDspLocalControls(str(channel.get("name") or "Канал"), self)
-        self._hide_controls_timer = QTimer(self)
-        self._hide_controls_timer.setSingleShot(True)
-        self._hide_controls_timer.setInterval(180)
-        self._hide_controls_timer.timeout.connect(self._hide_local_controls)
-        self._local_controls.pointerEntered.connect(self._keep_local_controls)
-        self._local_controls.pointerLeft.connect(self._schedule_local_controls_hide)
+        if self._coordinator is not None and self._record_id is not None:
+            self._coordinator.register(self._record_id, self._section, self._oid, self._channel_name, self)
         value = QLabel(self)
         value.setObjectName("roomAudioDspDbfs")
         value.setAlignment(Qt.AlignHCenter)
@@ -803,36 +1027,16 @@ class AudioDspChannelColumn(QFrame):
             cue.setObjectName("roomAudioDspSelectionCue")
             cue.setAlignment(Qt.AlignHCenter)
             layout.addWidget(cue)
-            QTimer.singleShot(0, self._show_local_controls)
 
     def enterEvent(self, event) -> None:
-        self._show_local_controls()
+        if self._coordinator is not None and self._record_id is not None:
+            self._coordinator.enter_source(self._record_id, self._section, self._oid, self._channel_name, self)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        self._schedule_local_controls_hide()
+        if self._coordinator is not None:
+            self._coordinator.leave_source(self)
         super().leaveEvent(event)
-
-    def _show_local_controls(self) -> None:
-        self._hide_controls_timer.stop()
-        if not self.isVisible():
-            return
-        popup_size = self._local_controls.sizeHint()
-        origin = self.mapToGlobal(QPoint(self.width() + 8, max(0, (self.height() - popup_size.height()) // 2)))
-        self._local_controls.move(origin)
-        self._local_controls.show()
-        self._local_controls.raise_()
-
-    def _keep_local_controls(self) -> None:
-        self._hide_controls_timer.stop()
-
-    def _schedule_local_controls_hide(self) -> None:
-        if not self.property("audioSelected"):
-            self._hide_controls_timer.start()
-
-    def _hide_local_controls(self) -> None:
-        if not self.property("audioSelected"):
-            self._local_controls.hide()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -859,10 +1063,10 @@ class AudioDspLocalControls(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
-        title = QLabel(channel_name, self)
-        title.setObjectName("roomAudioDspLocalControlsTitle")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        self._title = QLabel(channel_name, self)
+        self._title.setObjectName("roomAudioDspLocalControlsTitle")
+        self._title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._title)
         for text, name in (
             ("−", "roomAudioDspGainDown"),
             ("— / Нет данных", "roomAudioDspGainValue"),
@@ -874,6 +1078,9 @@ class AudioDspLocalControls(QFrame):
             button.setEnabled(False)
             button.setMinimumHeight(38)
             layout.addWidget(button)
+
+    def set_channel_name(self, channel_name: str) -> None:
+        self._title.setText(channel_name)
 
     def enterEvent(self, event) -> None:
         self.pointerEntered.emit()
@@ -887,7 +1094,7 @@ class AudioDspLocalControls(QFrame):
 class AudioDspMeterPresentation(QWidget):
     """Focused room-only projection for accepted numeric ``meter_sections``."""
 
-    def __init__(self, snapshot: Mapping[str, Any], selection, on_select, parent=None):
+    def __init__(self, snapshot: Mapping[str, Any], selection, on_select, coordinator=None, record_id=None, parent=None):
         super().__init__(parent)
         self.setObjectName("roomAudioDspMeters")
         self.setProperty("presentationOnly", True)
@@ -920,6 +1127,8 @@ class AudioDspMeterPresentation(QWidget):
                     title,
                     channel,
                     selection == (title, str(channel.get("oid"))),
+                    coordinator,
+                    record_id,
                     card,
                 )
                 column.selected.connect(on_select)
@@ -976,7 +1185,7 @@ def _audio_device_info_card(source: Any, parent=None) -> SectionCard:
 class AudioDspDashboardPresentation(QWidget):
     """Compact horizontal DMP dashboard with no new action authority."""
 
-    def __init__(self, snapshot: Mapping[str, Any], source: Any, selection, on_select, actions=(), parent=None):
+    def __init__(self, snapshot: Mapping[str, Any], source: Any, selection, on_select, coordinator=None, record_id=None, actions=(), parent=None):
         super().__init__(parent)
         self.setObjectName("roomAudioDspDashboard")
         self.setProperty("presentationOnly", True)
@@ -984,7 +1193,7 @@ class AudioDspDashboardPresentation(QWidget):
         self._dashboard_layout.setContentsMargins(0, 0, 0, 0)
         self._dashboard_layout.setSpacing(8)
         self._information = _audio_device_info_card(source, self)
-        self._meters = AudioDspMeterPresentation(snapshot, selection, on_select, self)
+        self._meters = AudioDspMeterPresentation(snapshot, selection, on_select, coordinator, record_id, self)
         quick_actions = SectionCard("Быстрые действия", "ϟ", self)
         quick_actions.setObjectName("roomAudioDspQuickActions")
         for action in actions:
@@ -1054,7 +1263,7 @@ class AudioDspDashboardPresentation(QWidget):
 class RoomReadOnlyPresentation(QWidget):
     """Exact-row data projection with a deliberately narrow action request."""
 
-    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_codec_control=None, request_mutation=None, request_bulk_mutation=None, request_matrix_route=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, parent=None):
+    def __init__(self, row, *, request_local_refresh=None, request_auxiliary=None, request_codec_control=None, request_mutation=None, request_bulk_mutation=None, request_matrix_route=None, request_debug=None, local_refresh_allowed=True, auxiliary_allowed=True, mutation_allowed=True, debug_allowed=True, live_here=False, audio_selection=None, audio_channel_selected=None, audio_popup=None, parent=None):
         super().__init__(parent)
         self.setObjectName("roomReadOnlyPresentation")
         self.setProperty("recordId", row.record_id)
@@ -1142,6 +1351,8 @@ class RoomReadOnlyPresentation(QWidget):
                 builder_kwargs.update(
                     audio_selection=audio_selection,
                     audio_channel_selected=audio_channel_selected,
+                    audio_popup=audio_popup,
+                    record_id=row.record_id,
                     audio_actions=audio_actions,
                 )
             if screen_key == "codec":
@@ -1732,7 +1943,7 @@ class RoomReadOnlyPresentation(QWidget):
         dashboard_layout.addWidget(actions, 22)
         layout.addWidget(dashboard)
 
-    def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_actions=(), **_unused) -> None:
+    def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_popup=None, record_id=None, audio_actions=(), **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data
         if isinstance(data, Mapping) and _has_numeric_meter_presentation(data):
             layout.addWidget(
@@ -1741,6 +1952,8 @@ class RoomReadOnlyPresentation(QWidget):
                     source,
                     audio_selection,
                     audio_channel_selected or (lambda *_args: None),
+                    audio_popup,
+                    record_id,
                     audio_actions,
                     self,
                 )

@@ -28,8 +28,8 @@ except ImportError:  # pragma: no cover
     QApplication = None
 
 
-def record(record_id, *, room_id, name, address=None, ip=None, port=None, switch=None, model="Huawei TE40"):
-    return EquipmentRecord(record_id, model, model, ip, None, None, room_id, name, "video_codec", None, address, switch, port)
+def record(record_id, *, room_id, name, address=None, ip=None, port=None, switch=None, model="Huawei TE40", vip=None):
+    return EquipmentRecord(record_id, model, model, ip, None, None, room_id, name, "video_codec", vip, address, switch, port)
 
 
 def inventory(*records):
@@ -221,20 +221,18 @@ class RoomPresentationTests(unittest.TestCase):
         )
         caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter", call_activity_binding_key="huawei_call_activity")}
         session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
-        session.room_vip = True
         session.rows[0].call_activity = CallActivity.ACTIVE
         widget = RoomDiagnosticTreeWidget()
         self.addCleanup(widget.deleteLater)
         widget.render(session)
         self.assertEqual("Gi1/0/1, Gi1/0/2", widget.network_tree.topLevelItem(0).text(1))
         self.assertEqual("2", widget.network_tree.topLevelItem(0).text(2))
+        self.assertEqual(2, widget.network_tree.topLevelItem(0).childCount())
+        self.assertEqual("Huawei TE40", widget.network_tree.topLevelItem(0).child(0).text(0))
         self.assertEqual("Коммутатор не определён", widget.network_tree.topLevelItem(1).text(0))
         self.assertIn("Занято", widget.occupancy_label.text())
         self.assertIn("Room", widget.room_name_label.text())
         self.assertIn("Гарантия:", widget.room_warranty_label.text())
-        self.assertFalse(widget.vip_badge.isHidden())
-        self.assertEqual("VIP", widget.vip_badge.text())
-        self.assertNotIn("VIP:", widget.room_header.text())
         self.assertFalse(widget.room_card.header_widget.isHidden())
         self.assertFalse(widget.network_card.header_widget.isHidden())
         self.assertEqual(186, widget.upper_cards.height())
@@ -249,10 +247,119 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertTrue(widget.tree.topLevelItem(0).child(0).isFirstColumnSpanned())
 
         session.rows[0].stale = True
-        session.room_vip = False
         widget.render(session)
         self.assertIn("Нет данных", widget.occupancy_label.text())
-        self.assertTrue(widget.vip_badge.isHidden())
+
+    def test_canonical_vip_badge_is_effectively_visible_and_false_or_none_is_hidden(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")}
+        vip_inventory = inventory(
+            record(
+                "VIP", room_id="r", name="A deliberately long canonical VIP room name for layout coverage",
+                address="Address", ip="192.0.2.1", vip=True,
+            )
+        )
+        vip_session = build_room_session_from_room(
+            inventory=vip_inventory, room_id="r", generation=1, capabilities=caps
+        )
+        self.assertIs(vip_session.room_vip, True)
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        widget.resize(900, 700)
+        widget.show()
+        widget.render(vip_session)
+        QApplication.processEvents()
+
+        badge = widget.vip_badge
+        self.assertTrue(widget.isVisible())
+        self.assertTrue(widget.room_card.isVisible())
+        self.assertTrue(widget.room_name_row.isVisible())
+        self.assertTrue(badge.isVisible())
+        self.assertGreater(badge.geometry().width(), 0)
+        self.assertGreater(badge.geometry().height(), 0)
+        self.assertFalse(badge.visibleRegion().isEmpty())
+        self.assertTrue(widget.room_card.rect().contains(badge.mapTo(widget.room_card, badge.rect().center())))
+        self.assertEqual("VIP", badge.text())
+        self.assertEqual("VIP-переговорная", badge.toolTip())
+
+        for vip_value in (False, None):
+            with self.subTest(vip_value=vip_value):
+                current_inventory = inventory(
+                    record("VIP", room_id="r", name="Room", address="Address", ip="192.0.2.1", vip=vip_value)
+                )
+                current_session = build_room_session_from_room(
+                    inventory=current_inventory, room_id="r", generation=1, capabilities=caps
+                )
+                self.assertIs(current_session.room_vip, vip_value)
+                widget.render(current_session)
+                QApplication.processEvents()
+                self.assertFalse(badge.isVisible())
+
+    def test_network_disclosure_is_context_scoped_and_pruned(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        inv = inventory(
+            record("A", room_id="r", name="Room", ip="192.0.2.1", switch="10.0.0.1", port="Gi1/0/1"),
+            record("B", room_id="r", name="Room", ip="192.0.2.2", switch="10.0.0.2", port="Gi1/0/2"),
+        )
+        caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")}
+        session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        widget.render(session)
+        first = widget.network_tree.topLevelItem(0)
+        first.setExpanded(True)
+        self.assertIn("10.0.0.1", widget._network_expanded_switches)
+        widget.render(session)
+        self.assertTrue(widget.network_tree.topLevelItem(0).isExpanded())
+        widget.network_tree.topLevelItem(0).setExpanded(False)
+        widget.render(session)
+        self.assertFalse(widget.network_tree.topLevelItem(0).isExpanded())
+        session.records = tuple(record for record in session.records if record.switch_ip_address != "10.0.0.1")
+        widget.render(session)
+        self.assertNotIn("10.0.0.1", widget._network_expanded_switches)
+        new_session = build_room_session_from_room(inventory=inv, room_id="r", generation=2, capabilities=caps)
+        widget.render(new_session)
+        self.assertEqual(set(), widget._network_expanded_switches)
+        self.assertFalse(widget.network_tree.topLevelItem(0).isExpanded())
+
+    def test_same_context_scroll_stops_old_animation_and_new_context_drops_viewport(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        inv = inventory(*[
+            record(str(index), room_id="r", name="Room", ip=f"192.0.2.{index}")
+            for index in range(1, 24)
+        ])
+        caps = {"Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "route", "adapter")}
+        session = build_room_session_from_room(inventory=inv, room_id="r", generation=1, capabilities=caps)
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.deleteLater)
+        widget.resize(720, 260)
+        widget.show()
+        widget.render(session)
+        QApplication.processEvents()
+        bar = widget.tree.verticalScrollBar()
+        bar.setValue(min(bar.maximum(), 120))
+        widget.tree._scroll_animation.setStartValue(bar.value())
+        widget.tree._scroll_animation.setEndValue(bar.maximum())
+        widget.tree._scroll_animation.start()
+        QApplication.processEvents()
+        widget.render(session)
+        settled = bar.value()
+        from PyQt5.QtTest import QTest
+        QTest.qWait(320)
+        self.assertEqual(settled, bar.value())
+        new_session = build_room_session_from_room(inventory=inv, room_id="r", generation=2, capabilities=caps)
+        widget.render(new_session)
+        self.assertEqual(bar.minimum(), bar.value())
+        bar.setValue(min(bar.maximum(), 120))
+        widget.tree._scroll_animation.setStartValue(bar.value())
+        widget.tree._scroll_animation.setEndValue(bar.maximum())
+        widget.tree._scroll_animation.start()
+        widget.clear_presentation()
+        QTest.qWait(320)
+        self.assertEqual(bar.minimum(), bar.value())
 
     def test_pdu_room_projection_opens_with_live_actions_available(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
