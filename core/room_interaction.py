@@ -184,6 +184,7 @@ class RoomInteractionCoordinator:
         if session is not self._session or session.invalidated:
             return
         self._start_eligible_live()
+        self._maybe_start_codec_preview()
 
     def expand(self, record_id: str) -> None:
         session = self._require_session()
@@ -270,7 +271,24 @@ class RoomInteractionCoordinator:
                 row.warnings.append(warning)
             self._notify()
             return
-        if context.kind is RoomInteractionKind.MUTATION and success:
+        if (
+            context.kind is RoomInteractionKind.MUTATION
+            and success
+            and isinstance(data, dict)
+            and isinstance(data.get("_room_codec_confirmed"), dict)
+        ):
+            # Codec mutations publish only their targeted authoritative
+            # getter result. Do not replace unrelated accepted diagnostics.
+            snapshot = dict(row.accepted_snapshot or {})
+            snapshot.update(data["_room_codec_confirmed"])
+            row.accepted_snapshot = snapshot
+            row.partial_data = None
+            row.stale = False
+            row.unconfirmed_after_command = False
+            row.interaction_blocked = False
+            row.network_actions_enabled = True
+            row.status = DeviceRowStatus.CONNECTED
+        elif context.kind is RoomInteractionKind.MUTATION and success:
             # ACK is deliberately non-authoritative; reconciliation owns cache.
             reconciliation = self._replace_kind(context, RoomInteractionKind.RECONCILIATION)
             binding = self._binding_for(row)
@@ -488,9 +506,26 @@ class RoomInteractionCoordinator:
         key = (session.identity, record_id, epoch)
         if key in self._codec_preview_attempts:
             return
-        # Claim before publication.  Render/theme/resize cannot create a
-        # second request even if the first one ends with ordinary failure.
+        # Claim before publication. Render/theme/resize cannot create a
+        # second attempt even if it ends with a local unavailable outcome.
         self._codec_preview_attempts.add(key)
+        # Preview evidence is presentation-local, but only an accepted
+        # same-row snapshot may complete this epoch without a lane owner.
+        if getattr(row, "call_log_preview_snapshot", None) is not None:
+            self._notify()
+            return
+        # LIVE owns priority over automatic enrichment.  It is deliberately
+        # not retired or queued behind: this completes the epoch locally.
+        if self._active is not None and self._active.kind is RoomInteractionKind.LIVE:
+            self._notify()
+            return
+        # A live-capable expanded row is eligible ahead of preview even if a
+        # caller reaches this bridge before the live start callback.
+        if binding.live is not None:
+            self._start_eligible_live()
+            if self._active is not None and self._active.kind is RoomInteractionKind.LIVE:
+                self._notify()
+                return
         self._pending_codec_preview = _PendingCodecPreview(
             session.identity, record_id, epoch
         )

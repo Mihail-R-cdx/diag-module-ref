@@ -44,6 +44,7 @@ class InteractiveOperation:
     target: Any = None
     original: Any = None
     allow_set_from_any_authoritative: bool = False
+    require_confirmed_readback: bool = False
     duplicate_key: Optional[str] = None
     quiet: bool = False
     client_token: Optional[int] = None
@@ -269,6 +270,8 @@ class InteractiveSessionController(QObject):
                 value = self._invoke(record.handler, operation)
                 if operation.semantic != OperationSemantic.READ_ONLY and value is False:
                     raise CommandError("Device rejected the requested codec command.")
+                if operation.semantic != OperationSemantic.READ_ONLY and operation.require_confirmed_readback:
+                    value = self._readback(record.handler, operation)
                 reconciled = False
             except (
                 SessionInvalidError,
@@ -341,16 +344,7 @@ class InteractiveSessionController(QObject):
             raise CommandOutcomeUnknownError(
                 "Codec state cannot be reconciled after session recovery."
             )
-        readback = getattr(handler, operation.readback_method, None)
-        if not callable(readback):
-            raise CommandOutcomeUnknownError(
-                "Codec does not expose authoritative state readback."
-            )
-        observed = readback(*operation.readback_args, **dict(operation.readback_kwargs))
-        if observed is None:
-            raise CommandOutcomeUnknownError(
-                "Codec state is unavailable after session recovery."
-            )
+        observed = self._readback_value(handler, operation)
         if _state_matches(observed, operation.target):
             return observed
         can_set = operation.allow_set_from_any_authoritative or (
@@ -364,7 +358,40 @@ class InteractiveSessionController(QObject):
         result = self._invoke(handler, operation)
         if result is False:
             raise CommandError("Device rejected the reconciled codec command.")
-        return result
+        return self._readback(handler, operation) if operation.require_confirmed_readback else result
+
+    @staticmethod
+    def _readback(handler: Any, operation: InteractiveOperation) -> Any:
+        """Read and verify the smallest authoritative post-mutation field."""
+        readback = getattr(handler, operation.readback_method, None)
+        if not callable(readback):
+            raise CommandOutcomeUnknownError(
+                "Codec does not expose authoritative state readback."
+            )
+        observed = InteractiveSessionController._readback_value(handler, operation)
+        if observed is None:
+            raise CommandOutcomeUnknownError(
+                "Codec state is unavailable after mutation."
+            )
+        if not _state_matches(observed, operation.target):
+            raise CommandOutcomeUnknownError(
+                "Codec readback did not confirm the requested state."
+            )
+        return observed
+
+    @staticmethod
+    def _readback_value(handler: Any, operation: InteractiveOperation) -> Any:
+        readback = getattr(handler, operation.readback_method, None)
+        if not callable(readback):
+            raise CommandOutcomeUnknownError(
+                "Codec does not expose authoritative state readback."
+            )
+        observed = readback(*operation.readback_args, **dict(operation.readback_kwargs))
+        if observed is None:
+            raise CommandOutcomeUnknownError(
+                "Codec state is unavailable after mutation."
+            )
+        return observed
 
     def _complete_after_recovery(
         self,
@@ -597,6 +624,8 @@ def _state_matches(observed: Any, target: Any) -> bool:
         return True
     if isinstance(observed, str) and isinstance(target, str):
         return observed.strip().casefold() == target.strip().casefold()
+    if isinstance(target, bool) and isinstance(observed, str):
+        return observed.strip().casefold() == ("muted" if target else "unmuted")
     return False
 
 

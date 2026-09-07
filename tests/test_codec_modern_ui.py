@@ -68,6 +68,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
             with self.subTest(model=model):
                 controls = dispatch_entry_for_model(model).codec_controls
                 self.assertEqual(bounds, (controls.speaker_minimum, controls.speaker_maximum))
+        self.assertEqual(2, dispatch_entry_for_model("Polycom RPG 310").codec_controls.speaker_step)
 
     def test_dashboard_has_fixed_cards_rows_without_status_dots(self):
         presentation = RoomReadOnlyPresentation(self._row())
@@ -163,11 +164,11 @@ class ModernCodecDashboardTests(unittest.TestCase):
             }),
             ("CloudLink Bar 310", HuaweiBar310DataParser.parse_raw_data, {
                 "model": "Huawei CloudLink Bar 310", "version": "V1", "call_status": "Connected",
-                "presentation": "Start", "sip_status": "On", "speaker_volume": 7,
+                "presentation": "Start", "sip_status": "On", "speaker_volume": 7, "mic_volume": 41,
             }),
             ("CloudLink Box 310", lambda raw: HuaweiBar310DataParser.parse_raw_data(raw, "Huawei CloudLink Box 310"), {
                 "model": "Huawei CloudLink Box 310", "version": "V1", "call_status": "No Call",
-                "presentation": "Stop", "sip_status": "Off", "speaker_volume": 0,
+                "presentation": "Stop", "sip_status": "Off", "speaker_volume": 0, "mic_volume": 9,
             }),
             ("Polycom RPG 310", PolycomDataParser.parse_raw_data, {
                 "call_status": "Active", "presentation": "Started", "sip_status": "online",
@@ -185,6 +186,30 @@ class ModernCodecDashboardTests(unittest.TestCase):
                 self.assertIsNot(CodecMuteState.UNKNOWN, audio.speaker_mute_state)
                 if model in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}:
                     self.assertIsNot(CodecMuteState.UNKNOWN, audio.microphone_mute_state)
+                if model in {"CloudLink Bar 310", "CloudLink Box 310"}:
+                    self.assertIsNotNone(audio.microphone_volume)
+
+    def test_cloudlink_transport_parser_to_accepted_snapshot_to_dashboard_normalizes_mic_volume(self):
+        """Regression starts with the transport-shaped compatibility field, not a snapshot stub."""
+        from core.parser import HuaweiBar310DataParser
+
+        transport_payload = {
+            "model": "Huawei CloudLink Box 310", "version": "V1",
+            "call_status": "No Call", "presentation": "Stop", "sip_status": "Off",
+            "mic_volume": 9, "speaker_volume": 7,
+        }
+        parsed = HuaweiBar310DataParser.parse_raw_data(
+            transport_payload, "Huawei CloudLink Box 310",
+        )
+        row = self._row("CloudLink Box 310", parsed)
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], status=RoomCycleStatus.COMPLETE,
+        )
+        self.assertIs(row.accepted_snapshot, parsed)
+        presentation = RoomReadOnlyPresentation(session.row_for(row.record_id))
+        self.addCleanup(presentation.deleteLater)
+        self.assertEqual("9%", presentation.findChildren(QLabel, "roomCodecAudioValue")[0].text())
 
     def test_exact_parser_boundaries_fail_closed_for_malformed_vendor_text(self):
         from core.parser import HuaweiTE40DataParser, PolycomDataParser
@@ -260,6 +285,14 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertIsNone(VCSDiagnosticApp._codec_command_from_current_evidence(
             fresh_window, session, self._row(snapshot={}), controls, "speaker_adjust", 1,
         ))
+        polycom_controls = dispatch_entry_for_model("Polycom RPG 310").codec_controls
+        self.assertEqual(
+            {"operation": "speaker_volume", "target": 22},
+            VCSDiagnosticApp._codec_command_from_current_evidence(
+                fresh_window, session, self._row("Polycom RPG 310", {"speaker_volume": 20}),
+                polycom_controls, "speaker_adjust", 1,
+            ),
+        )
 
     def test_room_context_invalidation_clears_speaker_restore_authority(self):
         from gui.main_window import VCSDiagnosticApp
@@ -372,7 +405,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
                 self.addCleanup(presentation.deleteLater)
                 self.assertEqual(0, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
 
-    def test_cloudlink_microphone_buttons_publish_only_local_unsupported_intent(self):
+    def test_cloudlink_microphone_buttons_are_disabled_before_any_intent(self):
         intents = []
         presentation = RoomReadOnlyPresentation(
             self._row("CloudLink Bar 310", {"speaker_volume": 6}),
@@ -381,8 +414,9 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.addCleanup(presentation.deleteLater)
         buttons = presentation.findChildren(QPushButton, "roomCodecAudioPlus")
         self.assertEqual(2, len(buttons))
+        self.assertFalse(buttons[0].isEnabled())
         buttons[0].click()
-        self.assertEqual([("microphone_adjust", 1)], intents)
+        self.assertEqual([], intents)
 
     def test_unsupported_codec_affordances_stop_before_coordinator_admission(self):
         from gui.main_window import VCSDiagnosticApp
@@ -434,6 +468,65 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.expand(row.record_id)
         coordinator.request_codec_preview()
         self.assertEqual(["call_log_preview", "call_log_preview"], requests)
+
+    def test_current_preview_evidence_completes_epoch_without_network_owner(self):
+        row = self._row()
+        row.call_log_preview_snapshot = snapshot_from_records((), source_ended=True)
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], status=RoomCycleStatus.COMPLETE,
+        )
+        requests = []
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda _model: RoomInteractionBindings(
+                auxiliary=lambda _context, action: requests.append(action),
+            ),
+        )
+        coordinator.bind_session(session)
+        coordinator.expand(row.record_id)
+        coordinator.request_codec_preview()
+        self.assertEqual([], requests)
+        self.assertIsNone(coordinator.active_context)
+
+    def test_te_live_projection_keeps_microphone_and_speaker_evidence(self):
+        presentation = RoomReadOnlyPresentation(self._row("Huawei TE20", {
+            "live_audio": {"microphone": 11, "speaker": 22},
+        }))
+        self.addCleanup(presentation.deleteLater)
+        self.assertEqual(
+            ["11", "22"],
+            [label.text() for label in presentation.findChildren(QLabel, "roomCodecLiveAudioValue")],
+        )
+
+    def test_confirmed_codec_readback_merges_only_the_targeted_field(self):
+        row = self._row(snapshot={"speaker_volume": 5, "serial_number": "unchanged"})
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [row], expanded_record_id=row.record_id,
+            status=RoomCycleStatus.COMPLETE,
+        )
+        reconciliations = []
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda _model: RoomInteractionBindings(
+                mutation=lambda _context, _command: None,
+                reconciliation=lambda _context, _data: reconciliations.append(True),
+            ),
+        )
+        coordinator.bind_session(session)
+        context = coordinator.confirm_mutation({"operation": "speaker_volume", "target": 7})
+        coordinator.complete(context, success=True, data={
+            "_room_codec_confirmed": {"speaker_volume": 7, "speaker_muted": False},
+        })
+        self.assertEqual([], reconciliations)
+        self.assertEqual(7, row.accepted_snapshot["speaker_volume"])
+        self.assertEqual("unchanged", row.accepted_snapshot["serial_number"])
+
+    def test_reboot_is_disabled_for_every_codec_model(self):
+        for model in MODELS:
+            with self.subTest(model=model):
+                presentation = RoomReadOnlyPresentation(self._row(model, {"speaker_volume": 5}))
+                self.addCleanup(presentation.deleteLater)
+                self.assertFalse(presentation.findChild(QPushButton, "roomCodecRebootButton").isEnabled())
 
     def test_preterminal_codec_expansion_defers_its_single_preview_attempt(self):
         row = self._row()
@@ -581,7 +674,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertEqual("matrix-1", coordinator.active_context.record_id)
         self.assertIsNone(coordinator._pending_operation)
 
-    def test_live_preview_handoff_starts_only_current_codec_preview(self):
+    def test_live_preview_handoff_starts_only_current_live_owner(self):
         first = self._row("CloudLink Box 310")
         second = self._row("Huawei TE20")
         second.record_id, second.ip_address = "codec-2", "192.0.2.11"
@@ -604,12 +697,12 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         coordinator.cleanup_finished(retiring_live)
 
-        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-2")], calls)
+        self.assertEqual([("live", "codec-1"), ("live", "codec-2")], calls)
         self.assertEqual("codec-2", coordinator.active_context.record_id)
-        self.assertEqual(1, [call for call in calls if call[0] == "call_log_preview"].count(("call_log_preview", "codec-2")))
+        self.assertEqual(0, [call for call in calls if call[0] == "call_log_preview"].count(("call_log_preview", "codec-2")))
         self.assertNotIn(("call_log_preview", "codec-1"), calls)
 
-    def test_live_preview_handoff_starts_current_preview_once_after_cleanup(self):
+    def test_live_priority_preview_is_terminal_and_never_starts_after_cleanup(self):
         row = self._row("CloudLink Bar 310")
         session = RoomDiagnosticSession(
             RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
@@ -628,8 +721,8 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         coordinator.cleanup_finished(retiring_live)
 
-        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-1")], calls)
-        self.assertEqual(1, calls.count(("call_log_preview", "codec-1")))
+        self.assertEqual([("live", "codec-1"), ("live", "codec-1")], calls)
+        self.assertEqual(0, calls.count(("call_log_preview", "codec-1")))
 
     def test_live_preview_handoff_collapse_does_not_resurrect_work(self):
         row = self._row("CloudLink Box 310")
@@ -678,7 +771,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.cleanup_finished(live)
         explicit = coordinator.active_context
         coordinator.complete(explicit, success=True, data={})
-        self.assertEqual(["live", "call_log", "call_log_preview"], [request[0] for request in requests])
+        self.assertEqual(["live", "call_log", "live"], [request[0] for request in requests])
 
     def test_explicit_detail_never_reuses_preview_snapshot(self):
         from gui.main_window import VCSDiagnosticApp

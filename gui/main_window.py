@@ -396,6 +396,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_live_timers = {}
         self._room_live_inflight = set()
         self._room_cloudlink_live = {}
+        self._room_te_live = {}
         self._room_matrix_live = {}
         self._room_dmp_live = {}
         self._room_live_retirements = {}
@@ -523,6 +524,7 @@ class VCSDiagnosticApp(QMainWindow):
                 "matrix_room_route",
                 "matrix_room_route_reconcile",
                 "cloudlink_room_live",
+                "huawei_room_live",
                 "matrix_room_live",
                 "dmp_room_live",
             },
@@ -878,6 +880,7 @@ class VCSDiagnosticApp(QMainWindow):
             ),
             live={
                 "cloudlink_room_live": self._start_room_cloudlink_live,
+                "huawei_room_live": self._start_room_te_live,
                 "matrix_room_live": self._start_room_matrix_live,
                 "dmp_room_live": self._start_room_dmp_live,
             }.get(entry.live_binding_key),
@@ -1281,7 +1284,12 @@ class VCSDiagnosticApp(QMainWindow):
         interactive = InteractiveSessionController(self)
         self._room_codec_mutations[context] = {"controller": interactive, "terminal": None}
         interactive.signals.result.connect(
-            lambda payload, current=context: self._retire_room_codec_mutation(current, True, payload, False, None)
+            lambda payload, current=context, name=operation_name:
+            self._retire_room_codec_mutation(
+                current, True,
+                {"operation": name, "value": payload.get("value")},
+                False, None,
+            )
         )
         interactive.signals.error.connect(
             lambda payload, current=context: self._retire_room_codec_mutation(
@@ -1304,6 +1312,12 @@ class VCSDiagnosticApp(QMainWindow):
                 args=(target,),
                 semantic=(OperationSemantic.ABSOLUTE if operation_name == "speaker_volume" else OperationSemantic.DESIRED_STATE),
                 target=target,
+                readback_method=(
+                    "get_speaker_volume"
+                    if operation_name == "speaker_volume"
+                    else "get_microphone_volume"
+                ),
+                require_confirmed_readback=True,
                 duplicate_key=f"{operation_name}:{target}",
                 quiet=True,
             )
@@ -1337,6 +1351,13 @@ class VCSDiagnosticApp(QMainWindow):
         self._finish_room_codec_mutation(context, success, data, connection_lost, warning)
 
     def _finish_room_codec_mutation(self, context, success, data, connection_lost, warning):
+        if success:
+            confirmed = self._codec_confirmed_mutation_fields(data)
+            if confirmed is None:
+                success = False
+                warning = "Операция кодека не подтверждена authoritative readback"
+            else:
+                data = {"_room_codec_confirmed": confirmed}
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.complete(
@@ -1344,6 +1365,28 @@ class VCSDiagnosticApp(QMainWindow):
                 unconfirmed=not success, warning=warning,
             )
         self._room_credential_attempts.pop(context, None)
+
+    @staticmethod
+    def _codec_confirmed_mutation_fields(data):
+        """Translate verified handler getter evidence into canonical fields."""
+        if not isinstance(data, Mapping):
+            return None
+        operation = data.get("operation")
+        value = data.get("value")
+        if operation == "speaker_volume":
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return {"speaker_volume": int(value), "speaker_muted": value == 0}
+            return None
+        if operation == "microphone_mute":
+            if isinstance(value, str):
+                normalized = value.strip().casefold()
+                if normalized == "muted":
+                    return {"microphone_muted": True}
+                if normalized == "unmuted":
+                    return {"microphone_muted": False}
+            if value is True or value is False:
+                return {"microphone_muted": value}
+        return None
 
     def _start_room_credential_attempt(self, context, *, command=None, candidate_index=None):
         """Composition owns candidate selection; workers receive one attempt only."""
@@ -1373,6 +1416,11 @@ class VCSDiagnosticApp(QMainWindow):
             live_key = entry.live_binding_key if entry is not None else None
             if live_key == "cloudlink_room_live":
                 self._start_room_cloudlink_live_attempt(
+                    context, candidates[candidate_index], candidate_index
+                )
+                return
+            if live_key == "huawei_room_live":
+                self._start_room_te_live_attempt(
                     context, candidates[candidate_index], candidate_index
                 )
                 return
@@ -1445,9 +1493,10 @@ class VCSDiagnosticApp(QMainWindow):
         if context in self._room_live_retirements:
             return True
         cloudlink = self._room_cloudlink_live.pop(context, None)
+        te_live = self._room_te_live.pop(context, None)
         matrix = self._room_matrix_live.pop(context, None)
         dmp = self._room_dmp_live.pop(context, None)
-        if cloudlink is None and matrix is None and dmp is None:
+        if cloudlink is None and te_live is None and matrix is None and dmp is None:
             return False
         self._room_live_retirements[context] = after_cleanup
         timer = QTimer(self)
@@ -1464,6 +1513,12 @@ class VCSDiagnosticApp(QMainWindow):
             meter.stop()
             session.invalidate_context()
             session.shutdown(wait=False)
+        if te_live is not None:
+            interactive, timer = te_live
+            timer.stop()
+            timer.deleteLater()
+            interactive.invalidate_context()
+            interactive.shutdown(wait=False)
         if matrix is not None:
             matrix.shutdown()
         if dmp is not None:
@@ -1509,6 +1564,9 @@ class VCSDiagnosticApp(QMainWindow):
     def _start_room_cloudlink_live(self, context):
         self._start_room_credential_attempt(context)
 
+    def _start_room_te_live(self, context):
+        self._start_room_credential_attempt(context)
+
     def _start_room_matrix_live(self, context):
         self._start_room_credential_attempt(context)
 
@@ -1541,6 +1599,83 @@ class VCSDiagnosticApp(QMainWindow):
         meter.start(
             context.diagnostic_model, context.ip_address, (credential,), 0, profile,
             generation=generation, token=context.interaction_generation,
+        )
+
+    def _start_room_te_live_attempt(self, context, credential, candidate_index):
+        """Own the proven TE20/TE40 monitor-audio polling session in room mode."""
+        interactive = InteractiveSessionController(self)
+        timer = QTimer(self)
+        timer.setInterval(2000)
+        self._room_te_live[context] = (interactive, timer)
+        interactive.signals.result.connect(
+            lambda payload, current=context: self._accept_room_te_live_sample(current, payload)
+        )
+        interactive.signals.error.connect(
+            lambda payload, current=context, index=candidate_index:
+            self._accept_room_te_live_error(current, payload, index)
+        )
+        interactive.signals.shutdown_finished.connect(
+            lambda _payload, current=context: self._finish_room_live_owner_cleanup(current)
+        )
+        try:
+            generation = interactive.activate_context(
+                context.diagnostic_model, context.ip_address, (credential,), 0,
+                self.get_device_connection_profile(context.diagnostic_model, context.ip_address),
+            )
+        except Exception:
+            self._on_room_local_refresh_finished(
+                context, False, None, True, "Не удалось запустить live audio"
+            )
+            return
+
+        def tick(current=context, controller=interactive, current_generation=generation):
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is None or coordinator.active_context != current:
+                return
+            controller.submit(
+                InteractiveOperation(
+                    kind="room_live_audio",
+                    method="get_live_audio_status",
+                    semantic=OperationSemantic.READ_ONLY,
+                    duplicate_key="room_live_audio",
+                    quiet=True,
+                ),
+                generation=current_generation,
+            )
+
+        timer.timeout.connect(tick)
+        tick()
+        timer.start()
+
+    def _accept_room_te_live_sample(self, context, payload):
+        value = payload.get("value") if isinstance(payload, Mapping) else None
+        audio = value.get("audio") if isinstance(value, Mapping) else None
+        if not isinstance(audio, Mapping):
+            self._on_room_local_refresh_finished(
+                context, False, None, False, "Некорректный live audio ответ"
+            )
+            return
+        session = self.__dict__.get("room_diagnostic_session")
+        try:
+            row = session.row_for(context.record_id) if session is not None else None
+        except KeyError:
+            row = None
+        snapshot = dict(row.accepted_snapshot or {}) if row is not None else {}
+        snapshot["live_audio"] = {
+            "microphone": audio.get("MicValueIndex"),
+            "speaker": audio.get("SpeakerValueIndex"),
+        }
+        self._accept_room_model_live_success(
+            context, snapshot,
+            connection_profile=payload.get("connection_profile") if isinstance(payload, Mapping) else None,
+        )
+
+    def _accept_room_te_live_error(self, context, payload, _candidate_index):
+        category = payload.get("category") if isinstance(payload, Mapping) else None
+        self._on_room_local_refresh_finished(
+            context, False, None,
+            category in {"authentication", "transport", "session_invalid"},
+            "Не удалось получить live audio TE",
         )
 
     def _accept_room_live_sample(self, context, sample, evidence=None):

@@ -1464,14 +1464,24 @@ class RoomReadOnlyPresentation(QWidget):
             and (row.network_actions_enabled or live_here)
             and not row.interaction_blocked
         )
+        entry = dispatch_entry_for_model(row.diagnostic_model)
+        codec_controls = entry.codec_controls if entry is not None else None
         self._codec_audio_row(audio, "Громкость микрофона", projection.microphone_volume,
             projection.microphone_mute_state, "microphone_adjust", "microphone_mute",
             request_codec_control, controls_enabled,
+            adjust_enabled=bool(codec_controls and codec_controls.microphone_adjust),
+            mute_enabled=bool(codec_controls and codec_controls.microphone_mute),
             display_value=self._codec_volume_text(projection.microphone_volume))
         self._codec_audio_row(audio, "Громкость динамиков", projection.speaker_volume,
             projection.speaker_mute_state, "speaker_adjust", "speaker_mute",
             request_codec_control, controls_enabled,
+            adjust_enabled=bool(codec_controls and codec_controls.speaker_adjust),
+            mute_enabled=bool(codec_controls and codec_controls.speaker_mute),
             display_value=self._codec_volume_text(projection.speaker_volume_percent))
+        if entry is not None and entry.live_binding_key == "huawei_room_live":
+            live_audio = source.get("live_audio") if isinstance(source.get("live_audio"), Mapping) else {}
+            self._codec_live_audio_row(audio, "Live микрофон", live_audio.get("microphone"))
+            self._codec_live_audio_row(audio, "Live динамик", live_audio.get("speaker"))
         audio.body_layout.addStretch(1)
 
         snapshot = getattr(row, "call_log_preview_snapshot", None)
@@ -1529,7 +1539,7 @@ class RoomReadOnlyPresentation(QWidget):
         reboot = QPushButton("Перезагрузить устройство", actions)
         reboot.setObjectName("roomCodecRebootButton")
         reboot.setMinimumHeight(36)
-        reboot.setEnabled(controls_enabled)
+        reboot.setEnabled(bool(controls_enabled and codec_controls and codec_controls.reboot))
         if request_codec_control is not None:
             reboot.clicked.connect(lambda: request_codec_control("reboot", None))
         actions.body_layout.addWidget(refresh)
@@ -1657,7 +1667,7 @@ class RoomReadOnlyPresentation(QWidget):
 
     def _codec_audio_row(
         self, card, title, volume, mute_state, adjust_operation, mute_operation, callback, enabled,
-        *, display_value: str,
+        *, display_value: str, adjust_enabled: bool = True, mute_enabled: bool = True,
     ) -> None:
         row = QWidget(card)
         row.setObjectName(f"roomCodec{adjust_operation.title().replace('_', '')}Row")
@@ -1674,7 +1684,7 @@ class RoomReadOnlyPresentation(QWidget):
         for button, delta in ((minus, -1), (plus, 1)):
             button.setFixedSize(30, 30)
             button.setObjectName("roomCodecAudioMinus" if delta < 0 else "roomCodecAudioPlus")
-            button.setEnabled(enabled)
+            button.setEnabled(enabled and adjust_enabled)
             if callback is not None:
                 button.clicked.connect(lambda _checked=False, change=delta: callback(adjust_operation, change))
         value = QLabel(display_value, row)
@@ -1686,7 +1696,7 @@ class RoomReadOnlyPresentation(QWidget):
         mute.setFixedHeight(30)
         mute.setMinimumWidth(40)
         mute.setToolTip("Включить или выключить звук")
-        mute.setEnabled(enabled)
+        mute.setEnabled(enabled and mute_enabled)
         if callback is not None:
             mute.clicked.connect(lambda: callback(mute_operation, "toggle"))
         line.addWidget(minus)
@@ -1696,6 +1706,22 @@ class RoomReadOnlyPresentation(QWidget):
         line.addStretch(1)
         block.addWidget(label)
         block.addLayout(line)
+        card.body_layout.addWidget(row)
+
+    @staticmethod
+    def _codec_live_audio_row(card, title: str, value: Any) -> None:
+        """Present already accepted TE monitor evidence without replacing static state."""
+        row = QWidget(card)
+        row.setObjectName("roomCodecLiveAudioRow")
+        line = QHBoxLayout(row)
+        line.setContentsMargins(0, 0, 0, 0)
+        label = QLabel(title, row)
+        label.setObjectName("roomCodecLiveAudioLabel")
+        display = QLabel(str(value) if value is not None else "Нет данных", row)
+        display.setObjectName("roomCodecLiveAudioValue")
+        display.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        line.addWidget(label)
+        line.addWidget(display, 1)
         card.body_layout.addWidget(row)
 
     def _build_pdu(

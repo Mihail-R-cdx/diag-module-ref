@@ -30,6 +30,12 @@ class _CloudSessionSignals(QObject):
     shutdown_finished = pyqtSignal(dict)
 
 
+class _TeSessionSignals(QObject):
+    result = pyqtSignal(dict)
+    error = pyqtSignal(dict)
+    shutdown_finished = pyqtSignal(dict)
+
+
 class ControlledCloudSession:
     instances = []
 
@@ -52,6 +58,35 @@ class ControlledCloudSession:
 
     def finish_cleanup(self):
         self.signals.shutdown_finished.emit({"generation": 18})
+
+
+class ControlledTeSession:
+    instances = []
+
+    def __init__(self, _parent=None):
+        self.signals = _TeSessionSignals()
+        self.activated = None
+        self.submitted = []
+        self.invalidated = False
+        self.shutdown_requested = False
+        self.__class__.instances.append(self)
+
+    def activate_context(self, model, ip, candidates, start_index, profile):
+        self.activated = (model, ip, tuple(candidates), start_index, profile)
+        return 29
+
+    def submit(self, operation, *, generation=None):
+        self.submitted.append((operation, generation))
+        return len(self.submitted)
+
+    def invalidate_context(self):
+        self.invalidated = True
+
+    def shutdown(self, *, wait=False):
+        self.shutdown_requested = True
+
+    def finish_cleanup(self):
+        self.signals.shutdown_finished.emit({"generation": 30})
 
 
 class ControlledCloudMeter(QObject):
@@ -212,6 +247,31 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             ControlledCloudSession.instances[0].finish_cleanup()
             window.room_diagnostic_controller.start_local_refresh.assert_called_once()
             self.assertNotEqual(live, window.room_interaction_coordinator.active_context)
+
+    def test_te_live_audio_uses_room_owned_two_second_binding_and_keeps_both_values(self):
+        ControlledTeSession.instances.clear()
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_interaction_coordinator.cycle_finished(session)
+            live = window.room_interaction_coordinator.active_context
+            owner = ControlledTeSession.instances[0]
+            self.assertEqual("Huawei TE20", owner.activated[0])
+            self.assertEqual("get_live_audio_status", owner.submitted[0][0].method)
+            self.assertEqual(2000, window._room_te_live[live][1].interval())
+
+            owner.signals.result.emit({
+                "value": {"audio": {"MicValueIndex": 11, "SpeakerValueIndex": 22}},
+                "connection_profile": {"protocol": "https", "port": 443},
+            })
+            self.assertEqual(
+                {"microphone": 11, "speaker": 22},
+                session.row_for("a").accepted_snapshot["live_audio"],
+            )
+
+            window.room_interaction_coordinator.request_auxiliary("call_log")
+            self.assertTrue(owner.shutdown_requested)
+            owner.finish_cleanup()
+            self.assertEqual("AUXILIARY_READ", window.room_interaction_coordinator.active_context.kind.value)
 
     def test_top_refresh_waits_for_cloudlink_live_cleanup_before_room_replacement(self):
         with patch("gui.main_window.InteractiveSessionController", ControlledCloudSession), patch(
