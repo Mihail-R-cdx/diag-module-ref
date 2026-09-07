@@ -109,7 +109,7 @@ For every row marked `In scope = YES` in `design.md`, produce explicit acceptanc
 - [x] 10.4 Run `.\openspec.cmd validate --all --strict`.
 - [x] 10.5 Run `git diff --check` and `git diff --cached --check`.
 - [x] 10.6 Synchronize implementation evidence without replacing hardware acceptance with synthetic evidence.
-- [ ] 10.7 Create and push focused implementation commit(s).
+- [x] 10.7 Create and push focused implementation commit(s).
 
 ## 11. Independent validation
 

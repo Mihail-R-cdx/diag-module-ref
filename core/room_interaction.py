@@ -572,6 +572,19 @@ class RoomInteractionCoordinator:
             self._pending_codec_preview = None
             self._start_eligible_live()
             return
+        # A preview deferred behind another serialized owner must check LIVE
+        # again after cleanup: it can become eligible only at this boundary.
+        session = self._require_session()
+        assert session is not None
+        row = session.row_for(pending.record_id)
+        binding = self._binding_for(row)
+        if binding is not None and binding.live is not None:
+            self._start_eligible_live()
+            if self._active is not None and self._active.kind is RoomInteractionKind.LIVE:
+                # This epoch is terminal locally and owns no preview I/O.
+                self._pending_codec_preview = None
+                self._notify()
+                return
         self._start_user_operation(RoomInteractionKind.AUXILIARY_READ, action="call_log_preview")
 
     def _retire_active(self) -> None:

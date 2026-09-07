@@ -598,6 +598,46 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         self.assertEqual(1, [action for action, _record in requests].count("call_log_preview"))
 
+    def test_pending_preview_rechecks_live_priority_after_non_live_cleanup(self):
+        first = DeviceRowState(
+            "aux-1", "Extron IN1804", "192.0.2.10", "Extron IN1804",
+            DeviceRowStatus.CONNECTED,
+            capability=RoomModelCapability("Extron IN1804", "matrix", "route", "adapter"),
+            accepted_snapshot={},
+        )
+        second = self._row("CloudLink Box 310")
+        second.record_id, second.ip_address = "codec-2", "192.0.2.11"
+        session = RoomDiagnosticSession(
+            RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+            "R-1", None, None, [first, second], status=RoomCycleStatus.COMPLETE,
+        )
+        calls = []
+        auxiliary = RoomInteractionBindings(
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        codec = RoomInteractionBindings(
+            live=lambda context: calls.append(("live", context.record_id)),
+            auxiliary=lambda context, action: calls.append((action, context.record_id)),
+            cancel=lambda _context: None, cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(
+            bindings_for_model=lambda model: codec if model == "CloudLink Box 310" else auxiliary,
+        )
+        coordinator.bind_session(session)
+        coordinator.expand(first.record_id)
+        busy = coordinator.request_auxiliary("call_log")
+        coordinator.expand(second.record_id)
+        coordinator.request_codec_preview()
+        coordinator.cleanup_finished(busy)
+
+        self.assertEqual([("call_log", "aux-1"), ("live", "codec-2")], calls)
+        self.assertEqual("LIVE", coordinator.active_context.kind.value)
+        self.assertIsNone(coordinator._pending_codec_preview)
+        coordinator.complete(coordinator.active_context, success=True, data={})
+        coordinator.request_codec_preview()
+        self.assertEqual(0, sum(action == "call_log_preview" for action, _row in calls))
+
     def test_pending_preview_is_discarded_for_non_codec_switch_and_collapse(self):
         first = self._row("Huawei TE20")
         non_codec = DeviceRowState(

@@ -385,6 +385,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_call_log_windows = {}
         self._room_accepted_call_log_windows = {}
         self._room_codec_mutations = {}
+        self._room_codec_mutation_cleanup_timers = {}
         self._room_codec_restore_volumes = {}
         # These dialogs are deliberately presentation-only, but they still
         # belong to one exact room row.  Keeping that ownership here prevents
@@ -403,6 +404,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_live_cleanup_timers = {}
         self._room_live_successful_contexts = set()
         self.room_live_cleanup_timeout_ms = 5000
+        self.room_codec_mutation_cleanup_timeout_ms = 5000
         self.room_interaction_coordinator = RoomInteractionCoordinator(
             bindings_for_model=self._room_interaction_bindings_for_model,
             credential_context_revision=lambda: self.__dict__.get("_equipment_room_credential_context_revision", 0),
@@ -1333,6 +1335,13 @@ class VCSDiagnosticApp(QMainWindow):
             return
         run["terminal"] = (success, data, connection_lost, warning)
         controller = run["controller"]
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(
+            lambda current=context: self._abandon_retired_room_codec_mutation(current)
+        )
+        self._room_codec_mutation_cleanup_timers[context] = timer
+        timer.start(self.room_codec_mutation_cleanup_timeout_ms)
         try:
             controller.shutdown(wait=False)
         except Exception:
@@ -1342,6 +1351,10 @@ class VCSDiagnosticApp(QMainWindow):
         run = self._room_codec_mutations.pop(context, None)
         if run is None:
             return
+        timer = self._room_codec_mutation_cleanup_timers.pop(context, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
         if run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
@@ -1349,6 +1362,24 @@ class VCSDiagnosticApp(QMainWindow):
             return
         success, data, connection_lost, warning = run["terminal"]
         self._finish_room_codec_mutation(context, success, data, connection_lost, warning)
+
+    def _abandon_retired_room_codec_mutation(self, context):
+        """Fail closed if a terminal codec owner never sends shutdown_finished."""
+        run = self._room_codec_mutations.pop(context, None)
+        if run is None:
+            return
+        timer = self._room_codec_mutation_cleanup_timers.pop(context, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        try:
+            run["controller"].invalidate_context()
+        except Exception:
+            pass
+        self._finish_room_codec_mutation(
+            context, False, None, False,
+            "Операция кодека не подтверждена: завершение соединения не получено",
+        )
 
     def _finish_room_codec_mutation(self, context, success, data, connection_lost, warning):
         if success:
@@ -1670,8 +1701,19 @@ class VCSDiagnosticApp(QMainWindow):
             connection_profile=payload.get("connection_profile") if isinstance(payload, Mapping) else None,
         )
 
-    def _accept_room_te_live_error(self, context, payload, _candidate_index):
+    def _accept_room_te_live_error(self, context, payload, candidate_index):
         category = payload.get("category") if isinstance(payload, Mapping) else None
+        if category == "authentication":
+            if self._retry_room_model_live_authentication(context, candidate_index):
+                return
+            self._room_credential_attempts.pop(context, None)
+            self.room_interaction_coordinator.complete(
+                context,
+                success=False,
+                connection_lost=True,
+                warning="Credentials отклонены",
+            )
+            return
         self._on_room_local_refresh_finished(
             context, False, None,
             category in {"authentication", "transport", "session_invalid"},
