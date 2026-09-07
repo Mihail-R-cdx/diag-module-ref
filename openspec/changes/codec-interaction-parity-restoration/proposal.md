@@ -22,14 +22,14 @@ Key regressions include:
 - Make an exact-model capability matrix normative before implementation for TE20, TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310.
 - Preserve the pre-redesign behavior at `c442152...` for operations proven to work, including Polycom speaker step `2`, without weakening current exact-row/security/currentness rules.
 - Add a normative parser/normalization contract from model-specific microphone evidence to canonical accepted room evidence and then to the common dashboard.
-- Restore CloudLink Bar/Box live microphone metering without allowing automatic call-log preview to starve LIVE.
+- Restore CloudLink Bar/Box live microphone metering while changing automatic inline call-log preview so it never retires active LIVE merely to enrich the card.
 - Restore TE20/TE40 model-specific live-audio status behavior through a room-owned live binding.
 - Keep intentionally unsupported operations unavailable: CloudLink microphone gain is not re-enabled; reboot is not invented as a room network capability merely because the new dashboard shows a button.
 - Make explicit call-log opening use the proven fresh model-specific retrieval path independently from automatic preview.
-- Restore supported codec audio readback/control parity using targeted authoritative readback where available.
+- Restore supported codec audio readback/control parity using targeted authoritative readback where available while preserving the current root fail-closed restore-authority rule for speaker unmute.
 - Ensure every codec user action reaches bounded terminal cleanup and cannot leave GUI/lifecycle locks permanently stuck.
 - Add composition/parser integration regression coverage that starts at the transport edge; manually prebuilt canonical snapshots are insufficient sole evidence.
-- Make hardware-backed acceptance on the exact published implementation SHA a required independent-validation gate for every physically AVAILABLE affected model.
+- Make hardware-backed acceptance on the exact published implementation SHA a required independent-validation gate for every affected codec model.
 
 ## Explicit defect families
 
@@ -48,9 +48,9 @@ Presentation control, SIP fix, and TE20 Wake are not new functionality in this c
 
 ## Hardware gate
 
-Hardware availability is resolved in design before implementation. Models marked AVAILABLE must pass every applicable affected scenario on the exact published implementation SHA before independent validation may issue `APPROVE`. A model marked UNAVAILABLE remains explicitly hardware-unverified and may not be described as proven fixed from offline tests alone.
+All five affected codec models are confirmed `AVAILABLE` for post-implementation real-device validation: Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310.
 
-At this architecture revision, CloudLink Bar 310 is confirmed available from prior real-device work. Availability of CloudLink Box 310, Huawei TE20, Huawei TE40, and Polycom RPG 310 remains `UNCONFIRMED` and must be resolved before final architecture `APPROVE`.
+`AVAILABLE` is an architecture input only: it means the device can be provided after implementation. It is not evidence that the fix is already verified. Every applicable affected scenario must still pass on the exact published implementation SHA before independent implementation validation may issue a permitting verdict. Offline tests cannot replace this hardware gate.
 
 ## Non-Goals
 
@@ -60,6 +60,7 @@ At this architecture revision, CloudLink Bar 310 is confirmed available from pri
 - Allowing concurrent authoritative room network owners.
 - Re-enabling CloudLink microphone-gain mutation without separate authoritative target/readback proof.
 - Inventing reboot support that was not proven by the pre-redesign room behavior/current root contract.
+- Inventing speaker-unmute restore targets when current exact-row restore evidence is absent.
 - Redesigning Matrix, PDU, or Audio DSP surfaces.
 
 ## Behavioral Oracle
