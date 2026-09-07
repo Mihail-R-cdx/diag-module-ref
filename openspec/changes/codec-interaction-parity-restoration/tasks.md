@@ -15,8 +15,9 @@
 - [x] 2.3 Perform independent architecture review; result: `CHANGES REQUIRED` with 2 HIGH and 2 MEDIUM findings.
 - [x] 2.4 Resolve the first architecture findings by adding the normative exact-model capability matrix, microphone normalization contract, hardware gate rules, and explicit defect/action inventory.
 - [x] 2.5 Resolve all hardware-availability rows to `AVAILABLE` based on the user's commitment to provide TE20, TE40, Bar 310, Box 310, and RPG 310 after implementation; hardware execution remains a post-implementation exact-SHA gate.
-- [x] 2.6 Resolve follow-up architecture findings: remove invented first-unmute fallback and replace the conflicting automatic-preview root lifecycle requirement with a LIVE-priority `MODIFIED` contract.
-- [ ] 2.7 Obtain final architecture `APPROVE` before implementation.
+- [x] 2.6 Resolve follow-up architecture findings: remove invented first-unmute fallback; replace the conflicting automatic-preview lifecycle contract with LIVE-priority `MODIFIED` semantics; modify parallel call-log contracts and preserve all replaced root scenario names for archive applicability.
+- [ ] 2.7 Run a disposable repository-local archive-applicability check for this exact published architecture SHA; it MUST complete without missing/replaced-root-scenario errors and without leaving changes in the validation worktree.
+- [ ] 2.8 Obtain final architecture `APPROVE` before implementation.
 
 ## 3. Exact-model capability parity
 
@@ -53,6 +54,7 @@
 - [ ] 6.3 Ensure ordinary preview/journal failure or local LIVE-priority preview skip cannot strand the room lane or permanently disable the row.
 - [ ] 6.4 Add composition-level call-log regressions using transport-edge fakes rather than prebuilt snapshots alone where network acquisition is expected.
 - [ ] 6.5 Protect Polycom's previously working call-log path as a regression oracle while restoring Huawei/CloudLink parity.
+- [ ] 6.6 Protect the Box 310 regression oracle under LIVE priority: automatic expansion may terminate locally without call-log I/O, while explicit detail must still perform a fresh approved call-history acquisition and normalization path.
 
 ## 7. Codec audio controls and Local Refresh
 
