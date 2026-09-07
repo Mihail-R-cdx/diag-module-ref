@@ -10,8 +10,10 @@ from core.room_diagnostic_tree import (
     DeviceRowState, DeviceRowStatus, RoomDiagnosticSession,
     RoomDiagnosticSessionIdentity, RoomCycleStatus, RoomModelCapability,
 )
-from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator
+from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator, RoomInteractionKind
+from core.workers.codec_polling import HuaweiBar310Worker
 from core.codec_call_history import CallDirection, CallRecord, snapshot_from_records
+from handlers.huawei.bar310 import CloudLinkBar310Handler
 from gui.diagnostic_dispatch import (
     CodecMuteState,
     dispatch_entry_for_model,
@@ -38,6 +40,67 @@ class ModernCodecDashboardTests(unittest.TestCase):
             capability=RoomModelCapability(model, "codec", "route", "adapter"),
             accepted_snapshot=snapshot or {},
         )
+
+    def test_cloudlink_static_microphone_transport_worker_row_dashboard_pipeline(self):
+        for model, raw_audio in (
+            ("CloudLink Bar 310", {"curMicVouumeList": [{"curVolume": 9}]}),
+            ("CloudLink Box 310", {"micArray1_01ValIdx": 9}),
+        ):
+            with self.subTest(model=model):
+                observed_statuses = []
+                real_get_status = CloudLinkBar310Handler.get_status
+                def modern_action(_handler, action):
+                    if action == "get_version":
+                        return {"success": 1, "data": {"softVersion": "V1"}}
+                    return {"success": 1, "data": {}}
+
+                def modern_request(_handler, endpoint, **_kwargs):
+                    if endpoint == "v1/mediacontrol/mic/current-volume":
+                        return {"success": 1, "data": raw_audio}
+                    return {"success": 1, "data": {}}
+
+                def capture_status(handler):
+                    status = real_get_status(handler)
+                    observed_statuses.append(dict(status))
+                    return status
+
+                with patch.object(CloudLinkBar310Handler, "connect", lambda handler: setattr(handler, "_connected", True)), patch.object(
+                    CloudLinkBar310Handler, "disconnect", lambda _handler: None
+                ), patch.object(CloudLinkBar310Handler, "_modern_action", modern_action), patch.object(
+                    CloudLinkBar310Handler, "_modern_request", modern_request
+                ), patch.object(
+                    CloudLinkBar310Handler, "send_command", lambda _handler, *_args, **_kwargs: {"success": 1, "data": raw_audio}
+                ), patch.object(
+                    CloudLinkBar310Handler, "get_status", capture_status
+                ):
+                    worker = HuaweiBar310Worker("192.0.2.10", username="assigned", password="assigned", assigned_model=model)
+                    results = []
+                    worker.signals.result.connect(results.append)
+                    worker.run()
+
+                self.assertEqual(1, len(results))
+                parsed = results[0]
+                self.assertEqual(9, observed_statuses[0]["mic_volume"])
+                self.assertEqual(9, parsed["microphone_volume"])
+                self.assertEqual(
+                    "Huawei CloudLink Box 310" if model.endswith("Box 310") else "Huawei CloudLink Bar 310",
+                    parsed["Модель"],
+                )
+                row = self._row(model)
+                session = RoomDiagnosticSession(
+                    RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
+                    "R-1", None, None, [row], status=RoomCycleStatus.COMPLETE,
+                )
+                coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: None)
+                coordinator.bind_session(session)
+                context = coordinator._new_context(row, RoomInteractionKind.LOCAL_REFRESH)
+                coordinator._active = context
+                coordinator.complete(context, success=True, data=parsed)
+                self.assertEqual(9, row.accepted_snapshot["microphone_volume"])
+                self.assertEqual(9, normalize_codec_audio_projection(row.accepted_snapshot, model).microphone_volume)
+                presentation = RoomReadOnlyPresentation(row)
+                self.addCleanup(presentation.deleteLater)
+                self.assertIn("9%", [label.text() for label in presentation.findChildren(QLabel, "roomCodecAudioValue")])
 
     def test_exact_registry_control_matrix_is_complete_and_fail_closed(self):
         expected = {

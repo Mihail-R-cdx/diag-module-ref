@@ -11,6 +11,7 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
+from core.exceptions import CodecFailureCategory
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, build_room_session, resolve_room_source
 from core.room_interaction import RoomInteractionKind
 from gui.diagnostic_dispatch import dispatch_entry_for_model, room_model_capabilities
@@ -280,7 +281,7 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
                 window, session = self._window_session(model)
                 window.room_interaction_coordinator.cycle_finished(session)
                 first = ControlledTeSession.instances[-1]
-                first.signals.error.emit({"category": "authentication"})
+                first.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
                 self.assertIs(first, ControlledTeSession.instances[-1])
                 self.assertTrue(first.shutdown_requested)
                 first.finish_cleanup()
@@ -298,15 +299,33 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             window, session = self._window_session("Huawei TE20")
             window.room_interaction_coordinator.cycle_finished(session)
             first = ControlledTeSession.instances[-1]
-            first.signals.error.emit({"category": "authentication"})
+            first.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
             first.finish_cleanup()
             second = ControlledTeSession.instances[-1]
-            second.signals.error.emit({"category": "authentication"})
+            second.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
             self.assertTrue(second.shutdown_requested)
             owner_count = len(ControlledTeSession.instances)
             second.finish_cleanup()
             self.assertEqual(owner_count, len(ControlledTeSession.instances))
             self.assertEqual(DeviceRowStatus.DEGRADED, session.row_for("a").status)
+
+    def test_te_live_non_auth_canonical_categories_never_advance_credentials(self):
+        for category in (
+            CodecFailureCategory.TRANSPORT.value,
+            CodecFailureCategory.SESSION_INVALID.value,
+            CodecFailureCategory.PROTOCOL.value,
+            CodecFailureCategory.COMMAND.value,
+        ):
+            with self.subTest(category=category), patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+                window, session = self._window_session("Huawei TE20")
+                window.room_interaction_coordinator.cycle_finished(session)
+                owner = ControlledTeSession.instances[-1]
+                owner_count = len(ControlledTeSession.instances)
+                owner.signals.error.emit({"category": category, "message": "authentication 401 text is not authority"})
+                self.assertTrue(owner.shutdown_requested)
+                owner.finish_cleanup()
+                self.assertEqual(owner_count, len(ControlledTeSession.instances))
+                self.assertEqual(DeviceRowStatus.DEGRADED, session.row_for("a").status)
 
     def test_codec_mutation_cleanup_timeout_blocks_row_and_late_callback_is_powerless(self):
         with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
@@ -340,10 +359,55 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             )
             owner = ControlledTeSession.instances[-1]
             owner_count = len(ControlledTeSession.instances)
-            owner.signals.error.emit({"category": "transport", "message": "synthetic"})
+            owner.signals.error.emit({"category": CodecFailureCategory.TRANSPORT.value, "message": "synthetic"})
             self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
             self.assertTrue(row.interaction_blocked)
             self.assertEqual(owner_count, len(ControlledTeSession.instances))
+
+    def test_cancelled_codec_mutation_timeout_releases_retired_lane_and_late_callbacks_are_powerless(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledTeSession.instances[-1]
+            window.room_interaction_coordinator.collapse("a")
+            self.assertTrue(owner.invalidated)
+            self.assertTrue(owner.shutdown_requested)
+            self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
+            self.assertNotIn(context, window._room_codec_mutations)
+            self.assertNotIn(context, window._room_codec_mutation_cleanup_timers)
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
+            owner.signals.result.emit({"value": 7})
+            owner.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
+            owner.finish_cleanup()
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+
+    def test_cancelled_codec_mutation_physical_cleanup_stops_timeout_without_double_complete(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledTeSession.instances[-1]
+            window.room_interaction_coordinator.collapse("a")
+            owner.finish_cleanup()
+            self.assertNotIn(context, window._room_codec_mutations)
+            self.assertNotIn(context, window._room_codec_mutation_cleanup_timers)
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+            self._wait_for(lambda: True, timeout=0.04)
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
 
     def test_top_refresh_waits_for_cloudlink_live_cleanup_before_room_replacement(self):
         with patch("gui.main_window.InteractiveSessionController", ControlledCloudSession), patch(

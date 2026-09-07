@@ -1296,7 +1296,11 @@ class VCSDiagnosticApp(QMainWindow):
         interactive.signals.error.connect(
             lambda payload, current=context: self._retire_room_codec_mutation(
                 current, False, None,
-                payload.get("category") in {"authentication", "transport", "session_invalid"},
+                payload.get("category") in {
+                    CodecFailureCategory.AUTHENTICATION.value,
+                    CodecFailureCategory.TRANSPORT.value,
+                    CodecFailureCategory.SESSION_INVALID.value,
+                },
                 payload.get("message") or "Операция кодека не подтверждена",
             )
         )
@@ -1331,9 +1335,21 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _retire_room_codec_mutation(self, context, success, data, connection_lost, warning):
         run = self._room_codec_mutations.get(context)
-        if run is None or run.get("terminal") is not None:
+        if run is None or run.get("cleanup_started"):
             return
-        run["terminal"] = (success, data, connection_lost, warning)
+        self._begin_room_codec_mutation_cleanup(
+            context, terminal=(success, data, connection_lost, warning)
+        )
+
+    def _begin_room_codec_mutation_cleanup(self, context, *, terminal=None, cancelled=False):
+        """Start one bounded physical-release boundary for a codec mutation."""
+        run = self._room_codec_mutations.get(context)
+        if run is None or run.get("cleanup_started"):
+            return False
+        run["cleanup_started"] = True
+        run["cancelled"] = bool(cancelled)
+        if terminal is not None:
+            run["terminal"] = terminal
         controller = run["controller"]
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -1343,9 +1359,12 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_codec_mutation_cleanup_timers[context] = timer
         timer.start(self.room_codec_mutation_cleanup_timeout_ms)
         try:
+            if cancelled:
+                controller.invalidate_context()
             controller.shutdown(wait=False)
         except Exception:
             self._complete_retired_room_codec_mutation(context)
+        return True
 
     def _complete_retired_room_codec_mutation(self, context):
         run = self._room_codec_mutations.pop(context, None)
@@ -1355,7 +1374,7 @@ class VCSDiagnosticApp(QMainWindow):
         if timer is not None:
             timer.stop()
             timer.deleteLater()
-        if run.get("terminal") is None:
+        if run.get("cancelled") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.cleanup_finished(context)
@@ -1376,6 +1395,11 @@ class VCSDiagnosticApp(QMainWindow):
             run["controller"].invalidate_context()
         except Exception:
             pass
+        if run.get("cancelled") or run.get("terminal") is None:
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.cleanup_finished(context, timed_out=True)
+            return
         self._finish_room_codec_mutation(
             context, False, None, False,
             "Операция кодека не подтверждена: завершение соединения не получено",
@@ -1506,13 +1530,7 @@ class VCSDiagnosticApp(QMainWindow):
         elif context.kind is RoomInteractionKind.LOCAL_REFRESH:
             self.room_diagnostic_controller.cancel_local_refresh(context)
         elif context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION}:
-            codec_run = self._room_codec_mutations.get(context)
-            if codec_run is not None:
-                try:
-                    codec_run["controller"].invalidate_context()
-                    codec_run["controller"].shutdown(wait=False)
-                except Exception:
-                    pass
+            self._begin_room_codec_mutation_cleanup(context, cancelled=True)
             self.room_diagnostic_controller.cancel_matrix_mutation(context)
             self.room_diagnostic_controller.cancel_pdu_mutation(context)
             self.room_diagnostic_controller.cancel_local_refresh(context)
@@ -1703,7 +1721,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _accept_room_te_live_error(self, context, payload, candidate_index):
         category = payload.get("category") if isinstance(payload, Mapping) else None
-        if category == "authentication":
+        if category == CodecFailureCategory.AUTHENTICATION.value:
             if self._retry_room_model_live_authentication(context, candidate_index):
                 return
             self._room_credential_attempts.pop(context, None)
@@ -1716,7 +1734,10 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self._on_room_local_refresh_finished(
             context, False, None,
-            category in {"authentication", "transport", "session_invalid"},
+            category in {
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
             "Не удалось получить live audio TE",
         )
 
@@ -1783,7 +1804,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _accept_room_cloudlink_terminal(self, context, outcome, candidate_index):
         category = outcome.get("category") if isinstance(outcome, Mapping) else None
-        if category == "authentication_error":
+        if category == CodecFailureCategory.AUTHENTICATION.value:
             if self._retry_room_model_live_authentication(context, candidate_index):
                 return
             self._room_credential_attempts.pop(context, None)
@@ -1795,7 +1816,10 @@ class VCSDiagnosticApp(QMainWindow):
             )
             return
         self._on_room_local_refresh_finished(
-            context, False, None, category in {"connection_error", "session_invalid"},
+            context, False, None, category in {
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
             "Соединение с CloudLink потеряно",
         )
 
@@ -1828,7 +1852,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _accept_room_matrix_terminal(self, context, error, candidate_index):
         category = error[0] if error else None
-        if category == "authentication_error":
+        if category == CodecFailureCategory.AUTHENTICATION.value:
             if self._retry_room_model_live_authentication(context, candidate_index):
                 return
             self._room_credential_attempts.pop(context, None)
@@ -1840,7 +1864,10 @@ class VCSDiagnosticApp(QMainWindow):
             )
             return
         self._on_room_local_refresh_finished(
-            context, False, None, category in {"connection_error", "session_invalid"},
+            context, False, None, category in {
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
             "Соединение с Matrix потеряно",
         )
 
@@ -1889,7 +1916,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self._on_room_local_refresh_finished(
             context, False, None,
-            category in {CodecFailureCategory.TRANSPORT.value, "connection_error"},
+            category == CodecFailureCategory.TRANSPORT.value,
             "Соединение с DMP потеряно",
         )
 
