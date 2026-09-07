@@ -78,6 +78,8 @@ A supported room codec audio mutation SHALL use one serialized exact-model opera
 
 Successful mutation transport/ACK SHALL remain non-authoritative. Only the readback result MAY publish the reconciled canonical field. If readback cannot confirm final state, prior accepted state SHALL remain stale/unconfirmed and current mutation safety rules SHALL apply; the application SHALL NOT blindly repeat the state-changing operation.
 
+Speaker mute/unmute SHALL preserve the existing root restore-authority contract: only a proven current exact-row/generation non-zero restore target may be restored. When current accepted speaker volume is `0` and no proven restore target exists, the operation remains a safe local unavailable result with zero mutation/device I/O; this change SHALL NOT invent fallback `1`, a minimum value, or another synthetic restore target.
+
 #### Scenario: Speaker volume adjustment succeeds
 
 - **GIVEN** the exact codec model supports speaker-volume adjustment and authoritative speaker-volume readback
@@ -96,19 +98,17 @@ Successful mutation transport/ACK SHALL remain non-authoritative. Only the readb
 - **AND** submits target volume `0`
 - **AND** confirms the final state with `get_speaker_volume`
 - **WHEN** the operator requests unmute while authoritative volume is `0`
-- **THEN** the remembered positive value is restored and confirmed by the same authoritative getter
+- **AND** the same exact row/generation has a proven positive restore target
+- **THEN** the proven positive value is restored and confirmed by the same authoritative getter
 
-#### Scenario: First unmute starts from zero without remembered positive volume
+#### Scenario: Speaker unmute has no restore evidence
 
-- **GIVEN** the current exact codec model supports speaker mute/unmute
-- **AND** the first authoritative speaker volume observed for the exact record/session is `0`
-- **AND** no remembered positive speaker volume exists for that exact record/session
+- **GIVEN** current accepted speaker volume is `0`
+- **AND** the exact row/generation has no accepted non-zero restore target
 - **WHEN** the operator requests speaker unmute
-- **THEN** the application SHALL use fallback target `1` when `1` is inside the exact-model speaker range
-- **AND** SHALL submit that target through the same serialized speaker-volume mutation path
-- **AND** SHALL confirm final state with `get_speaker_volume`
-- **AND** SHALL remember the confirmed positive result for subsequent mute/unmute operations
-- **AND** SHALL NOT require a full codec refresh merely to choose the fallback target
+- **THEN** no default, minimum, `1`, or other synthetic target is invented
+- **AND** no room mutation, handler/session acquisition, or device I/O starts
+- **AND** a safe local unavailable result is shown without leaving the row or interaction lane locked
 
 #### Scenario: Audio mutation readback fails
 
