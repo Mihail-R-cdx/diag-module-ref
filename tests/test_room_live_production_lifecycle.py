@@ -91,6 +91,12 @@ class ControlledTeSession:
         self.signals.shutdown_finished.emit({"generation": 30})
 
 
+class ControlledRejectedSubmitTeSession(ControlledTeSession):
+    def submit(self, operation, *, generation=None):
+        self.submitted.append((operation, generation))
+        return None
+
+
 class ControlledCloudMeter(QObject):
     accepted = pyqtSignal(dict, dict)
     terminal = pyqtSignal(dict)
@@ -363,6 +369,29 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
             self.assertTrue(row.interaction_blocked)
             self.assertEqual(owner_count, len(ControlledTeSession.instances))
+
+    def test_codec_mutation_submit_none_is_safe_pre_submit_failure(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledRejectedSubmitTeSession):
+            window, session = self._window_session("Huawei TE20")
+            row = session.row_for("a")
+            row.network_actions_enabled = True
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledRejectedSubmitTeSession.instances[-1]
+            self.assertFalse(window._room_codec_mutations[context]["command_submitted"])
+            self.assertTrue(owner.shutdown_requested)
+            session.expanded_record_id = None
+            window.room_interaction_coordinator._expanded_record_id = None
+            owner.finish_cleanup()
+            self.assertFalse(row.interaction_blocked)
+            self.assertFalse(row.unconfirmed_after_command)
+            self.assertFalse(row.stale)
+            self.assertTrue(row.network_actions_enabled)
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
 
     def test_cancelled_codec_mutation_timeout_releases_retired_lane_and_late_callbacks_are_powerless(self):
         with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):

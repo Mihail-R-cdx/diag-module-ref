@@ -1330,7 +1330,12 @@ class VCSDiagnosticApp(QMainWindow):
                 quiet=True,
             )
             if interactive.submit(operation, generation=generation) is None:
-                raise RuntimeError("Codec command was not accepted")
+                # No executor admission means this operation cannot have sent a
+                # state-changing command. Retire resources without claiming an
+                # ambiguous device outcome.
+                self._room_codec_mutations[context]["pre_submit_failure"] = True
+                self._begin_room_codec_mutation_cleanup(context)
+                return
             self._room_codec_mutations[context]["command_submitted"] = True
             self._room_credential_attempts[context] = ((credential,), candidate_index, dict(command))
         except Exception:
@@ -1383,7 +1388,7 @@ class VCSDiagnosticApp(QMainWindow):
         if timer is not None:
             timer.stop()
             timer.deleteLater()
-        if run.get("cancelled") or run.get("terminal") is None:
+        if run.get("cancelled") or run.get("pre_submit_failure") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.cleanup_finished(context)
@@ -1404,7 +1409,7 @@ class VCSDiagnosticApp(QMainWindow):
             run["controller"].invalidate_context()
         except Exception:
             pass
-        if run.get("cancelled") or run.get("terminal") is None:
+        if run.get("cancelled") or run.get("pre_submit_failure") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.cleanup_finished(context, timed_out=True)
