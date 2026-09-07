@@ -2,15 +2,15 @@
 
 ### Requirement: Explicit codec call-log acquisition remains independent from automatic preview
 
-For each supported exact codec model, explicitly opening the call log SHALL always start the approved fresh model-specific read-only acquisition for that exact current row, regardless of whether automatic dashboard preview is empty, deferred, stale, or previously failed.
+For each supported exact codec model, explicitly opening the call log SHALL always start the approved fresh model-specific read-only acquisition for that exact current row, regardless of whether automatic dashboard preview used current accepted evidence, completed locally as LIVE-priority skipped/unavailable, is empty, is stale, or previously failed.
 
 Automatic preview is presentation enrichment and SHALL NOT become a prerequisite, cache authority, or failure gate for the explicit journal. The implementation SHOULD reuse the proven model-specific retrieval/normalization behavior that existed before `codec-diagnostic-modern-ui` where current device evidence confirms it remains valid.
 
-An ordinary automatic-preview failure SHALL NOT permanently disable explicit journal opening, degrade an otherwise connected row, or strand the serialized room lane. An explicit journal failure SHALL follow existing typed auxiliary-failure rules and bounded cleanup.
+A local automatic-preview skip or an ordinary automatic-preview failure SHALL NOT permanently disable explicit journal opening, degrade an otherwise connected row, or strand the serialized room lane. An explicit journal failure SHALL follow existing typed auxiliary-failure rules and bounded cleanup.
 
 #### Scenario: Automatic preview is unavailable
 
-- **GIVEN** the codec dashboard has no automatic preview data
+- **GIVEN** the codec dashboard has no automatic preview data because the epoch completed locally or without accepted records
 - **WHEN** the operator presses the explicit journal/expand action
 - **THEN** a fresh exact-row call-log acquisition starts through the approved model-specific retrieval path
 - **AND** missing preview data does not block the request
@@ -22,3 +22,11 @@ An ordinary automatic-preview failure SHALL NOT permanently disable explicit jou
 - **THEN** the explicit acquisition is still available
 - **AND** it is not satisfied from the failed preview attempt
 - **AND** its result may populate the dialog normally
+
+#### Scenario: Automatic preview was skipped for LIVE priority
+
+- **GIVEN** the current expansion epoch completed its automatic preview attempt locally because LIVE had priority
+- **WHEN** the operator explicitly opens the journal
+- **THEN** the explicit action starts one fresh serialized `AUXILIARY_READ`
+- **AND** LIVE retirement/cleanup occurs only for that explicit operator request
+- **AND** the completed automatic-attempt marker is not reset
