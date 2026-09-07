@@ -168,6 +168,18 @@ class RoomInteractionCoordinator:
         """Public currentness boundary for composition-owned success evidence."""
         return self._is_current(context)
 
+    def block_ambiguous_mutation(self, context: RoomInteractionContext, reason: str) -> bool:
+        """Fail closed for a retiring mutation whose submitted command is ambiguous."""
+        if self._active != context or self._session is None:
+            return False
+        try:
+            row = self._session.row_for(context.record_id)
+        except KeyError:
+            return False
+        self._block_unconfirmed(row, reason)
+        self._notify()
+        return True
+
     def is_bound_session(self, session: RoomDiagnosticSession) -> bool:
         """Whether composition still owns this exact, current room session."""
         return self._session is session and not session.invalidated

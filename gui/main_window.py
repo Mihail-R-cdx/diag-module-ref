@@ -1284,7 +1284,9 @@ class VCSDiagnosticApp(QMainWindow):
         operation_name = command["operation"]
         target = command.get("target")
         interactive = InteractiveSessionController(self)
-        self._room_codec_mutations[context] = {"controller": interactive, "terminal": None}
+        self._room_codec_mutations[context] = {
+            "controller": interactive, "terminal": None, "command_submitted": False,
+        }
         interactive.signals.result.connect(
             lambda payload, current=context, name=operation_name:
             self._retire_room_codec_mutation(
@@ -1329,6 +1331,7 @@ class VCSDiagnosticApp(QMainWindow):
             )
             if interactive.submit(operation, generation=generation) is None:
                 raise RuntimeError("Codec command was not accepted")
+            self._room_codec_mutations[context]["command_submitted"] = True
             self._room_credential_attempts[context] = ((credential,), candidate_index, dict(command))
         except Exception:
             self._retire_room_codec_mutation(context, False, None, False, "Не удалось запустить операцию кодека")
@@ -1350,6 +1353,12 @@ class VCSDiagnosticApp(QMainWindow):
         run["cancelled"] = bool(cancelled)
         if terminal is not None:
             run["terminal"] = terminal
+        if cancelled and run.get("command_submitted"):
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.block_ambiguous_mutation(
+                    context, "Состояние устройства не подтверждено после отмены команды"
+                )
         controller = run["controller"]
         timer = QTimer(self)
         timer.setSingleShot(True)
