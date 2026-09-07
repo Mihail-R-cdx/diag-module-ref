@@ -31,7 +31,7 @@ expand row
 -> request_codec_preview()
 ```
 
-The serialized room lane retires active LIVE before an auxiliary read. Therefore automatic preview can immediately retire a freshly started CloudLink meter. If preview or cleanup stalls, live metering is starved.
+The current root lifecycle requires network-backed automatic preview to retire LIVE before its `AUXILIARY_READ`. On live-capable codecs this makes presentation enrichment compete with the telemetry the operator expects to remain continuous.
 
 ### 3. TE20/TE40 live audio was dropped from room presentation
 
@@ -63,16 +63,16 @@ The legacy codec screen is a reference implementation only. Proven interaction l
 
 | Exact model | Speaker adjust | Speaker range / step | Speaker readback | Speaker mute | Mic mute | Mic gain adjust | Reboot | Call log | LIVE telemetry | Local Refresh |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Huawei TE20 | YES | `0..21`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback | YES, `set_microphone_mute` + mute-state readback | NO; legacy `set_microphone_volume` is only a mute compatibility wrapper | NO; no proven pre-redesign room capability | YES, fresh `get_call_history_snapshot` path | YES; room-owned `get_live_audio_status`, 2 s cadence, microphone + speaker monitor values | YES, exact-row `room_one_shot_refresh` |
-| Huawei TE40 | YES | `0..21`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback | YES, `set_microphone_mute` + mute-state readback | NO; legacy `set_microphone_volume` is only a mute compatibility wrapper | NO; no proven pre-redesign room capability | YES, fresh `get_call_history_snapshot` path | YES; room-owned `get_live_audio_status`, 2 s cadence, microphone + speaker monitor values | YES, exact-row `room_one_shot_refresh` |
-| CloudLink Bar 310 | YES | `0..15`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback | NO separate approved mic-mute capability in the current exact-model contract | NO; current root contract explicitly prohibits CloudLink microphone gain mutation | NO; no proven pre-redesign room capability | YES, fresh shared CloudLink call-history path, exact Bar identity retained | YES; `cloudlink_room_live` via existing `CloudLinkMicrophoneMeter` / `WEB_GetCurrentAudioParam` compatibility path | YES, exact-row `room_one_shot_refresh` |
-| CloudLink Box 310 | YES | `0..15`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback | NO separate approved mic-mute capability in the current exact-model contract | NO; current root contract explicitly prohibits CloudLink microphone gain mutation | NO; no proven pre-redesign room capability | YES, fresh shared CloudLink call-history path, exact Box identity retained | YES; `cloudlink_room_live` via existing Box microphone normalization / `WEB_GetCurrentAudioParam` compatibility path | YES, exact-row `room_one_shot_refresh` |
-| Polycom RPG 310 | YES | `0..100`, step **`2`** | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback | YES, `set_microphone_mute` + mute-state readback | NO; legacy `set_microphone_volume` is only a mute compatibility wrapper | NO; no proven pre-redesign room capability | YES, fresh Polycom call-log worker/session path | NO approved live microphone/audio meter; do not fabricate one | YES, exact-row `room_one_shot_refresh` |
+| Huawei TE20 | YES | `0..21`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback and proven restore evidence | YES, `set_microphone_mute` + mute-state readback | NO; legacy `set_microphone_volume` is only a mute compatibility wrapper | NO; no proven pre-redesign room capability | YES, fresh `get_call_history_snapshot` path | YES; room-owned `get_live_audio_status`, 2 s cadence, microphone + speaker monitor values | YES, exact-row `room_one_shot_refresh` |
+| Huawei TE40 | YES | `0..21`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback and proven restore evidence | YES, `set_microphone_mute` + mute-state readback | NO; legacy `set_microphone_volume` is only a mute compatibility wrapper | NO; no proven pre-redesign room capability | YES, fresh `get_call_history_snapshot` path | YES; room-owned `get_live_audio_status`, 2 s cadence, microphone + speaker monitor values | YES, exact-row `room_one_shot_refresh` |
+| CloudLink Bar 310 | YES | `0..15`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback and proven restore evidence | NO separate approved mic-mute capability in the current exact-model contract | NO; current root contract explicitly prohibits CloudLink microphone gain mutation | NO; no proven pre-redesign room capability | YES, fresh shared CloudLink call-history path, exact Bar identity retained | YES; `cloudlink_room_live` via existing `CloudLinkMicrophoneMeter` / `WEB_GetCurrentAudioParam` compatibility path | YES, exact-row `room_one_shot_refresh` |
+| CloudLink Box 310 | YES | `0..15`, step `1` | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback and proven restore evidence | NO separate approved mic-mute capability in the current exact-model contract | NO; current root contract explicitly prohibits CloudLink microphone gain mutation | NO; no proven pre-redesign room capability | YES, fresh shared CloudLink call-history path, exact Box identity retained | YES; `cloudlink_room_live` via existing Box microphone normalization / `WEB_GetCurrentAudioParam` compatibility path | YES, exact-row `room_one_shot_refresh` |
+| Polycom RPG 310 | YES | `0..100`, step **`2`** | `get_speaker_volume` | YES, authoritative zero/restore using speaker readback and proven restore evidence | YES, `set_microphone_mute` + mute-state readback | NO; legacy `set_microphone_volume` is only a mute compatibility wrapper | NO; no proven pre-redesign room capability | YES, fresh Polycom call-log worker/session path | NO approved live microphone/audio meter; do not fabricate one | YES, exact-row `room_one_shot_refresh` |
 
 Matrix notes:
 
 - The Polycom speaker step is `2`, matching the pre-redesign `CodecScreen`; the current registry value `1` is a regression to correct.
-- `speaker mute = YES` means the existing product semantic of setting authoritative speaker volume to zero and restoring the remembered last positive authoritative value. It does not invent a separate vendor mute command.
+- `speaker mute = YES` means the existing root desired-state policy: a positive authoritative value may be remembered for the exact row/generation, mute targets `0`, and unmute may restore only proven non-zero restore evidence. If the current value is `0` and no proven restore target exists, the action is locally unavailable with zero device I/O. No fallback `1`, minimum, or other fabricated restore target is authorized.
 - `microphone gain adjust = NO` for all five models in this change. TE20/TE40/Polycom expose mute semantics through the legacy compatibility method; CloudLink gain remains explicitly prohibited by current root contract because authoritative target selection/readback is not established.
 - `reboot = NO` for all five models because the pre-redesign room codec surface does not prove that capability and the current exact-model descriptors reject it. The current dashboard reboot affordance must therefore be hidden/disabled or unmistakably local-only; this change does not turn it into network capability.
 - The matrix is normative. Changing a value requires architecture review plus source/device evidence, not an implementation-only decision.
@@ -104,15 +104,19 @@ A regression test that manually constructs an already-canonical snapshot with `m
 
 ### D. LIVE has priority over automatic preview
 
-Automatic call-log preview is presentation enrichment, not a reason to destroy live telemetry.
+Automatic call-log preview is presentation enrichment and SHALL have deterministic exactly-once terminal behavior for each expansion epoch without starving current LIVE.
 
-When a codec row is expanded and LIVE is supported:
+The existing root requirement `Codec expansion performs at most one automatic call-log preview attempt per expansion epoch` is explicitly **MODIFIED** by this change rather than contradicted by a second ADDED lifecycle rule.
 
-1. LIVE may acquire the serialized lane.
-2. Automatic preview SHALL NOT request retirement of that LIVE owner.
-3. Preview may be populated from already-authoritative/cached acquisition data when available.
-4. Otherwise preview remains unavailable/deferred until a naturally idle admissible boundary.
-5. Explicit operator action `Развернуть` / `Журнал звонков` remains an auxiliary read. It may retire LIVE under the existing serialized-lane contract; LIVE resumes after bounded cleanup if the same row remains current and usable.
+For each eligible expansion epoch:
+
+1. The application completes exactly one automatic preview attempt.
+2. It first uses current accepted same-row/same-generation preview evidence when available, without network admission.
+3. If LIVE is active, retiring, starting, or eligible to own the row lane and no current preview evidence is available, the automatic attempt terminates locally as skipped/unavailable. It does not retire LIVE, acquire/wait for network authority, select credentials, acquire a handler/session, or perform device I/O.
+4. A LIVE-priority local skip completes the epoch; it is not deferred until LIVE later becomes idle and cannot create an automatic retry loop.
+5. Only when LIVE does not have priority may automatic preview use the serialized network lane as `AUXILIARY_READ`, preserving the existing auxiliary rules.
+6. Explicit operator `Развернуть` / `Журнал звонков` remains a fresh network-backed `AUXILIARY_READ`; it may retire LIVE through bounded cleanup and LIVE resumes after terminal cleanup if the same row remains current and usable.
+7. Explicit journal acquisition remains distinct from inline preview and does not reset the automatic-attempt marker.
 
 No concurrent network owner is introduced.
 
@@ -134,13 +138,13 @@ No live meter is authorized. Absence of live telemetry is a negative acceptance 
 
 Explicit call-log opening remains a fresh auxiliary acquisition bound to the exact current row. Existing model-specific retrieval/normalization that worked before redesign remains authoritative unless current hardware evidence disproves it.
 
-Automatic preview and explicit dialog acquisition are separate intents. Preview failure does not disable explicit journal opening. Ordinary journal parse/business failure does not permanently degrade an otherwise connected row.
+Automatic preview and explicit dialog acquisition are separate intents. A local automatic-preview skip or preview failure does not disable explicit journal opening. Ordinary journal parse/business failure does not permanently degrade an otherwise connected row.
 
 ### G. Codec audio mutations use targeted authoritative reconciliation
 
 For supported codec audio operations, use the proven model method and the smallest authoritative readback that confirms the changed field.
 
-Example speaker flow:
+Example speaker flow when a valid desired target is provable:
 
 ```text
 safe dashboard intent
@@ -156,6 +160,8 @@ safe dashboard intent
 
 A full diagnostic worker refresh is not required solely to confirm one audio field when the model already exposes an authoritative targeted getter. If readback cannot confirm final state, keep previous authoritative state stale/unconfirmed and apply existing blocked/unconfirmed safety; never blindly replay the mutation.
 
+Speaker unmute remains subject to the existing root restore-authority prerequisite. If authoritative speaker volume is `0` and the exact row/generation has no proven accepted non-zero restore target, no mutation is admitted; the application returns a safe local unavailable result and releases/retains the idle UI state without device I/O.
+
 ### H. No indefinite locks
 
 Every Local Refresh, explicit journal, supported codec mutation/reconciliation, and LIVE retirement path has a deterministic terminal or bounded-abandonment path on:
@@ -167,6 +173,8 @@ Every Local Refresh, explicit journal, supported codec mutation/reconciliation, 
 - user cancellation/collapse/switch;
 - cleanup timeout;
 - late callback after currentness revocation.
+
+Local unavailable operations that never enter room interaction, including speaker unmute without restore evidence and unsupported codec controls, SHALL also return without leaving presentation controls or the room lane locked.
 
 The GUI SHALL NOT remain permanently disabled because a cleanup callback or session shutdown signal was missed.
 
@@ -192,7 +200,8 @@ This matrix separates a reproduced/user-reported defect from regression-only cov
 | TE40 | live microphone/speaker audio | current dashboard declares unsupported | 2-second `get_live_audio_status` | YES |
 | RPG 310 | live meter | no approved meter | no proven live meter | NO positive capability; YES negative regression guard |
 | All five | speaker `-` / `+` | user-reported button error/hang family; exact-model reproduction where not already known | serialized set + `get_speaker_volume`; RPG step 2 | YES |
-| All five | speaker mute | runtime/hang class must be checked per exact model | zero/restore through authoritative speaker volume | YES |
+| All five | speaker mute with proven restore evidence | runtime/hang class must be checked per exact model | zero/restore through authoritative speaker volume | YES |
+| All five | speaker unmute at `0` with no restore evidence | must remain fail-closed | local unavailable; zero mutation/device I/O | YES as safety/unlock regression guard |
 | TE20 / TE40 / RPG 310 | microphone mute | runtime/hang class must be checked per exact model | supported mute semantic + readback | YES |
 | Bar / Box 310 | microphone `-` / `+` | visible affordance conflicts with capability | current approved contract says gain unsupported | YES only to remove/disable misleading network affordance; NO gain I/O |
 | All five | `Перезагрузить устройство` | current dashboard may present actionable control while registry rejects it | no proven pre-redesign room capability | YES only to remove/disable misleading network affordance; NO reboot I/O |
@@ -204,21 +213,21 @@ Every `In scope = YES` row requires an acceptance test appropriate to its capabi
 
 ### Availability at this architecture revision
 
-Availability is an explicit architecture input, not an implementation assumption.
+Availability is an explicit architecture input, not implementation evidence. The user confirmed that all five affected codec models can be provided after implementation for real-device acceptance.
 
 | Exact model | Availability status for this change | Consequence |
 | --- | --- | --- |
-| CloudLink Bar 310 | **CONFIRMED AVAILABLE** from prior real-device protocol work | affected Bar scenarios MUST pass on the exact published implementation SHA before independent `APPROVE` |
-| CloudLink Box 310 | **UNCONFIRMED** | status MUST be resolved to AVAILABLE or UNAVAILABLE before final architecture `APPROVE` |
-| Huawei TE20 | **UNCONFIRMED** | status MUST be resolved to AVAILABLE or UNAVAILABLE before final architecture `APPROVE` |
-| Huawei TE40 | **UNCONFIRMED** | status MUST be resolved to AVAILABLE or UNAVAILABLE before final architecture `APPROVE` |
-| Polycom RPG 310 | **UNCONFIRMED** | status MUST be resolved to AVAILABLE or UNAVAILABLE before final architecture `APPROVE` |
+| CloudLink Bar 310 | **AVAILABLE** | all applicable Bar scenarios MUST pass on the exact published implementation SHA before independent implementation approval |
+| CloudLink Box 310 | **AVAILABLE** | all applicable Box scenarios MUST pass on the exact published implementation SHA before independent implementation approval |
+| Huawei TE20 | **AVAILABLE** | all applicable TE20 scenarios MUST pass on the exact published implementation SHA before independent implementation approval |
+| Huawei TE40 | **AVAILABLE** | all applicable TE40 scenarios MUST pass on the exact published implementation SHA before independent implementation approval |
+| Polycom RPG 310 | **AVAILABLE** | all applicable RPG310 scenarios MUST pass on the exact published implementation SHA before independent implementation approval |
 
-No implementation phase may start while an availability row remains `UNCONFIRMED`.
+Hardware execution is intentionally post-implementation: `AVAILABLE` means the device can be supplied for validation, not that the proposed fix has already been tested.
 
 ### Gate rules
 
-1. For every model marked `AVAILABLE`, all affected hardware scenarios are **mandatory independent-validation gates** on the exact published implementation SHA. Missing/failed required hardware evidence yields `CHANGES REQUIRED`; green offline tests cannot override it.
+1. All five models are mandatory hardware-validation targets after implementation. Every applicable affected scenario is an **independent-validation gate** on the exact published implementation SHA. Missing/failed required hardware evidence yields `CHANGES REQUIRED`; green offline tests cannot override it.
 2. Hardware evidence records at minimum:
 
 ```text
@@ -232,9 +241,8 @@ GUI result
 UI unlocked afterward: yes/no
 ```
 
-3. For a model marked `UNAVAILABLE`, offline integration tests may validate implementation structure, but hardware-specific defects for that model SHALL remain explicitly `hardware-unverified`; the final report, Linear issue state, and merge summary SHALL NOT claim them proven fixed.
-4. An unavailable model cannot be silently treated as passing. If the product owner requires full five-model proof before merge, unresolved hardware availability becomes a merge blocker.
-5. Hardware evidence from another commit/branch is not acceptance evidence for the current published SHA.
+3. Hardware evidence from another commit/branch is not acceptance evidence for the current published SHA.
+4. Architecture approval does not require executing the future hardware tests; it requires this availability commitment and an enforceable post-implementation gate.
 
 ## Validation strategy
 
@@ -244,24 +252,25 @@ UI unlocked afterward: yes/no
 2. **Parser/normalizer integration:** transport-edge fake -> actual parser/normalizer -> accepted room snapshot, including static microphone evidence.
 3. **Composition integration:** real `MainWindow` / room coordinator/controller / `InteractiveSessionController` path with only device transport substituted.
 4. **Presentation regression:** the new dashboard receives real normalized outputs; unsupported controls are not falsely actionable.
-5. **Cross-lifecycle regression:** automatic preview never retires LIVE; explicit journal retires/resumes LIVE correctly; mutations/refreshes release locks on every terminal path.
+5. **Cross-lifecycle regression:** automatic preview completes locally without retiring LIVE when LIVE has priority; explicit journal retires/resumes LIVE correctly; mutations/refreshes release locks on every terminal path.
+6. **Restore-authority regression:** no-restore speaker unmute remains a local unavailable operation with zero device I/O and no stuck UI state.
 
 Snapshot-only tests are useful but cannot be sole evidence for an affected codec defect.
 
 ### Hardware acceptance scenarios
 
-For each model marked AVAILABLE, run every applicable `In scope = YES` row from the defect/action inventory. Minimum sets include:
+Run every applicable `In scope = YES` row from the defect/action inventory on every affected available model. Minimum sets include:
 
-- CloudLink Bar/Box: explicit journal; static microphone/speaker display; live microphone bar; supported speaker `-/+` and mute; Local Refresh; misleading mic-gain/reboot affordances are not network-actionable; UI unlock after success/failure.
-- TE20/TE40: explicit journal; speaker controls; microphone mute; restored live microphone/speaker audio; Local Refresh; no permanent lock.
-- Polycom RPG 310: explicit journal; speaker `-/+` with step 2; speaker/microphone mute; Local Refresh; no fabricated live meter; no permanent lock.
+- CloudLink Bar/Box: explicit journal; static microphone/speaker display; live microphone bar; automatic preview does not interrupt LIVE; supported speaker `-/+` and mute; no-restore unmute is fail-closed; Local Refresh; misleading mic-gain/reboot affordances are not network-actionable; UI unlock after success/failure.
+- TE20/TE40: explicit journal; speaker controls; no-restore unmute fail-closed behavior; microphone mute; restored live microphone/speaker audio; Local Refresh; no permanent lock.
+- Polycom RPG 310: explicit journal; speaker `-/+` with step 2; speaker/microphone mute; no-restore unmute remains local unavailable; Local Refresh; no fabricated live meter; no permanent lock.
 
 ## Risks
 
 - Reusing old widget code directly would create duplicate authority. Mitigation: reuse behavior below the presentation boundary only.
 - Targeted reconciliation could update unrelated cache fields. Mitigation: merge only the confirmed canonical field and preserve the rest of the accepted snapshot.
-- Deferring automatic preview may leave the preview card empty longer. This is acceptable; LIVE and explicit journal correctness have priority.
-- Hardware/firmware can invalidate an old assumption. Contradictory real-device evidence wins, but changing the matrix requires architecture review rather than an implementation-only downgrade.
+- Giving LIVE priority means the inline preview may remain unavailable for a live-capable expansion epoch. Mitigation: that automatic attempt terminates deterministically, while explicit journal always remains a fresh operator-requested acquisition that may retire/resume LIVE.
+- Hardware/firmware can invalidate an old assumption. Mitigation: contradictory real-device evidence wins, but changing the matrix requires architecture review rather than an implementation-only downgrade.
 
 ## Rollback
 
