@@ -176,6 +176,8 @@ An explicit child window may open in loading state while accepted preview remain
 
 Every room codec Local Refresh, explicit call-log auxiliary read, generation-bound automatic call-history preview, supported audio mutation/reconciliation, and LIVE retirement SHALL reach physical cleanup/release or the existing bounded-abandonment boundary on success, structured authentication exhaustion, ordinary protocol/parse/business failure, transport/session loss, user cancellation, row switch/collapse, timeout, and stale supersession.
 
+If automatic-preview physical cleanup completes before its terminal callback is accepted, composition SHALL acknowledge that completed cleanup to the coordinator exactly once after terminal acceptance. It SHALL not request a second cleanup from a removed run, release before terminal acceptance, or release a structured-authentication attempt while a permitted retry owns the same context.
+
 A terminal/cancelled operation SHALL NOT leave the room interaction lane or GUI permanently locked. Late callbacks after authority revocation have no presentation, credential, cache, LIVE-start or lock side effects.
 
 #### Scenario: Codec operation fails ordinarily

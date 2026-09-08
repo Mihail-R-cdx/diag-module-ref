@@ -24,13 +24,13 @@ The archive failure exposed one remaining root conflict: `cloudlink-live-microph
 
 The target product behavior is now:
 
-- Huawei TE40 static audio exposes independent numeric `micValue` and independent microphone mute evidence.
+- Huawei TE40 static audio exposes independent primary `mic1Value` gain and independent microphone mute evidence.
 - TE40 primary `MIC1` microphone gain is supported. Native configured range is `-12..+9 dB`, step `1 dB`; wire `mic1Value` range is `0..21`, step `1`, with `gain_db = mic1Value - 12`.
 - TE40 gain setter is `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`; its full-state payload MUST be constructed only from a fresh serialized pre-write audio-control read after mutation ownership is acquired and prior LIVE is retired.
 - The fresh pre-write state must contain every non-secret `micall`, `mic1..mic18`, and `mic1Value..mic18Value` field required by the save contract. The mutation changes only target `mic1Value`. If fresh full state is incomplete, no POST is sent.
 - Successful save ACK is not final authority. Post-write reconciliation re-reads full audio-control state, confirms target MIC1, and confirms preserved non-target fields against the fresh pre-write baseline.
 - TE40 microphone gain and microphone mute remain separate operations; numeric zero means `-12 dB`, not muted.
-- TE20/TE40 live `MicValueIndex` and `SpeakerValueIndex` are presented as `Микрофон (уровень)` and `Динамик (уровень)` meters.
+- TE20/TE40 live raw `MicValueIndex` is normalized from `0..220` to the `Микрофон (уровень)` meter; no user-visible speaker LIVE meter is advertised.
 - TE40 camera parsing accepts zero, one or many returned `itemList` records.
 - Every call-log-capable codec, including Box 310, shows up to the three newest calls automatically for the exact current expanded usable codec row after the entire automatic room cycle is terminal.
 - For a model that advertises LIVE, that LIVE waits for preview terminal cleanup. For a model that advertises no LIVE, preview cleanup releases the lane without creating or implying LIVE.
@@ -70,7 +70,7 @@ The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{dev
 - Keep root-compatible codec capability and Audio-card contracts aligned with Box LIVE deferred semantics.
 - Correct Box call-log regression so automatic preview is followed by lane release, not by a fabricated first Box LIVE.
 - Keep exact `Huawei TE40 microphone_adjust = SUPPORTED` under the proven MIC1 contract and fresh full-state mutation safety.
-- Preserve Huawei two-meter presentation, TE40 dB configured gain, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
+- Preserve Huawei microphone LIVE presentation, TE40 dB configured gain, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
 
 ## Scope
 

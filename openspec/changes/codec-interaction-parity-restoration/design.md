@@ -33,8 +33,8 @@ Post-cycle LIVE is a separate optional capability owned by the same exact-model 
 
 | Exact model | microphone LIVE | speaker LIVE |
 | --- | --- | --- |
-| Huawei TE20 | SUPPORTED from `MicValueIndex` | SUPPORTED from `SpeakerValueIndex` |
-| Huawei TE40 | SUPPORTED from `MicValueIndex` | SUPPORTED from `SpeakerValueIndex` |
+| Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` | UNSUPPORTED in room presentation |
+| Huawei TE40 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` | UNSUPPORTED in room presentation |
 | CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser | UNSUPPORTED |
 | CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** | UNSUPPORTED |
 | Polycom RPG 310 | UNSUPPORTED | UNSUPPORTED |
@@ -46,7 +46,7 @@ The unified exact-model registry SHALL advertise no Box 310 post-cycle LIVE bind
 TE40 keeps two independent authorities:
 
 ```text
-static configured microphone gain -> micValue -> canonical microphone_volume
+static configured microphone gain -> mic1Value -> canonical microphone_volume
 microphone mute state              -> MicSwitch / approved equivalent -> canonical microphone_muted
 ```
 
@@ -141,12 +141,11 @@ The fixed Audio-card order is:
 
 ```text
 Микрофон (уровень)     <live horizontal meter or explicit unsupported/no-data state>
-Динамик (уровень)      <live horizontal meter or explicit unsupported/no-data state>
 Громкость микрофона    <configured value> [model-appropriate controls]
 Громкость динамиков    [−] <accepted value/percentage or Нет данных> [+] [mute]
 ```
 
-Huawei TE20/TE40 use two LIVE meters from `get_live_audio_status`. TE40 configured `micValue` is rendered in dB separately from live `MicValueIndex` and mute.
+Huawei TE20/TE40 use one normalized microphone LIVE meter from `get_live_audio_status`. TE40 configured `mic1Value` is rendered in dB separately from live `MicValueIndex` and mute.
 
 CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders both meter slots unsupported.
 
@@ -224,11 +223,11 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 
 | Area | Required result |
 | --- | --- |
-| TE40 static mic | numeric `micValue` -> canonical `microphone_volume` -> `-12..+9 dB`; mute independent |
+| TE40 static mic | numeric `mic1Value` -> canonical `microphone_volume` -> `-12..+9 dB`; mute independent |
 | TE40 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
 | TE40 pre-read failure | no POST; no command-ambiguity block solely from pre-submit failure |
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
-| TE40 LIVE | mic + speaker meters from `MicValueIndex` / `SpeakerValueIndex`; no duplicate textual live rows |
+| TE40 LIVE | microphone meter from normalized `MicValueIndex`; no speaker LIVE meter or duplicate textual live rows |
 | TE40 camera | one valid camera entry is sufficient |
 | Bar LIVE | supported under Bar-specific approved parser |
 | Box LIVE | explicitly unsupported/deferred; no live binding/I/O; both live slots unsupported |

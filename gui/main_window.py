@@ -2121,6 +2121,13 @@ class VCSDiagnosticApp(QMainWindow):
                 connection_lost=connection_lost,
                 warning=warning,
             )
+            # The controller emits its terminal result only after the actual
+            # call-log worker/session cleanup completed.  Automatic preview
+            # completion retires coordinator ownership, so acknowledge that
+            # already-finished physical boundary exactly once here rather than
+            # asking cancel() to clean up a run that no longer exists.
+            if action == "call_log_preview":
+                coordinator.cleanup_finished(context)
         attempt = self._room_credential_attempts.pop(context, None)
         if success and attempt is not None:
             self.set_current_credential_index(context.diagnostic_model, attempt[1], context.ip_address)

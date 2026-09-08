@@ -551,14 +551,50 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertEqual(["call_log_preview"], requests)
         self.assertIsNotNone(coordinator.active_context)
 
-    def test_te_live_projection_keeps_microphone_and_speaker_evidence(self):
+    def test_te_live_projection_normalizes_microphone_and_hides_speaker_meter(self):
         presentation = RoomReadOnlyPresentation(self._row("Huawei TE20", {
             "live_audio": {"microphone": 11, "speaker": 22},
         }))
         self.addCleanup(presentation.deleteLater)
-        self.assertEqual(11, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
-        self.assertEqual(22, presentation.findChild(QProgressBar, "roomCodecSpeakerMeter").value())
+        self.assertEqual(5, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+        self.assertIsNone(presentation.findChild(QProgressBar, "roomCodecSpeakerMeter"))
         self.assertEqual([], presentation.findChildren(QLabel, "roomCodecLiveAudioValue"))
+
+    def test_huawei_monitor_audio_seed_and_live_sample_use_one_normalizer(self):
+        for raw, expected in ((0, 0), (20, 9), (220, 100)):
+            with self.subTest(raw=raw):
+                presentation = RoomReadOnlyPresentation(self._row("Huawei TE40", {
+                    "monitor_mic_value": raw,
+                }))
+                self.addCleanup(presentation.deleteLater)
+                self.assertEqual(
+                    expected,
+                    presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value(),
+                )
+        live = RoomReadOnlyPresentation(self._row("Huawei TE40", {
+            "monitor_mic_value": 20,
+            "live_audio": {"microphone": 110},
+        }))
+        self.addCleanup(live.deleteLater)
+        self.assertEqual(50, live.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+
+    def test_te40_rich_state_statuses_and_uptime_are_room_canonical(self):
+        presentation = RoomReadOnlyPresentation(self._row("Huawei TE40", {
+            "microphone_status": "Микрофон C500 подключён",
+            "mic_mute": "Off",
+            "camera_status": "Камера C500 подключена",
+            "uptime": "12 дней 4 часов 37 минут",
+        }))
+        self.addCleanup(presentation.deleteLater)
+        rows = {}
+        for item in presentation.findChildren(QWidget, "roomCodecDataRow"):
+            name = item.findChild(QLabel, "roomCodecFieldLabel")
+            value = item.findChild(QLabel, "roomCodecFieldValue")
+            if name is not None and value is not None:
+                rows[name.text()] = value.text()
+        self.assertEqual("Микрофон C500 подключён", rows["Микрофон"])
+        self.assertEqual("Камера C500 подключена", rows["Камера"])
+        self.assertEqual("12 дней 4 часов 37 минут", rows["Время работы системы"])
 
     def test_confirmed_codec_readback_merges_only_the_targeted_field(self):
         row = self._row(snapshot={"speaker_volume": 5, "serial_number": "unchanged"})

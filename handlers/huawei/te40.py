@@ -753,7 +753,12 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         status['mic_mute'] = 'On' if audio_data.get('MicSwitch', 0) == 0 else 'Off'
                         status['speaker_mute'] = 'On' if audio_data.get('SpeakerSwitch', 0) == 1 else 'Off'
                         status['speaker_volume'] = audio_data.get('speakerValue', 0)
-                        if 'micValue' in audio_data:
+                        # MIC1 is the approved configured primary-gain
+                        # authority.  Older micValue evidence remains only a
+                        # compatibility fallback when MIC1 is absent.
+                        if 'mic1Value' in audio_data:
+                            status['mic_volume'] = audio_data.get('mic1Value')
+                        elif 'micValue' in audio_data:
                             status['mic_volume'] = audio_data.get('micValue')
                         print(f"Аудио статус получен")
             except Exception as e:

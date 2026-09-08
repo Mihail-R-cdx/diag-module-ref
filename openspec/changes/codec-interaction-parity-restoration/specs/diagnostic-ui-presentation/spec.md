@@ -6,12 +6,11 @@ The `Аудио` card SHALL permanently contain, in this exact order:
 
 ```text
 Микрофон (уровень)     <horizontal live level indicator or explicit unsupported/no-data state>
-Динамик (уровень)      <horizontal live level indicator or explicit unsupported/no-data state>
 Громкость микрофона    [−] <accepted configured value or Нет данных> [+] [mute]
 Громкость динамиков    [−] <accepted percentage/value or Нет данных> [+] [mute]
 ```
 
-The two level rows are **live activity evidence**, not configured volume/gain settings. The two control rows are **static/configured/readback evidence**, not live activity. Presentation SHALL NOT overwrite one authority with the other.
+The level row is **live activity evidence**, not a configured volume/gain setting. The control rows are **static/configured/readback evidence**, not live activity. Presentation SHALL NOT overwrite one authority with the other.
 
 At baseline, each level label SHALL precede a horizontal indicator occupying the available card-body width. A visible supported meter bar SHALL use approximately `8-12 px` height. The microphone and speaker meter blocks SHALL be separated by approximately `6-10 px`; the control rows SHALL follow with approximately `8-12 px` vertical separation. Existing button-size rules remain:
 
@@ -25,25 +24,25 @@ inter-control gap                       4-8 px
 
 The modern room live-meter support matrix is:
 
-| Exact model | `Микрофон (уровень)` | `Динамик (уровень)` |
-| --- | --- | --- |
-| `Huawei TE20` | SUPPORTED from accepted `MicValueIndex` live evidence | SUPPORTED from accepted `SpeakerValueIndex` live evidence |
-| `Huawei TE40` | SUPPORTED from accepted `MicValueIndex` live evidence | SUPPORTED from accepted `SpeakerValueIndex` live evidence |
-| `CloudLink Bar 310` | SUPPORTED from approved Bar-specific microphone LIVE evidence | UNSUPPORTED |
-| `CloudLink Box 310` | **UNSUPPORTED / DEFERRED in this change** | UNSUPPORTED |
-| `Polycom RPG 310` | UNSUPPORTED | UNSUPPORTED |
+| Exact model | `Микрофон (уровень)` |
+| --- | --- |
+| `Huawei TE20` | SUPPORTED from raw `MicValueIndex` evidence normalized `0..220 -> 0..100%` |
+| `Huawei TE40` | SUPPORTED from raw `MicValueIndex` evidence normalized `0..220 -> 0..100%` |
+| `CloudLink Bar 310` | SUPPORTED from approved Bar-specific microphone LIVE evidence |
+| `CloudLink Box 310` | **UNSUPPORTED / DEFERRED in this change** |
+| `Polycom RPG 310` | UNSUPPORTED |
 
 For a supported meter, accepted numeric zero is observed silence/zero level and SHALL render as zero fill. If capability is supported but no compatible current sample is available, the slot SHALL render `Нет данных`; absence of a sample SHALL NOT be represented as observed zero. For an unsupported meter, the slot SHALL render `Не поддерживается` or an equivalent explicit non-color state.
 
 Rendering any meter SHALL consume only accepted application-owned live evidence and SHALL NOT itself start a timer, poll, handler/session acquisition, credential operation, or device request.
 
-For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. `MicValueIndex` feeds `Микрофон (уровень)` and `SpeakerValueIndex` feeds `Динамик (уровень)`. The Audio card SHALL NOT additionally render standalone textual rows named `Live микрофон` or `Live динамик` for the same evidence.
+For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. `MicValueIndex` is raw monitor-audio evidence normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. Accepted initial `monitor_mic_value` uses the same one-shot seed normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
 
-For exact `Huawei TE40`, accepted static numeric `micValue` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = micValue - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live `MicValueIndex` and microphone mute.
+For exact `Huawei TE40`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live `MicValueIndex` and microphone mute.
 
 For TE40, `−` / `+` are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding. Presentation itself never builds the vendor full-state payload.
 
-For `CloudLink Box 310`, both level slots are explicitly unsupported in this change. Presentation SHALL show `Не поддерживается` for `Микрофон (уровень)` and `Динамик (уровень)`, SHALL NOT display stale/historical Box meter data as current, and SHALL NOT start or imply a Box LIVE lifecycle. A future reviewed change is required to restore Box microphone LIVE.
+For `CloudLink Box 310`, microphone LIVE is explicitly unsupported in this change. Presentation SHALL show `Не поддерживается` for `Микрофон (уровень)`, SHALL NOT display stale/historical Box meter data as current, and SHALL NOT start or imply a Box LIVE lifecycle. A future reviewed change is required to restore Box microphone LIVE.
 
 For TE20/RPG310, no synthetic numeric microphone gain SHALL be fabricated. CloudLink microphone gain remains network-unsupported. Speaker percentage/value presentation SHALL continue to consume only current accepted speaker evidence and SHALL not reverse-convert display percentage into mutation authority.
 
@@ -55,7 +54,6 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **AND** current accepted Bar live microphone evidence contains a valid numeric sample under the approved Bar parser
 - **WHEN** the Audio card renders
 - **THEN** `Микрофон (уровень)` renders the approved normalized fill, including zero fill for accepted numeric zero
-- **AND** `Динамик (уровень)` renders `Не поддерживается`
 - **AND** no presentation-owned meter request is started
 
 #### Scenario: Supported CloudLink meter has no current sample
@@ -70,7 +68,7 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 
 - **GIVEN** the exact current model is `CloudLink Box 310` or `Polycom RPG 310`
 - **WHEN** the Audio card renders
-- **THEN** both live-level slots display `Не поддерживается` or equivalent explicit unsupported states
+- **THEN** `Микрофон (уровень)` displays `Не поддерживается` or equivalent explicit unsupported state
 - **AND** rendering performs zero meter handler/session/credential/network activity
 - **AND** Box 310 does not consume historical/stale meter evidence as if LIVE were supported
 
@@ -79,7 +77,6 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **GIVEN** current exact-row accepted state contains `speaker_volume_percent = 42`
 - **WHEN** the speaker control row renders
 - **THEN** `42%` appears between `−` and `+`
-- **AND** that configured speaker value remains distinct from the separate `Динамик (уровень)` live meter
 - **AND** the displayed percentage is not used as independent mutation authority
 
 #### Scenario: Speaker volume has no accepted percentage evidence
@@ -87,7 +84,6 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **WHEN** current exact-row accepted state has no usable `speaker_volume_percent`
 - **THEN** the speaker configured-value region displays `Нет данных`
 - **AND** the GUI does not manufacture `0%`, a prior value, or a guessed mapping
-- **AND** any supported live speaker meter remains a separate authority
 
 #### Scenario: Audio operation is unsupported for the exact model
 
@@ -99,14 +95,13 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **AND** no room network interaction is started
 - **AND** current LIVE, cache and row authority remain unchanged
 
-#### Scenario: Huawei TE live audio uses both meter slots
+#### Scenario: Huawei TE live audio uses microphone evidence only
 
 - **GIVEN** the exact current model is `Huawei TE20` or `Huawei TE40`
-- **AND** current accepted `get_live_audio_status` evidence contains valid microphone and speaker live values
+- **AND** current accepted `get_live_audio_status` evidence contains valid raw microphone evidence
 - **WHEN** the Audio card renders
-- **THEN** `Микрофон (уровень)` reflects `MicValueIndex`-derived evidence
-- **AND** `Динамик (уровень)` reflects `SpeakerValueIndex`-derived evidence
-- **AND** no duplicate textual `Live микрофон` / `Live динамик` rows are rendered
+- **THEN** `Микрофон (уровень)` reflects normalized `MicValueIndex` evidence
+- **AND** no user-visible speaker live meter or duplicate textual `Live ...` row is rendered
 
 #### Scenario: TE40 static microphone gain is distinct from live level
 
@@ -135,7 +130,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 3. card tops align and card heights/gaps/padding remain within the existing baseline ranges;
 4. all card headers use the common icon/title anatomy and typography ranges;
 5. `Состояние` and `Вызов и презентация` retain their approved permanent rows/order;
-6. `Аудио` renders exactly `Микрофон (уровень) -> Динамик (уровень) -> Громкость микрофона -> Громкость динамиков`, with no redundant textual `Live ...` rows, distinct live/static/mute semantics, TE40 configured mic gain in dB, and Box 310 both live slots explicitly unsupported;
+6. `Аудио` renders exactly `Микрофон (уровень) -> Громкость микрофона -> Громкость динамиков`, with no speaker LIVE meter or redundant textual `Live ...` rows, distinct live/static/mute semantics, TE40 configured MIC1 gain in dB, and Box 310 microphone LIVE explicitly unsupported;
 7. `Журнал вызовов` preserves three-row preview density/anatomy and places `Развернуть` after the preview;
 8. `Действия` retains exactly two vertically stacked full-width actions in the approved order/sizing;
 9. state/call cards remain dot-free with right-aligned values; call/presentation use normalized `Да`/`Нет`, and registration uses the required semantic icon/neutral unavailable state;
@@ -159,7 +154,7 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 | Exact model | Static microphone source | Canonical evidence | Presentation |
 | --- | --- | --- | --- |
 | `Huawei TE20` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
-| `Huawei TE40` | numeric `micValue`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state |
+| `Huawei TE40` | numeric `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state |
 | `CloudLink Bar 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present |
 | `CloudLink Box 310` | existing non-LIVE diagnostic evidence only where already authoritative | canonical static fields only | may show accepted static evidence; SHALL NOT imply LIVE support |
 | `Polycom RPG 310` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |

@@ -1,5 +1,8 @@
 import unittest
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+from PyQt5.QtCore import QObject, pyqtSignal
 
 from core.parser import HuaweiTE40DataParser
 from core.cloudlink_microphone_meter import SUPPORTED_CLOUDLINK_METER_MODELS
@@ -74,6 +77,33 @@ class CodecInteractionParityTests(unittest.TestCase):
         self.assertTrue(result["connection_lost"])
         self.assertEqual([], stages)
         handler.send_command.assert_called_once_with("get_audio_status")
+
+    def test_te40_mic1_status_value_is_canonical_gain_when_micvalue_is_absent(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+        handler.send_command = Mock(side_effect=lambda action, _payload=None: (
+            {"success": 1, "data": {"micall": 1, "mic1": 1, "mic1Value": 18}}
+            if action == "get_audio_status" else {"success": 0, "data": {}}
+        ))
+
+        status = handler.get_status()
+        parsed = HuaweiTE40DataParser.parse_raw_data(status)
+
+        self.assertEqual(18, status["mic_volume"])
+        self.assertEqual(18, parsed["microphone_volume"])
+        self.assertEqual("6", parsed["Громкость микрофона"])
+
+    def test_te40_parser_publishes_rich_statuses_and_uptime_without_new_io(self):
+        parsed = HuaweiTE40DataParser.parse_raw_data({
+            "mic_connection_status": "Микрофон C500 подключён",
+            "camera_connection_status": "Камера C500 подключена",
+            "mic_mute": "Off",
+            "uptime": "12 дней 4 часов 37 минут",
+        })
+
+        self.assertEqual("Микрофон C500 подключён", parsed["microphone_status"])
+        self.assertEqual("Камера C500 подключена", parsed["camera_status"])
+        self.assertEqual("12 дней 4 часов 37 минут", parsed["uptime"])
+        self.assertFalse(parsed["microphone_muted"])
 
     def test_te40_possible_send_stage_precedes_ambiguous_post_failure(self):
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
@@ -202,6 +232,84 @@ class CodecInteractionParityTests(unittest.TestCase):
         self.assertEqual(DeviceRowStatus.CONNECTED, row.status)
         self.assertFalse(row.interaction_blocked)
         self.assertEqual(["call_log_preview", "live"], calls)
+
+    def test_physical_preview_cleanup_then_mainwindow_terminal_handoff_starts_live(self):
+        from gui.main_window import VCSDiagnosticApp
+        from gui.room_codec_call_log_controller import RoomCodecCallLogController
+
+        class Signals(QObject):
+            result = pyqtSignal(dict)
+            error = pyqtSignal(dict)
+
+        class ControlledSession:
+            instances = []
+
+            def __init__(self, *_args):
+                self.signals = Signals()
+                self.submitted = []
+                self.shutdowns = 0
+                self.__class__.instances.append(self)
+
+            def activate_context(self, *_args):
+                return 1
+
+            def submit(self, operation, **_kwargs):
+                self.submitted.append(operation)
+                return 1
+
+            def invalidate_context(self):
+                pass
+
+            def wait_until_idle(self, **_kwargs):
+                pass
+
+            def shutdown(self, **_kwargs):
+                self.shutdowns += 1
+
+        class ImmediatePool:
+            def start(self, worker):
+                worker.run()
+
+        entry = dispatch_entry_for_model("Huawei TE40")
+        row = DeviceRowState("te40", "Huawei TE40", "192.0.2.10", "Huawei TE40", DeviceRowStatus.CONNECTED, capability=entry.room_capability(), accepted_snapshot={})
+        session = RoomDiagnosticSession(RoomDiagnosticSessionIdentity("s", 1, None, None, "r"), "r", None, None, [row], status=RoomCycleStatus.COMPLETE)
+        calls = []
+        controller = RoomCodecCallLogController(thread_pool=ImmediatePool())
+        bindings = RoomInteractionBindings(
+            live=lambda _context: calls.append("get_live_audio_status"),
+            auxiliary=lambda _context, _action: None,
+            cancel=controller.cancel,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        window = SimpleNamespace(
+            room_interaction_coordinator=coordinator,
+            room_diagnostic_session=session,
+            room_call_log_controller=controller,
+            _room_call_log_actions={},
+            _room_call_log_windows={},
+            _room_credential_attempts={},
+            set_current_credential_index=lambda *_args: None,
+            set_device_connection_profile=lambda *_args: None,
+        )
+        controller.operationFinished.connect(
+            lambda *args: VCSDiagnosticApp._on_room_call_log_finished(window, *args)
+        )
+
+        coordinator.expand("te40")
+        preview = coordinator.active_context
+        window._room_call_log_actions[preview] = "call_log_preview"
+        window._room_credential_attempts[preview] = (({"username": "u"},), 0, None)
+        with patch(
+            "gui.room_codec_call_log_controller.InteractiveSessionController", ControlledSession
+        ):
+            controller.start(preview, ({"username": "u"},), 0)
+            ControlledSession.instances[0].signals.result.emit({"value": {"records": []}})
+
+        self.assertEqual(["get_live_audio_status"], calls)
+        self.assertIsNotNone(coordinator.active_context)
+        self.assertEqual("LIVE", coordinator.active_context.kind.value)
 
     def test_te40_camera_accepts_one_entry(self):
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")

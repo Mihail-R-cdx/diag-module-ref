@@ -207,6 +207,8 @@ class HuaweiTE40DataParser:
         
         # Время работы
         parsed['Время работы'] = raw_data.get('uptime', 'N/A')
+        if raw_data.get('uptime') not in (None, '', 'N/A'):
+            parsed['uptime'] = raw_data.get('uptime')
         
         # Статус звонка
         parsed['Статус звонка'] = HuaweiTE40DataParser._map_call_status(
@@ -222,12 +224,11 @@ class HuaweiTE40DataParser:
         )
         
         # Аудио статусы
-        if raw_data.get('mic_connection_status'):
-            parsed['Статус микрофона'] = raw_data.get('mic_connection_status')
-        else:
-            parsed['Статус микрофона'] = HuaweiTE40DataParser._map_mic_status(
-                raw_data.get('mic_mute', 'Off')
-            )
+        microphone_status = raw_data.get('mic_connection_status') or HuaweiTE40DataParser._map_mic_status(
+            raw_data.get('mic_mute', 'Off')
+        )
+        parsed['Статус микрофона'] = microphone_status
+        parsed['microphone_status'] = microphone_status
         parsed['Статус динамика'] = HuaweiTE40DataParser._map_speaker_status(
             raw_data.get('speaker_mute', 'Off')
         )
@@ -273,14 +274,11 @@ class HuaweiTE40DataParser:
                 raw_data.get('mic_mute')
             )
         # Камера
-        if raw_data.get('camera_connection_status'):
-            parsed['Статус камеры'] = raw_data.get(
-                'camera_connection_status'
-            )
-        else:
-            parsed['Статус камеры'] = HuaweiTE40DataParser._map_camera_status(
-                raw_data.get('camera_status', 'OffOff')
-            )
+        camera_status = raw_data.get('camera_connection_status') or HuaweiTE40DataParser._map_camera_status(
+            raw_data.get('camera_status', 'OffOff')
+        )
+        parsed['Статус камеры'] = camera_status
+        parsed['camera_status'] = camera_status
         
         # WAN IP
         if 'wan_ip' in raw_data:

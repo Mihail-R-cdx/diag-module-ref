@@ -1,5 +1,18 @@
 ## MODIFIED Requirements
 
+### Requirement: TE40 static status publishes canonical room evidence without additional I/O
+
+The existing TE40 initial diagnostic snapshot SHALL publish canonical `microphone_status` from rich `mic_connection_status`, canonical `camera_status` from rich `camera_connection_status`, and canonical `uptime` from the already-read `runDay`/`runHour`/`runMin` presentation value when present. These fields remain distinct from microphone mute and require no additional request or polling.
+
+Present numeric `mic1Value` is the authoritative configured-primary-gain source for `mic_volume`. Historical `micValue` may be used only as a compatibility fallback when `mic1Value` is absent; it SHALL not override present MIC1 evidence.
+
+#### Scenario: TE40 initial snapshot preserves rich state and MIC1 gain
+
+- **GIVEN** the existing initial TE40 diagnostic result contains rich microphone/camera connection evidence, `mic1Value = 18`, and formatted uptime `12 дней 4 часов 37 минут`
+- **WHEN** exact parser normalization completes
+- **THEN** canonical microphone status, camera status, uptime, and configured microphone volume `18` are available to room presentation
+- **AND** no extra status request or uptime polling starts
+
 ### Requirement: Current codec room-control support matrix is a fixed acceptance oracle
 
 The unified exact-model registration SHALL remain the sole runtime capability authority. Implementation and tests SHALL prove these exact network-capability declarations:

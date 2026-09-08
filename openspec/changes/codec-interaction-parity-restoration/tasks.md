@@ -118,6 +118,8 @@ Required re-validation on the new exact published SHA:
 - [x] 9.7 Create and push focused implementation commit(s). Implementation session MUST NOT issue the independent final verdict.
 - [x] 9.8 Remediate automatic-preview terminal typed connection/session/authentication failure so exact-row degradation occurs before bounded preview cleanup and blocks first LIVE; retain non-degrading ordinary-preview failure semantics.
 - [x] 9.9 Remediate TE40 mutation completion classification so the possible-send boundary controls unconfirmed state for pre-submit typed and ordinary failures, while post-send cancellation, timeout, and failed readback remain fail-closed; add composition regressions.
+- [x] 9.10 Amend room codec presentation/lifecycle contracts: remove speaker LIVE, normalize Huawei monitor audio from `0..220`, seed microphone meter from initial evidence, preserve TE40 canonical state/uptime, and release preview ownership after already-completed physical cleanup.
+- [x] 9.11 Add remediation regressions for TE40 canonical MIC1 gain/status/uptime, microphone meter normalization and seed precedence, absent speaker LIVE meter, and preview cleanup handoff.
 
 ## 10. Exact-SHA hardware acceptance
 
