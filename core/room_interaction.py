@@ -280,6 +280,7 @@ class RoomInteractionCoordinator:
         data: Any = None,
         connection_lost: bool = False,
         unconfirmed: bool = False,
+        may_have_sent: bool = True,
         warning: str | None = None,
     ) -> None:
         """Accept an operation terminal callback only while its context is current."""
@@ -293,6 +294,17 @@ class RoomInteractionCoordinator:
             # mandatory network attempt.  Physical cleanup still owns the
             # lane; only cleanup_finished may release first LIVE.
             self._mark_codec_preview_terminal(context)
+            # An automatic preview is normally a safe read-only failure.  It
+            # is not, however, a separate connection-state authority: a
+            # typed terminal connection/session/authentication outcome must
+            # use the same exact-row degradation boundary as every other
+            # auxiliary operation before its physical cleanup releases the
+            # lane.  The retired operation token makes late callbacks unable
+            # to resurrect the row.
+            if not success and connection_lost:
+                self._degrade(row, warning or "Соединение потеряно")
+            elif not success and warning:
+                row.last_safe_operation_error = warning
             self._retire_active()
             return
         if context.kind is RoomInteractionKind.LIVE and success:
@@ -351,7 +363,10 @@ class RoomInteractionCoordinator:
             row.network_actions_enabled = True
             row.status = DeviceRowStatus.CONNECTED
         elif not success:
-            if context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION} or unconfirmed:
+            if (
+                context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION}
+                and may_have_sent
+            ) or unconfirmed:
                 self._block_unconfirmed(row, warning or "Состояние устройства не подтверждено")
             elif connection_lost or context.kind in {RoomInteractionKind.LOCAL_REFRESH, RoomInteractionKind.LIVE}:
                 self._degrade(row, warning or "Соединение потеряно", failed=context.kind is RoomInteractionKind.LOCAL_REFRESH)

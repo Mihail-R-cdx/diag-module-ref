@@ -1453,13 +1453,16 @@ class VCSDiagnosticApp(QMainWindow):
                 coordinator.block_ambiguous_mutation(
                     context, "Состояние устройства не подтверждено после отправки команды"
                 )
-        if run.get("cancelled") or run.get("pre_submit_failure") or run.get("terminal") is None:
+        if run.get("cancelled") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.cleanup_finished(context)
             return
         success, data, connection_lost, warning = run["terminal"]
-        self._finish_room_codec_mutation(context, success, data, connection_lost, warning)
+        self._finish_room_codec_mutation(
+            context, success, data, connection_lost, warning,
+            may_have_sent=self._room_codec_mutation_may_have_sent(run),
+        )
 
     def _abandon_retired_room_codec_mutation(self, context):
         """Fail closed if a terminal codec owner never sends shutdown_finished."""
@@ -1480,7 +1483,7 @@ class VCSDiagnosticApp(QMainWindow):
                 coordinator.block_ambiguous_mutation(
                     context, "Состояние устройства не подтверждено после отправки команды"
                 )
-        if run.get("cancelled") or run.get("pre_submit_failure") or run.get("terminal") is None:
+        if run.get("cancelled") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.cleanup_finished(context, timed_out=True)
@@ -1488,9 +1491,16 @@ class VCSDiagnosticApp(QMainWindow):
         self._finish_room_codec_mutation(
             context, False, None, False,
             "Операция кодека не подтверждена: завершение соединения не получено",
+            may_have_sent=self._room_codec_mutation_may_have_sent(run),
         )
 
-    def _finish_room_codec_mutation(self, context, success, data, connection_lost, warning):
+    def _finish_room_codec_mutation(
+        self, context, success, data, connection_lost, warning, *, may_have_sent=None
+    ):
+        if may_have_sent is None:
+            may_have_sent = self._room_codec_mutation_may_have_sent(
+                self._room_codec_mutations.get(context) or {}
+            )
         if success:
             confirmed = self._codec_confirmed_mutation_fields(data)
             if confirmed is None:
@@ -1502,7 +1512,9 @@ class VCSDiagnosticApp(QMainWindow):
         if coordinator is not None:
             coordinator.complete(
                 context, success=success, data=data, connection_lost=connection_lost,
-                unconfirmed=not success, warning=warning,
+                unconfirmed=not success and may_have_sent,
+                may_have_sent=may_have_sent,
+                warning=warning,
             )
         self._room_credential_attempts.pop(context, None)
 

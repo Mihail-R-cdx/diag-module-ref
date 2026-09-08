@@ -116,6 +116,8 @@ Required re-validation on the new exact published SHA:
 - [x] 9.5 Run `git diff --check` and `git diff --cached --check`.
 - [x] 9.6 Synchronize implementation evidence/tasks without treating synthetic tests as hardware acceptance.
 - [x] 9.7 Create and push focused implementation commit(s). Implementation session MUST NOT issue the independent final verdict.
+- [x] 9.8 Remediate automatic-preview terminal typed connection/session/authentication failure so exact-row degradation occurs before bounded preview cleanup and blocks first LIVE; retain non-degrading ordinary-preview failure semantics.
+- [x] 9.9 Remediate TE40 mutation completion classification so the possible-send boundary controls unconfirmed state for pre-submit typed and ordinary failures, while post-send cancellation, timeout, and failed readback remain fail-closed; add composition regressions.
 
 ## 10. Exact-SHA hardware acceptance
 

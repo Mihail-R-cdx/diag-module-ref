@@ -401,6 +401,103 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             self.assertTrue(row.network_actions_enabled)
             self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
 
+    def test_te40_pre_submit_connection_failure_degrades_without_unconfirmed_command(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+
+            self.assertEqual("set_microphone_gain", owner.submitted[0][0].method)
+            owner.signals.result.emit({"value": {
+                "pre_submit_failure": True, "connection_lost": True,
+            }})
+            self.assertTrue(owner.shutdown_requested)
+            owner.finish_cleanup()
+
+            self.assertEqual(DeviceRowStatus.DEGRADED, row.status)
+            self.assertTrue(row.interaction_blocked)
+            self.assertFalse(row.unconfirmed_after_command)
+            self.assertFalse(row.network_actions_enabled)
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+            self.assertIsNone(window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 20}
+            ))
+            self.assertEqual(context.kind, RoomInteractionKind.MUTATION)
+
+    def test_te40_ordinary_pre_submit_failure_is_safe_and_releases_lane(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            row = session.row_for("a")
+            window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+
+            owner.signals.error.emit({
+                "category": CodecFailureCategory.PROTOCOL.value,
+                "message": "fresh pre-read malformed",
+            })
+            owner.finish_cleanup()
+
+            self.assertEqual(DeviceRowStatus.CONNECTED, row.status)
+            self.assertFalse(row.interaction_blocked)
+            self.assertFalse(row.unconfirmed_after_command)
+            # Normal cleanup may immediately re-admit the already eligible
+            # TE40 LIVE owner; it must not leave an unconfirmed/blocked row.
+            self.assertEqual(
+                RoomInteractionKind.LIVE,
+                window.room_interaction_coordinator.active_context.kind,
+            )
+
+    def test_te40_post_possible_send_cancellation_blocks_and_late_success_is_powerless(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+            window._on_room_codec_mutation_stage(
+                context, "microphone_gain", {"stage": "post_may_have_been_sent"}
+            )
+
+            window.room_interaction_coordinator.collapse("a")
+            owner.finish_cleanup()
+            owner.signals.result.emit({"value": {"confirmed": True, "microphone_volume": 19}})
+
+            self.assertTrue(row.interaction_blocked)
+            self.assertTrue(row.unconfirmed_after_command)
+            self.assertNotEqual(19, row.accepted_snapshot.get("microphone_volume"))
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+
+    def test_te40_post_possible_send_timeout_and_failed_readback_remain_unconfirmed(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+            window._on_room_codec_mutation_stage(
+                context, "microphone_gain", {"stage": "post_may_have_been_sent"}
+            )
+            owner.signals.error.emit({
+                "category": CodecFailureCategory.PROTOCOL.value,
+                "message": "authoritative readback malformed",
+            })
+
+            self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
+
+            self.assertTrue(row.interaction_blocked)
+            self.assertTrue(row.unconfirmed_after_command)
+            self.assertEqual(1, len(owner.submitted))
+            owner.signals.result.emit({"value": {"confirmed": True, "microphone_volume": 19}})
+            self.assertNotEqual(19, row.accepted_snapshot.get("microphone_volume"))
+
     def test_cancelled_codec_mutation_timeout_releases_retired_lane_and_late_callbacks_are_powerless(self):
         with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
             window, session = self._window_session("Huawei TE20")

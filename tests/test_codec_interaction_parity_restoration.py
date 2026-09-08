@@ -145,6 +145,64 @@ class CodecInteractionParityTests(unittest.TestCase):
 
         self.assertEqual(["call_log_preview", "live", "live"], calls)
 
+    def test_terminal_preview_connection_failure_degrades_row_and_prevents_first_live(self):
+        entry = dispatch_entry_for_model("CloudLink Bar 310")
+        row = DeviceRowState("bar", "CloudLink Bar 310", "192.0.2.10", "CloudLink Bar 310", DeviceRowStatus.CONNECTED, capability=entry.room_capability(), accepted_snapshot={"cached": True})
+        session = RoomDiagnosticSession(RoomDiagnosticSessionIdentity("s", 1, None, None, "r"), "r", None, None, [row], status=RoomCycleStatus.COMPLETE)
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda _context: calls.append("live"),
+            auxiliary=lambda _context, action: calls.append(action),
+            cancel=lambda _context: calls.append("cancel"),
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        coordinator.expand("bar")
+        preview = coordinator.active_context
+
+        coordinator.complete(
+            preview, success=False, connection_lost=True,
+            warning="Credentials отклонены",
+        )
+
+        self.assertEqual(DeviceRowStatus.DEGRADED, row.status)
+        self.assertTrue(row.interaction_blocked)
+        self.assertFalse(row.network_actions_enabled)
+        self.assertEqual(["call_log_preview", "cancel"], calls)
+        coordinator.cleanup_finished(preview)
+        self.assertIsNone(coordinator.active_context)
+        self.assertEqual(["call_log_preview", "cancel"], calls)
+
+        # A late completion from the retired preview must not reopen the row
+        # or admit the first LIVE owner.
+        coordinator.complete(preview, success=True, data={"late": True})
+        self.assertEqual(DeviceRowStatus.DEGRADED, row.status)
+        self.assertTrue(row.interaction_blocked)
+        self.assertEqual(["call_log_preview", "cancel"], calls)
+
+    def test_ordinary_preview_failure_remains_non_degrading_and_live_can_start(self):
+        entry = dispatch_entry_for_model("CloudLink Bar 310")
+        row = DeviceRowState("bar", "CloudLink Bar 310", "192.0.2.10", "CloudLink Bar 310", DeviceRowStatus.CONNECTED, capability=entry.room_capability(), accepted_snapshot={})
+        session = RoomDiagnosticSession(RoomDiagnosticSessionIdentity("s", 1, None, None, "r"), "r", None, None, [row], status=RoomCycleStatus.COMPLETE)
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda _context: calls.append("live"),
+            auxiliary=lambda _context, action: calls.append(action),
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        coordinator.expand("bar")
+        preview = coordinator.active_context
+
+        coordinator.complete(preview, success=False, warning="Нет данных")
+        coordinator.cleanup_finished(preview)
+
+        self.assertEqual(DeviceRowStatus.CONNECTED, row.status)
+        self.assertFalse(row.interaction_blocked)
+        self.assertEqual(["call_log_preview", "live"], calls)
+
     def test_te40_camera_accepts_one_entry(self):
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
 
