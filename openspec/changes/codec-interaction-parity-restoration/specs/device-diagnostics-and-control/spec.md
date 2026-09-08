@@ -2,7 +2,7 @@
 
 ### Requirement: Current codec room-control support matrix is a fixed acceptance oracle
 
-The unified exact-model registration SHALL remain the sole runtime capability authority. With the TE40 microphone-gain protocol now discovered on authorized hardware, implementation and tests SHALL prove these exact network-capability declarations:
+The unified exact-model registration SHALL remain the sole runtime capability authority. Implementation and tests SHALL prove these exact network-capability declarations:
 
 | Exact model | speaker_adjust | speaker_mute | microphone_adjust | microphone_mute | reboot |
 | --- | --- | --- | --- | --- | --- |
@@ -14,26 +14,29 @@ The unified exact-model registration SHALL remain the sole runtime capability au
 
 This table is an OpenSpec/test oracle and SHALL NOT become a second runtime registry.
 
-TE40 numeric microphone gain is a distinct state-changing capability from microphone mute. Its approved primary-input target is `MIC1`. The user-facing configured gain range is `-12 dB .. +9 dB`, step `1 dB`; the corresponding device/wire range is `0..21`, step `1`, with deterministic mapping `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`.
+TE40 numeric microphone gain is distinct from microphone mute. Its approved primary-input target is `MIC1`. User-facing configured gain range is `-12 dB .. +9 dB`, step `1 dB`; device/wire range is `0..21`, step `1`, with `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`.
 
 Speaker mute support for all five SHALL continue to use only the approved volume-zero/restore desired-state policy and proven exact-row/generation restore evidence; it does not imply a separate raw speaker-mute wire command.
 
 Polycom RPG 310 speaker adjustment SHALL use range `0..100`, step `2`. TE20/TE40 speaker adjustment SHALL use `0..21`, step `1`. Bar/Box speaker adjustment SHALL use `0..15`, step `1`.
+
+Post-cycle LIVE capability is not inferred from this mutation table; it is advertised separately by the same exact-model registration. In this change Box 310 SHALL advertise no post-cycle LIVE binding.
 
 #### Scenario: Current codec registration matrix is checked
 
 - **WHEN** composition tests inspect the five current exact codec registrations
 - **THEN** every operation matches the table above
 - **AND** TE40 exposes microphone gain and microphone mute as separate supported operations
+- **AND** Box 310 does not acquire a post-cycle LIVE capability by sharing a handler with Bar 310
 - **AND** runtime resolution still comes from the unified registry rather than this test-oracle table
 
 ### Requirement: Codec room-control adapters reuse approved typed operations and explicitly reject unsupported operations
 
 The room codec-control capability SHALL reuse existing approved safe codec operation/readback semantics rather than duplicate protocol command grammar in the room GUI. Each exact codec registration SHALL bind an application/core codec-control adapter, or equivalent registry-owned binding, that can answer operation support before network acquisition and construct typed desired-state/readback operations only for approved controls.
 
-A standalone widget branch, handler attribute probe, accepted read-only field, or visually present button SHALL NOT silently promote a state-changing capability.
+A standalone widget branch, handler attribute probe, accepted read-only field, shared handler type, or visually present button SHALL NOT silently promote a state-changing or LIVE capability.
 
-`Huawei TE20` and `Polycom RPG 310` remain microphone-mute models with no approved numeric microphone-adjust mutation in this change. `Huawei TE40` supports both independent numeric microphone gain and independent microphone mute under the exact contract below. `CloudLink Bar 310` and `CloudLink Box 310` retain both microphone-adjust and separate microphone-mute mutation as unsupported under the current approved room contract.
+`Huawei TE20` and `Polycom RPG 310` remain microphone-mute models with no approved numeric microphone-adjust mutation in this change. `Huawei TE40` supports both independent numeric microphone gain and independent microphone mute under the exact contract below. `CloudLink Bar 310` and `CloudLink Box 310` retain both microphone-adjust and separate microphone-mute mutation as unsupported.
 
 Reboot SHALL remain unsupported for the current five-codec baseline.
 
@@ -62,15 +65,127 @@ Reboot SHALL remain unsupported for the current five-codec baseline.
 - **AND** changing gain never reuses `WEB_OpenMicAPI` / `WEB_CloseMicAPI`
 - **AND** numeric gain value `0` is not interpreted as mute authority
 
+### Requirement: Model-specific interactive codec session paths
+
+The shared interactive controller SHALL preserve the supported transports, session artifacts, and operation boundaries of Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. A model SHALL use only its supported functions, and functions on a separate worker path SHALL remain separate unless explicitly listed.
+
+CloudLink Bar 310 and CloudLink Box 310 SHALL continue to use the same reviewed `CloudLinkBar310Handler` implementation while retaining exact assigned application model in operation context. Shared protocol capability SHALL NOT authorize Bar/Box aliasing, credential sharing, successful-index/profile sharing, model switching during recovery, or capability promotion from one exact model to the other.
+
+For the CloudLink 310 family, one application-selected credential SHALL bind one handler generation for the exact model/IP/credential context. That generation MAY own:
+
+```text
+modern read subcontext
+legacy compatibility/control subcontext
+```
+
+The modern read subcontext SHALL be established through `POST /v1/login/session` followed by `POST /v1/login/account`, retain cookies/token in memory only, and service only operations explicitly approved for the modern context. Modern action.cgi compatibility in this change is limited to the exact live-verified read-only requests `WEB_GetVersionInfoAPI`, `WEB_GetSystemMacAddrAPI`, and `WEB_GetMailboxDataAPI`.
+
+Existing unverified read-only action.cgi operations, including audio, line/SIP, presentation, and camera reads, SHALL remain on the existing legacy compatibility path unless a later approved change proves their modern compatibility. Existing supported state-changing action.cgi operations SHALL remain on the legacy compatibility/control path and retain their existing mutation-safety rules.
+
+The endpoint `WEB_GetCurrentAudioParam` remains classified as a legacy-compatibility endpoint for Box 310 protocol history, but **this change SHALL NOT advertise or execute it as a Box post-cycle LIVE capability**. The exact Box 310 application registration SHALL have no post-cycle LIVE binding. A future reviewed Box LIVE restoration MAY reuse that legacy transport boundary only after its own parser/normalization contract is approved.
+
+CloudLink microphone-gain network capability is an explicit exception: for exact Bar 310 and Box 310 it SHALL remain unavailable/disabled because authoritative target selection and reconciliation are not established. The application/controller SHALL reject that network operation before device I/O. The fixed common room codec dashboard MAY retain its `−`/`+` microphone visual affordances, but for Bar/Box those affordances SHALL resolve locally as unsupported before room interaction admission and SHALL NOT be represented as a supported network capability.
+
+The application SHALL NOT issue gain `PUT`/`POST /v1/mediacontrol/mic/devices`, use fixed device IDs, use first-HD-AI/first-plugged selection, use `gainVolume` as authoritative reconciliation, or infer gain support from a method/widget. Re-enabling gain requires a later approved contract.
+
+Both CloudLink subcontexts belong to one handler generation and assigned credential. Model/IP/credential-context/generation invalidation SHALL supersede both. Handler/worker code SHALL NOT iterate credential candidates; application/composition remains credential-selection/fallback authority.
+
+#### Scenario: CloudLink Bar 310 reviewed read uses modern context
+- **GIVEN** exact model is `CloudLink Bar 310`
+- **WHEN** an operation explicitly approved for the modern read context executes
+- **THEN** it uses HTTPS:443 with the application-selected credential and modern session artifacts
+- **AND** the context remains exactly `CloudLink Bar 310`
+
+#### Scenario: CloudLink Bar 310 interactive session
+- **GIVEN** the interactive context model is exactly `CloudLink Bar 310` with one application-selected credential
+- **WHEN** Bar 310 performs supported interactive preparation, volume, mute, presentation, call-log, or other approved read work
+- **THEN** it uses one exact Bar handler generation with the approved modern-read and legacy compatibility/control subcontexts
+- **AND** call-log reads use the recovered shared in-memory modern token through `X-Access-Token`
+- **AND** unverified reads and supported mutations retain their approved legacy compatibility/control path
+- **AND** handler recovery does not select another credential or relabel the operation as Box 310
+
+#### Scenario: CloudLink Box 310 reviewed read uses modern context
+- **GIVEN** the exact application model is `CloudLink Box 310`
+- **WHEN** an approved common modern read executes
+- **THEN** it uses the shared handler modern read context
+- **AND** exact Box identity remains unchanged
+- **AND** recovery does not relabel or retry as Bar 310
+
+#### Scenario: CloudLink Box 310 interactive session
+- **GIVEN** the interactive context model is exactly `CloudLink Box 310`
+- **WHEN** Box 310 performs an operation supported by the shared CloudLink 310 interactive capability
+- **THEN** it uses HTTPS:443 through the same `CloudLinkBar310Handler` generation and the application-selected credential
+- **AND** approved common modern reads use the modern read subcontext while legacy-compatible operations retain the legacy compatibility/control subcontext
+- **AND** the interactive context remains exactly `CloudLink Box 310`
+- **AND** recovery does not retry or relabel the operation as `CloudLink Bar 310`
+- **AND** shared handler ownership does not imply or create a Box post-cycle LIVE binding
+
+#### Scenario: Unverified action.cgi read remains legacy-compatible
+- **WHEN** CloudLink refresh or interactive work needs existing audio, line/SIP, presentation, camera, or another read-only action.cgi operation not live-verified on modern auth
+- **THEN** this change does not migrate that operation to the modern context
+- **AND** its existing legacy compatibility path remains authoritative until separately approved
+
+#### Scenario: Box live meter remains legacy-compatible
+- **GIVEN** exact model is `CloudLink Box 310`
+- **WHEN** current-change room interactive capabilities are composed
+- **THEN** Box 310 advertises no post-cycle LIVE binding
+- **AND** room LIVE performs no `WEB_GetCurrentAudioParam` request for Box 310
+- **AND** the endpoint's legacy-compatibility transport classification remains dormant protocol knowledge for a future approved Box LIVE restoration
+- **AND** this change does not require or authorize modern `X-Access-Token` or modern body-token routing for that deferred endpoint
+
+#### Scenario: Existing CloudLink mutation stays on legacy control path
+- **WHEN** Bar 310 or Box 310 performs an already supported mutation other than microphone gain, such as Wake, presentation mutation, supported mute semantics, speaker volume, or SIP configuration
+- **THEN** the operation remains on its existing legacy compatibility/control path
+- **AND** modern read evidence does not authorize migration or blind replay
+
+#### Scenario: CloudLink microphone gain is disabled
+- **GIVEN** exact model is `CloudLink Bar 310` or `CloudLink Box 310`
+- **WHEN** user/application requests microphone-gain mutation through any network-capable boundary
+- **THEN** the operation is unavailable/disabled before device network I/O
+- **AND** no gain PUT/POST, fixed-ID target, first-HD-AI selection, or gain readback is attempted
+- **AND** no ambiguous mutation result can trigger alternate-method replay
+
+#### Scenario: CloudLink fixed gain affordance is local only
+- **GIVEN** the fixed common room codec dashboard is rendering Bar 310 or Box 310
+- **WHEN** the operator clicks visible microphone `−` or `+` while the room lock matrix otherwise permits input
+- **THEN** the application resolves the affordance locally as unsupported
+- **AND** no room mutation generation, handler/session acquisition or device I/O starts
+- **AND** the network capability remains unavailable/disabled
+
+#### Scenario: CloudLink generation is invalidated
+- **WHEN** exact model, IP, relevant credential context, or generation is superseded
+- **THEN** modern-read and legacy-compatibility/control resources are invalidated/closed
+- **AND** stale callbacks cannot update the replacement context
+
+#### Scenario: Huawei TE20 interactive session
+- **WHEN** TE20 performs live audio, sleep/Wake, volume, mute, presentation, or call-log work
+- **THEN** it uses saved-first HTTP:80 and runtime-supported HTTPS:443 candidates with one credential
+- **AND** recovery replaces invalid Session ID, cookie, CSRF, and transport state as one handler unit
+
+#### Scenario: Huawei TE40 interactive session
+- **WHEN** TE40 performs live audio, sleep-related presentation preparation, volume, mute, presentation, or call-log work
+- **THEN** it uses saved-first HTTPS:443 and HTTP:80 candidates with one credential
+- **AND** recovery replaces invalid opener, cookie, Session ID, CSRF, and browser-session state as one handler unit
+
+#### Scenario: Polycom interactive controls
+- **WHEN** Polycom performs volume, mute, or presentation work
+- **THEN** its serialized shared handler uses HTTPS:443 login and the same credential for its lazy SSH:22 control session
+- **AND** failure of either sub-session follows bounded interactive recovery
+
+#### Scenario: Polycom call log remains separate
+- **WHEN** operator loads Polycom call log
+- **THEN** the existing short-lived Polycom call-log worker remains owner
+- **AND** it is not routed through Huawei/shared call-log session path
+
 ## ADDED Requirements
 
 ### Requirement: TE40 numeric microphone value and mute evidence are independent read authorities
 
 For exact `Huawei TE40`, static audio normalization SHALL preserve numeric microphone configuration evidence independently from mute evidence.
 
-When the approved TE40 audio-status parser receives a finite numeric `micValue` in device/wire domain `0..21`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
+When the approved TE40 audio-status parser receives a finite numeric `micValue` in wire domain `0..21`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
 
-For presentation and typed gain intent, TE40 SHALL use the exact-model transform `gain_db = microphone_volume - 12`. Thus wire value `21` is `+9 dB`, wire value `18` is `+6 dB`, and wire value `0` is `-12 dB`.
+For presentation and typed gain intent, TE40 SHALL use `gain_db = microphone_volume - 12`. Thus wire value `21` is `+9 dB`, `18` is `+6 dB`, and `0` is `-12 dB`.
 
 A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute state SHALL NOT overwrite numeric gain evidence, and numeric gain evidence SHALL NOT overwrite mute state.
 
@@ -94,9 +209,9 @@ A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute 
 - **AND** `microphone_muted` remains `false`
 - **AND** the application does not fabricate a muted state from the numeric value
 
-### Requirement: TE40 microphone-gain mutation uses the proven MIC1 save/readback contract
+### Requirement: TE40 microphone-gain mutation uses fresh full-state save and reconciliation
 
-For exact `Huawei TE40`, room `microphone_adjust` SHALL control the primary `MIC1` configured input gain only. Each operator `-` / `+` intent changes the configured gain by exactly `1 dB`, clamped to `-12 dB .. +9 dB`, equivalent to wire target `0..21` step `1`.
+For exact `Huawei TE40`, room `microphone_adjust` SHALL control primary `MIC1` configured input gain only. Each operator `-` / `+` intent changes configured gain by exactly `1 dB`, clamped to `-12 dB .. +9 dB`, equivalent to wire target `0..21` step `1`.
 
 The state-changing transport boundary is:
 
@@ -104,29 +219,78 @@ The state-changing transport boundary is:
 POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams
 ```
 
-The payload SHALL be constructed from current accepted/fresh audio-control state rather than from fabricated defaults. It SHALL preserve the current non-target microphone enable/value fields (`micall`, `mic1..mic18`, `mic1Value..mic18Value` as required by the device contract) and change only the `MIC1` numeric target field `mic1Value` for a gain-adjust intent. Required session/CSRF material SHALL follow existing credential/session authority and SHALL never be logged or exposed as evidence.
+A previously accepted room snapshot SHALL NOT be used as full-state save authority.
 
-The mapping SHALL be:
+After the exact MUTATION owns the serialized room interaction lane and prior LIVE has retired through bounded cleanup, the mutation SHALL first perform a **fresh full TE40 audio-control read** through `WEB_InitAudioCtrlParamsAPI` using the approved exact-row/session context. An already-approved equivalent read MAY be used only if it returns the same complete mutation-required state.
+
+The fresh mutation-local pre-write state SHALL include all non-secret save-state fields required by the native full-state payload:
+
+```text
+micall
+mic1 .. mic18
+mic1Value .. mic18Value
+```
+
+If that fresh state is missing, malformed, stale, not current for the exact row/generation, or lacks any required field, the save command SHALL NOT be submitted. This is a definite pre-submit failure: it SHALL NOT set `unconfirmed_after_command` or stale-due-command merely because the fresh read failed. Existing typed auth/session/connection failure rules still apply independently.
+
+The outgoing save payload SHALL be constructed exclusively from that fresh pre-write state plus current required secret session/CSRF material. For a MIC1 gain intent, only target `mic1Value` may differ from the fresh baseline. Non-target `micall`, `micN`, and `micNValue` fields SHALL NOT come from older cache, GUI state, guessed defaults, zeros, or another model.
+
+The mapping is:
 
 ```text
 wire mic1Value = requested gain_db + 12
 requested gain_db = wire mic1Value - 12
 ```
 
-A successful response such as `{"success":1,"data":""}` is acknowledgement only and SHALL NOT become authoritative final-state evidence.
+A successful response such as `{"success":1,"data":""}` is acknowledgement only.
 
-After one accepted submit, the mutation lifecycle SHALL perform the approved TE40 numeric audio readback through the existing exact-model `get_audio_status` path (`WEB_InitAudioCtrlParamsAPI`) and its numeric `micValue` field. Final success requires current exact-row/generation readback to equal the requested wire target. Missing/malformed/mismatched readback, ambiguous send outcome, cancellation after possible send, or inability to complete bounded reconciliation SHALL follow the root blocked/unconfirmed mutation contract; no blind replay is permitted.
+After one accepted submit, reconciliation SHALL perform a fresh full audio-control read from the same approved authority. Final success requires all of:
 
-Microphone mute remains a separate desired-state operation using its approved mute evidence/path and SHALL NOT be changed as a side effect of gain adjustment.
+```text
+current exact row / room generation / operation currentness still matches
+MIC1 target equals requested wire value
+all preserved non-target micall / micN / micNValue fields equal the fresh pre-write baseline
+```
 
-#### Scenario: TE40 gain plus changes one dB
+The approved canonical `micValue` projection MAY confirm the MIC1 target when it is the exact primary-input alias, but target confirmation does not substitute for collateral-state comparison. If the post-write read cannot expose sufficient full state to compare the preserved fields, success SHALL NOT be declared.
 
-- **GIVEN** exact TE40 has current accepted `microphone_volume = 18`, equivalent to `+6 dB`
-- **WHEN** the operator requests one microphone gain `+`
-- **THEN** the typed target is `+7 dB` / wire `mic1Value = 19`
-- **AND** exactly one approved save attempt is admitted after required LIVE retirement/cleanup
-- **AND** unrelated `micN` / `micNValue` payload state is preserved rather than replaced with guessed defaults
-- **AND** final success is published only after authoritative numeric readback confirms `micValue = 19`
+Missing/malformed/mismatched/stale readback, collateral mismatch, ambiguous send outcome, or cancellation after possible send SHALL follow the root blocked/unconfirmed mutation contract; no blind replay is permitted.
+
+Microphone mute remains a separate desired-state operation and SHALL NOT change as a side effect of gain adjustment.
+
+#### Scenario: TE40 gain plus uses a fresh full-state baseline
+
+- **GIVEN** exact TE40 currently has accepted room `microphone_volume = 18`
+- **WHEN** the operator confirms one microphone gain `+`
+- **THEN** MUTATION first retires LIVE and obtains fresh full audio-control state
+- **AND** the typed target is wire `mic1Value = 19`
+- **AND** the outgoing full-state save is built only from that fresh baseline
+- **AND** only target `mic1Value` differs from the fresh baseline
+
+#### Scenario: TE40 fresh pre-write state is unavailable
+
+- **GIVEN** a TE40 gain mutation owns the lane but fresh full audio-control state cannot be obtained completely
+- **WHEN** mutation preparation evaluates the save
+- **THEN** `WEB_SaveAudioMicCtrlParams` is not submitted
+- **AND** no command ambiguity is created solely by that pre-submit failure
+- **AND** bounded cleanup releases the lane subject to independent typed session/connection failure rules
+
+#### Scenario: TE40 gain acknowledgement is not final authority
+
+- **GIVEN** `WEB_SaveAudioMicCtrlParams` returns a successful acknowledgement
+- **WHEN** mandatory post-write full-state read is missing, malformed, stale, or target MIC1 does not equal the requested target
+- **THEN** requested gain is not published as confirmed
+- **AND** root blocked/unconfirmed mutation safety applies
+- **AND** the command is not blindly repeated
+
+#### Scenario: TE40 collateral microphone state changed
+
+- **GIVEN** fresh pre-write state records non-target microphone fields
+- **AND** one gain save may have been delivered
+- **WHEN** post-write full-state reconciliation shows any preserved non-target `micall`, `micN`, or `micNValue` field differs from that fresh baseline
+- **THEN** the MIC1 mutation is not declared fully confirmed
+- **AND** the row enters root blocked/unconfirmed state
+- **AND** the application does not silently accept or replay the command
 
 #### Scenario: TE40 gain minus at lower bound is local no-op
 
@@ -135,14 +299,6 @@ Microphone mute remains a separate desired-state operation using its approved mu
 - **THEN** no below-range target is constructed
 - **AND** no mutation/session/device I/O is started solely for that no-op
 - **AND** mute state remains unchanged
-
-#### Scenario: TE40 gain acknowledgement is not final authority
-
-- **GIVEN** `WEB_SaveAudioMicCtrlParams` returns a successful acknowledgement
-- **WHEN** the mandatory numeric readback is missing, malformed, stale or does not equal the requested target
-- **THEN** the requested gain is not published as confirmed
-- **AND** root blocked/unconfirmed mutation safety applies
-- **AND** the command is not blindly repeated
 
 ### Requirement: TE40 camera normalization accepts zero-to-many camera records
 
@@ -158,45 +314,33 @@ Each present entry SHALL be interpreted independently. An active camera MAY use 
 - **AND** available camera state/model evidence is published
 - **AND** the parser does not require `len(itemList) >= 2`
 
-### Requirement: CloudLink Box 310 live response semantics remain a separate discovery gate from Bar 310
+### Requirement: CloudLink Box 310 post-cycle microphone LIVE is deferred and unavailable in this change
 
-The current authorized Bar 310 capture proves that Bar may return `mic1ValueIndex`, `mic2ValueIndex`, and `micArray*_ValIdx` style fields. That capture belongs to **Bar 310** and SHALL NOT be used as evidence for Box 310 parsing.
+Current authorized Bar 310 evidence belongs to Bar and SHALL NOT be used as a Box parser contract. Earlier Box hardware evidence is insufficient to define a complete LIVE parser. Therefore this change explicitly removes Box microphone LIVE from its implementation/acceptance scope rather than asking implementation to choose envelope, roles, aggregation, or normalization.
 
-The available earlier Box 310 hardware evidence remains limited to multiple records shaped like:
+The unified exact-model registration for `CloudLink Box 310` SHALL advertise no post-cycle LIVE binding. Room interaction SHALL perform zero Box microphone LIVE polling, including zero `WEB_GetCurrentAudioParam` requests admitted as LIVE. Exact Box identity and all approved non-LIVE capabilities remain unchanged.
 
-```json
-{"deviceId": <number>, "curVolume": <number>}
-```
+A future reviewed Box LIVE restoration change is required before this capability may become supported. That future change must establish response envelope/container, microphone record selection/device-role semantics, numeric validity, aggregation, normalization, unavailable/error semantics, lifecycle currentness, and exact Box identity.
 
-That pair shape is enough to reject copying Bar's fixed-field parser into Box, but it does not establish the complete Box response envelope, prove that every record is microphone evidence, define authoritative device-role filtering, or establish the display normalization range.
+Earlier `{deviceId, curVolume}` observations remain discovery evidence only. No `max(all curVolume)` rule is approved here. The current Bar fixed-field `mic*ValueIndex` schema is not Box evidence.
 
-Before final architecture `APPROVE`, authorized Box discovery SHALL capture a redacted complete response envelope/container and establish one of:
+#### Scenario: Box registration has no LIVE binding
 
-- the relevant collection is microphone-only; or
-- the collection contains mixed roles and an authoritative microphone filter/device-role mapping is required.
+- **GIVEN** exact model is `CloudLink Box 310`
+- **WHEN** unified room capabilities are composed
+- **THEN** no post-cycle LIVE binding is advertised
+- **AND** shared `CloudLinkBar310Handler` type does not promote Box LIVE
+- **AND** no Box room LIVE request is admitted
 
-The final Box parser contract SHALL specify the envelope/container path, microphone record-selection rule, accepted numeric `curVolume` rules, aggregation rule, empty/malformed behavior, exact Box identity, and display normalization. Until that contract is approved, implementation SHALL NOT replace the old Box parser with either Bar's `mic*ValueIndex` schema or an unproven `max(all curVolume)` algorithm.
+#### Scenario: Box non-LIVE interaction remains supported where separately approved
 
-#### Scenario: Bar fixed-field capture is not Box evidence
+- **GIVEN** exact model is `CloudLink Box 310`
+- **WHEN** diagnostics, speaker control, call-log preview/detail, or Local Refresh use their existing approved capabilities
+- **THEN** those operations remain available under their own exact-row lifecycle contracts
+- **AND** absence of Box LIVE does not relabel the model as Bar 310
 
-- **GIVEN** an authorized Bar 310 response contains `mic1ValueIndex` / `micArray*_ValIdx` fields
-- **WHEN** architecture evaluates Box 310 LIVE parsing
-- **THEN** those Bar fields do not become a Box parser contract
-- **AND** exact Box identity remains independent from Bar
+#### Scenario: Future Box LIVE needs a new reviewed contract
 
-#### Scenario: Box response contains device-volume pairs but roles are not proven
-
-- **GIVEN** earlier Box hardware evidence contains multiple `{deviceId, curVolume}` records
-- **AND** device-role semantics and full envelope have not yet been established
-- **WHEN** architecture evaluates live microphone aggregation
-- **THEN** it does not classify every record as microphone evidence by assumption
-- **AND** no normative `max(all curVolume)` rule is approved
-- **AND** response-role discovery remains a blocking architecture task
-
-#### Scenario: Box microphone collection role is proven
-
-- **GIVEN** authorized discovery establishes the exact Box response container and microphone record-selection semantics
-- **WHEN** architecture is amended for final review
-- **THEN** only authoritative microphone `curVolume` evidence participates in aggregation
-- **AND** exact application identity remains `CloudLink Box 310`
-- **AND** the resulting parser rule is testable from transport-edge response data
+- **WHEN** a later change proposes to re-enable Box microphone LIVE
+- **THEN** it cannot infer the parser from Bar fields or the earlier pair shape alone
+- **AND** it must supply the complete transport-edge to normalized-meter contract before capability is advertised

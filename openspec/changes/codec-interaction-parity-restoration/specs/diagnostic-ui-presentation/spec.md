@@ -29,19 +29,21 @@ The modern room live-meter support matrix is:
 | --- | --- | --- |
 | `Huawei TE20` | SUPPORTED from accepted `MicValueIndex` live evidence | SUPPORTED from accepted `SpeakerValueIndex` live evidence |
 | `Huawei TE40` | SUPPORTED from accepted `MicValueIndex` live evidence | SUPPORTED from accepted `SpeakerValueIndex` live evidence |
-| `CloudLink Bar 310` | SUPPORTED from approved CloudLink microphone LIVE evidence | UNSUPPORTED |
-| `CloudLink Box 310` | SUPPORTED capability; accepted sample depends on the separately approved Box live parser contract | UNSUPPORTED |
+| `CloudLink Bar 310` | SUPPORTED from approved Bar-specific microphone LIVE evidence | UNSUPPORTED |
+| `CloudLink Box 310` | **UNSUPPORTED / DEFERRED in this change** | UNSUPPORTED |
 | `Polycom RPG 310` | UNSUPPORTED | UNSUPPORTED |
 
-For a supported meter, an accepted numeric zero is observed silence/zero level and SHALL render as zero fill. If the capability is supported but no compatible current sample is available, the slot SHALL render `Нет данных`; absence of a sample SHALL NOT be represented as observed zero. For an unsupported meter, the slot SHALL render `Не поддерживается` or an equivalent explicit non-color state.
+For a supported meter, accepted numeric zero is observed silence/zero level and SHALL render as zero fill. If capability is supported but no compatible current sample is available, the slot SHALL render `Нет данных`; absence of a sample SHALL NOT be represented as observed zero. For an unsupported meter, the slot SHALL render `Не поддерживается` or an equivalent explicit non-color state.
 
 Rendering any meter SHALL consume only accepted application-owned live evidence and SHALL NOT itself start a timer, poll, handler/session acquisition, credential operation, or device request.
 
 For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. `MicValueIndex` feeds `Микрофон (уровень)` and `SpeakerValueIndex` feeds `Динамик (уровень)`. The Audio card SHALL NOT additionally render standalone textual rows named `Live микрофон` or `Live динамик` for the same evidence.
 
-For exact `Huawei TE40`, accepted static numeric `micValue` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using the exact-model transform `gain_db = micValue - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live `MicValueIndex` and independent from microphone mute.
+For exact `Huawei TE40`, accepted static numeric `micValue` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = micValue - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live `MicValueIndex` and microphone mute.
 
-For TE40, the `−` / `+` affordances are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` gain binding. The displayed dB value is presentation only; mutation authority comes from current accepted canonical device state and exact-model capability, not by reparsing arbitrary display text. The microphone mute affordance remains a separate supported operation.
+For TE40, `−` / `+` are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding. Presentation itself never builds the vendor full-state payload.
+
+For `CloudLink Box 310`, both level slots are explicitly unsupported in this change. Presentation SHALL show `Не поддерживается` for `Микрофон (уровень)` and `Динамик (уровень)`, SHALL NOT display stale/historical Box meter data as current, and SHALL NOT start or imply a Box LIVE lifecycle. A future reviewed change is required to restore Box microphone LIVE.
 
 For TE20/RPG310, no synthetic numeric microphone gain SHALL be fabricated. CloudLink microphone gain remains network-unsupported. Speaker percentage/value presentation SHALL continue to consume only current accepted speaker evidence and SHALL not reverse-convert display percentage into mutation authority.
 
@@ -49,16 +51,16 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 
 #### Scenario: CloudLink codec has current meter data
 
-- **GIVEN** the exact current model is `CloudLink Bar 310` or `CloudLink Box 310`
-- **AND** current accepted live microphone evidence contains a valid numeric sample under that model's approved live parser
+- **GIVEN** the exact current model is `CloudLink Bar 310`
+- **AND** current accepted Bar live microphone evidence contains a valid numeric sample under the approved Bar parser
 - **WHEN** the Audio card renders
 - **THEN** `Микрофон (уровень)` renders the approved normalized fill, including zero fill for accepted numeric zero
-- **AND** `Динамик (уровень)` renders `Не поддерживается` for that CloudLink model
+- **AND** `Динамик (уровень)` renders `Не поддерживается`
 - **AND** no presentation-owned meter request is started
 
 #### Scenario: Supported CloudLink meter has no current sample
 
-- **GIVEN** the exact current model is `CloudLink Bar 310` or `CloudLink Box 310`
+- **GIVEN** the exact current model is `CloudLink Bar 310`
 - **AND** no compatible current accepted live microphone sample is available
 - **WHEN** the Audio card renders
 - **THEN** `Микрофон (уровень)` displays an unavailable state equivalent to `Нет данных`
@@ -66,10 +68,11 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 
 #### Scenario: Baseline codec has no approved modern room meter capability
 
-- **GIVEN** the exact current model is `Polycom RPG 310`
+- **GIVEN** the exact current model is `CloudLink Box 310` or `Polycom RPG 310`
 - **WHEN** the Audio card renders
 - **THEN** both live-level slots display `Не поддерживается` or equivalent explicit unsupported states
 - **AND** rendering performs zero meter handler/session/credential/network activity
+- **AND** Box 310 does not consume historical/stale meter evidence as if LIVE were supported
 
 #### Scenario: Speaker volume has accepted percentage evidence
 
@@ -132,11 +135,11 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 3. card tops align and card heights/gaps/padding remain within the existing baseline ranges;
 4. all card headers use the common icon/title anatomy and typography ranges;
 5. `Состояние` and `Вызов и презентация` retain their approved permanent rows/order;
-6. `Аудио` renders exactly the new four-part order `Микрофон (уровень) -> Динамик (уровень) -> Громкость микрофона -> Громкость динамиков`, with two live meter slots, no redundant textual `Live ...` rows, distinct live/static/mute semantics, and TE40 configured mic gain shown in dB;
+6. `Аудио` renders exactly `Микрофон (уровень) -> Динамик (уровень) -> Громкость микрофона -> Громкость динамиков`, with no redundant textual `Live ...` rows, distinct live/static/mute semantics, TE40 configured mic gain in dB, and Box 310 both live slots explicitly unsupported;
 7. `Журнал вызовов` preserves three-row preview density/anatomy and places `Развернуть` after the preview;
 8. `Действия` retains exactly two vertically stacked full-width actions in the approved order/sizing;
 9. state/call cards remain dot-free with right-aligned values; call/presentation use normalized `Да`/`Нет`, and registration uses the required semantic icon/neutral unavailable state;
-10. light theme preserves the same geometry/order, including both Audio live-meter slots, without starting device I/O.
+10. light theme preserves the same geometry/order, including both Audio live-level slots, without starting device I/O.
 
 Checkpoints 1, 5, 6, 7, 8 and 9 are mandatory structural/semantic checkpoints. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints. Font rasterization, platform glyph variation and one-pixel antialiasing differences are not failures when the repository-local geometry/semantic contract is met.
 
@@ -156,9 +159,9 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 | Exact model | Static microphone source | Canonical evidence | Presentation |
 | --- | --- | --- | --- |
 | `Huawei TE20` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
-| `Huawei TE40` | numeric `micValue`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform `microphone_volume` to `-12..+9 dB`; independent mute state |
+| `Huawei TE40` | numeric `micValue`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state |
 | `CloudLink Bar 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present |
-| `CloudLink Box 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present after Box parser contract is approved |
+| `CloudLink Box 310` | existing non-LIVE diagnostic evidence only where already authoritative | canonical static fields only | may show accepted static evidence; SHALL NOT imply LIVE support |
 | `Polycom RPG 310` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
 
 #### Scenario: TE40 has numeric micValue and independent mute evidence
@@ -174,6 +177,8 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 For a call-log-capable exact codec row, application/lifecycle authority SHALL acquire the initial preview only at the boundary defined by `room-device-interaction-lifecycle`: the entire automatic room cycle is terminal, the exact row is current/expanded/connected/usable, and that exact row/generation has no terminal initial-preview attempt yet.
 
 The presentation SHALL render at most the three newest normalized records from accepted initial-preview state. It SHALL NOT initiate the network request itself. If fewer than three calls exist, every available call is shown. If the initial attempt ends with no data/ordinary failure, a neutral `Нет данных` state may be shown.
+
+Box 310 remains call-log-capable in this change. Its automatic preview SHALL still run under the common lifecycle; absence of Box LIVE only means no post-preview LIVE start for that exact model.
 
 #### Scenario: Three newest calls are visible without Развернуть
 

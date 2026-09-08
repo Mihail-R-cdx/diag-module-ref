@@ -4,60 +4,80 @@
 
 The room codec redesign preserved most protocol handlers but replaced the working codec-screen interaction composition with the modern room lifecycle/dashboard. The first implementation of this change reached published SHA `467f2cbb502f698476f047d277052bf5ccb55147` and passed independent offline validation, but real-device testing then proved several architecture assumptions incomplete or wrong.
 
-A first hardware-discovered amendment was published as `969e4a55e44a4f6879daa5c664de812141fa1704`. Independent architecture review of that amendment returned `CHANGES REQUIRED`: it overlaid root capability/presentation contracts with `ADDED` requirements, declared TE40 microphone-gain mutation before the actual setter contract was known, left the initial three-call lifecycle ambiguous relative to the exact expanded row and full automatic-room-cycle boundary, and assumed every Box 310 `{deviceId, curVolume}` record was microphone evidence without proving the response envelope/device roles.
+A first hardware-discovered amendment was published as `969e4a55e44a4f6879daa5c664de812141fa1704`. Independent architecture review returned `CHANGES REQUIRED`. Remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295` resolved the root replacement/lifecycle findings, and `df5447abe556d53ce3d7fd2a2a56e1c042918272` closed the TE40 protocol-discovery gap with an explicit MIC1 gain contract.
 
-Remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295` resolved the root replacement/lifecycle findings and converted TE40 gain plus Box LIVE parsing into explicit pre-APPROVE discovery gates. Authorized TE40 hardware work has now closed the TE40 gate. Box 310 remains unresolved because the complete Box response envelope/device-role semantics are not currently available.
-
-The change therefore remains in the **OpenSpec / Design** phase. `467f2cbb...`, `969e4a55...` and `918a046a...` are not final implementation/acceptance candidates.
+Independent review of `df5447...` found two remaining HIGH issues: Box 310 LIVE was still architecturally incomplete, and the TE40 full-state save contract could build a POST from stale non-target microphone state. This amendment resolves both without changing production code.
 
 ## Hardware-discovered product requirements
 
 The target product behavior is now:
 
 - Huawei TE40 static audio exposes independent numeric `micValue` and independent microphone mute evidence; the common room snapshot/presentation must preserve both rather than collapse numeric value into mute/unmute semantics.
-- TE40 primary `MIC1` microphone gain is a supported state-changing capability. Native configured range is `-12..+9 dB`, step `1 dB`; device/wire `mic1Value` range is `0..21`, step `1`, with `gain_db = mic1Value - 12`.
-- TE40 gain setter is `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`; the request preserves unrelated current audio-input fields and changes only target `mic1Value`. Successful ACK is not final authority; mandatory exact-row numeric reconciliation uses the existing TE40 `get_audio_status` / `WEB_InitAudioCtrlParamsAPI` `micValue` readback.
+- TE40 primary `MIC1` microphone gain is supported. Native configured range is `-12..+9 dB`, step `1 dB`; wire `mic1Value` range is `0..21`, step `1`, with `gain_db = mic1Value - 12`.
+- TE40 gain setter is `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`; its full-state payload MUST be constructed only from a fresh serialized pre-write audio-control read taken after mutation ownership is acquired and prior LIVE is retired. Previously accepted room cache is insufficient payload authority.
+- The fresh pre-write state must contain every non-secret `micall`, `mic1..mic18`, and `mic1Value..mic18Value` field required by the save contract. The mutation changes only target `mic1Value`. If the fresh full state is incomplete, no POST is sent.
+- Successful save ACK is not final authority. Post-write reconciliation re-reads the same authoritative full audio-control state, confirms target MIC1, and confirms all preserved non-target fields against the fresh pre-write baseline. Missing/malformed/mismatched target or collateral state enters the root blocked/unconfirmed mutation contract; no blind replay is allowed.
 - TE40 microphone gain and microphone mute remain separate operations; numeric zero means `-12 dB`, not muted.
-- TE20/TE40 live `MicValueIndex` and `SpeakerValueIndex` must be presented as `Микрофон (уровень)` and `Динамик (уровень)` meters; redundant textual `Live микрофон` / `Live динамик` rows are not the target presentation.
-- TE40 camera parsing must accept zero, one or many returned `itemList` records; one valid camera must not become `Нет данных` merely because a second entry is absent.
-- Every supported codec must show up to the three newest calls automatically for the **current expanded usable codec row after the entire automatic room cycle is terminal and before that row's first LIVE starts**. The operator must not need to press `Развернуть` to obtain those three rows.
-- Explicit `Развернуть` remains a separate fresh detailed-journal acquisition and may retire/resume active LIVE through the existing bounded serialized lifecycle.
-- The current fixed `mic1ValueIndex` / `micArray...` capture belongs to **CloudLink Bar 310**, not Box 310. Earlier Box 310 hardware evidence remains the `{deviceId, curVolume}` pair shape only. Box live parsing must wait for a complete Box envelope and authoritative microphone-device semantics before implementation.
+- TE20/TE40 live `MicValueIndex` and `SpeakerValueIndex` are presented as `Микрофон (уровень)` and `Динамик (уровень)` meters; redundant textual `Live микрофон` / `Live динамик` rows are removed.
+- TE40 camera parsing accepts zero, one or many returned `itemList` records.
+- Every call-log-capable codec, including Box 310, shows up to the three newest calls automatically for the exact current expanded usable codec row after the entire automatic room cycle is terminal and before that row's first eligible LIVE starts.
+- Explicit `Развернуть` remains a separate fresh detailed-journal acquisition.
+- CloudLink Bar 310 microphone LIVE remains supported under its approved Bar-specific contract.
+- **CloudLink Box 310 microphone LIVE is explicitly deferred from this change.** The exact Box registration SHALL advertise no post-cycle LIVE binding, the microphone LIVE slot SHALL render `Не поддерживается`, and current implementation work SHALL perform zero Box LIVE polling. Earlier `{deviceId, curVolume}` observations are retained only as evidence for a future dedicated Box LIVE restoration change.
 
-## Remaining pre-APPROVE discovery gate
+## Scope decision for Box 310 LIVE
 
-The TE40 protocol gate is closed and encoded normatively in this amendment.
+Box 310 hardware is not currently available and the existing evidence does not establish a complete response envelope, microphone record selection, aggregation, or normalization. Keeping Box LIVE marked supported would force the implementation agent to make an architectural decision.
 
-One device-protocol fact remains missing and is an explicit **architecture gate**, not an implementation task:
+This change therefore chooses a fail-closed scope reduction:
 
-1. **CloudLink Box 310 live response role contract.** Before final architecture `APPROVE`, capture a redacted complete Box response envelope/container and establish either that the relevant `{deviceId, curVolume}` collection is microphone-only or define the authoritative microphone filter/device-role rule. Until then, neither Bar's `mic*ValueIndex` schema nor a normative `max(all curVolume)` Box rule is approved.
+```text
+CloudLink Box 310 diagnostics / speaker controls / call log / automatic preview / explicit journal / Local Refresh
+    -> remain in scope
 
-The implementation phase SHALL NOT begin while this Box gate is open.
+CloudLink Box 310 post-cycle microphone LIVE
+    -> UNSUPPORTED in this change
+    -> no unified-registration live binding
+    -> no room LIVE request to WEB_GetCurrentAudioParam
+    -> Audio meter shows Не поддерживается
+    -> restoration deferred to a separate reviewed change with fresh hardware evidence
+```
+
+The current Bar 310 `mic1ValueIndex` / `micArray...` capture SHALL NOT be used as Box evidence. Earlier Box `{deviceId, curVolume}` observations SHALL NOT be turned into `max(all)` or any other parser rule in this change.
 
 ## What this amendment changes now
 
-- Keep the archive-compatible `MODIFIED Requirements` for current root codec capability, but promote exact `Huawei TE40 microphone_adjust` from pending/unsupported to `SUPPORTED` under the proven MIC1 contract.
-- Fix the TE40 target semantics before implementation: `-12..+9 dB`, step `1 dB`, wire `0..21`, `WEB_SaveAudioMicCtrlParams`, preserve unrelated payload state, ACK not authority, numeric `WEB_InitAudioCtrlParamsAPI.micValue` reconciliation mandatory.
-- Keep microphone mute independent from numeric gain.
-- Update the root-compatible Audio-card presentation so TE40 configured gain displays in dB and `-`/`+` requests exactly one dB through application-owned mutation authority.
-- Preserve the two Huawei live-meter slots and removal of redundant textual live rows.
-- Preserve the automatic three-call boundary: **entire automatic room cycle terminal + exact codec row current/expanded/usable -> mandatory fresh preview -> bounded cleanup -> first LIVE**.
-- Keep automatic preview bound to the current expanded exact row; this change does not authorize background call-log I/O for collapsed/hidden codec rows.
-- Preserve fresh explicit detail acquisition as a separate auxiliary intent.
-- Preserve TE40 zero-to-many camera normalization.
-- Explicitly classify the current `mic*ValueIndex` capture as Bar 310 evidence only; retain Box `{deviceId, curVolume}` observation without inventing envelope/roles/range.
-- Keep CloudLink microphone gain and codec reboot fail-closed as before.
-- Preserve Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
+- Keep archive-compatible `MODIFIED Requirements` for the current codec capability and Audio-card contracts.
+- Keep exact `Huawei TE40 microphone_adjust = SUPPORTED` under the proven MIC1 range/step/setter contract.
+- Strengthen TE40 mutation safety with a mandatory fresh full-state pre-read after lane ownership/LIVE retirement, payload construction exclusively from that fresh state, and full post-write collateral reconciliation.
+- Make pre-read failure before POST a definite no-send outcome: no command ambiguity is created solely by inability to obtain fresh full state.
+- Replace root-compatible CloudLink interactive-session semantics so Box LIVE is dormant/deferred rather than an advertised capability; its legacy transport classification is retained only for a future approved restoration.
+- Change the root-compatible Audio-card support matrix so Box microphone LIVE is `UNSUPPORTED` for this change.
+- Preserve Huawei two-meter presentation, TE40 dB configured gain, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
 
 ## Scope
 
-Affected exact models remain Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. TE30/TE50/TE60 expansion is a later change and SHALL NOT be inferred from this TE40 remediation.
+Affected exact models remain Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310.
+
+Box 310 remains in scope for all approved non-LIVE behavior listed above. Only Box 310 **post-cycle microphone LIVE restoration** is deferred.
+
+TE30/TE50/TE60 expansion is a later change and SHALL NOT be inferred from this TE40 remediation.
+
+## Architecture gates
+
+There is no longer an unresolved device-protocol discovery gate inside this change. Before implementation may begin, the remaining gates are repository/process gates:
+
+1. `.\openspec.cmd validate codec-interaction-parity-restoration --strict`;
+2. `.\openspec.cmd validate --all --strict`;
+3. disposable archive-applicability check for all `MODIFIED Requirements`;
+4. Git hygiene checks;
+5. independent architecture review of the exact published amendment SHA with a permitting verdict.
 
 ## Hardware gate
 
-Hardware observations from `467f2cbb...` and subsequent authorized TE40 protocol captures are architecture-discovery evidence only. Final hardware acceptance must be repeated on the exact post-amendment implementation SHA after a new architecture `APPROVE`, implementation, and independent offline validation.
+Hardware observations from `467f2cbb...` and subsequent TE40 captures are architecture-discovery evidence only. Final hardware acceptance must be repeated on the exact post-amendment implementation SHA after new architecture `APPROVE`, implementation, and independent offline validation.
 
-Box 310 is not currently available for the remaining parser-discovery gate. The change SHALL remain pre-implementation until that gate is either closed with hardware evidence or explicitly removed/deferred by a separately approved scope decision.
+For Box 310 in this change, hardware acceptance does **not** require working microphone LIVE. It requires the deferred contract: no Box live binding/request, `Микрофон (уровень) = Не поддерживается`, while all other applicable Box behaviors remain testable. A future dedicated Box LIVE change must carry its own hardware evidence and acceptance.
 
 ## Behavioral oracle
 
@@ -73,7 +93,7 @@ Hardware-discovery implementation baseline:
 
 `467f2cbb502f698476f047d277052bf5ccb55147`
 
-Historical behavior is evidence, not authority over current root OpenSpec or contradictory real-device evidence. Newly discovered state-changing protocol details must be proven before they are promoted to capability; TE40 now meets that bar, Box LIVE does not yet.
+Historical behavior is evidence, not authority over current root OpenSpec or contradictory real-device evidence.
 
 ## Affected Specs
 
