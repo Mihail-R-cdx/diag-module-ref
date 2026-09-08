@@ -7,7 +7,7 @@ The `Аудио` card SHALL permanently contain, in this exact order:
 ```text
 Микрофон (уровень)     <horizontal live level indicator or explicit unsupported/no-data state>
 Динамик (уровень)      <horizontal live level indicator or explicit unsupported/no-data state>
-Громкость микрофона    [−] <accepted numeric/static value or Нет данных> [+] [mute]
+Громкость микрофона    [−] <accepted configured value or Нет данных> [+] [mute]
 Громкость динамиков    [−] <accepted percentage/value or Нет данных> [+] [mute]
 ```
 
@@ -39,7 +39,9 @@ Rendering any meter SHALL consume only accepted application-owned live evidence 
 
 For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. `MicValueIndex` feeds `Микрофон (уровень)` and `SpeakerValueIndex` feeds `Динамик (уровень)`. The Audio card SHALL NOT additionally render standalone textual rows named `Live микрофон` or `Live динамик` for the same evidence.
 
-For exact `Huawei TE40`, accepted static numeric `micValue` SHALL be presented in the `Громкость микрофона` value region as canonical `microphone_volume`, independently from live `MicValueIndex` and independently from microphone mute. While the exact TE40 gain setter/range/step contract remains unapproved, the numeric value is read-only evidence: visible `−` / `+` gain affordances SHALL remain disabled or local-only before room interaction admission and SHALL perform zero gain network I/O. The microphone mute affordance may remain supported from its separate exact-model capability.
+For exact `Huawei TE40`, accepted static numeric `micValue` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using the exact-model transform `gain_db = micValue - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live `MicValueIndex` and independent from microphone mute.
+
+For TE40, the `−` / `+` affordances are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` gain binding. The displayed dB value is presentation only; mutation authority comes from current accepted canonical device state and exact-model capability, not by reparsing arbitrary display text. The microphone mute affordance remains a separate supported operation.
 
 For TE20/RPG310, no synthetic numeric microphone gain SHALL be fabricated. CloudLink microphone gain remains network-unsupported. Speaker percentage/value presentation SHALL continue to consume only current accepted speaker evidence and SHALL not reverse-convert display percentage into mutation authority.
 
@@ -103,14 +105,23 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **AND** `Динамик (уровень)` reflects `SpeakerValueIndex`-derived evidence
 - **AND** no duplicate textual `Live микрофон` / `Live динамик` rows are rendered
 
-#### Scenario: TE40 static microphone value is distinct from live level
+#### Scenario: TE40 static microphone gain is distinct from live level
 
-- **GIVEN** TE40 has accepted static `microphone_volume = 7`
+- **GIVEN** TE40 has accepted static `microphone_volume = 18`
 - **AND** current live `MicValueIndex` evidence is also available
 - **WHEN** the Audio card renders
-- **THEN** the configured microphone value region displays `7`
+- **THEN** the configured microphone value region displays `+6 dB`
 - **AND** `Микрофон (уровень)` reflects only the live sample
 - **AND** neither value overwrites or reclassifies the other
+
+#### Scenario: TE40 microphone plus requests exactly one dB
+
+- **GIVEN** TE40 has current accepted static `microphone_volume = 18` / `+6 dB`
+- **AND** room interaction controls are eligible
+- **WHEN** the operator activates microphone `+`
+- **THEN** the presentation requests the typed exact-model gain intent for `+7 dB` / wire `19`
+- **AND** presentation itself sends no protocol request
+- **AND** microphone mute state is not changed by that gain intent
 
 ### Requirement: Codec visual acceptance is measurable from repository-local checkpoints
 
@@ -121,7 +132,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 3. card tops align and card heights/gaps/padding remain within the existing baseline ranges;
 4. all card headers use the common icon/title anatomy and typography ranges;
 5. `Состояние` and `Вызов и презентация` retain their approved permanent rows/order;
-6. `Аудио` renders exactly the new four-part order `Микрофон (уровень) -> Динамик (уровень) -> Громкость микрофона -> Громкость динамиков`, with two live meter slots, no redundant textual `Live ...` rows, and distinct live/static/mute semantics;
+6. `Аудио` renders exactly the new four-part order `Микрофон (уровень) -> Динамик (уровень) -> Громкость микрофона -> Громкость динамиков`, with two live meter slots, no redundant textual `Live ...` rows, distinct live/static/mute semantics, and TE40 configured mic gain shown in dB;
 7. `Журнал вызовов` preserves three-row preview density/anatomy and places `Развернуть` after the preview;
 8. `Действия` retains exactly two vertically stacked full-width actions in the approved order/sizing;
 9. state/call cards remain dot-free with right-aligned values; call/presentation use normalized `Да`/`Нет`, and registration uses the required semantic icon/neutral unavailable state;
@@ -145,16 +156,16 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 | Exact model | Static microphone source | Canonical evidence | Presentation |
 | --- | --- | --- | --- |
 | `Huawei TE20` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
-| `Huawei TE40` | numeric `micValue`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | show numeric configured value plus independent mute state |
+| `Huawei TE40` | numeric `micValue`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform `microphone_volume` to `-12..+9 dB`; independent mute state |
 | `CloudLink Bar 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present |
-| `CloudLink Box 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present |
+| `CloudLink Box 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present after Box parser contract is approved |
 | `Polycom RPG 310` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
 
 #### Scenario: TE40 has numeric micValue and independent mute evidence
 
-- **GIVEN** accepted exact-model normalization produced numeric `microphone_volume` and independent `microphone_muted` for TE40
+- **GIVEN** accepted exact-model normalization produced numeric `microphone_volume = 21` and independent `microphone_muted = false` for TE40
 - **WHEN** the dashboard renders
-- **THEN** the numeric configured value is not shown as `Нет данных`
+- **THEN** the configured value is shown as `+9 dB` rather than `Нет данных`
 - **AND** mute state remains independent
 - **AND** numeric zero alone does not mean muted
 
@@ -177,14 +188,3 @@ The presentation SHALL render at most the three newest normalized records from a
 - **WHEN** the operator activates `Развернуть`
 - **THEN** the detailed view starts the separate fresh explicit acquisition defined by the lifecycle/call-log specs
 - **AND** preview data is not promoted to authoritative detailed/statistics state
-
-### Requirement: TE40 camera presentation accepts one normalized camera record
-
-A valid TE40 camera result derived from exactly one returned camera-list entry SHALL be presented as known camera state/model evidence when available. The UI SHALL NOT render `Нет данных` solely because the parser received fewer than two camera entries.
-
-#### Scenario: TE40 has one active camera
-
-- **GIVEN** exact-model parsing accepted one active TE40 camera record and optional model evidence
-- **WHEN** the `Камера` field renders
-- **THEN** that accepted evidence is shown
-- **AND** absence of a second camera entry does not force `Нет данных`

@@ -2,21 +2,19 @@
 
 ### Requirement: Current codec room-control support matrix is a fixed acceptance oracle
 
-The unified exact-model registration SHALL remain the sole runtime capability authority. Until the TE40 microphone-gain state-changing protocol is fully discovered and approved in this change, implementation and tests SHALL prove these exact network-capability declarations:
+The unified exact-model registration SHALL remain the sole runtime capability authority. With the TE40 microphone-gain protocol now discovered on authorized hardware, implementation and tests SHALL prove these exact network-capability declarations:
 
 | Exact model | speaker_adjust | speaker_mute | microphone_adjust | microphone_mute | reboot |
 | --- | --- | --- | --- | --- | --- |
 | `Huawei TE20` | SUPPORTED | SUPPORTED | UNSUPPORTED | SUPPORTED | UNSUPPORTED |
-| `Huawei TE40` | SUPPORTED | SUPPORTED | **UNSUPPORTED pending approved numeric setter contract** | SUPPORTED | UNSUPPORTED |
+| `Huawei TE40` | SUPPORTED | SUPPORTED | **SUPPORTED** | SUPPORTED | UNSUPPORTED |
 | `CloudLink Bar 310` | SUPPORTED | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
 | `CloudLink Box 310` | SUPPORTED | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
 | `Polycom RPG 310` | SUPPORTED | SUPPORTED | UNSUPPORTED | SUPPORTED | UNSUPPORTED |
 
 This table is an OpenSpec/test oracle and SHALL NOT become a second runtime registry.
 
-TE40's current `microphone_adjust = UNSUPPORTED` status is a **temporary architecture safety state**, not a claim that the device lacks numeric microphone evidence. Hardware/source evidence establishes an independent numeric `micValue` read field, but the state-changing method/ActionID, payload, numeric range and step are not yet proven. Read-only numeric evidence MAY therefore normalize to `microphone_volume` while mutation remains fail-closed.
-
-Before final architecture `APPROVE`, protocol discovery SHALL identify and this requirement SHALL be amended to record the exact approved TE40 microphone-adjust contract. No implementation phase may begin while this matrix still marks TE40 microphone adjustment pending discovery.
+TE40 numeric microphone gain is a distinct state-changing capability from microphone mute. Its approved primary-input target is `MIC1`. The user-facing configured gain range is `-12 dB .. +9 dB`, step `1 dB`; the corresponding device/wire range is `0..21`, step `1`, with deterministic mapping `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`.
 
 Speaker mute support for all five SHALL continue to use only the approved volume-zero/restore desired-state policy and proven exact-row/generation restore evidence; it does not imply a separate raw speaker-mute wire command.
 
@@ -24,9 +22,9 @@ Polycom RPG 310 speaker adjustment SHALL use range `0..100`, step `2`. TE20/TE40
 
 #### Scenario: Current codec registration matrix is checked
 
-- **WHEN** composition tests inspect the five current exact codec registrations before the TE40 gain discovery gate is closed
+- **WHEN** composition tests inspect the five current exact codec registrations
 - **THEN** every operation matches the table above
-- **AND** TE40 accepted numeric `micValue` does not silently promote `microphone_adjust` to network-supported
+- **AND** TE40 exposes microphone gain and microphone mute as separate supported operations
 - **AND** runtime resolution still comes from the unified registry rather than this test-oracle table
 
 ### Requirement: Codec room-control adapters reuse approved typed operations and explicitly reject unsupported operations
@@ -35,7 +33,7 @@ The room codec-control capability SHALL reuse existing approved safe codec opera
 
 A standalone widget branch, handler attribute probe, accepted read-only field, or visually present button SHALL NOT silently promote a state-changing capability.
 
-`Huawei TE20` and `Polycom RPG 310` remain microphone-mute models with no approved numeric microphone-adjust mutation in this change. `Huawei TE40` is different: authoritative numeric `micValue` read evidence exists and SHALL remain distinct from mute, but its numeric mutation remains unsupported until the pre-APPROVE protocol-discovery gate establishes the exact setter/range/step/readback contract. `CloudLink Bar 310` and `CloudLink Box 310` retain both microphone-adjust and separate microphone-mute mutation as unsupported under the current approved room contract.
+`Huawei TE20` and `Polycom RPG 310` remain microphone-mute models with no approved numeric microphone-adjust mutation in this change. `Huawei TE40` supports both independent numeric microphone gain and independent microphone mute under the exact contract below. `CloudLink Bar 310` and `CloudLink Box 310` retain both microphone-adjust and separate microphone-mute mutation as unsupported under the current approved room contract.
 
 Reboot SHALL remain unsupported for the current five-codec baseline.
 
@@ -55,16 +53,14 @@ Reboot SHALL remain unsupported for the current five-codec baseline.
 - **AND** fixed visual affordances may use only the existing local informational path
 - **AND** no accepted numeric read evidence promotes either mutation capability
 
-#### Scenario: TE40 numeric read evidence does not yet authorize mutation
+#### Scenario: TE40 numeric gain and mute are independent supported operations
 
 - **GIVEN** exact model is `Huawei TE40`
-- **AND** authoritative diagnostic parsing provides numeric `micValue`
-- **AND** the exact gain setter/range/step contract has not yet been approved in OpenSpec
-- **WHEN** room codec-control capability is composed
-- **THEN** `microphone_mute` remains supported
-- **AND** `microphone_adjust` remains network-unsupported before room interaction admission
-- **AND** numeric `micValue` may still be exposed as read-only canonical `microphone_volume`
-- **AND** microphone `-` / `+` causes zero gain mutation/session/device I/O
+- **WHEN** its room codec-control capability is composed
+- **THEN** `microphone_adjust` is supported only through the approved `MIC1` gain contract
+- **AND** `microphone_mute` remains separately supported
+- **AND** changing gain never reuses `WEB_OpenMicAPI` / `WEB_CloseMicAPI`
+- **AND** numeric gain value `0` is not interpreted as mute authority
 
 ## ADDED Requirements
 
@@ -72,18 +68,19 @@ Reboot SHALL remain unsupported for the current five-codec baseline.
 
 For exact `Huawei TE40`, static audio normalization SHALL preserve numeric microphone configuration evidence independently from mute evidence.
 
-When the approved TE40 audio-status parser receives a finite numeric `micValue`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
+When the approved TE40 audio-status parser receives a finite numeric `micValue` in device/wire domain `0..21`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
+
+For presentation and typed gain intent, TE40 SHALL use the exact-model transform `gain_db = microphone_volume - 12`. Thus wire value `21` is `+9 dB`, wire value `18` is `+6 dB`, and wire value `0` is `-12 dB`.
 
 A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute state SHALL NOT overwrite numeric gain evidence, and numeric gain evidence SHALL NOT overwrite mute state.
 
-This read-normalization requirement does not itself authorize `microphone_adjust` mutation.
-
 #### Scenario: TE40 static audio contains numeric value and unmuted state
 
-- **GIVEN** TE40 audio status contains numeric `micValue = 7`
+- **GIVEN** TE40 audio status contains numeric `micValue = 18`
 - **AND** independent authoritative mute evidence says unmuted
 - **WHEN** the room snapshot is accepted
-- **THEN** `microphone_volume` is numeric `7`
+- **THEN** `microphone_volume` is numeric `18`
+- **AND** the model-specific display value is `+6 dB`
 - **AND** `microphone_muted` is `false`
 - **AND** neither value is derived from the other
 
@@ -93,41 +90,59 @@ This read-normalization requirement does not itself authorize `microphone_adjust
 - **AND** independent authoritative mute evidence says unmuted
 - **WHEN** the room snapshot is accepted
 - **THEN** `microphone_volume` remains numeric `0`
+- **AND** its configured gain meaning is `-12 dB`
 - **AND** `microphone_muted` remains `false`
 - **AND** the application does not fabricate a muted state from the numeric value
 
-### Requirement: TE40 microphone-gain mutation protocol is a pre-architecture-approval gate
+### Requirement: TE40 microphone-gain mutation uses the proven MIC1 save/readback contract
 
-Before this change may receive final architecture `APPROVE`, authorized protocol discovery on TE40 SHALL establish and record in OpenSpec all of:
+For exact `Huawei TE40`, room `microphone_adjust` SHALL control the primary `MIC1` configured input gain only. Each operator `-` / `+` intent changes the configured gain by exactly `1 dB`, clamped to `-12 dB .. +9 dB`, equivalent to wire target `0..21` step `1`.
+
+The state-changing transport boundary is:
 
 ```text
-exact state-changing method / ActionID / endpoint boundary
-HTTP method where applicable
-non-secret payload fields and numeric target semantics
-allowed numeric range
-one-button adjustment step
-success / acknowledgement semantics
-authoritative numeric post-write readback method and field
+POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams
 ```
 
-The discovered contract SHALL be reviewed against root state-changing safety before `microphone_adjust` is changed to supported. The authoritative readback is expected to remain an explicit numeric device value such as `micValue`, but architecture SHALL record the actual proven path rather than infer it.
+The payload SHALL be constructed from current accepted/fresh audio-control state rather than from fabricated defaults. It SHALL preserve the current non-target microphone enable/value fields (`micall`, `mic1..mic18`, `mic1Value..mic18Value` as required by the device contract) and change only the `MIC1` numeric target field `mic1Value` for a gain-adjust intent. Required session/CSRF material SHALL follow existing credential/session authority and SHALL never be logged or exposed as evidence.
 
-Until that amendment is published and reviewed, TE40 gain mutation remains unavailable before room interaction admission.
+The mapping SHALL be:
 
-#### Scenario: TE40 setter has not been proven
+```text
+wire mic1Value = requested gain_db + 12
+requested gain_db = wire mic1Value - 12
+```
 
-- **GIVEN** the exact TE40 gain-set protocol has not been captured and approved
-- **WHEN** an implementation or GUI path attempts numeric microphone adjustment
-- **THEN** the operation remains unsupported before device I/O
-- **AND** no guessed ActionID, payload, range or step is used
-- **AND** `WEB_OpenMicAPI` / `WEB_CloseMicAPI` are not repurposed as gain adjustment
+A successful response such as `{"success":1,"data":""}` is acknowledgement only and SHALL NOT become authoritative final-state evidence.
 
-#### Scenario: TE40 protocol discovery is complete
+After one accepted submit, the mutation lifecycle SHALL perform the approved TE40 numeric audio readback through the existing exact-model `get_audio_status` path (`WEB_InitAudioCtrlParamsAPI`) and its numeric `micValue` field. Final success requires current exact-row/generation readback to equal the requested wire target. Missing/malformed/mismatched readback, ambiguous send outcome, cancellation after possible send, or inability to complete bounded reconciliation SHALL follow the root blocked/unconfirmed mutation contract; no blind replay is permitted.
 
-- **GIVEN** authorized hardware evidence proves the exact setter, payload, range, step and numeric readback
-- **WHEN** architecture is updated for final review
-- **THEN** the capability matrix and mutation contract are amended with those exact values
-- **AND** implementation still does not begin until the amended architecture receives a new `APPROVE`
+Microphone mute remains a separate desired-state operation using its approved mute evidence/path and SHALL NOT be changed as a side effect of gain adjustment.
+
+#### Scenario: TE40 gain plus changes one dB
+
+- **GIVEN** exact TE40 has current accepted `microphone_volume = 18`, equivalent to `+6 dB`
+- **WHEN** the operator requests one microphone gain `+`
+- **THEN** the typed target is `+7 dB` / wire `mic1Value = 19`
+- **AND** exactly one approved save attempt is admitted after required LIVE retirement/cleanup
+- **AND** unrelated `micN` / `micNValue` payload state is preserved rather than replaced with guessed defaults
+- **AND** final success is published only after authoritative numeric readback confirms `micValue = 19`
+
+#### Scenario: TE40 gain minus at lower bound is local no-op
+
+- **GIVEN** exact TE40 has current accepted `microphone_volume = 0`, equivalent to `-12 dB`
+- **WHEN** the operator requests one microphone gain `-`
+- **THEN** no below-range target is constructed
+- **AND** no mutation/session/device I/O is started solely for that no-op
+- **AND** mute state remains unchanged
+
+#### Scenario: TE40 gain acknowledgement is not final authority
+
+- **GIVEN** `WEB_SaveAudioMicCtrlParams` returns a successful acknowledgement
+- **WHEN** the mandatory numeric readback is missing, malformed, stale or does not equal the requested target
+- **THEN** the requested gain is not published as confirmed
+- **AND** root blocked/unconfirmed mutation safety applies
+- **AND** the command is not blindly repeated
 
 ### Requirement: TE40 camera normalization accepts zero-to-many camera records
 
@@ -143,21 +158,36 @@ Each present entry SHALL be interpreted independently. An active camera MAY use 
 - **AND** available camera state/model evidence is published
 - **AND** the parser does not require `len(itemList) >= 2`
 
-### Requirement: CloudLink Box 310 live response semantics must be proven before parser replacement
+### Requirement: CloudLink Box 310 live response semantics remain a separate discovery gate from Bar 310
 
-Hardware has established that `WEB_GetCurrentAudioParam` can return multiple records containing `deviceId` and numeric-looking `curVolume`, which invalidates the old fixed-field assumption based on `mic1ValueIndex`, `mic2ValueIndex`, and `micArray*_ValIdx`.
+The current authorized Bar 310 capture proves that Bar may return `mic1ValueIndex`, `mic2ValueIndex`, and `micArray*_ValIdx` style fields. That capture belongs to **Bar 310** and SHALL NOT be used as evidence for Box 310 parsing.
 
-However, the observed pair shape alone does not prove that every returned record is microphone evidence. Before final architecture `APPROVE`, authorized discovery SHALL capture a redacted complete response envelope/container and establish one of:
+The available earlier Box 310 hardware evidence remains limited to multiple records shaped like:
+
+```json
+{"deviceId": <number>, "curVolume": <number>}
+```
+
+That pair shape is enough to reject copying Bar's fixed-field parser into Box, but it does not establish the complete Box response envelope, prove that every record is microphone evidence, define authoritative device-role filtering, or establish the display normalization range.
+
+Before final architecture `APPROVE`, authorized Box discovery SHALL capture a redacted complete response envelope/container and establish one of:
 
 - the relevant collection is microphone-only; or
 - the collection contains mixed roles and an authoritative microphone filter/device-role mapping is required.
 
-The final amended parser contract SHALL specify the envelope/container path, microphone record-selection rule, accepted numeric `curVolume` rules, aggregation rule, empty/malformed behavior, exact Box identity, and display normalization. Until that contract is approved, implementation SHALL NOT replace the old parser with an unproven `max(all curVolume)` algorithm.
+The final Box parser contract SHALL specify the envelope/container path, microphone record-selection rule, accepted numeric `curVolume` rules, aggregation rule, empty/malformed behavior, exact Box identity, and display normalization. Until that contract is approved, implementation SHALL NOT replace the old Box parser with either Bar's `mic*ValueIndex` schema or an unproven `max(all curVolume)` algorithm.
+
+#### Scenario: Bar fixed-field capture is not Box evidence
+
+- **GIVEN** an authorized Bar 310 response contains `mic1ValueIndex` / `micArray*_ValIdx` fields
+- **WHEN** architecture evaluates Box 310 LIVE parsing
+- **THEN** those Bar fields do not become a Box parser contract
+- **AND** exact Box identity remains independent from Bar
 
 #### Scenario: Box response contains device-volume pairs but roles are not proven
 
-- **GIVEN** a redacted Box response contains multiple `{deviceId, curVolume}` records
-- **AND** device-role semantics have not yet been established
+- **GIVEN** earlier Box hardware evidence contains multiple `{deviceId, curVolume}` records
+- **AND** device-role semantics and full envelope have not yet been established
 - **WHEN** architecture evaluates live microphone aggregation
 - **THEN** it does not classify every record as microphone evidence by assumption
 - **AND** no normative `max(all curVolume)` rule is approved
@@ -165,7 +195,7 @@ The final amended parser contract SHALL specify the envelope/container path, mic
 
 #### Scenario: Box microphone collection role is proven
 
-- **GIVEN** authorized discovery establishes the exact response container and microphone record-selection semantics
+- **GIVEN** authorized discovery establishes the exact Box response container and microphone record-selection semantics
 - **WHEN** architecture is amended for final review
 - **THEN** only authoritative microphone `curVolume` evidence participates in aggregation
 - **AND** exact application identity remains `CloudLink Box 310`
