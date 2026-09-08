@@ -22,8 +22,10 @@
 - [x] 2.10 Publish remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295`.
 - [x] 2.11 Publish `df5447abe556d53ce3d7fd2a2a56e1c042918272` with proven TE40 MIC1 setter/range/step/readback.
 - [x] 2.12 Review `df5447...`; verdict `CHANGES REQUIRED` with 2 HIGH findings: unresolved Box LIVE architecture and stale full-state TE40 save risk.
+- [x] 2.13 Publish `01faf3cc522f89f936cb4daefa70161279093f40` deferring Box LIVE and hardening TE40 fresh full-state mutation safety.
+- [x] 2.14 Validate/review `01faf3...`: change strict PASS, all strict PASS, Git checks PASS, worktree clean, archive applicability FAIL; independent verdict `CHANGES REQUIRED` with one HIGH root CloudLink meter conflict and one MEDIUM Box call-log/LIVE contradiction.
 
-## 3. Final architecture corrections before validation
+## 3. Final architecture corrections before re-validation
 
 - [x] 3.1 TE40 gain setter boundary: `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`.
 - [x] 3.2 TE40 gain scale: native `-12..+9 dB`, step `1 dB`; wire `0..21`, step `1`; `gain_db = mic1Value - 12`.
@@ -31,20 +33,34 @@
 - [x] 3.4 Strengthen TE40 full-state mutation: after MUTATION owns lane and LIVE retires, require a fresh full `WEB_InitAudioCtrlParamsAPI` audio-control read before POST; old accepted cache is not payload authority.
 - [x] 3.5 Require fresh pre-write state to contain `micall`, `mic1..mic18`, `mic1Value..mic18Value`; if incomplete, send nothing and do not create command ambiguity solely from that pre-submit failure.
 - [x] 3.6 Require post-write full-state reconciliation of MIC1 target plus every preserved non-target microphone field against the fresh pre-write baseline; collateral mismatch is blocked/unconfirmed and never silently accepted/replayed.
-- [x] 3.7 Resolve Box LIVE architecture by explicit scope reduction: Box post-cycle microphone LIVE is UNSUPPORTED/DEFERRED in this change, exact Box registration has no LIVE binding, and room LIVE performs zero Box `WEB_GetCurrentAudioParam` polling.
+- [x] 3.7 Resolve Box LIVE architecture by explicit scope reduction: Box microphone LIVE is UNSUPPORTED/DEFERRED, exact Box registration has no LIVE binding, and room LIVE performs zero Box `WEB_GetCurrentAudioParam` polling.
 - [x] 3.8 Preserve Box non-LIVE scope: diagnostics, speaker controls, call-log automatic preview/detail, Local Refresh, exact identity/currentness/cleanup remain in scope.
-- [x] 3.9 Preserve earlier `{deviceId, curVolume}` observations only as future Box LIVE discovery evidence; Bar `mic*ValueIndex` evidence is Bar-only; no current Box parser implementation task remains.
+- [x] 3.9 Preserve earlier `{deviceId, curVolume}` observations only as future Box LIVE discovery evidence; Bar evidence is Bar-only; no current Box parser implementation task remains.
+- [x] 3.10 Add archive-compatible `MODIFIED Requirements` for root `cloudlink-live-microphone-metering`: Bar 310 remains the only supported CloudLink live microphone model; Box LIVE/polling is removed from root authority while historical Box endpoint knowledge remains dormant.
+- [x] 3.11 Preserve every existing root CloudLink meter requirement/scenario identity needed for archive applicability while redefining Box-specific scenarios as explicit no-capability/no-polling/deferred behavior.
+- [x] 3.12 Correct Box call-log regression: Box preview still runs once per eligible row/generation, but terminal cleanup releases the lane with zero Box LIVE start/resume/request; generic preview ordering references first LIVE only when exact registration actually advertises LIVE.
 
 ## 4. Architecture validation and approval
 
-- [ ] 4.1 Re-read all current root specs affected by this change and confirm no competing capability/presentation/lifecycle contract remains, including Box LIVE deferred semantics and TE40 fresh full-state mutation safety.
-- [ ] 4.2 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict` through the tracked repository-local wrapper.
-- [ ] 4.3 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 4.4 Run disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario remains archive-compatible.
-- [ ] 4.5 Run Git hygiene checks applicable to architecture artifacts (`git diff --check`, `git diff --cached --check`).
-- [ ] 4.6 Perform independent architecture review against the exact published amendment SHA after 3.1-3.9 are complete.
-- [ ] 4.7 Resolve every Critical/High/Medium architecture finding without production implementation.
-- [ ] 4.8 Obtain and record the new final architecture `APPROVE` SHA. No post-amendment production implementation before this gate.
+Historical validation at `01faf3cc522f89f936cb4daefa70161279093f40`:
+
+- [x] 4.1 `.\openspec.cmd validate codec-interaction-parity-restoration --strict`: PASS.
+- [x] 4.2 `.\openspec.cmd validate --all --strict`: PASS.
+- [x] 4.3 `git diff --check` and `git diff --cached --check`: PASS.
+- [x] 4.4 Disposable archive-applicability check: FAIL because root `cloudlink-live-microphone-metering` still mandated Box LIVE.
+- [x] 4.5 Independent architecture review of `01faf3...`: `CHANGES REQUIRED` (1 HIGH, 1 MEDIUM).
+- [x] 4.6 Resolve the HIGH/MEDIUM findings in OpenSpec only; no production implementation.
+
+Required re-validation on the new exact published SHA:
+
+- [ ] 4.7 Re-read all current root specs affected by this change and confirm no competing capability/presentation/lifecycle contract remains, including root CloudLink meter Box deferral, Box call-log no-LIVE semantics, and TE40 fresh full-state mutation safety.
+- [ ] 4.8 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict`.
+- [ ] 4.9 Run `.\openspec.cmd validate --all --strict`.
+- [ ] 4.10 Run disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario remains archive-compatible.
+- [ ] 4.11 Run Git hygiene checks (`git diff --check`, `git diff --cached --check`) and confirm worktree clean.
+- [ ] 4.12 Perform independent architecture review against the exact newly published amendment SHA.
+- [ ] 4.13 Resolve every Critical/High/Medium finding without production implementation.
+- [ ] 4.14 Obtain and record the new final architecture `APPROVE` SHA. No post-amendment production implementation before this gate.
 
 ## 5. Post-approval exact-model capability and parser implementation
 
@@ -54,9 +70,10 @@
 - [ ] 5.4 TE40: post-write full-state reconciliation must confirm target plus preserved non-target `micall`/`micN`/`micNValue`; insufficient/collateral mismatch -> blocked/unconfirmed, no replay.
 - [ ] 5.5 TE40: preserve microphone mute as a separate supported desired-state/readback operation.
 - [ ] 5.6 TE40 camera: process `itemList` as zero-to-many; cover exactly-one-camera shape.
-- [ ] 5.7 Box 310: remove/disable post-cycle LIVE binding in unified registration for this change; do not implement a new Box LIVE parser and admit zero Box LIVE `WEB_GetCurrentAudioParam` requests.
-- [ ] 5.8 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
-- [ ] 5.9 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
+- [ ] 5.7 Box 310: remove/disable all live-microphone capability surfaces for this change: no unified-registration LIVE binding, no Box meter polling context, no LIVE `WEB_GetCurrentAudioParam`, no legacy codec-page meter row, modern room meter slot unsupported. Do not implement a replacement Box parser.
+- [ ] 5.8 Bar 310: preserve approved current-volume LIVE endpoint/session/parser/polling behavior and do not let Box deferral regress Bar.
+- [ ] 5.9 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
+- [ ] 5.10 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
 
 ## 6. Post-approval presentation and LIVE implementation
 
@@ -65,20 +82,21 @@
 - [ ] 6.3 Remove redundant textual `Live микрофон` / `Live динамик` rows for Huawei.
 - [ ] 6.4 TE40: display configured `micValue` via exact dB transform and make `-`/`+` request exactly one dB through typed application intent.
 - [ ] 6.5 Bar310: preserve approved microphone LIVE meter; speaker live meter unsupported.
-- [ ] 6.6 Box310: both live-level slots render `Не поддерживается`; no historical/stale Box meter data is rendered as current and no Box LIVE lifecycle is implied.
+- [ ] 6.6 Box310: modern room both live-level slots render `Не поддерживается`; legacy codec-page live microphone row is hidden; no historical/stale Box meter data is rendered as current and no Box LIVE lifecycle is implied.
 - [ ] 6.7 RPG310: both live-level slots unsupported.
-- [ ] 6.8 Update repository-local visual acceptance tests/checkpoints for Huawei two-meter contract, TE40 dB value, and Box deferred LIVE state.
+- [ ] 6.8 Update repository-local visual acceptance tests/checkpoints for Huawei two-meter contract, TE40 dB value, Bar LIVE preservation, and Box deferred LIVE state.
 
 ## 7. Initial three-call preview and explicit journal
 
 - [ ] 7.1 After the **entire** automatic room cycle is terminal, admit automatic call preview only for the exact current expanded connected/usable call-log-capable codec row.
-- [ ] 7.2 For that exact row/generation, perform one fresh serialized call-history acquisition before first eligible LIVE; normalize newest-first and retain at most three preview rows.
+- [ ] 7.2 For that exact row/generation, perform one fresh serialized call-history acquisition; if the exact registration advertises LIVE, first LIVE waits for preview terminal cleanup. If it advertises no LIVE, cleanup releases the lane with no LIVE start.
 - [ ] 7.3 If no codec row is expanded at whole-room terminal time, perform zero hidden preview I/O until an eligible row is later expanded.
 - [ ] 7.4 After a row/generation automatic attempt is terminal, collapse/re-expand, repaint, resize, theme switch and duplicate Qt events cause zero additional automatic call-log I/O.
 - [ ] 7.5 Row switch may admit the newly current codec's own first generation-bound preview after prior lifecycle cleanup; stale old callbacks remain powerless.
-- [ ] 7.6 Ordinary preview failure/no-data reaches bounded cleanup and does not permanently degrade a connected row; first eligible LIVE may start afterward.
-- [ ] 7.7 Every explicit `Развернуть` remains a separate fresh call-log acquisition; active LIVE retires/resumes where that exact model actually has LIVE. Box has no LIVE retirement/resume in this change.
+- [ ] 7.6 Ordinary preview failure/no-data reaches bounded cleanup and does not permanently degrade a connected row; first LIVE may start afterward only when exact registration advertises LIVE.
+- [ ] 7.7 Every explicit `Развернуть` remains a separate fresh call-log acquisition; active LIVE retires/resumes only where that exact model actually has LIVE. Box has zero LIVE retirement/resume in this change.
 - [ ] 7.8 Add end-to-end call-log regressions for TE20, TE40, Bar310, Box310 and RPG310 proving up-to-three automatic rows and fresh explicit detail.
+- [ ] 7.9 Box regression specifically proves: one preview, no Box LIVE context/request before or after cleanup, and later explicit detail remains fresh.
 
 ## 8. Existing speaker/control safety regression
 
@@ -106,7 +124,7 @@ Current five-model scope remains TE20, TE40, Bar310, Box310 and RPG310. Physical
 - [ ] 10.1 Run every applicable in-scope hardware scenario against the exact published post-amendment implementation SHA.
 - [ ] 10.2 TE40: verify static numeric mic value/dB display, MIC1 gain exact `1 dB` step, fresh pre-write state acquisition, independent mute, two live meters, exactly-one-camera behavior, automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
 - [ ] 10.3 TE40 mutation safety: where feasible, verify non-target microphone state is preserved; target/collateral reconciliation failure must not yield confirmed success or blind replay.
-- [ ] 10.4 Box310: verify **deferred LIVE contract** — no Box post-cycle LIVE request/binding and both live-level slots show `Не поддерживается`; separately verify automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
+- [ ] 10.4 Box310: verify deferred LIVE contract — no live binding/polling/request, legacy meter row absent where applicable, modern both live-level slots unsupported; separately verify automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
 - [ ] 10.5 TE20/Bar310/RPG310: rerun all applicable original hardware gates plus new automatic three-call lifecycle and Audio-card expectations.
 - [ ] 10.6 Record exact SHA, model, action, non-secret method/path, raw outcome category, normalized result, GUI result and UI-unlocked status for every scenario.
 - [ ] 10.7 Missing/failed required hardware evidence is blocking `CHANGES REQUIRED` regardless of offline test count.
@@ -115,14 +133,14 @@ Current five-model scope remains TE20, TE40, Bar310, Box310 and RPG310. Physical
 
 - [ ] 11.1 Validate the exact published remote implementation SHA from a clean detached worktree.
 - [ ] 11.2 Re-run focused/full tests, strict OpenSpec validation, Git checks and required disposable archive-applicability check.
-- [ ] 11.3 Review implementation against the **new approved architecture SHA**, root MODIFIED contracts, exact-row call-preview boundary, TE40 fresh full-state MIC1 contract, Box deferred LIVE contract, root mutation safety and behavioral oracle.
+- [ ] 11.3 Review implementation against the **new approved architecture SHA**, root MODIFIED contracts including `cloudlink-live-microphone-metering`, exact-row call-preview boundary, TE40 fresh full-state MIC1 contract, Box deferred LIVE contract, root mutation safety and behavioral oracle.
 - [ ] 11.4 Confirm all five models passed every applicable hardware gate on the exact validated implementation SHA.
 - [ ] 11.5 Issue only `APPROVE`, `APPROVE WITH NON-BLOCKING NOTES`, or `CHANGES REQUIRED` according to repository rules.
 
 ## 12. Archive + completion
 
 - [ ] 12.1 Archive only after a permitting independent verdict that includes mandatory hardware acceptance.
-- [ ] 12.2 Review root-spec/archive diff for duplicate or contradictory capability, Audio-card, call-preview, TE40 gain/full-state safety, Box deferred LIVE, restore-authority or currentness contracts.
+- [ ] 12.2 Review root-spec/archive diff for duplicate or contradictory capability, Audio-card, CloudLink meter, call-preview, TE40 gain/full-state safety, Box deferred LIVE, restore-authority or currentness contracts.
 - [ ] 12.3 Run strict all-artifact validation, full offline tests and Git checks after archive.
 - [ ] 12.4 Create/push dedicated archive commit.
 - [ ] 12.5 Merge only with explicit user authorization.
