@@ -115,7 +115,13 @@ class RoomInteractionCoordinator:
         # Automatic preview freshness is owned by exact record plus room
         # generation.  A presentation collapse/re-expand is never a new I/O
         # boundary.
+        # A marker becomes terminal only when the admitted network attempt has
+        # reported an accepted terminal result.  Pending/in-flight work must
+        # not consume the generation opportunity when row authority is
+        # cancelled or superseded.
         self._codec_preview_attempts: set[tuple[Any, str]] = set()
+        self._codec_preview_pending: set[tuple[Any, str]] = set()
+        self._codec_preview_contexts: set[RoomInteractionContext] = set()
 
     @property
     def active_context(self) -> RoomInteractionContext | None:
@@ -193,6 +199,8 @@ class RoomInteractionCoordinator:
         self._expanded_record_id = None
         self._codec_preview_epochs.clear()
         self._codec_preview_attempts.clear()
+        self._codec_preview_pending.clear()
+        self._codec_preview_contexts.clear()
         self._pending_codec_preview = None
 
     def cycle_finished(self, session: RoomDiagnosticSession) -> None:
@@ -214,6 +222,10 @@ class RoomInteractionCoordinator:
             self._pending_live_record_id = record_id
             self._retire_active()
             return
+        # The coordinator itself owns codec ordering.  Presentation may ask
+        # for a preview again, but must never be required to prevent LIVE from
+        # starting first.
+        self._maybe_start_codec_preview()
         self._start_eligible_live()
 
     def collapse(self, record_id: str) -> None:
@@ -224,6 +236,7 @@ class RoomInteractionCoordinator:
         self._expanded_record_id = None
         self._pending_live_record_id = None
         self._pending_operation = None
+        self._clear_pending_codec_preview(record_id)
         self._pending_codec_preview = None
         if self._active is not None and self._active.record_id == record_id:
             self._retire_active()
@@ -275,6 +288,13 @@ class RoomInteractionCoordinator:
         session = self._session
         assert session is not None
         row = session.row_for(context.record_id)
+        if self._is_automatic_preview_context(context):
+            # This callback is the accepted terminal outcome of the one
+            # mandatory network attempt.  Physical cleanup still owns the
+            # lane; only cleanup_finished may release first LIVE.
+            self._mark_codec_preview_terminal(context)
+            self._retire_active()
+            return
         if context.kind is RoomInteractionKind.LIVE and success:
             row.accepted_snapshot = data
             row.call_activity = normalize_call_activity(row.capability.call_activity_binding_key if row.capability else None, data)
@@ -389,6 +409,7 @@ class RoomInteractionCoordinator:
         elif self._pending_codec_preview is not None:
             self._start_pending_codec_preview()
         else:
+            self._maybe_start_codec_preview()
             self._start_eligible_live()
         self._notify()
 
@@ -417,6 +438,8 @@ class RoomInteractionCoordinator:
         self._pending_live_record_id = None
         self._pending_operation = None
         self._pending_codec_preview = None
+        self._codec_preview_pending.clear()
+        self._codec_preview_contexts.clear()
         self._pending_global_refresh = None
         if active is not None:
             binding = self._binding_for_context(active)
@@ -468,6 +491,7 @@ class RoomInteractionCoordinator:
         self._active = context
         if kind is RoomInteractionKind.AUXILIARY_READ and action == "call_log_preview":
             self._pending_codec_preview = None
+            self._codec_preview_contexts.add(context)
         row.interaction_state = RoomInteractionState.ACTIVE
         row.network_actions_enabled = False
         self._notify()
@@ -487,6 +511,18 @@ class RoomInteractionCoordinator:
         binding = self._binding_for(row)
         if not self._usable(row) or binding is None or binding.live is None:
             return
+        if self._is_call_log_codec(row, binding):
+            key = self._codec_preview_key(session, row.record_id)
+            # The automatic room cycle and its generation-bound mandatory
+            # preview are a codec-only gate.  Matrix/DMP LIVE remains governed
+            # by its existing post-cycle rules.
+            if (
+                session.status not in {RoomCycleStatus.COMPLETE, RoomCycleStatus.COMPLETE_WITH_PROBLEMS}
+                or key not in self._codec_preview_attempts
+                or key in self._codec_preview_pending
+                or self._pending_codec_preview is not None
+            ):
+                return
         context = self._new_context(row, RoomInteractionKind.LIVE)
         self._active = context
         row.interaction_state = RoomInteractionState.ACTIVE
@@ -519,11 +555,11 @@ class RoomInteractionCoordinator:
         if epoch is None:
             return
         key = (session.identity, record_id)
-        if key in self._codec_preview_attempts:
+        if key in self._codec_preview_attempts or key in self._codec_preview_pending:
             return
-        # Claim before publication. Render/theme/resize cannot create a
-        # second attempt even if it ends with a local unavailable outcome.
-        self._codec_preview_attempts.add(key)
+        # Claim pending authority before publication.  It is deliberately not
+        # terminal until the accepted network attempt reports its outcome.
+        self._codec_preview_pending.add(key)
         # Automatic preview is mandatory before the first LIVE.  A pre-existing
         # LIVE owner can only occur after a legacy handoff; retire it and wait
         # for bounded cleanup rather than replacing preview with a local skip.
@@ -569,6 +605,7 @@ class RoomInteractionCoordinator:
     def _discard_stale_pending_codec_preview(self) -> None:
         pending = self._pending_codec_preview
         if pending is not None and not self._pending_codec_preview_is_current(pending):
+            self._clear_pending_codec_preview(pending.record_id, pending.session_identity)
             self._pending_codec_preview = None
 
     def _start_pending_codec_preview(self) -> None:
@@ -576,6 +613,7 @@ class RoomInteractionCoordinator:
         if pending is None:
             return
         if not self._pending_codec_preview_is_current(pending):
+            self._clear_pending_codec_preview(pending.record_id, pending.session_identity)
             self._pending_codec_preview = None
             self._start_eligible_live()
             return
@@ -585,6 +623,11 @@ class RoomInteractionCoordinator:
         context = self._active
         if context is None:
             return
+        # Cancellation/supersession before an accepted terminal callback does
+        # not consume the automatic preview opportunity for this generation.
+        if self._is_automatic_preview_context(context):
+            self._codec_preview_contexts.discard(context)
+            self._clear_pending_codec_preview(context.record_id)
         session = self._session
         if session is not None:
             row = session.row_for(context.record_id)
@@ -625,6 +668,7 @@ class RoomInteractionCoordinator:
         elif self._pending_codec_preview is not None:
             self._start_pending_codec_preview()
         else:
+            self._maybe_start_codec_preview()
             self._start_eligible_live()
         self._notify()
 
@@ -698,3 +742,33 @@ class RoomInteractionCoordinator:
     def _notify(self) -> None:
         if self._changed is not None and self._session is not None and not self._session.invalidated:
             self._changed(self._session)
+
+    @staticmethod
+    def _is_call_log_codec(row: DeviceRowState, binding: RoomInteractionBindings) -> bool:
+        return bool(
+            row.capability is not None
+            and row.capability.screen_key == "codec"
+            and binding.auxiliary is not None
+        )
+
+    @staticmethod
+    def _codec_preview_key(session: RoomDiagnosticSession, record_id: str) -> tuple[Any, str]:
+        return (session.identity, record_id)
+
+    def _is_automatic_preview_context(self, context: RoomInteractionContext) -> bool:
+        return context in self._codec_preview_contexts
+
+    def _mark_codec_preview_terminal(self, context: RoomInteractionContext) -> None:
+        session = self._session
+        if session is None:
+            return
+        key = self._codec_preview_key(session, context.record_id)
+        self._codec_preview_contexts.discard(context)
+        self._codec_preview_pending.discard(key)
+        self._codec_preview_attempts.add(key)
+
+    def _clear_pending_codec_preview(self, record_id: str, session_identity: Any | None = None) -> None:
+        session = self._session
+        identity = session.identity if session_identity is None and session is not None else session_identity
+        if identity is not None:
+            self._codec_preview_pending.discard((identity, record_id))

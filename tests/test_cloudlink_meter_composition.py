@@ -167,8 +167,15 @@ class CodecScreenMeterRenderingTests(unittest.TestCase):
             with self.subTest(model=model):
                 self._rebuild(model)
                 names = list(self.screen.parameter_rows)
-                self.assertEqual(["Статус микрофона", "Уровень микрофонов", "Журнал звонков"],
-                                 names[names.index("Статус микрофона"):names.index("Журнал звонков") + 1])
+                expected = (
+                    ["Статус микрофона", "Уровень микрофонов", "Журнал звонков"]
+                    if model == "CloudLink Bar 310"
+                    else ["Статус микрофона", "Журнал звонков"]
+                )
+                self.assertEqual(expected, names[names.index("Статус микрофона"):names.index("Журнал звонков") + 1])
+                if model == "CloudLink Box 310":
+                    self.assertIsNone(self.screen.microphone_meter_bar)
+                    continue
                 first = self.screen.microphone_meter_bar
                 self.assertFalse(first.isTextVisible())
                 self.screen.apply_microphone_meter_presentation({"available": True, "raw_level": 0, "fraction": 0.0})

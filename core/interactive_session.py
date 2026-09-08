@@ -49,6 +49,11 @@ class InteractiveOperation:
     # reconciliation.  Retrying them here could replay a command after an
     # ambiguous transport outcome, which is never safe.
     suppress_recovery: bool = False
+    # A full-state mutation can expose its exact state-changing submission
+    # boundary.  This is intentionally opt-in so ordinary handlers retain
+    # their existing invocation contract.
+    report_mutation_stage: bool = False
+    mutation_stage_observer: Callable[[str], None] | None = None
     duplicate_key: Optional[str] = None
     quiet: bool = False
     client_token: Optional[int] = None
@@ -102,6 +107,7 @@ class InteractiveSessionSignals(QObject):
     error = pyqtSignal(dict)
     finished = pyqtSignal(dict)
     dropped = pyqtSignal(dict)
+    mutation_stage = pyqtSignal(dict)
     shutdown_finished = pyqtSignal(dict)
 
 
@@ -271,7 +277,11 @@ class InteractiveSessionController(QObject):
                 _emit_signal(self.signals.dropped, terminal)
                 return
             try:
-                value = self._invoke(record.handler, operation)
+                value = self._invoke(
+                    record.handler,
+                    operation,
+                    stage_callback=lambda stage: self._emit_mutation_stage(terminal, operation, stage),
+                )
                 if operation.semantic != OperationSemantic.READ_ONLY and value is False:
                     raise CommandError("Device rejected the requested codec command.")
                 if operation.semantic != OperationSemantic.READ_ONLY and operation.require_confirmed_readback:
@@ -427,12 +437,32 @@ class InteractiveSessionController(QObject):
                     preferred_index=next_index,
                 )
 
-    @staticmethod
-    def _invoke(handler: Any, operation: InteractiveOperation) -> Any:
+    def _invoke(
+        self,
+        handler: Any,
+        operation: InteractiveOperation,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> Any:
         method = getattr(handler, operation.method, None)
         if not callable(method):
             raise CommandError("Selected codec does not support this operation.")
-        return method(*operation.args, **dict(operation.kwargs))
+        kwargs = dict(operation.kwargs)
+        if operation.report_mutation_stage and stage_callback is not None:
+            kwargs["stage_callback"] = stage_callback
+        return method(*operation.args, **kwargs)
+
+    def _emit_mutation_stage(
+        self,
+        terminal: Mapping[str, Any],
+        operation: InteractiveOperation,
+        stage: str,
+    ) -> None:
+        if operation.mutation_stage_observer is not None:
+            operation.mutation_stage_observer(str(stage))
+        payload = dict(terminal)
+        payload["stage"] = str(stage)
+        _emit_signal(self.signals.mutation_stage, payload)
 
     def _acquire_handler(
         self,

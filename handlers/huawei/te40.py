@@ -10,7 +10,7 @@ import random
 import time
 import traceback
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Callable, Dict, Any, Optional
 from core.codec_call_history import snapshot_from_display_records
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import (
@@ -1242,7 +1242,12 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def _complete_microphone_save_state(cls, data: Dict[str, Any] | None) -> bool:
         return isinstance(data, dict) and all(key in data for key in cls._MICROPHONE_SAVE_FIELDS)
 
-    def set_microphone_gain(self, target_wire: int) -> Dict[str, Any]:
+    def set_microphone_gain(
+        self,
+        target_wire: int,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> Dict[str, Any]:
         """Set TE40 MIC1 gain by one already-resolved wire target.
 
         The method owns a fresh full pre-read and post-read so that no caller
@@ -1253,11 +1258,25 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         """
         if isinstance(target_wire, bool) or not isinstance(target_wire, int) or not 0 <= target_wire <= 21:
             raise CommandError('TE40 MIC1 gain target is outside 0..21')
-        baseline = self._read_full_microphone_state()
+        try:
+            baseline = self._read_full_microphone_state()
+        except Exception as error:
+            # The save boundary has not been crossed.  Return a typed outcome
+            # to composition instead of allowing generic session recovery to
+            # make this definite no-send failure look ambiguous.
+            return {
+                'pre_submit_failure': True,
+                'connection_lost': isinstance(error, (ConnectionError, SessionInvalidError)),
+            }
         if not self._complete_microphone_save_state(baseline):
             return {'pre_submit_failure': True}
         payload = {key: baseline[key] for key in self._MICROPHONE_SAVE_FIELDS}
         payload['mic1Value'] = target_wire
+        if stage_callback is not None:
+            # This is the exact conservative possible-send boundary.  From
+            # here a timeout, cancellation, or malformed response can no
+            # longer prove that the device state remained unchanged.
+            stage_callback('post_may_have_been_sent')
         acknowledgement = self.send_command('WEB_SaveAudioMicCtrlParams', payload)
         if not isinstance(acknowledgement, dict) or acknowledgement.get('success') != 1:
             raise CommandError('TE40 microphone gain command was not acknowledged')

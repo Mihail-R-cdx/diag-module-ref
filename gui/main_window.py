@@ -10,6 +10,7 @@ import os
 import random
 import platform
 import subprocess
+import threading
 import traceback
 from types import MappingProxyType
 
@@ -1298,8 +1299,10 @@ class VCSDiagnosticApp(QMainWindow):
         operation_name = command["operation"]
         target = command.get("target")
         interactive = InteractiveSessionController(self)
+        possible_send = threading.Event()
         self._room_codec_mutations[context] = {
             "controller": interactive, "terminal": None, "command_submitted": False,
+            "possible_send": possible_send,
         }
         interactive.signals.result.connect(
             lambda payload, current=context, name=operation_name:
@@ -1316,6 +1319,12 @@ class VCSDiagnosticApp(QMainWindow):
                 payload.get("message") or "Операция кодека не подтверждена",
             )
         )
+        mutation_stage_signal = getattr(interactive.signals, "mutation_stage", None)
+        if mutation_stage_signal is not None:
+            mutation_stage_signal.connect(
+                lambda payload, current=context, name=operation_name:
+                self._on_room_codec_mutation_stage(current, name, payload)
+            )
         interactive.signals.shutdown_finished.connect(
             lambda _payload, current=context: self._complete_retired_room_codec_mutation(current)
         )
@@ -1341,6 +1350,11 @@ class VCSDiagnosticApp(QMainWindow):
                 ),
                 require_confirmed_readback=operation_name != "microphone_gain",
                 suppress_recovery=operation_name == "microphone_gain",
+                report_mutation_stage=operation_name == "microphone_gain",
+                mutation_stage_observer=(
+                    (lambda _stage, marker=possible_send: marker.set())
+                    if operation_name == "microphone_gain" else None
+                ),
                 duplicate_key=f"{operation_name}:{target}",
                 quiet=True,
             )
@@ -1372,7 +1386,7 @@ class VCSDiagnosticApp(QMainWindow):
                 if run is not None:
                     run["pre_submit_failure"] = True
                 self._retire_room_codec_mutation(
-                    context, False, None, False,
+                    context, False, None, bool(value.get("connection_lost")),
                     "Не удалось получить полный актуальный audio state TE40",
                 )
                 return
@@ -1384,6 +1398,16 @@ class VCSDiagnosticApp(QMainWindow):
             context, True, {"operation": operation_name, "value": value}, False, None,
         )
 
+    def _on_room_codec_mutation_stage(self, context, operation_name, payload):
+        """Record TE40's device-side possible-send boundary on the UI owner."""
+        if operation_name != "microphone_gain" or not isinstance(payload, Mapping):
+            return
+        if payload.get("stage") != "post_may_have_been_sent":
+            return
+        run = self._room_codec_mutations.get(context)
+        if run is not None and not run.get("cleanup_started"):
+            run["command_submitted"] = True
+
     def _begin_room_codec_mutation_cleanup(self, context, *, terminal=None, cancelled=False):
         """Start one bounded physical-release boundary for a codec mutation."""
         run = self._room_codec_mutations.get(context)
@@ -1393,7 +1417,7 @@ class VCSDiagnosticApp(QMainWindow):
         run["cancelled"] = bool(cancelled)
         if terminal is not None:
             run["terminal"] = terminal
-        if cancelled and run.get("command_submitted"):
+        if cancelled and self._room_codec_mutation_may_have_sent(run):
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.block_ambiguous_mutation(
@@ -1423,6 +1447,12 @@ class VCSDiagnosticApp(QMainWindow):
         if timer is not None:
             timer.stop()
             timer.deleteLater()
+        if self._room_codec_mutation_may_have_sent(run) and run.get("terminal") is None:
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.block_ambiguous_mutation(
+                    context, "Состояние устройства не подтверждено после отправки команды"
+                )
         if run.get("cancelled") or run.get("pre_submit_failure") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
@@ -1444,6 +1474,12 @@ class VCSDiagnosticApp(QMainWindow):
             run["controller"].invalidate_context()
         except Exception:
             pass
+        if self._room_codec_mutation_may_have_sent(run) and run.get("terminal") is None:
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.block_ambiguous_mutation(
+                    context, "Состояние устройства не подтверждено после отправки команды"
+                )
         if run.get("cancelled") or run.get("pre_submit_failure") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
@@ -1469,6 +1505,11 @@ class VCSDiagnosticApp(QMainWindow):
                 unconfirmed=not success, warning=warning,
             )
         self._room_credential_attempts.pop(context, None)
+
+    @staticmethod
+    def _room_codec_mutation_may_have_sent(run):
+        marker = run.get("possible_send")
+        return bool(run.get("command_submitted") or (marker is not None and marker.is_set()))
 
     @staticmethod
     def _codec_confirmed_mutation_fields(data):

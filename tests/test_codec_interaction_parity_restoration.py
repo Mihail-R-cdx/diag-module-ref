@@ -5,6 +5,7 @@ from core.parser import HuaweiTE40DataParser
 from core.cloudlink_microphone_meter import SUPPORTED_CLOUDLINK_METER_MODELS
 from core.room_diagnostic_tree import DeviceRowState, DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession, RoomDiagnosticSessionIdentity
 from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator
+from core.exceptions import ConnectionError
 from gui.diagnostic_dispatch import dispatch_entry_for_model, normalize_codec_audio_projection
 from handlers.huawei.te40 import HuaweiTE40Handler
 
@@ -62,6 +63,88 @@ class CodecInteractionParityTests(unittest.TestCase):
             handler.set_microphone_gain(19)
         self.assertEqual("WEB_SaveAudioMicCtrlParams", handler.send_command.call_args_list[1].args[0])
 
+    def test_te40_pre_read_transport_failure_is_definite_no_send(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+        handler.send_command = Mock(side_effect=ConnectionError("offline"))
+        stages = []
+
+        result = handler.set_microphone_gain(19, stage_callback=stages.append)
+
+        self.assertTrue(result["pre_submit_failure"])
+        self.assertTrue(result["connection_lost"])
+        self.assertEqual([], stages)
+        handler.send_command.assert_called_once_with("get_audio_status")
+
+    def test_te40_possible_send_stage_precedes_ambiguous_post_failure(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+        handler.send_command = Mock(side_effect=[microphone_state(18), ConnectionError("timeout")])
+        stages = []
+
+        with self.assertRaises(ConnectionError):
+            handler.set_microphone_gain(19, stage_callback=stages.append)
+
+        self.assertEqual(["post_may_have_been_sent"], stages)
+        self.assertEqual("WEB_SaveAudioMicCtrlParams", handler.send_command.call_args_list[1].args[0])
+
+    def test_possible_send_stage_marks_composition_before_terminal_callback(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        context = object()
+        window = type("Window", (), {"_room_codec_mutations": {context: {"command_submitted": False}}})()
+        VCSDiagnosticApp._on_room_codec_mutation_stage(
+            window, context, "microphone_gain", {"stage": "post_may_have_been_sent"},
+        )
+        self.assertTrue(window._room_codec_mutations[context]["command_submitted"])
+
+    def test_preterminal_codec_expansion_waits_for_preview_cleanup_before_live(self):
+        entry = dispatch_entry_for_model("CloudLink Bar 310")
+        row = DeviceRowState("bar", "CloudLink Bar 310", "192.0.2.10", "CloudLink Bar 310", DeviceRowStatus.CONNECTED, capability=entry.room_capability(), accepted_snapshot={})
+        session = RoomDiagnosticSession(RoomDiagnosticSessionIdentity("s", 1, None, None, "r"), "r", None, None, [row], status=RoomCycleStatus.ACTIVE)
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda _context: calls.append("live"),
+            auxiliary=lambda _context, action: calls.append(action),
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+
+        coordinator.expand("bar")
+        self.assertEqual([], calls)
+        session.status = RoomCycleStatus.COMPLETE
+        coordinator.cycle_finished(session)
+        self.assertEqual(["call_log_preview"], calls)
+        preview = coordinator.active_context
+        coordinator.complete(preview, success=True, data={})
+        self.assertEqual(["call_log_preview"], calls)
+        coordinator.cleanup_finished(preview)
+        self.assertEqual(["call_log_preview", "live"], calls)
+
+    def test_terminal_preview_marker_allows_live_but_not_second_preview_after_reexpand(self):
+        entry = dispatch_entry_for_model("CloudLink Bar 310")
+        row = DeviceRowState("bar", "CloudLink Bar 310", "192.0.2.10", "CloudLink Bar 310", DeviceRowStatus.CONNECTED, capability=entry.room_capability(), accepted_snapshot={})
+        session = RoomDiagnosticSession(RoomDiagnosticSessionIdentity("s", 1, None, None, "r"), "r", None, None, [row], status=RoomCycleStatus.COMPLETE)
+        calls = []
+        bindings = RoomInteractionBindings(
+            live=lambda _context: calls.append("live"),
+            auxiliary=lambda _context, action: calls.append(action),
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+        coordinator.bind_session(session)
+        coordinator.expand("bar")
+        preview = coordinator.active_context
+        coordinator.complete(preview, success=True, data={})
+        coordinator.cleanup_finished(preview)
+        live = coordinator.active_context
+        coordinator.collapse("bar")
+        coordinator.cleanup_finished(live)
+        coordinator.expand("bar")
+
+        self.assertEqual(["call_log_preview", "live", "live"], calls)
+
     def test_te40_camera_accepts_one_entry(self):
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
 
@@ -89,7 +172,9 @@ class CodecInteractionParityTests(unittest.TestCase):
         coordinator.expand("box")
         coordinator.request_codec_preview()
         self.assertEqual(["call_log_preview"], calls)
-        coordinator.complete(coordinator.active_context, success=True, data={})
+        preview = coordinator.active_context
+        coordinator.complete(preview, success=True, data={})
+        coordinator.cleanup_finished(preview)
         self.assertIsNone(coordinator.active_context)
         self.assertEqual(["call_log_preview"], calls)
 

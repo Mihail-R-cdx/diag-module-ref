@@ -225,6 +225,14 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
         window.room_diagnostic_session = session
         window.room_diagnostic_tree.render(session)
         window.room_interaction_coordinator.bind_session(session)
+        # These production-owner tests exercise LIVE retirement, fallback and
+        # mutation handoff after the mandatory automatic preview has already
+        # completed for the current generation.  Preview admission/order is
+        # asserted separately in the coordinator-focused regression tests.
+        if dispatch_entry_for_model(model).screen_key == "codec":
+            window.room_interaction_coordinator._codec_preview_attempts.update(
+                (session.identity, row.record_id) for row in session.rows
+            )
         window.device_credentials[model] = (
             {"username": "first", "password": "one"},
             {"username": "second", "password": "two"},
@@ -458,6 +466,9 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             # room authority after it to model a top Refresh on the same target.
             window.room_diagnostic_session = session
             window.room_interaction_coordinator.bind_session(session)
+            window.room_interaction_coordinator._codec_preview_attempts.add(
+                (session.identity, "a")
+            )
             window.room_interaction_coordinator.cycle_finished(session)
             live = window.room_interaction_coordinator.active_context
             window._start_room_diagnostic_session = Mock()

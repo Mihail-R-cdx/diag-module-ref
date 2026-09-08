@@ -611,7 +611,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         self.assertEqual(["call_log_preview"], requests)
 
-    def test_preview_remains_pending_while_auxiliary_lane_is_busy(self):
+    def test_terminal_expansion_admits_preview_before_other_auxiliary_work(self):
         row = self._row()
         session = RoomDiagnosticSession(
             RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
@@ -625,14 +625,11 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         coordinator.bind_session(session)
         coordinator.expand(row.record_id)
-        explicit = coordinator.request_auxiliary("call_log")
-        self.assertEqual(["call_log"], requests)
+        self.assertEqual(["call_log_preview"], requests)
         coordinator.request_codec_preview()
-        self.assertEqual(["call_log"], requests)
-        coordinator.complete(explicit, success=True, data={})
-        self.assertEqual(["call_log", "call_log_preview"], requests)
+        self.assertEqual(["call_log_preview"], requests)
 
-    def test_pending_preview_identity_is_not_transferred_between_codec_rows(self):
+    def test_cancelled_preview_reopens_same_generation_eligibility(self):
         first = self._row("Huawei TE20")
         second = self._row("CloudLink Box 310")
         second.record_id, second.ip_address = "codec-2", "192.0.2.11"
@@ -649,16 +646,19 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         coordinator.bind_session(session)
         coordinator.expand(first.record_id)
-        busy = coordinator.request_auxiliary("call_log")
-        coordinator.request_codec_preview()
+        first_preview = coordinator.active_context
+        self.assertEqual([("call_log_preview", "codec-1")], requests)
         coordinator.expand(second.record_id)
-        coordinator.request_codec_preview()
-        coordinator.cleanup_finished(busy)
-
-        self.assertEqual([("call_log", "codec-1"), ("call_log_preview", "codec-2")], requests)
-        coordinator.complete(coordinator.active_context, success=True, data={})
-        coordinator.request_codec_preview()
-        self.assertEqual(1, [action for action, _record in requests].count("call_log_preview"))
+        coordinator.cleanup_finished(first_preview)
+        self.assertEqual([("call_log_preview", "codec-1"), ("call_log_preview", "codec-2")], requests)
+        second_preview = coordinator.active_context
+        coordinator.collapse(second.record_id)
+        coordinator.cleanup_finished(second_preview)
+        coordinator.expand(first.record_id)
+        self.assertEqual(
+            [("call_log_preview", "codec-1"), ("call_log_preview", "codec-2"), ("call_log_preview", "codec-1")],
+            requests,
+        )
 
     def test_pending_preview_rechecks_live_priority_after_non_live_cleanup(self):
         first = DeviceRowState(
@@ -726,19 +726,17 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         coordinator.bind_session(session)
         coordinator.expand(first.record_id)
-        busy = coordinator.request_auxiliary("call_log")
-        coordinator.request_codec_preview()
+        preview = coordinator.active_context
         coordinator.expand(non_codec.record_id)
-        coordinator.cleanup_finished(busy)
-        self.assertEqual([("call_log", "codec-1"), ("live", "matrix-1")], requests)
+        coordinator.cleanup_finished(preview)
+        self.assertEqual([("call_log_preview", "codec-1"), ("live", "matrix-1")], requests)
 
         coordinator.bind_session(session)
         coordinator.expand(first.record_id)
-        busy = coordinator.request_auxiliary("call_log")
-        coordinator.request_codec_preview()
+        preview = coordinator.active_context
         coordinator.collapse(first.record_id)
-        coordinator.cleanup_finished(busy)
-        self.assertEqual([], [item for item in requests if item[0] == "call_log_preview"])
+        coordinator.cleanup_finished(preview)
+        self.assertEqual(2, len([item for item in requests if item[0] == "call_log_preview"]))
 
     def test_live_preview_handoff_discards_stale_codec_preview_and_starts_non_codec_live(self):
         codec = self._row("CloudLink Bar 310")
@@ -767,12 +765,11 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         coordinator.bind_session(session)
         coordinator.expand(codec.record_id)
-        retiring_live = coordinator.active_context
-        coordinator.request_codec_preview()
+        retiring_preview = coordinator.active_context
         coordinator.expand(matrix.record_id)
-        coordinator.cleanup_finished(retiring_live)
+        coordinator.cleanup_finished(retiring_preview)
 
-        self.assertEqual([("live", "codec-1"), ("live", "matrix-1")], calls)
+        self.assertEqual([("call_log_preview", "codec-1"), ("live", "matrix-1")], calls)
         self.assertEqual("matrix-1", coordinator.active_context.record_id)
         self.assertIsNone(coordinator._pending_operation)
 
@@ -793,18 +790,16 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
         coordinator.bind_session(session)
         coordinator.expand(first.record_id)
-        retiring_live = coordinator.active_context
-        coordinator.request_codec_preview()
+        retiring_preview = coordinator.active_context
         coordinator.expand(second.record_id)
-        coordinator.request_codec_preview()
-        coordinator.cleanup_finished(retiring_live)
+        coordinator.cleanup_finished(retiring_preview)
 
-        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-2")], calls)
+        self.assertEqual([("call_log_preview", "codec-1"), ("call_log_preview", "codec-2")], calls)
         self.assertEqual("codec-2", coordinator.active_context.record_id)
         self.assertEqual(1, [call for call in calls if call[0] == "call_log_preview"].count(("call_log_preview", "codec-2")))
-        self.assertNotIn(("call_log_preview", "codec-1"), calls)
+        self.assertEqual(1, calls.count(("call_log_preview", "codec-1")))
 
-    def test_live_priority_preview_is_terminal_and_never_starts_after_cleanup(self):
+    def test_preview_starts_before_first_live(self):
         row = self._row("CloudLink Bar 310")
         session = RoomDiagnosticSession(
             RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
@@ -819,11 +814,11 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
         coordinator.bind_session(session)
         coordinator.expand(row.record_id)
-        retiring_live = coordinator.active_context
-        coordinator.request_codec_preview()
-        coordinator.cleanup_finished(retiring_live)
+        preview = coordinator.active_context
+        coordinator.complete(preview, success=True, data={})
+        coordinator.cleanup_finished(preview)
 
-        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-1")], calls)
+        self.assertEqual([("call_log_preview", "codec-1"), ("live", "codec-1")], calls)
         self.assertEqual(1, calls.count(("call_log_preview", "codec-1")))
 
     def test_live_preview_handoff_collapse_does_not_resurrect_work(self):
@@ -841,16 +836,15 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
         coordinator.bind_session(session)
         coordinator.expand(row.record_id)
-        retiring_live = coordinator.active_context
-        coordinator.request_codec_preview()
+        retiring_preview = coordinator.active_context
         coordinator.collapse(row.record_id)
-        coordinator.cleanup_finished(retiring_live)
+        coordinator.cleanup_finished(retiring_preview)
 
-        self.assertEqual([("live", "codec-1")], calls)
+        self.assertEqual([("call_log_preview", "codec-1")], calls)
         self.assertIsNone(coordinator.active_context)
         self.assertIsNone(coordinator._pending_operation)
 
-    def test_preview_is_not_dropped_when_explicit_detail_arrives_during_live_retirement(self):
+    def test_explicit_detail_remains_separate_after_terminal_preview(self):
         row = self._row()
         session = RoomDiagnosticSession(
             RoomDiagnosticSessionIdentity("snapshot", 1, None, None, "R-1"),
@@ -867,13 +861,15 @@ class ModernCodecDashboardTests(unittest.TestCase):
         )
         coordinator.bind_session(session)
         coordinator.expand(row.record_id)
+        preview = coordinator.active_context
+        coordinator.complete(preview, success=True, data={})
+        coordinator.cleanup_finished(preview)
         live = coordinator.active_context
-        coordinator.request_codec_preview()
         coordinator.request_auxiliary("call_log")
         coordinator.cleanup_finished(live)
         explicit = coordinator.active_context
         coordinator.complete(explicit, success=True, data={})
-        self.assertEqual(["live", "call_log", "call_log_preview"], [request[0] for request in requests])
+        self.assertEqual(["call_log_preview", "live", "call_log", "live"], [request[0] for request in requests])
 
     def test_explicit_detail_never_reuses_preview_snapshot(self):
         from gui.main_window import VCSDiagnosticApp
