@@ -234,6 +234,13 @@ class HuaweiTE40DataParser:
         if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
             parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
             parsed['speaker_volume'] = raw_data.get('speaker_volume')
+        # TE40's configured primary microphone gain is a numeric wire value.
+        # It is deliberately independent from MicSwitch/mute evidence.
+        microphone_volume = raw_data.get('mic_volume')
+        if isinstance(microphone_volume, (int, float)) and not isinstance(microphone_volume, bool):
+            if 0 <= microphone_volume <= 21:
+                parsed['microphone_volume'] = microphone_volume
+                parsed['Громкость микрофона'] = str(microphone_volume - 12)
         if (
             'monitor_mic_value' in raw_data
             and raw_data.get('monitor_mic_value') is not None

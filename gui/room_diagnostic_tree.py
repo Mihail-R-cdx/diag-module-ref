@@ -1438,27 +1438,16 @@ class RoomReadOnlyPresentation(QWidget):
         call.body_layout.addStretch(1)
 
         projection = normalize_codec_audio_projection(source, row.diagnostic_model)
-        meter_label = QLabel("Микрофон (уровень)", audio)
-        meter_label.setObjectName("roomCodecMicrophoneLevelLabel")
-        audio.body_layout.addWidget(meter_label)
-        meter_supported = self._codec_microphone_meter_supported(row.diagnostic_model)
-        meter_state = QLabel("", audio)
-        meter_state.setObjectName("roomCodecMicrophoneMeterState")
-        if meter_supported:
-            meter = QProgressBar(audio)
-            meter.setObjectName("roomCodecMicrophoneMeter")
-            meter.setRange(0, 100)
-            meter.setTextVisible(False)
-            meter.setFixedHeight(10)
-            level = self._codec_microphone_level(source)
-            meter.setProperty("meterState", "available" if level is not None else "unavailable")
-            meter.setValue(level or 0)
-            meter_state.setText("" if level is not None else missing)
-            audio.body_layout.addWidget(meter)
-        else:
-            meter_state.setText("Не поддерживается")
-        audio.body_layout.addWidget(meter_state)
-        audio.body_layout.addSpacing(8)
+        live_audio = source.get("live_audio") if isinstance(source.get("live_audio"), Mapping) else {}
+        self._codec_live_meter_slot(
+            audio, "Микрофон (уровень)", "roomCodecMicrophone",
+            live_audio.get("microphone", source.get("live_microphone")),
+            self._codec_microphone_meter_supported(row.diagnostic_model), missing,
+        )
+        self._codec_live_meter_slot(
+            audio, "Динамик (уровень)", "roomCodecSpeaker", live_audio.get("speaker"),
+            self._codec_speaker_meter_supported(row.diagnostic_model), missing,
+        )
         controls_enabled = (
             row.status is DeviceRowStatus.CONNECTED
             and (row.network_actions_enabled or live_here)
@@ -1471,17 +1460,13 @@ class RoomReadOnlyPresentation(QWidget):
             request_codec_control, controls_enabled,
             adjust_enabled=bool(codec_controls and codec_controls.microphone_adjust),
             mute_enabled=bool(codec_controls and codec_controls.microphone_mute),
-            display_value=self._codec_volume_text(projection.microphone_volume))
+            display_value=self._codec_microphone_text(row.diagnostic_model, projection.microphone_volume))
         self._codec_audio_row(audio, "Громкость динамиков", projection.speaker_volume,
             projection.speaker_mute_state, "speaker_adjust", "speaker_mute",
             request_codec_control, controls_enabled,
             adjust_enabled=bool(codec_controls and codec_controls.speaker_adjust),
             mute_enabled=bool(codec_controls and codec_controls.speaker_mute),
             display_value=self._codec_volume_text(projection.speaker_volume_percent))
-        if entry is not None and entry.live_binding_key == "huawei_room_live":
-            live_audio = source.get("live_audio") if isinstance(source.get("live_audio"), Mapping) else {}
-            self._codec_live_audio_row(audio, "Live микрофон", live_audio.get("microphone"))
-            self._codec_live_audio_row(audio, "Live динамик", live_audio.get("speaker"))
         audio.body_layout.addStretch(1)
 
         snapshot = getattr(row, "call_log_preview_snapshot", None)
@@ -1557,6 +1542,11 @@ class RoomReadOnlyPresentation(QWidget):
     def _codec_microphone_level(source: Mapping[str, Any]) -> int | None:
         """Return only a finite accepted live meter level, scaled to percentage."""
         sample = source.get("live_microphone")
+        # Huawei monitor-audio values are already model-normalized numeric
+        # evidence.  Preserve numeric zero as observed silence rather than
+        # treating it as a missing mapping.
+        if isinstance(sample, Real) and not isinstance(sample, bool) and isfinite(sample):
+            return max(0, min(100, round(sample)))
         if not isinstance(sample, Mapping) or sample.get("available") is False:
             return None
         raw = sample.get("normalized")
@@ -1564,14 +1554,51 @@ class RoomReadOnlyPresentation(QWidget):
             return None
         return max(0, min(100, round(raw * 100)))
 
+    @classmethod
+    def _codec_live_meter_slot(cls, card, label_text, object_prefix, sample, supported, missing):
+        label = QLabel(label_text, card)
+        label.setObjectName(f"{object_prefix}LevelLabel")
+        card.body_layout.addWidget(label)
+        state = QLabel("", card)
+        state.setObjectName(f"{object_prefix}MeterState")
+        if supported:
+            meter = QProgressBar(card)
+            meter.setObjectName(f"{object_prefix}Meter")
+            meter.setRange(0, 100)
+            meter.setTextVisible(False)
+            meter.setFixedHeight(10)
+            level = cls._codec_microphone_level({"live_microphone": sample})
+            meter.setProperty("meterState", "available" if level is not None else "unavailable")
+            meter.setValue(level if level is not None else 0)
+            state.setText("" if level is not None else missing)
+            card.body_layout.addWidget(meter)
+        else:
+            state.setText("Не поддерживается")
+        card.body_layout.addWidget(state)
+        card.body_layout.addSpacing(8)
+
     @staticmethod
     def _codec_microphone_meter_supported(model: str | None) -> bool:
         entry = dispatch_entry_for_model(model)
-        return bool(entry is not None and entry.live_binding_key == "cloudlink_room_live")
+        return bool(entry is not None and entry.live_binding_key in {"cloudlink_room_live", "huawei_room_live"})
+
+    @staticmethod
+    def _codec_speaker_meter_supported(model: str | None) -> bool:
+        entry = dispatch_entry_for_model(model)
+        return bool(entry is not None and entry.live_binding_key == "huawei_room_live")
 
     @classmethod
     def _codec_volume_text(cls, percentage: int | None) -> str:
         return f"{percentage}%" if percentage is not None else "Нет данных"
+
+    @staticmethod
+    def _codec_microphone_text(model: str | None, value: float | int | None) -> str:
+        if value is None:
+            return "Нет данных"
+        if model == "Huawei TE40" and isinstance(value, Real) and not isinstance(value, bool):
+            gain = value - 12
+            return f"{gain:+g} dB"
+        return f"{value}%"
 
     @staticmethod
     def _codec_value(source: Mapping[str, Any], keys: tuple[str, ...]):

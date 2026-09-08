@@ -105,7 +105,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
     def test_exact_registry_control_matrix_is_complete_and_fail_closed(self):
         expected = {
             "Huawei TE20": (True, True, False, True, False),
-            "Huawei TE40": (True, True, False, True, False),
+            "Huawei TE40": (True, True, True, True, False),
             "CloudLink Bar 310": (True, True, False, False, False),
             "CloudLink Box 310": (True, True, False, False, False),
             "Polycom RPG 310": (True, True, False, True, False),
@@ -456,17 +456,17 @@ class ModernCodecDashboardTests(unittest.TestCase):
         self.assertIsNone(normalize_codec_audio_projection({"speaker_volume": "7"}, "CloudLink Bar 310").speaker_volume_percent)
 
     def test_microphone_meter_capability_distinguishes_unsupported_and_missing_samples(self):
-        for model in ("Huawei TE20", "Huawei TE40", "Polycom RPG 310"):
+        for model in ("Huawei TE20", "Huawei TE40", "CloudLink Bar 310"):
+            with self.subTest(model=model):
+                presentation = RoomReadOnlyPresentation(self._row(model, {"live_microphone": {"available": True, "normalized": 0}}))
+                self.addCleanup(presentation.deleteLater)
+                self.assertEqual(0, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+        for model in ("CloudLink Box 310", "Polycom RPG 310"):
             with self.subTest(model=model):
                 presentation = RoomReadOnlyPresentation(self._row(model, {"live_microphone": {"available": True, "normalized": 0}}))
                 self.addCleanup(presentation.deleteLater)
                 self.assertIsNone(presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter"))
                 self.assertEqual("Не поддерживается", presentation.findChild(QLabel, "roomCodecMicrophoneMeterState").text())
-        for model in ("CloudLink Bar 310", "CloudLink Box 310"):
-            with self.subTest(model=model):
-                presentation = RoomReadOnlyPresentation(self._row(model, {"live_microphone": {"available": True, "normalized": 0}}))
-                self.addCleanup(presentation.deleteLater)
-                self.assertEqual(0, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
 
     def test_cloudlink_microphone_buttons_are_disabled_before_any_intent(self):
         intents = []
@@ -530,7 +530,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.collapse(row.record_id)
         coordinator.expand(row.record_id)
         coordinator.request_codec_preview()
-        self.assertEqual(["call_log_preview", "call_log_preview"], requests)
+        self.assertEqual(["call_log_preview"], requests)
 
     def test_current_preview_evidence_completes_epoch_without_network_owner(self):
         row = self._row()
@@ -548,18 +548,17 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.bind_session(session)
         coordinator.expand(row.record_id)
         coordinator.request_codec_preview()
-        self.assertEqual([], requests)
-        self.assertIsNone(coordinator.active_context)
+        self.assertEqual(["call_log_preview"], requests)
+        self.assertIsNotNone(coordinator.active_context)
 
     def test_te_live_projection_keeps_microphone_and_speaker_evidence(self):
         presentation = RoomReadOnlyPresentation(self._row("Huawei TE20", {
             "live_audio": {"microphone": 11, "speaker": 22},
         }))
         self.addCleanup(presentation.deleteLater)
-        self.assertEqual(
-            ["11", "22"],
-            [label.text() for label in presentation.findChildren(QLabel, "roomCodecLiveAudioValue")],
-        )
+        self.assertEqual(11, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+        self.assertEqual(22, presentation.findChild(QProgressBar, "roomCodecSpeakerMeter").value())
+        self.assertEqual([], presentation.findChildren(QLabel, "roomCodecLiveAudioValue"))
 
     def test_confirmed_codec_readback_merges_only_the_targeted_field(self):
         row = self._row(snapshot={"speaker_volume": 5, "serial_number": "unchanged"})
@@ -694,12 +693,12 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         coordinator.cleanup_finished(busy)
 
-        self.assertEqual([("call_log", "aux-1"), ("live", "codec-2")], calls)
-        self.assertEqual("LIVE", coordinator.active_context.kind.value)
+        self.assertEqual([("call_log", "aux-1"), ("call_log_preview", "codec-2")], calls)
+        self.assertEqual("AUXILIARY_READ", coordinator.active_context.kind.value)
         self.assertIsNone(coordinator._pending_codec_preview)
         coordinator.complete(coordinator.active_context, success=True, data={})
         coordinator.request_codec_preview()
-        self.assertEqual(0, sum(action == "call_log_preview" for action, _row in calls))
+        self.assertEqual(1, sum(action == "call_log_preview" for action, _row in calls))
 
     def test_pending_preview_is_discarded_for_non_codec_switch_and_collapse(self):
         first = self._row("Huawei TE20")
@@ -800,9 +799,9 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         coordinator.cleanup_finished(retiring_live)
 
-        self.assertEqual([("live", "codec-1"), ("live", "codec-2")], calls)
+        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-2")], calls)
         self.assertEqual("codec-2", coordinator.active_context.record_id)
-        self.assertEqual(0, [call for call in calls if call[0] == "call_log_preview"].count(("call_log_preview", "codec-2")))
+        self.assertEqual(1, [call for call in calls if call[0] == "call_log_preview"].count(("call_log_preview", "codec-2")))
         self.assertNotIn(("call_log_preview", "codec-1"), calls)
 
     def test_live_priority_preview_is_terminal_and_never_starts_after_cleanup(self):
@@ -824,8 +823,8 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.request_codec_preview()
         coordinator.cleanup_finished(retiring_live)
 
-        self.assertEqual([("live", "codec-1"), ("live", "codec-1")], calls)
-        self.assertEqual(0, calls.count(("call_log_preview", "codec-1")))
+        self.assertEqual([("live", "codec-1"), ("call_log_preview", "codec-1")], calls)
+        self.assertEqual(1, calls.count(("call_log_preview", "codec-1")))
 
     def test_live_preview_handoff_collapse_does_not_resurrect_work(self):
         row = self._row("CloudLink Box 310")
@@ -874,7 +873,7 @@ class ModernCodecDashboardTests(unittest.TestCase):
         coordinator.cleanup_finished(live)
         explicit = coordinator.active_context
         coordinator.complete(explicit, success=True, data={})
-        self.assertEqual(["live", "call_log", "live"], [request[0] for request in requests])
+        self.assertEqual(["live", "call_log", "call_log_preview"], [request[0] for request in requests])
 
     def test_explicit_detail_never_reuses_preview_snapshot(self):
         from gui.main_window import VCSDiagnosticApp

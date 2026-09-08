@@ -112,7 +112,10 @@ class RoomInteractionCoordinator:
         self._pending_global_refresh: Callable[[], None] | None = None
         self._expanded_record_id: str | None = None
         self._codec_preview_epochs: dict[str, int] = {}
-        self._codec_preview_attempts: set[tuple[Any, str, int]] = set()
+        # Automatic preview freshness is owned by exact record plus room
+        # generation.  A presentation collapse/re-expand is never a new I/O
+        # boundary.
+        self._codec_preview_attempts: set[tuple[Any, str]] = set()
 
     @property
     def active_context(self) -> RoomInteractionContext | None:
@@ -195,8 +198,8 @@ class RoomInteractionCoordinator:
     def cycle_finished(self, session: RoomDiagnosticSession) -> None:
         if session is not self._session or session.invalidated:
             return
-        self._start_eligible_live()
         self._maybe_start_codec_preview()
+        self._start_eligible_live()
 
     def expand(self, record_id: str) -> None:
         session = self._require_session()
@@ -515,29 +518,21 @@ class RoomInteractionCoordinator:
         epoch = self._codec_preview_epochs.get(record_id)
         if epoch is None:
             return
-        key = (session.identity, record_id, epoch)
+        key = (session.identity, record_id)
         if key in self._codec_preview_attempts:
             return
         # Claim before publication. Render/theme/resize cannot create a
         # second attempt even if it ends with a local unavailable outcome.
         self._codec_preview_attempts.add(key)
-        # Preview evidence is presentation-local, but only an accepted
-        # same-row snapshot may complete this epoch without a lane owner.
-        if getattr(row, "call_log_preview_snapshot", None) is not None:
-            self._notify()
-            return
-        # LIVE owns priority over automatic enrichment.  It is deliberately
-        # not retired or queued behind: this completes the epoch locally.
+        # Automatic preview is mandatory before the first LIVE.  A pre-existing
+        # LIVE owner can only occur after a legacy handoff; retire it and wait
+        # for bounded cleanup rather than replacing preview with a local skip.
         if self._active is not None and self._active.kind is RoomInteractionKind.LIVE:
-            self._notify()
+            self._pending_codec_preview = _PendingCodecPreview(
+                session.identity, record_id, epoch
+            )
+            self._retire_active()
             return
-        # A live-capable expanded row is eligible ahead of preview even if a
-        # caller reaches this bridge before the live start callback.
-        if binding.live is not None:
-            self._start_eligible_live()
-            if self._active is not None and self._active.kind is RoomInteractionKind.LIVE:
-                self._notify()
-                return
         self._pending_codec_preview = _PendingCodecPreview(
             session.identity, record_id, epoch
         )
@@ -584,19 +579,6 @@ class RoomInteractionCoordinator:
             self._pending_codec_preview = None
             self._start_eligible_live()
             return
-        # A preview deferred behind another serialized owner must check LIVE
-        # again after cleanup: it can become eligible only at this boundary.
-        session = self._require_session()
-        assert session is not None
-        row = session.row_for(pending.record_id)
-        binding = self._binding_for(row)
-        if binding is not None and binding.live is not None:
-            self._start_eligible_live()
-            if self._active is not None and self._active.kind is RoomInteractionKind.LIVE:
-                # This epoch is terminal locally and owns no preview I/O.
-                self._pending_codec_preview = None
-                self._notify()
-                return
         self._start_user_operation(RoomInteractionKind.AUXILIARY_READ, action="call_log_preview")
 
     def _retire_active(self) -> None:

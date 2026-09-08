@@ -45,6 +45,10 @@ class InteractiveOperation:
     original: Any = None
     allow_set_from_any_authoritative: bool = False
     require_confirmed_readback: bool = False
+    # Full-state mutations perform their own compare-and-preserve
+    # reconciliation.  Retrying them here could replay a command after an
+    # ambiguous transport outcome, which is never safe.
+    suppress_recovery: bool = False
     duplicate_key: Optional[str] = None
     quiet: bool = False
     client_token: Optional[int] = None
@@ -281,6 +285,8 @@ class InteractiveSessionController(QObject):
                 OSError,
                 CommandOutcomeUnknownError,
             ) as error:
+                if operation.suppress_recovery:
+                    raise
                 record = self._recover_once(
                     context, record, error, recovery_budget
                 )

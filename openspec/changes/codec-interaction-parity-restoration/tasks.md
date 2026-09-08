@@ -64,58 +64,58 @@ Required re-validation on the new exact published SHA:
 
 ## 5. Post-approval exact-model capability and parser implementation
 
-- [ ] 5.1 Make `diagnostic_dispatch`/unified exact-model registration conform to final approved matrix; preserve RPG310 speaker step `2`; TE40 `microphone_adjust` supported only through MIC1 binding.
-- [ ] 5.2 TE40: normalize numeric static `micValue` to canonical `microphone_volume` and independent mute evidence to `microphone_muted`.
-- [ ] 5.3 TE40: implement MIC1 gain mutation with mandatory fresh full-state pre-read after lane ownership/LIVE retirement; build save payload only from that fresh state; change only target `mic1Value`; send once via `WEB_SaveAudioMicCtrlParams`.
-- [ ] 5.4 TE40: post-write full-state reconciliation must confirm target plus preserved non-target `micall`/`micN`/`micNValue`; insufficient/collateral mismatch -> blocked/unconfirmed, no replay.
-- [ ] 5.5 TE40: preserve microphone mute as a separate supported desired-state/readback operation.
-- [ ] 5.6 TE40 camera: process `itemList` as zero-to-many; cover exactly-one-camera shape.
-- [ ] 5.7 Box 310: remove/disable all live-microphone capability surfaces for this change: no unified-registration LIVE binding, no Box meter polling context, no LIVE `WEB_GetCurrentAudioParam`, no legacy codec-page meter row, modern room meter slot unsupported. Do not implement a replacement Box parser.
-- [ ] 5.8 Bar 310: preserve approved current-volume LIVE endpoint/session/parser/polling behavior and do not let Box deferral regress Bar.
-- [ ] 5.9 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
-- [ ] 5.10 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
+- [x] 5.1 Make `diagnostic_dispatch`/unified exact-model registration conform to final approved matrix; preserve RPG310 speaker step `2`; TE40 `microphone_adjust` supported only through MIC1 binding.
+- [x] 5.2 TE40: normalize numeric static `micValue` to canonical `microphone_volume` and independent mute evidence to `microphone_muted`.
+- [x] 5.3 TE40: implement MIC1 gain mutation with mandatory fresh full-state pre-read after lane ownership/LIVE retirement; build save payload only from that fresh state; change only target `mic1Value`; send once via `WEB_SaveAudioMicCtrlParams`.
+- [x] 5.4 TE40: post-write full-state reconciliation must confirm target plus preserved non-target `micall`/`micN`/`micNValue`; insufficient/collateral mismatch -> blocked/unconfirmed, no replay.
+- [x] 5.5 TE40: preserve microphone mute as a separate supported desired-state/readback operation.
+- [x] 5.6 TE40 camera: process `itemList` as zero-to-many; cover exactly-one-camera shape.
+- [x] 5.7 Box 310: remove/disable all live-microphone capability surfaces for this change: no unified-registration LIVE binding, no Box meter polling context, no LIVE `WEB_GetCurrentAudioParam`, no legacy codec-page meter row, modern room meter slot unsupported. Do not implement a replacement Box parser.
+- [x] 5.8 Bar 310: preserve approved current-volume LIVE endpoint/session/parser/polling behavior and do not let Box deferral regress Bar.
+- [x] 5.9 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
+- [x] 5.10 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
 
 ## 6. Post-approval presentation and LIVE implementation
 
-- [ ] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Динамик (уровень)`, `Громкость микрофона`, `Громкость динамиков`.
-- [ ] 6.2 TE20/TE40: map accepted `MicValueIndex` to microphone meter and `SpeakerValueIndex` to speaker meter.
-- [ ] 6.3 Remove redundant textual `Live микрофон` / `Live динамик` rows for Huawei.
-- [ ] 6.4 TE40: display configured `micValue` via exact dB transform and make `-`/`+` request exactly one dB through typed application intent.
-- [ ] 6.5 Bar310: preserve approved microphone LIVE meter; speaker live meter unsupported.
-- [ ] 6.6 Box310: modern room both live-level slots render `Не поддерживается`; legacy codec-page live microphone row is hidden; no historical/stale Box meter data is rendered as current and no Box LIVE lifecycle is implied.
-- [ ] 6.7 RPG310: both live-level slots unsupported.
-- [ ] 6.8 Update repository-local visual acceptance tests/checkpoints for Huawei two-meter contract, TE40 dB value, Bar LIVE preservation, and Box deferred LIVE state.
+- [x] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Динамик (уровень)`, `Громкость микрофона`, `Громкость динамиков`.
+- [x] 6.2 TE20/TE40: map accepted `MicValueIndex` to microphone meter and `SpeakerValueIndex` to speaker meter.
+- [x] 6.3 Remove redundant textual `Live микрофон` / `Live динамик` rows for Huawei.
+- [x] 6.4 TE40: display configured `micValue` via exact dB transform and make `-`/`+` request exactly one dB through typed application intent.
+- [x] 6.5 Bar310: preserve approved microphone LIVE meter; speaker live meter unsupported.
+- [x] 6.6 Box310: modern room both live-level slots render `Не поддерживается`; legacy codec-page live microphone row is hidden; no historical/stale Box meter data is rendered as current and no Box LIVE lifecycle is implied.
+- [x] 6.7 RPG310: both live-level slots unsupported.
+- [x] 6.8 Update repository-local visual acceptance tests/checkpoints for Huawei two-meter contract, TE40 dB value, Bar LIVE preservation, and Box deferred LIVE state.
 
 ## 7. Initial three-call preview and explicit journal
 
-- [ ] 7.1 After the **entire** automatic room cycle is terminal, admit automatic call preview only for the exact current expanded connected/usable call-log-capable codec row.
-- [ ] 7.2 For that exact row/generation, perform one fresh serialized call-history acquisition; if the exact registration advertises LIVE, first LIVE waits for preview terminal cleanup. If it advertises no LIVE, cleanup releases the lane with no LIVE start.
-- [ ] 7.3 If no codec row is expanded at whole-room terminal time, perform zero hidden preview I/O until an eligible row is later expanded.
-- [ ] 7.4 After a row/generation automatic attempt is terminal, collapse/re-expand, repaint, resize, theme switch and duplicate Qt events cause zero additional automatic call-log I/O.
-- [ ] 7.5 Row switch may admit the newly current codec's own first generation-bound preview after prior lifecycle cleanup; stale old callbacks remain powerless.
-- [ ] 7.6 Ordinary preview failure/no-data reaches bounded cleanup and does not permanently degrade a connected row; first LIVE may start afterward only when exact registration advertises LIVE.
-- [ ] 7.7 Every explicit `Развернуть` remains a separate fresh call-log acquisition; active LIVE retires/resumes only where that exact model actually has LIVE. Box has zero LIVE retirement/resume in this change.
-- [ ] 7.8 Add end-to-end call-log regressions for TE20, TE40, Bar310, Box310 and RPG310 proving up-to-three automatic rows and fresh explicit detail.
-- [ ] 7.9 Box regression specifically proves: one preview, no Box LIVE context/request before or after cleanup, and later explicit detail remains fresh.
+- [x] 7.1 After the **entire** automatic room cycle is terminal, admit automatic call preview only for the exact current expanded connected/usable call-log-capable codec row.
+- [x] 7.2 For that exact row/generation, perform one fresh serialized call-history acquisition; if the exact registration advertises LIVE, first LIVE waits for preview terminal cleanup. If it advertises no LIVE, cleanup releases the lane with no LIVE start.
+- [x] 7.3 If no codec row is expanded at whole-room terminal time, perform zero hidden preview I/O until an eligible row is later expanded.
+- [x] 7.4 After a row/generation automatic attempt is terminal, collapse/re-expand, repaint, resize, theme switch and duplicate Qt events cause zero additional automatic call-log I/O.
+- [x] 7.5 Row switch may admit the newly current codec's own first generation-bound preview after prior lifecycle cleanup; stale old callbacks remain powerless.
+- [x] 7.6 Ordinary preview failure/no-data reaches bounded cleanup and does not permanently degrade a connected row; first LIVE may start afterward only when exact registration advertises LIVE.
+- [x] 7.7 Every explicit `Развернуть` remains a separate fresh call-log acquisition; active LIVE retires/resumes only where that exact model actually has LIVE. Box has zero LIVE retirement/resume in this change.
+- [x] 7.8 Add end-to-end call-log regressions for TE20, TE40, Bar310, Box310 and RPG310 proving up-to-three automatic rows and fresh explicit detail.
+- [x] 7.9 Box regression specifically proves: one preview, no Box LIVE context/request before or after cleanup, and later explicit detail remains fresh.
 
 ## 8. Existing speaker/control safety regression
 
-- [ ] 8.1 Preserve speaker ranges/steps: TE20/TE40 `0..21/1`, Bar/Box `0..15/1`, RPG310 `0..100/2`.
-- [ ] 8.2 Preserve speaker zero/restore mute using only proven exact-row/generation positive restore evidence.
-- [ ] 8.3 Preserve no-restore unmute at `0` as local unavailable with zero mutation/handler/device I/O.
-- [ ] 8.4 Preserve root blocked/unconfirmed safety after possible send + failed/ambiguous readback; apply to TE40 MIC1 target or collateral mismatch.
-- [ ] 8.5 Preserve definite pre-submit semantics: TE40 fresh pre-read failure before save does not create `unconfirmed_after_command` solely from no-send.
-- [ ] 8.6 Preserve Local Refresh, cancellation, cleanup timeout, stale-callback and no-indefinite-lock behavior after amended lifecycles.
+- [x] 8.1 Preserve speaker ranges/steps: TE20/TE40 `0..21/1`, Bar/Box `0..15/1`, RPG310 `0..100/2`.
+- [x] 8.2 Preserve speaker zero/restore mute using only proven exact-row/generation positive restore evidence.
+- [x] 8.3 Preserve no-restore unmute at `0` as local unavailable with zero mutation/handler/device I/O.
+- [x] 8.4 Preserve root blocked/unconfirmed safety after possible send + failed/ambiguous readback; apply to TE40 MIC1 target or collateral mismatch.
+- [x] 8.5 Preserve definite pre-submit semantics: TE40 fresh pre-read failure before save does not create `unconfirmed_after_command` solely from no-send.
+- [x] 8.6 Preserve Local Refresh, cancellation, cleanup timeout, stale-callback and no-indefinite-lock behavior after amended lifecycles.
 
 ## 9. Post-amendment implementation validation
 
-- [ ] 9.1 Run focused parser/codec-control/live/call-log/camera/lifecycle tests.
-- [ ] 9.2 Run the full offline unittest suite.
-- [ ] 9.3 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict`.
-- [ ] 9.4 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 9.5 Run `git diff --check` and `git diff --cached --check`.
-- [ ] 9.6 Synchronize implementation evidence/tasks without treating synthetic tests as hardware acceptance.
-- [ ] 9.7 Create and push focused implementation commit(s). Implementation session MUST NOT issue the independent final verdict.
+- [x] 9.1 Run focused parser/codec-control/live/call-log/camera/lifecycle tests.
+- [x] 9.2 Run the full offline unittest suite.
+- [x] 9.3 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict`.
+- [x] 9.4 Run `.\openspec.cmd validate --all --strict`.
+- [x] 9.5 Run `git diff --check` and `git diff --cached --check`.
+- [x] 9.6 Synchronize implementation evidence/tasks without treating synthetic tests as hardware acceptance.
+- [x] 9.7 Create and push focused implementation commit(s). Implementation session MUST NOT issue the independent final verdict.
 
 ## 10. Exact-SHA hardware acceptance
 

@@ -1017,6 +1017,20 @@ class VCSDiagnosticApp(QMainWindow):
                 "operation": "microphone_mute",
                 "target": projection.microphone_mute_state is CodecMuteState.UNMUTED,
             }
+        if operation == "microphone_adjust":
+            if (
+                row.diagnostic_model != "Huawei TE40"
+                or not isinstance(value, int)
+                or value not in {-1, 1}
+                or not isinstance(projection.microphone_volume, (int, float))
+                or isinstance(projection.microphone_volume, bool)
+            ):
+                return None
+            target = max(0, min(21, int(projection.microphone_volume) + value))
+            # Bounds are a local no-op: do not acquire a mutation/session lane.
+            return None if target == projection.microphone_volume else {
+                "operation": "microphone_gain", "target": target,
+            }
         return None
 
     def _current_room_pdu_action(self, record_id):
@@ -1278,7 +1292,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _start_room_codec_mutation_attempt(self, context, command, credential, candidate_index):
         """Submit one already-authorized exact codec command on one owner lane."""
-        if not isinstance(command, Mapping) or command.get("operation") not in {"speaker_volume", "microphone_mute"}:
+        if not isinstance(command, Mapping) or command.get("operation") not in {"speaker_volume", "microphone_mute", "microphone_gain"}:
             self._finish_room_codec_mutation(context, False, None, False, "Команда кодека недоступна")
             return
         operation_name = command["operation"]
@@ -1289,11 +1303,7 @@ class VCSDiagnosticApp(QMainWindow):
         }
         interactive.signals.result.connect(
             lambda payload, current=context, name=operation_name:
-            self._retire_room_codec_mutation(
-                current, True,
-                {"operation": name, "value": payload.get("value")},
-                False, None,
-            )
+            self._on_room_codec_mutation_result(current, name, payload)
         )
         interactive.signals.error.connect(
             lambda payload, current=context: self._retire_room_codec_mutation(
@@ -1316,16 +1326,21 @@ class VCSDiagnosticApp(QMainWindow):
             )
             operation = InteractiveOperation(
                 kind="room_codec_audio",
-                method="set_speaker_volume" if operation_name == "speaker_volume" else "set_microphone_mute",
+                method=("set_speaker_volume" if operation_name == "speaker_volume" else
+                        "set_microphone_mute" if operation_name == "microphone_mute" else
+                        "set_microphone_gain"),
                 args=(target,),
-                semantic=(OperationSemantic.ABSOLUTE if operation_name == "speaker_volume" else OperationSemantic.DESIRED_STATE),
+                semantic=(OperationSemantic.ABSOLUTE if operation_name == "speaker_volume" else
+                          OperationSemantic.DESIRED_STATE if operation_name == "microphone_mute" else
+                          OperationSemantic.RELATIVE_AS_ABSOLUTE),
                 target=target,
                 readback_method=(
                     "get_speaker_volume"
                     if operation_name == "speaker_volume"
                     else "get_microphone_volume"
                 ),
-                require_confirmed_readback=True,
+                require_confirmed_readback=operation_name != "microphone_gain",
+                suppress_recovery=operation_name == "microphone_gain",
                 duplicate_key=f"{operation_name}:{target}",
                 quiet=True,
             )
@@ -1336,7 +1351,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self._room_codec_mutations[context]["pre_submit_failure"] = True
                 self._begin_room_codec_mutation_cleanup(context)
                 return
-            self._room_codec_mutations[context]["command_submitted"] = True
+            self._room_codec_mutations[context]["command_submitted"] = operation_name != "microphone_gain"
             self._room_credential_attempts[context] = ((credential,), candidate_index, dict(command))
         except Exception:
             self._retire_room_codec_mutation(context, False, None, False, "Не удалось запустить операцию кодека")
@@ -1347,6 +1362,26 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self._begin_room_codec_mutation_cleanup(
             context, terminal=(success, data, connection_lost, warning)
+        )
+
+    def _on_room_codec_mutation_result(self, context, operation_name, payload):
+        value = payload.get("value") if isinstance(payload, Mapping) else None
+        if operation_name == "microphone_gain":
+            if isinstance(value, Mapping) and value.get("pre_submit_failure"):
+                run = self._room_codec_mutations.get(context)
+                if run is not None:
+                    run["pre_submit_failure"] = True
+                self._retire_room_codec_mutation(
+                    context, False, None, False,
+                    "Не удалось получить полный актуальный audio state TE40",
+                )
+                return
+            if isinstance(value, Mapping) and value.get("confirmed"):
+                run = self._room_codec_mutations.get(context)
+                if run is not None:
+                    run["command_submitted"] = True
+        self._retire_room_codec_mutation(
+            context, True, {"operation": operation_name, "value": value}, False, None,
         )
 
     def _begin_room_codec_mutation_cleanup(self, context, *, terminal=None, cancelled=False):
@@ -1455,6 +1490,10 @@ class VCSDiagnosticApp(QMainWindow):
                     return {"microphone_muted": False}
             if value is True or value is False:
                 return {"microphone_muted": value}
+        if operation == "microphone_gain" and isinstance(value, Mapping):
+            target = value.get("microphone_volume")
+            if value.get("confirmed") and isinstance(target, (int, float)) and not isinstance(target, bool):
+                return {"microphone_volume": target}
         return None
 
     def _start_room_credential_attempt(self, context, *, command=None, candidate_index=None):
