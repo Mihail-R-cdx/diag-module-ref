@@ -1,160 +1,121 @@
 # Tasks: codec-interaction-parity-restoration
 
-## 1. Forensic baseline
+## 1. Historical baseline and first implementation cycle
 
-- [x] 1.1 Compare current `master` with pre-codec-redesign `c442152077dd8aa6251f1d8be9fc98b765406dbd`.
-- [x] 1.2 Confirm that the principal regression boundary is room interaction/composition rather than wholesale handler replacement.
-- [x] 1.3 Document retained legacy `CodecScreen` behavior as a behavioral oracle, not as new room authority.
-- [x] 1.4 Confirm the pre-redesign Polycom speaker step is `2`, while current registry uses `1`.
-- [x] 1.5 Confirm static microphone evidence differs by exact model and requires explicit normalization before common presentation.
+- [x] 1.1 Compare current `master` with pre-codec-redesign `c442152077dd8aa6251f1d8be9fc98b765406dbd` and treat legacy `CodecScreen` as behavioral evidence, not room authority.
+- [x] 1.2 Establish the original exact-model matrix, parser normalization, LIVE/call-log lifecycle and hardware gate.
+- [x] 1.3 Obtain the original architecture `APPROVE` and implement through published SHA `467f2cbb502f698476f047d277052bf5ccb55147`.
+- [x] 1.4 Independently validate `467f2cbb...` offline; result was `PASS FOR HARDWARE ACCEPTANCE`.
+- [x] 1.5 Begin hardware acceptance and record that real-device findings invalidate parts of the original architecture; `467f2cbb...` is discovery baseline only.
 
-## 2. OpenSpec / architecture
+## 2. Hardware-discovered architecture amendment
 
-### Original approved architecture cycle
+- [x] 2.1 Publish first amendment `969e4a55e44a4f6879daa5c664de812141fa1704` covering TE40 numeric microphone evidence, live presentation, camera, initial three-call product requirement and Box live response shape.
+- [x] 2.2 Independently review `969e4a55...`; verdict `CHANGES REQUIRED` with 4 HIGH and 1 MEDIUM findings.
+- [x] 2.3 Resolve HIGH root capability conflict by replacing `Current codec room-control support matrix is a fixed acceptance oracle` through archive-compatible `MODIFIED Requirements` rather than a competing ADDED matrix.
+- [x] 2.4 Resolve HIGH adapter conflict by replacing `Codec room-control adapters reuse approved typed operations and explicitly reject unsupported operations`; TE20/RPG remain mute-only, TE40 numeric read evidence is separate but mutation remains fail-closed pending proof.
+- [x] 2.5 Resolve HIGH root presentation conflict by replacing `Codec audio card distinguishes supported live-meter evidence from unsupported capability` with the two-live-meter Audio-card contract and preserved scenario names.
+- [x] 2.6 Resolve HIGH visual-checkpoint conflict by replacing `Codec visual acceptance is measurable from repository-local checkpoints` and defining the exact new Audio-card order.
+- [x] 2.7 Resolve HIGH initial-preview lifecycle ambiguity: whole automatic room cycle terminal + exact codec current/expanded/usable -> one fresh automatic preview -> bounded cleanup -> first LIVE.
+- [x] 2.8 Keep collapsed/non-current codec rows free of automatic call-log network I/O; this amendment does not create background preview for every room codec.
+- [x] 2.9 Remove the unproven Box `max(all curVolume)` contract and make response-envelope/device-role semantics a pre-APPROVE discovery gate.
 
-- [x] 2.1 Create proposal, design, delta specs, and task plan.
-- [x] 2.2 Review exact current root specs and implementation against this design for contradictions or missing model-specific behavior.
-- [x] 2.3 Perform independent architecture review; result: `CHANGES REQUIRED` with 2 HIGH and 2 MEDIUM findings.
-- [x] 2.4 Resolve the first architecture findings by adding the normative exact-model capability matrix, microphone normalization contract, hardware gate rules, and explicit defect/action inventory.
-- [x] 2.5 Resolve all hardware-availability rows to `AVAILABLE` based on the user's commitment to provide TE20, TE40, Bar 310, Box 310, and RPG 310 after implementation; hardware execution remains a post-implementation exact-SHA gate.
-- [x] 2.6 Resolve follow-up architecture findings: remove invented first-unmute fallback; replace the conflicting automatic-preview lifecycle contract with LIVE-priority `MODIFIED` semantics; modify parallel call-log contracts and preserve all replaced root scenario names for archive applicability.
-- [x] 2.7 Run a disposable repository-local archive-applicability check for the original approved architecture SHA.
-- [x] 2.8 Obtain original architecture `APPROVE` before the first implementation cycle.
+## 3. Mandatory protocol discovery before architecture APPROVE
 
-### Hardware-discovered architecture amendment after `467f2cbb...`
+These tasks belong to the **OpenSpec / Design phase**. Implementation SHALL NOT begin while either is open.
 
-- [x] 2.9 Amend proposal/design/delta specs from hardware findings: TE40 independent numeric microphone gain, TE40 one-or-more camera parsing, TE live meter presentation, mandatory initial three-call preview before LIVE, and Box 310 `{deviceId, curVolume}` live parsing.
-- [ ] 2.10 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict` and `.\openspec.cmd validate --all --strict` using the repository-local wrapper against the amended architecture HEAD.
-- [ ] 2.11 Re-run the disposable archive-applicability check because the `MODIFIED` call-log/lifecycle requirements changed again; preserve required root requirement/scenario replacement compatibility.
-- [ ] 2.12 Perform independent architecture review of the amended artifacts and resolve every Critical/High/Medium finding.
-- [ ] 2.13 Obtain a new final architecture `APPROVE` and record the exact approved architecture SHA before any post-amendment production implementation.
+- [ ] 3.1 TE40 gain: on authorized hardware, capture/verify the exact non-secret state-changing method/ActionID/endpoint used when the real web UI changes microphone gain.
+- [ ] 3.2 TE40 gain: record non-secret payload fields/target semantics, exact numeric range, one-button step, success/ACK semantics, and authoritative numeric post-write readback method/field.
+- [ ] 3.3 TE40 gain: verify gain adjustment is independent from microphone mute (`MicSwitch`/approved mute evidence) and that numeric `0` alone is not mute authority.
+- [ ] 3.4 Amend `design.md` and `device-diagnostics-and-control/spec.md` with the proven TE40 setter/range/step/readback; only then change `Huawei TE40 microphone_adjust` from `UNSUPPORTED pending protocol proof` to `SUPPORTED`.
+- [ ] 3.5 Box 310 LIVE: capture a redacted complete `WEB_GetCurrentAudioParam` response envelope/container from authorized hardware.
+- [ ] 3.6 Box 310 LIVE: establish whether the relevant `{deviceId, curVolume}` collection is microphone-only; otherwise document authoritative device-role/filter semantics.
+- [ ] 3.7 Amend Box parser contract with exact envelope path, microphone record selection, numeric validity, aggregation rule, unavailable behavior and normalization. Do not assume `max(all)` without proof.
 
-## 3. Exact-model capability parity
+## 4. Architecture validation and approval after discovery
 
-- [x] 3.1 Original architecture fixed a normative matrix for TE20, TE40, Bar 310, Box 310, and RPG310.
-- [ ] 3.2 Make `diagnostic_dispatch` conform to the **amended** matrix, including TE40 independent microphone gain and existing RPG310 speaker step `2`.
-- [ ] 3.3 Make visible actionable controls agree with the amended exact-model capability descriptor, including separate TE40 gain and mute controls.
-- [x] 3.4 Keep intentionally unsupported operations fail-closed before room interaction admission/device I/O where the amended matrix still says `NO`.
-- [x] 3.5 Preserve CloudLink microphone-gain prohibition and do not invent reboot capability.
-- [ ] 3.6 Update startup/registry tests so implementation descriptors fail if they contradict the amended matrix.
-- [ ] 3.7 Do not add TE30/TE50/TE60 in this amendment; broader TE-family model expansion remains a follow-up scope.
+- [ ] 4.1 Re-read all four current root specs affected by this change and confirm no competing capability/presentation/lifecycle contract remains after the final discovery amendment.
+- [ ] 4.2 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict` through the tracked repository-local wrapper.
+- [ ] 4.3 Run `.\openspec.cmd validate --all --strict`.
+- [ ] 4.4 Run disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario remains archive-compatible.
+- [ ] 4.5 Run Git hygiene checks applicable to architecture artifacts (`git diff --check`, `git diff --cached --check`).
+- [ ] 4.6 Perform independent architecture review against the exact published amendment SHA after tasks 3.1-3.7 are complete.
+- [ ] 4.7 Resolve every Critical/High/Medium architecture finding without production implementation.
+- [ ] 4.8 Obtain and record the new final architecture `APPROVE` SHA. No post-amendment production implementation before this gate.
 
-## 4. Static codec audio and device normalization
+## 5. Post-approval exact-model capability and parser implementation
 
-- [x] 4.1 Preserve actual parser/handler evidence and normalize it into canonical room fields before presentation.
-- [x] 4.2 TE20: map authoritative `mic_mute` evidence to canonical `microphone_muted`; do not fabricate numeric `microphone_volume`.
-- [ ] 4.3 TE40: map authoritative numeric `micValue` to canonical `microphone_volume` and independently map `MicSwitch`/mute evidence to `microphone_muted`; do not derive one from the other.
-- [x] 4.4 CloudLink Bar 310: map authoritative diagnostic `mic_volume` to canonical numeric `microphone_volume`; publish mute only from authoritative mute evidence.
-- [x] 4.5 CloudLink Box 310 static diagnostic normalization remains independent from live-meter parsing; publish mute only from authoritative mute evidence.
-- [x] 4.6 Polycom RPG 310: map authoritative microphone mute evidence to canonical `microphone_muted`; do not fabricate numeric gain.
-- [ ] 4.7 Add/update transport-edge parser/normalizer/session/dashboard regressions for TE40 numeric gain + mute; prebuilding canonical fields is insufficient.
-- [ ] 4.8 TE40 camera: change `WEB_GetLocalCameraList.itemList` parsing from `len >= 2` to zero-to-many independent entries and cover exactly-one-camera hardware shape.
+- [ ] 5.1 Make `diagnostic_dispatch`/unified exact-model registration conform to the final approved matrix; preserve RPG310 speaker step `2`.
+- [ ] 5.2 TE40: normalize numeric static `micValue` to canonical `microphone_volume` and independent mute evidence to `microphone_muted`.
+- [ ] 5.3 TE40: implement the finally approved numeric microphone-gain setter/readback contract; `-` / `+` never maps to mute/unmute.
+- [ ] 5.4 TE40: preserve microphone mute as a separate supported desired-state/readback operation.
+- [ ] 5.5 TE40 camera: process `itemList` as zero-to-many; cover exactly-one-camera hardware shape.
+- [ ] 5.6 Box 310 LIVE: implement only the final approved envelope/device-role/parser contract from tasks 3.5-3.7; exact Box identity remains independent from Bar.
+- [ ] 5.7 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
+- [ ] 5.8 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
 
-## 5. Live telemetry parity
+## 6. Post-approval presentation and LIVE implementation
 
-- [ ] 5.1 Replace the superseded LIVE-priority automatic-preview skip with one mandatory fresh initial call-history acquisition per current row/generation before first LIVE start.
-- [x] 5.2 Preserve CloudLink Bar live microphone meter using the approved Bar meter/session path.
-- [ ] 5.3 CloudLink Box 310: replace fixed `mic1ValueIndex` / `micArray...` parsing with Box-specific extraction of hardware-observed `{deviceId, curVolume}` records and max valid numeric `curVolume` aggregation.
-- [x] 5.4 Preserve TE20/TE40 room-owned `get_live_audio_status` acquisition with 2-second cadence, currentness, and bounded cleanup.
-- [ ] 5.5 Present TE20/TE40 `MicValueIndex` through the existing `Микрофон (уровень)` meter and `SpeakerValueIndex` through a dedicated `Динамик (уровень)` meter; remove redundant textual `Live микрофон` / `Live динамик` rows.
-- [x] 5.6 Do not fabricate unsupported Polycom live telemetry.
-- [ ] 5.7 Add integration regressions proving initial preview finishes before first LIVE, expansion/re-render causes no extra automatic preview I/O, and explicit journal retires/resumes LIVE correctly.
+- [ ] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Динамик (уровень)`, `Громкость микрофона`, `Громкость динамиков`.
+- [ ] 6.2 TE20/TE40: map accepted `MicValueIndex` to the microphone meter and `SpeakerValueIndex` to the speaker meter.
+- [ ] 6.3 Remove redundant textual `Live микрофон` / `Live динамик` rows for Huawei TE live evidence.
+- [ ] 6.4 TE40: show accepted configured numeric `micValue` independently from live `MicValueIndex` and mute state.
+- [ ] 6.5 Bar/Box: keep approved microphone LIVE meter behavior; speaker live meter remains unsupported.
+- [ ] 6.6 RPG310: no fabricated live meters.
+- [ ] 6.7 Update repository-local visual acceptance tests/checkpoints for the two-meter Audio-card contract.
 
-## 6. Call-log parity
+## 7. Initial three-call preview and explicit journal
 
-- [x] 6.1 Preserve fresh explicit call-log acquisition through proven model-specific retrieval methods.
-- [x] 6.2 Keep explicit journal correctness independent from automatic preview state.
-- [ ] 6.3 Implement one fresh automatic initial call-history acquisition for every call-log-capable exact model after initial diagnostic acceptance and before first LIVE start.
-- [ ] 6.4 Normalize automatic results newest-first and publish at most the three newest records inline; fewer than three displays all available records.
-- [ ] 6.5 Ensure collapse/re-expand, repaint, resize, theme switch and duplicate expansion notifications create zero additional automatic call-history I/O in the same room generation.
-- [ ] 6.6 Ensure ordinary initial-preview failure/no-data reaches bounded cleanup, does not permanently degrade a connected row, and still permits LIVE afterward; typed connection/session failures retain existing semantics.
-- [ ] 6.7 Update Box 310 end-to-end call-history regression oracle: initial fresh preview before LIVE + up-to-three inline records + later fresh explicit detailed acquisition.
-- [ ] 6.8 Preserve Polycom's working call-log path while adding the same initial three-call preview lifecycle.
+- [ ] 7.1 After the **entire** automatic room cycle is terminal, admit automatic call preview only for the exact current expanded connected/usable call-log-capable codec row.
+- [ ] 7.2 For that exact row/generation, perform one fresh serialized call-history acquisition before first LIVE; normalize newest-first and retain at most three preview rows.
+- [ ] 7.3 If no codec row is expanded at whole-room terminal time, perform zero hidden preview I/O until an eligible row is later expanded.
+- [ ] 7.4 After a row/generation automatic attempt is terminal, collapse/re-expand, repaint, resize, theme switch and duplicate Qt events cause zero additional automatic call-log I/O.
+- [ ] 7.5 Row switch may admit the newly current codec's own first generation-bound preview after prior lifecycle cleanup; stale old callbacks remain powerless.
+- [ ] 7.6 Ordinary preview failure/no-data reaches bounded cleanup and does not permanently degrade a connected row; first LIVE may start afterward if still eligible.
+- [ ] 7.7 Every explicit `Развернуть` remains a separate fresh call-log acquisition; active LIVE retires/resumes through bounded cleanup.
+- [ ] 7.8 Add end-to-end call-log regressions for TE20, TE40, Bar310, Box310 and RPG310 proving up-to-three automatic rows and fresh explicit detail.
 
-## 7. Codec audio controls and Local Refresh
+## 8. Existing speaker/control safety regression
 
-- [x] 7.1 Speaker `-/+` uses one serialized model-specific operation plus targeted `get_speaker_volume` readback.
-- [x] 7.2 Preserve exact speaker range/step: TE20/TE40 `0..21/1`, Bar/Box `0..15/1`, RPG310 `0..100/2`.
-- [x] 7.3 Preserve supported speaker zero/restore mute semantics only from authoritative current volume plus proven exact-row/generation restore evidence.
-- [x] 7.4 Preserve root no-restore safety: `speaker_volume=0` without proven positive restore -> local unavailable, zero mutation/handler/device I/O, no stuck lane.
-- [ ] 7.5 Recover and verify the actual TE40 microphone-gain setter protocol: non-secret method/ActionID, payload, accepted numeric range/step, and authoritative numeric `micValue` readback. Do not guess.
-- [ ] 7.6 Implement TE40 microphone gain as an independent numeric mutation/readback path; `+/-` must never map to mute/unmute.
-- [ ] 7.7 Preserve TE40 microphone mute as a separate desired-state operation/readback based on authoritative mute evidence; gain value must not determine mute state.
-- [x] 7.8 Preserve TE20/RPG310 microphone mute semantics; do not infer numeric gain for them.
-- [x] 7.9 Bar/Box microphone `-/+` remains disabled/hidden/local-only; zero gain network I/O.
-- [x] 7.10 Reboot remains disabled/hidden/local-only for all five; zero reboot network I/O.
-- [x] 7.11 Preserve blocked/unconfirmed safety when a mutation may have been sent but authoritative readback cannot confirm final state; no blind replay.
-- [ ] 7.12 Add TE40 gain mutation regressions for success, ambiguous send, readback mismatch/unavailable, cancellation, timeout, stale callback, and LIVE retire/resume.
-- [ ] 7.13 Re-run Local Refresh/no-indefinite-lock regressions after the amended interaction changes.
+- [ ] 8.1 Preserve speaker ranges/steps: TE20/TE40 `0..21/1`, Bar/Box `0..15/1`, RPG310 `0..100/2`.
+- [ ] 8.2 Preserve speaker zero/restore mute using only proven exact-row/generation positive restore evidence.
+- [ ] 8.3 Preserve no-restore unmute at `0` as local unavailable with zero mutation/handler/device I/O.
+- [ ] 8.4 Preserve mutation blocked/unconfirmed safety after possible send + failed/ambiguous readback; no blind replay.
+- [ ] 8.5 Preserve Local Refresh, cancellation, cleanup timeout, stale-callback and no-indefinite-lock behavior after amended lifecycles.
 
-## 8. Defect/action acceptance inventory
+## 9. Post-amendment implementation validation
 
-For every row marked `In scope = YES` in amended `design.md`, produce explicit acceptance evidence; passing a different model/action does not satisfy the row.
+- [ ] 9.1 Run focused parser/codec-control/live/call-log/camera/lifecycle tests.
+- [ ] 9.2 Run the full offline unittest suite.
+- [ ] 9.3 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict`.
+- [ ] 9.4 Run `.\openspec.cmd validate --all --strict`.
+- [ ] 9.5 Run `git diff --check` and `git diff --cached --check`.
+- [ ] 9.6 Synchronize implementation evidence/tasks without treating synthetic tests as hardware acceptance.
+- [ ] 9.7 Create and push focused implementation commit(s). Implementation session MUST NOT issue the independent final verdict.
 
-- [ ] 8.1 `Обновить статус`: reproduce/verify per exact model in scope.
-- [ ] 8.2 Automatic initial call preview: verify one fresh acquisition and up to three newest rows for every supported exact model without pressing `Развернуть`.
-- [ ] 8.3 Explicit `Журнал звонков` / `Развернуть`: verify fresh acquisition per exact model independently from preview.
-- [ ] 8.4 CloudLink Bar/Box live microphone bar: verify continuous operation; Box must parse actual `{deviceId, curVolume}` response.
-- [ ] 8.5 TE20/TE40 live audio: verify microphone and speaker **meter** presentation and absence of redundant textual live rows.
-- [ ] 8.6 TE40 numeric microphone gain: verify current value, `-`/`+` exact step, authoritative numeric readback, and no unintended mute-state change.
-- [ ] 8.7 TE40 microphone mute: verify independent mute/readback while numeric gain remains separately represented.
-- [ ] 8.8 TE40 camera: verify exactly-one-camera response renders known camera evidence rather than `Нет данных`.
-- [ ] 8.9 Speaker `-/+`: verify exact range/step/readback per model; Polycom must move by `2`.
-- [ ] 8.10 Speaker mute: verify positive -> mute -> unmute zero/restore semantics and authoritative readback per model when restore evidence exists.
-- [ ] 8.11 No-restore speaker unmute: start with authoritative `speaker_volume=0` and no proven positive restore value, press Unmute, verify local unavailable, zero handler/session/device I/O, and no stuck UI/lane.
-- [ ] 8.12 TE20/RPG310 microphone mute regression remains correct.
-- [ ] 8.13 Bar/Box microphone gain affordance remains non-actionable with zero gain I/O.
-- [ ] 8.14 Reboot affordance remains non-actionable with zero reboot I/O for all five.
-- [ ] 8.15 Verify no in-scope action leaves row/top controls or room lane permanently locked after success/failure/cancel/timeout/local-unavailable result.
+## 10. Exact-SHA hardware acceptance
 
-## 9. Hardware-backed acceptance
+All five models remain `AVAILABLE`: TE20, TE40, Bar310, Box310, RPG310.
 
-### Availability resolution
-
-- [x] 9.1 CloudLink Bar 310: `AVAILABLE`.
-- [x] 9.2 CloudLink Box 310: `AVAILABLE`.
-- [x] 9.3 Huawei TE20: `AVAILABLE`.
-- [x] 9.4 Huawei TE40: `AVAILABLE`.
-- [x] 9.5 Polycom RPG 310: `AVAILABLE`.
-
-### Discovery evidence from superseded pre-hardware baseline
-
-- [x] 9.6 Hardware testing of `467f2cbb502f698476f047d277052bf5ccb55147` identified architecture-discovery findings: TE40 gain/meter/camera/initial-preview mismatches and Box live parser mismatch. This is discovery evidence only, not final acceptance.
-
-### Hardware gate on post-amendment published implementation SHA
-
-- [ ] 9.7 Run every applicable in-scope hardware scenario for all five models against the exact published post-amendment feature SHA and record non-secret request/result/GUI/unlock evidence.
-- [ ] 9.8 Hardware evidence MUST include the exact published implementation SHA; evidence from `467f2cbb...` or another commit/branch does not satisfy the final gate.
-- [ ] 9.9 TE40 microphone-gain evidence MUST include verified non-secret setter method/ActionID and prove expected numeric readback/step independently from mute state.
-- [ ] 9.10 A missing or failed required scenario for any model is a blocking validation failure (`CHANGES REQUIRED`) regardless of offline test count.
-
-## 10. Post-amendment implementation validation
-
-The checks previously completed for `467f2cbb...` are historical evidence only and must be rerun after amended implementation.
-
-- [ ] 10.1 Run focused codec interaction/call-log/live/parser/TE40-gain/camera tests.
-- [ ] 10.2 Run full offline test suite.
-- [ ] 10.3 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict` using the repository-local wrapper.
-- [ ] 10.4 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 10.5 Run `git diff --check` and `git diff --cached --check`.
-- [ ] 10.6 Synchronize implementation evidence without replacing hardware acceptance with synthetic evidence.
-- [ ] 10.7 Create and push focused post-amendment implementation commit(s).
+- [ ] 10.1 Run every applicable in-scope hardware scenario against the exact published post-amendment implementation SHA.
+- [ ] 10.2 TE40: verify static numeric mic value, finally approved gain `-`/`+` exact step/readback, independent mute, two live meters, exactly-one-camera behavior, automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
+- [ ] 10.3 Box310: verify final approved live parser against real response roles/envelope plus automatic three-call preview and explicit fresh journal.
+- [ ] 10.4 TE20/Bar310/RPG310: rerun all applicable original hardware gates plus new automatic three-call lifecycle and new Audio-card negative/positive meter expectations.
+- [ ] 10.5 Record exact SHA, model, action, non-secret method/path, raw outcome category, normalized result, GUI result and UI-unlocked status for every scenario.
+- [ ] 10.6 Missing/failed required hardware evidence is blocking `CHANGES REQUIRED` regardless of offline test count.
 
 ## 11. Independent validation
 
-- [ ] 11.1 Validate the exact published remote post-amendment feature SHA from a clean detached worktree.
-- [ ] 11.2 Re-run required focused/full tests and strict OpenSpec validation independently.
-- [ ] 11.3 Review implementation against the **new approved architecture SHA**, amended exact-model matrix, initial-preview-before-LIVE lifecycle, TE40 gain/mute separation, camera contract, Box live parser, root restore-authority rule, and behavioral oracle.
-- [ ] 11.4 Confirm parser/normalizer regressions start at the transport edge and are not satisfied only by prebuilt canonical snapshots.
-- [ ] 11.5 Confirm all five models passed every applicable mandatory hardware gate on the exact validated published SHA.
-- [ ] 11.6 If any required hardware scenario is missing/failed, issue `CHANGES REQUIRED`; offline PASS cannot override it.
-- [ ] 11.7 Issue one permitted verdict: `APPROVE`, `APPROVE WITH NON-BLOCKING NOTES`, or `CHANGES REQUIRED`.
+- [ ] 11.1 Validate the exact published remote implementation SHA from a clean detached worktree.
+- [ ] 11.2 Re-run focused/full tests, strict OpenSpec validation, Git checks and required disposable archive-applicability check.
+- [ ] 11.3 Review implementation against the **new approved architecture SHA**, root MODIFIED contracts, exact-row call-preview boundary, final TE40 gain contract, final Box live parser contract, root mutation safety and behavioral oracle.
+- [ ] 11.4 Confirm all five models passed every applicable hardware gate on the exact validated implementation SHA.
+- [ ] 11.5 Issue only `APPROVE`, `APPROVE WITH NON-BLOCKING NOTES`, or `CHANGES REQUIRED` according to repository rules.
 
 ## 12. Archive + completion
 
-- [ ] 12.1 Archive only after a permitting independent verdict that also satisfies the mandatory hardware gate.
-- [ ] 12.2 Review resulting root-spec/archive diff and ensure no duplicate/contradictory codec capability, restore-authority, preview lifecycle, TE40 gain/mute, Box live parser, or normalization contracts.
-- [ ] 12.3 Run strict all-artifact validation, full offline tests, and Git checks after archive.
-- [ ] 12.4 Preserve exact-SHA hardware evidence for all five available models in completion reporting.
-- [ ] 12.5 Create and push a dedicated archive commit.
-- [ ] 12.6 Merge only with explicit user authorization.
+- [ ] 12.1 Archive only after a permitting independent verdict that includes mandatory hardware acceptance.
+- [ ] 12.2 Review root-spec/archive diff for duplicate or contradictory capability, Audio-card, call-preview, TE40 gain, Box parser, restore-authority or currentness contracts.
+- [ ] 12.3 Run strict all-artifact validation, full offline tests and Git checks after archive.
+- [ ] 12.4 Create/push dedicated archive commit.
+- [ ] 12.5 Merge only with explicit user authorization.

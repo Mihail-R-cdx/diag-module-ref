@@ -2,207 +2,201 @@
 
 ### Requirement: Codec expansion performs at most one automatic call-log preview attempt per expansion epoch
 
-The requirement name and existing scenario names are preserved for root-spec/archive compatibility, but this amendment moves automatic call-history **network acquisition** from the expansion epoch to a mandatory initial room-generation boundary.
+The requirement/scenario names are preserved for archive compatibility, while network freshness is now bound to the exact current expanded record and the whole automatic-room-cycle terminal boundary.
 
-After the automatic room diagnostic for a current connected/usable exact codec row becomes accepted/usable, and before the first eligible LIVE start for that row/generation, the application SHALL admit exactly one fresh call-history preview acquisition through the existing serialized room interaction lane. This initial acquisition is mandatory network work for every call-log-capable supported codec row; LIVE eligibility SHALL NOT convert it into a local skipped/unavailable result.
-
-An expansion epoch SHALL remain application-owned non-secret presentation state identified by the current room generation, exact `record_id`, and a monotonically changing row-expansion token or equivalent. A new expansion epoch begins only when that exact row transitions from collapsed to expanded under current room authority. Re-rendering, resize, theme switching, hover, repaint, duplicate Qt expansion notifications, or rebuilding the same already-expanded presentation SHALL NOT create a new epoch.
-
-The expansion epoch SHALL NOT own automatic call-history network acquisition. If the current room generation already has an accepted initial preview result, expansion MAY render its up-to-three newest records from application state with zero network admission. If the initial preview is still pending because the room diagnostic/lane has not reached the applicable boundary, expansion MAY render loading/neutral state but SHALL NOT create a second request.
-
-The mandatory initial preview acquisition SHALL run only after the room diagnostic has produced a current connected/usable exact row and SHALL reach accepted success or bounded terminal failure before first LIVE is admitted for that row/generation. If another non-LIVE lifecycle owns or is retiring from the single lane, the initial preview MAY wait behind that bounded handoff. No concurrent handler/session owner is introduced.
-
-The initial preview acquisition SHALL use the existing exact-row auxiliary authority, credential/currentness rules, approved model-specific call-history retrieval and normalization, and bounded cleanup. Accepted records SHALL be newest-first and preview-owned state SHALL retain at most three records for inline presentation.
-
-The initial-acquisition marker SHALL become terminal for the current room generation/exact row after any of:
+The application SHALL admit an automatic codec call-history preview only when all of these are true:
 
 ```text
-accepted network success with records
-accepted network success with zero records
-ordinary network parse/business/no-data failure that does not degrade the row
-typed terminal connection/session/authentication failure
+entire automatic room cycle is terminal
+exact codec row is the current expanded record
+row is connected / usable / not blocked
+exact registration advertises call-log auxiliary capability
+this record_id + room generation has no terminal initial-preview attempt
 ```
 
-There is no amended terminal state `local skipped/unavailable because LIVE has priority`.
+At that boundary, one fresh network-backed preview SHALL enter the existing single serialized room lane as `AUXILIARY_READ`. It SHALL use immutable current context containing room generation, exact `record_id`, exact diagnostic model/IP, credential context and operation/currentness token. It SHALL reach success or bounded terminal failure/cleanup **before the first LIVE start for that exact row/generation**.
 
-Collapse/re-expand, render/rebuild, theme switch, resize, repaint, hover, duplicate expansion events, or LIVE continuation/resume SHALL cause zero additional automatic preview network I/O for a generation whose initial-acquisition marker is terminal. A new automatic acquisition boundary requires a new current room generation/top full Refresh, a new exact row identity, or target/context invalidation followed by a new accepted room context.
+The requirement does not authorize call-log I/O for collapsed/non-current rows. If no codec row is expanded when the whole room cycle becomes terminal, automatic preview remains dormant. The first later eligible codec expansion may admit that exact row/generation's one preview. If a codec row is already expanded when the cycle becomes terminal, its preview is admitted then.
 
-Collapsing the row, expanding another row, top full Refresh, target-search/context invalidation, credential-context invalidation or application shutdown SHALL immediately make any active initial-preview callbacks stale and publish cancellation/retirement where applicable. Late callbacks SHALL NOT update another row, reopen a child window, start/resume LIVE for an old context, change credential-success memory outside an accepted current operation, or become current cache authority.
+After the row/generation's initial attempt is terminal, later expansion epochs are presentation-only for automatic call history: accepted up-to-three-row preview state may be rendered again, or a terminal unavailable state may remain visible, but collapse/re-expand SHALL NOT produce a second automatic call-history read in the same generation.
 
-An ordinary preview parse/business failure without typed connection/session loss SHALL keep the row connected and, after bounded cleanup, SHALL not prevent first LIVE from starting if the same row remains current/eligible. Terminal typed connection/session loss or terminal authentication failure after allowed fallback is exhausted SHALL follow the existing auxiliary degradation/recovery contract.
+Resize, theme switch, hover, repaint, rebuild, duplicate Qt expansion notification and LIVE continuation/resume also create zero additional automatic preview network I/O.
 
-Explicit operator `Развернуть` / detailed `Журнал звонков` is not the automatic initial acquisition. Every eligible explicit opening SHALL remain a fresh network-backed exact-row `AUXILIARY_READ`. If LIVE owns the row when the operator explicitly opens the journal, LIVE SHALL be invalidated and retired through the existing bounded cleanup/release boundary before explicit journal handler/session acquisition. After explicit acquisition reaches terminal cleanup, eligible LIVE SHALL resume only if the same exact row remains current and usable. Explicit opening SHALL NOT reset or recreate the current generation's initial-preview marker.
+If another non-LIVE room lifecycle is still active/retiring when preview becomes eligible, the preview may wait behind that bounded handoff. It SHALL NOT acquire a concurrent handler/session owner. First LIVE for that exact row/generation remains behind the preview's terminal cleanup boundary.
+
+An ordinary preview parse/business/no-data failure without typed connection/session loss SHALL keep the row connected and, after bounded cleanup, allow first LIVE if the same row remains current/eligible. Terminal typed connection/session/authentication failures retain current auxiliary degradation rules.
+
+The old LIVE-priority local-skip outcome is removed. LIVE cannot have priority over the row's first automatic preview because first LIVE is ordered after preview cleanup.
+
+Top full Refresh/new room generation, exact-row identity replacement, target/context invalidation or credential-context invalidation SHALL revoke any old preview authority. Late callbacks SHALL NOT update another row, emit current errors into a replacement context, start/resume stale LIVE, mutate replacement credential-success memory, or become cache authority.
+
+Explicit `Развернуть` / detailed journal remains separate fresh auxiliary work. If LIVE is active when explicit detail is requested, LIVE retires before fresh explicit handler/session acquisition and may resume only after bounded cleanup if the same row remains current/usable/eligible. Explicit detail never resets the generation-bound automatic-preview marker.
 
 #### Scenario: Post-terminal codec expansion automatically admits preview
 
-- **GIVEN** the automatic room cycle is terminal
-- **AND** a current connected/usable exact codec row already completed its mandatory initial preview acquisition for this room generation
-- **WHEN** the operator expands that codec row and creates a new current expansion epoch
-- **THEN** the application renders the accepted up-to-three-record preview if available
-- **AND** expansion itself causes zero automatic call-history network I/O
-- **AND** duplicate expansion notifications, render, resize, repaint or theme switching do not create another automatic acquisition for the same generation
+- **GIVEN** the entire automatic room cycle is terminal
+- **AND** a current collapsed connected/usable call-log-capable codec row has no terminal automatic-preview attempt in this room generation
+- **WHEN** the operator expands that exact row
+- **THEN** one fresh automatic call-history `AUXILIARY_READ` is admitted for that exact row/generation
+- **AND** first LIVE waits for its terminal cleanup
+- **AND** duplicate expansion notifications/re-rendering do not create another request
 
 #### Scenario: Codec was expanded before the room cycle finished
 
-- **GIVEN** a codec row is visually expanded while the automatic room cycle is still running
-- **WHEN** the room cycle later reaches accepted/usable terminal state and that exact row remains current and call-log capable
-- **THEN** one mandatory initial preview acquisition is admitted for the current room generation
-- **AND** the earlier expansion itself performed no device I/O
-- **AND** first eligible LIVE start waits until the preview acquisition reaches a terminal boundary
+- **GIVEN** a codec row is already the current expanded presentation while the automatic room cycle is still running
+- **WHEN** the entire room cycle reaches terminal state and that exact row remains connected/usable/call-log-capable
+- **THEN** one generation-bound automatic preview is admitted for that exact row
+- **AND** the earlier expansion itself started no call-log device I/O before the whole-room terminal boundary
+- **AND** first LIVE waits for preview terminal cleanup
 
 #### Scenario: Current cached preview evidence completes the epoch locally
 
-- **GIVEN** current accepted initial-preview evidence already belongs to the same exact row/generation
-- **WHEN** an expansion epoch renders
-- **THEN** that evidence MAY populate the inline preview without room network admission
-- **AND** expansion bookkeeping becomes locally complete without modifying the generation-owned initial-acquisition marker
+- **GIVEN** current accepted automatic-preview evidence already belongs to the same exact row/generation and that row's generation-bound attempt is terminal
+- **WHEN** a later expansion epoch renders
+- **THEN** that accepted evidence MAY populate the inline preview locally
+- **AND** no room network admission occurs solely for the later expansion epoch
 
 #### Scenario: Codec expansion starts preview after live retirement
 
-- **GIVEN** the legacy requirement name implied expansion might start preview after LIVE retirement
+- **GIVEN** this preserved legacy scenario name previously implied automatic preview could retire LIVE after expansion
 - **WHEN** the amended lifecycle is evaluated
-- **THEN** that legacy network sequence is superseded
-- **AND** mandatory automatic preview acquisition occurs before first LIVE start rather than by retiring LIVE after expansion
-- **AND** expansion of a LIVE-active row causes zero automatic preview network I/O
+- **THEN** that network ordering is superseded
+- **AND** automatic preview occurs before first LIVE for the row/generation
+- **AND** expanding a row whose LIVE already started and whose automatic attempt is terminal causes zero automatic-preview I/O
 
 #### Scenario: Network preview is allowed only when LIVE does not have priority
 
-- **GIVEN** this preserved legacy scenario name is evaluated under the amended contract
-- **WHEN** a new room generation reaches the initial-preview boundary
-- **THEN** LIVE has not yet been admitted for that row/generation
-- **AND** the mandatory initial preview may acquire the single serialized auxiliary lane after any bounded non-LIVE handoff
-- **AND** LIVE priority is not used as a reason to skip the acquisition
+- **GIVEN** the whole room cycle is terminal and the current expanded row has no terminal automatic-preview attempt
+- **WHEN** the automatic preview becomes eligible
+- **THEN** first LIVE has not yet acquired row authority
+- **AND** preview may acquire the single serialized auxiliary lane after any bounded non-LIVE handoff
+- **AND** LIVE eligibility is not a reason to skip the preview
 
 #### Scenario: Preview business failure is one-shot for the epoch
 
-- **GIVEN** the mandatory initial preview acquisition for the current exact row/generation ends with an ordinary parse/business/no-data failure
-- **WHEN** the same presentation is rebuilt, resized, repainted, theme-switched, collapsed/re-expanded or receives duplicate expansion notifications
-- **THEN** no additional automatic call-log read is admitted for that generation
-- **AND** the row remains connected unless the failure separately proves typed connection/session loss
-- **AND** eligible LIVE may start after bounded cleanup
+- **GIVEN** the generation-bound automatic preview ends with ordinary parse/business/no-data failure
+- **WHEN** the same row is rebuilt, repainted, theme-switched, collapsed/re-expanded or receives duplicate expansion events
+- **THEN** no additional automatic call-history read is admitted for that row/generation
+- **AND** the row remains connected unless typed loss was separately proven
+- **AND** first/eligible LIVE may start after bounded cleanup
 
 #### Scenario: Local LIVE-priority skip is one-shot for the epoch
 
 - **GIVEN** a pre-amendment build could complete automatic preview with a local LIVE-priority skip
-- **WHEN** the amended implementation is evaluated for a new current room generation
+- **WHEN** a new room generation is evaluated under the amended contract
 - **THEN** such a skip is non-conforming
-- **AND** exactly one fresh initial preview acquisition is attempted before first LIVE start
-- **AND** later presentation events cause no additional automatic acquisition for that generation
+- **AND** one fresh automatic preview is attempted at the whole-room-terminal/current-expanded boundary before first LIVE
+- **AND** later presentation events cause no extra automatic acquisition after that attempt is terminal
 
 #### Scenario: Collapse and re-expand creates a new attempt boundary
 
-- **GIVEN** the current room generation already completed its mandatory initial preview acquisition
-- **WHEN** the operator collapses and later re-expands the same current row
-- **THEN** a new presentation expansion epoch is created
-- **BUT** no new automatic call-history network acquisition is created solely by collapse/re-expand
-- **AND** the existing accepted initial preview MAY be rendered again
+- **GIVEN** the current row/generation already has a terminal automatic-preview attempt
+- **WHEN** the operator collapses and re-expands the same exact row without a top full Refresh/new generation
+- **THEN** a new presentation expansion epoch may be created
+- **BUT** no new automatic call-history network acquisition is admitted
+- **AND** accepted preview state may be rendered again locally
 
 #### Scenario: Explicit journal retires and resumes LIVE
 
 - **GIVEN** codec LIVE is active for the current exact row
 - **WHEN** the operator explicitly opens `Развернуть` / detailed `Журнал звонков`
-- **THEN** LIVE is invalidated and retired before the fresh explicit `AUXILIARY_READ` acquires handler/session resources
+- **THEN** LIVE is invalidated and retired before fresh explicit `AUXILIARY_READ` handler/session acquisition
 - **AND** no concurrent network owner is introduced
-- **AND** eligible LIVE resumes after explicit auxiliary cleanup only if the same row remains current and usable
-- **AND** the explicit acquisition does not reset the completed initial-preview marker
+- **AND** eligible LIVE resumes after explicit cleanup only if the same row remains current/usable
+- **AND** the explicit acquisition does not reset the generation-bound automatic-preview marker
 
 #### Scenario: Row switch makes old preview stale
 
-- **GIVEN** row/generation A has an active mandatory initial call-log preview acquisition
-- **WHEN** authority switches to row/generation B
-- **THEN** A's preview loses authority and is cancelled/retired under the existing auxiliary boundary
+- **GIVEN** row A has an active or pending generation-bound automatic preview
+- **WHEN** the operator makes row B the current expanded row
+- **THEN** A loses automatic-preview authority and is cancelled/retired under the existing auxiliary boundary
 - **AND** late A callbacks cannot update B or start/resume A LIVE
-- **AND** any B network lifecycle waits for the permitted A retirement boundary
+- **AND** B network work waits for A's permitted retirement boundary
+- **AND** B may then admit its own first generation-bound preview if otherwise eligible
 
 ### Requirement: Codec automatic preview and explicit detail retain distinct call-log acquisition authority
 
-The existing room call-log application/controller boundary SHALL separate the mandatory initial room-generation preview from explicit detailed-journal network acquisition. Both use the same approved call-log normalization contract and exact-row/currentness authority, but they are different acquisition intents and datasets.
+Automatic preview SHALL remain application-owned preview state and explicit detail SHALL remain a fresh operator-owned auxiliary acquisition.
 
-The initial preview SHALL be one fresh serialized call-history acquisition after initial diagnostic acceptance and before first LIVE start for each current call-log-capable row/generation. A current accepted initial-preview result SHALL remain bound to its immutable exact row/generation and MAY populate only the up-to-three-row inline preview plus other preview-owned presentation state approved for that result. It SHALL NOT become the accepted load result for a later explicit detailed-journal opening.
+Automatic preview uses the whole-room-terminal/current-expanded boundary above and retains at most three newest normalized records for inline presentation. It is exact-row/generation evidence only. It SHALL NOT become authoritative detailed rows/statistics for a later explicit opening.
 
-Every eligible explicit `Развернуть` / detailed call-log opening SHALL be treated as a new operator auxiliary intent and SHALL start one fresh serialized exact-row call-log `AUXILIARY_READ` even when a current accepted initial-preview result already exists. If LIVE owns the row, explicit detail SHALL invalidate/retire LIVE through the existing bounded cleanup boundary before handler/session acquisition. The detailed child window MAY open immediately in its loading state while the accepted room-card preview remains preview-only evidence.
+Every eligible explicit `Развернуть` SHALL start one fresh serialized exact-row call-history `AUXILIARY_READ`. If LIVE owns the row, explicit detail retires LIVE through bounded cleanup before handler/session acquisition. Only the fresh explicit result accepted for the same current exact row/generation/currentness may populate detailed rows and usage statistics.
 
-Only a fresh explicit result accepted for the same current exact row/generation/currentness MAY populate authoritative detailed call rows and usage statistics for that opening. If the explicit acquisition becomes stale, cancelled, superseded, or otherwise fails currentness before acceptance, it SHALL NOT populate/repopulate authoritative detailed content, publish detailed statistics, mutate replacement presentation, or emit a current-row result for a replacement context.
-
-The explicit detail acquisition SHALL NOT clear, reuse, or reset the completed initial-preview marker, and its completion SHALL NOT cause an automatic retry loop. A later explicit opening after cancellation or close SHALL start a new fresh acquisition.
-
-The existing direct child-window close rule remains authoritative for an active explicit window-owned network request: user close invalidates/cancels that exact request, bounded cleanup follows, late callbacks cannot reopen it, and a later explicit opening starts a new fresh acquisition.
+An explicit child window may open in loading state while accepted preview remains visible on the card. User close/cancellation invalidates that explicit request; late callbacks cannot reopen/update it; a later explicit opening is fresh again.
 
 #### Scenario: Detail opens with fresh acquisition despite current preview
 
-- **GIVEN** a completed accepted initial-preview result belongs to the current exact codec row/generation
+- **GIVEN** accepted automatic-preview rows belong to the current exact row/generation
 - **WHEN** the operator clicks `Развернуть`
-- **THEN** one fresh serialized exact-row call-log `AUXILIARY_READ` is admitted for the explicit opening
-- **AND** the room-card preview MAY remain visible while that request is pending
-- **AND** the detailed window MAY show only its loading state before fresh acceptance
-- **AND** the initial-preview result is not promoted to authoritative detailed/statistics state
+- **THEN** one fresh serialized exact-row call-history acquisition starts
+- **AND** card preview may remain visible as preview-only evidence
+- **AND** detailed rows/statistics wait for the fresh explicit result
 
 #### Scenario: Fresh detail result becomes authoritative only after current acceptance
 
-- **GIVEN** one explicit detailed-journal acquisition is active for the current exact row/generation
-- **WHEN** application authority accepts its fresh normalized result while that context is still current
-- **THEN** that explicit result may populate the detailed window and usage statistics
-- **AND** any initial-preview result remains a separate room-generation preview result
+- **GIVEN** one explicit detailed acquisition is active for the current exact row/generation
+- **WHEN** application authority accepts its normalized result while context is still current
+- **THEN** that explicit result may populate detailed rows/statistics
+- **AND** preview remains a separate dataset
 
 #### Scenario: Failed automatic preview can be retried only by explicit detail intent
 
-- **GIVEN** the current generation's mandatory initial preview completed with an ordinary network failure/no-data result
-- **WHEN** no explicit call-log action occurs
-- **THEN** presentation events and LIVE continuation/resume cause zero further automatic call-log I/O for that generation
+- **GIVEN** the row/generation's automatic preview ended with ordinary failure/no-data and is terminal
+- **WHEN** no explicit journal action occurs
+- **THEN** presentation events and LIVE continuation cause zero further automatic call-history I/O in that generation
 - **WHEN** the operator explicitly clicks `Развернуть`
-- **THEN** one fresh call-log auxiliary acquisition is admitted through the serialized lane
-- **AND** the initial-preview marker remains completed
+- **THEN** one fresh explicit call-history acquisition is admitted
+- **AND** the automatic-preview marker remains terminal
 
 #### Scenario: Explicit detail becomes stale or cancelled
 
-- **GIVEN** a fresh explicit detailed-journal acquisition exists for row/generation A
-- **WHEN** A loses authority or the child request is cancelled before result acceptance
-- **THEN** its late result cannot populate authoritative detailed content or statistics
-- **AND** it cannot update a replacement row/context
-- **AND** the initial-preview marker is not reset or retried
+- **GIVEN** a fresh explicit acquisition exists for row/generation A
+- **WHEN** A loses authority or the child request is cancelled before acceptance
+- **THEN** late result cannot populate detailed content/statistics or replacement presentation
+- **AND** automatic-preview state is not reset
 
 #### Scenario: Reopening after explicit cancellation is fresh again
 
-- **GIVEN** an explicit child-window request was cancelled by close or supersession
-- **WHEN** the operator later explicitly opens the detailed journal again for an eligible current exact row
-- **THEN** a new fresh serialized call-log acquisition is required
-- **AND** neither the cancelled request nor the initial-preview result substitutes for that new explicit load
+- **GIVEN** an explicit child-window request was cancelled/closed/superseded
+- **WHEN** the operator later opens detailed journal again for an eligible current exact row
+- **THEN** a new fresh serialized call-history acquisition is required
+- **AND** neither the cancelled request nor automatic preview substitutes for it
 
 #### Scenario: Automatic LIVE-priority completion owns no auxiliary lifecycle
 
-- **GIVEN** the pre-amendment architecture permitted automatic preview to complete locally because LIVE had priority
-- **WHEN** the amended implementation starts a new room generation
-- **THEN** the legacy local completion is not used
-- **AND** the mandatory initial preview owns one serialized auxiliary lifecycle before first LIVE start
-- **AND** after that lifecycle reaches terminal cleanup, LIVE may acquire its normal authority if still eligible
+- **GIVEN** a legacy build allowed automatic preview to finish locally due LIVE priority
+- **WHEN** the amended generation-bound preview is due
+- **THEN** that legacy local completion is not used
+- **AND** automatic preview owns one serialized auxiliary lifecycle before first LIVE
+- **AND** after terminal cleanup, first LIVE may start if the same row remains current/eligible
 
 ## ADDED Requirements
 
 ### Requirement: Codec interactive operations have bounded release on every terminal path
 
-Every room codec Local Refresh, explicit call-log auxiliary read, mandatory initial call-history preview, supported audio mutation/reconciliation, and LIVE retirement SHALL reach either physical cleanup/release or the existing allowed bounded-abandonment boundary on success, typed authentication exhaustion, ordinary protocol/parse failure, transport/session loss, user cancellation, row collapse/switch, timeout, and stale supersession.
+Every room codec Local Refresh, explicit call-log auxiliary read, generation-bound automatic call-history preview, supported audio mutation/reconciliation, and LIVE retirement SHALL reach physical cleanup/release or the existing bounded-abandonment boundary on success, structured authentication exhaustion, ordinary protocol/parse/business failure, transport/session loss, user cancellation, row switch/collapse, timeout, and stale supersession.
 
-A terminal or cancelled codec operation SHALL NOT leave the room interaction lane, row controls, or top-level controls permanently locked because a callback was dropped or a session shutdown signal never arrived. Late callbacks after currentness revocation SHALL have no presentation, credential, cache, LIVE-start, or lock side effects.
+A terminal/cancelled operation SHALL NOT leave the room interaction lane or GUI permanently locked. Late callbacks after authority revocation have no presentation, credential, cache, LIVE-start or lock side effects.
 
 #### Scenario: Codec operation fails ordinarily
 
-- **WHEN** a current codec network operation ends with an ordinary protocol/parse/business failure that does not prove connection loss
-- **THEN** bounded cleanup releases its room-lane ownership
-- **AND** the UI lock matrix returns to the state permitted by the still-current row
-- **AND** eligible LIVE may start/resume when current contracts allow it
+- **WHEN** a current codec network operation ends with an ordinary non-degrading protocol/parse/business failure
+- **THEN** bounded cleanup releases room-lane ownership
+- **AND** controls return to the state permitted by the still-current row
+- **AND** eligible LIVE may start/resume when current contracts allow
 
 #### Scenario: Cleanup signal never arrives
 
 - **GIVEN** codec network-operation authority has been revoked
 - **AND** expected physical cleanup notification does not arrive within policy timeout
-- **WHEN** the bounded-abandonment boundary is reached
-- **THEN** stale authority cannot keep the GUI permanently locked
+- **WHEN** bounded-abandonment boundary is reached
+- **THEN** stale authority cannot keep GUI/lane permanently locked
 - **AND** no late callback can regain currentness
 
 #### Scenario: Local automatic preview cannot strand the lane
 
-- **GIVEN** this preserved legacy scenario name is evaluated after the amendment
-- **WHEN** a current generation completes its mandatory initial preview with success or bounded terminal failure
-- **THEN** its network lifecycle reaches cleanup/release before first LIVE start
-- **AND** later expansion-only rendering of accepted preview evidence owns no network lifecycle
-- **AND** presentation-only rendering cannot leave row/top controls or the serialized room lane locked
+- **GIVEN** this preserved legacy scenario name is evaluated under the amended network-backed initial-preview contract
+- **WHEN** the generation-bound preview reaches success or bounded terminal failure
+- **THEN** cleanup/release completes before first LIVE starts
+- **AND** later local rendering of accepted preview evidence owns no network lifecycle
+- **AND** presentation-only rendering cannot strand the lane

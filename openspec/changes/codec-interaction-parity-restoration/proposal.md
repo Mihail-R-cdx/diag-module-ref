@@ -2,102 +2,72 @@
 
 ## Why
 
-The room codec redesign preserved most protocol handlers but replaced the working codec-screen interaction composition with a new room lifecycle and dashboard. Real-device user testing after the redesign shows that presentation-only fixes landed while important codec behavior still regressed: call-log loading, microphone-value presentation, live microphone/audio telemetry, Local Refresh, camera presentation, and multiple button actions still fail, error, or remain locked/hung.
+The room codec redesign preserved most protocol handlers but replaced the working codec-screen interaction composition with the modern room lifecycle/dashboard. The first implementation of this change reached published SHA `467f2cbb502f698476f047d277052bf5ccb55147` and passed independent offline validation, but real-device testing then proved several architecture assumptions incomplete or wrong.
 
-A forensic comparison against `c442152077dd8aa6251f1d8be9fc98b765406dbd` (the `master` revision immediately before `codec-diagnostic-modern-ui`) shows that proven protocol/handler code largely remains present. The retained `gui/screens/codec_screen.py` is therefore a behavioral oracle for already-supported operations, not a GUI to restore.
+A first hardware-discovered amendment was published as `969e4a55e44a4f6879daa5c664de812141fa1704`. Independent architecture review of that amendment returned `CHANGES REQUIRED`: it overlaid root capability/presentation contracts with `ADDED` requirements, declared TE40 microphone-gain mutation before the actual setter contract was known, left the initial three-call lifecycle ambiguous relative to the exact expanded row and full automatic-room-cycle boundary, and assumed every Box 310 `{deviceId, curVolume}` record was microphone evidence without proving the response envelope/device roles.
 
-Hardware acceptance of published implementation `467f2cbb502f698476f047d277052bf5ccb55147` subsequently proved that some assumptions in the first approved architecture were themselves incomplete or wrong. That SHA remains a historical pre-hardware implementation baseline and is not a permitting hardware-acceptance candidate after these findings.
+This remediation keeps the change in the **OpenSpec / Design** phase. Neither `467f2cbb...` nor `969e4a55...` is a final architecture or acceptance candidate.
 
-Key regressions and hardware-discovered contract corrections include:
+## Hardware-discovered product requirements
 
-- every supported codec must automatically acquire and display the three most recent calls after the initial room diagnostic becomes usable; the previous LIVE-priority automatic-preview skip is no longer acceptable product behavior;
-- TE20/TE40 pre-redesign `get_live_audio_status` polling was not carried into the new room codec dashboard consistently, and TE40 hardware shows the live microphone/speaker evidence should feed dedicated level meters rather than duplicate textual `Live ...` rows;
-- TE40 exposes independent numeric microphone gain evidence through `micValue` as well as independent mute evidence through `MicSwitch`; treating TE40 microphone control as mute-only is incorrect;
-- the exact TE40 microphone-gain write protocol must be recovered/verified before implementation rather than guessed, while readback remains numeric `micValue` and mute remains a separate operation;
-- TE40 camera parsing currently requires at least two `itemList` entries, causing a valid one-camera installation to render `Нет данных`; camera parsing must accept zero-to-many entries and process each present camera independently;
-- CloudLink Box 310 hardware shows `WEB_GetCurrentAudioParam` microphone evidence as records containing `deviceId` and `curVolume`; the fixed-field `mic1ValueIndex` / `micArray...` assumption is invalid and must be replaced by Box-specific extraction plus maximum valid `curVolume` normalization;
-- the dashboard can render controls whose exact-model capability registry rejects them;
-- Polycom speaker step regressed from the proven value `2` to the current generic value `1`;
-- microphone parser evidence is not normatively mapped to the canonical fields consumed by the common dashboard, allowing real values to become `Нет данных`;
-- speaker mutation/refresh now crosses heavier lifecycle boundaries than the proven targeted operation + readback path;
-- offline snapshot/mocked tests previously passed without proving the real parser/session/device path.
+The target product behavior remains:
 
-## What Changes
+- Huawei TE40 static audio exposes independent numeric `micValue` and independent microphone mute evidence; the common room snapshot/presentation must preserve both rather than collapse numeric value into mute/unmute semantics.
+- TE40 microphone gain is intended to be a real numeric control, but state-changing support SHALL NOT be promoted until the real setter contract is proven and written into OpenSpec.
+- TE20/TE40 live `MicValueIndex` and `SpeakerValueIndex` must be presented as `Микрофон (уровень)` and `Динамик (уровень)` meters; redundant textual `Live микрофон` / `Live динамик` rows are not the target presentation.
+- TE40 camera parsing must accept zero, one or many returned `itemList` records; one valid camera must not become `Нет данных` merely because a second entry is absent.
+- Every supported codec must show up to the three newest calls automatically for the **current expanded usable codec row after the entire automatic room cycle is terminal and before that row's first LIVE starts**. The operator must not need to press `Развернуть` to obtain those three rows.
+- Explicit `Развернуть` remains a separate fresh detailed-journal acquisition and may retire/resume active LIVE through the existing bounded serialized lifecycle.
+- CloudLink Box 310 hardware disproves the old fixed `mic1ValueIndex` / `micArray...` response assumption. Box live parsing must be based on the actual `{deviceId, curVolume}` response envelope and authoritative microphone-device semantics once those semantics are captured.
 
-- Keep the current common room codec dashboard and current exact-model registry as application authority.
-- Amend the exact-model capability matrix for TE40 so microphone gain and microphone mute are distinct supported capabilities; do not infer the same change for TE20 or Polycom without separate evidence.
-- Require TE40 numeric `micValue` normalization into canonical `microphone_volume` while preserving `MicSwitch`/mute normalization independently.
-- Require protocol-discovery evidence for the TE40 microphone-gain setter (ActionID/method, payload, range and authoritative readback) before production implementation; implementation SHALL NOT invent or guess the write endpoint.
-- Require TE40 camera parsing to accept and normalize `WEB_GetLocalCameraList.itemList` with zero, one, or many entries instead of requiring two entries.
-- Replace the expansion/LIVE-priority automatic call-preview policy with one fresh initial call-history acquisition after the room diagnostic is accepted and before the first LIVE start for each supported current codec row; publish at most the three newest normalized calls inline.
-- Keep explicit `Развернуть` / detailed journal as a separate fresh operator acquisition; when LIVE is active, explicit detail may retire and later resume LIVE through the existing bounded lifecycle.
-- Restore TE20/TE40 model-specific live-audio status behavior through a room-owned live binding and present `MicValueIndex` / `SpeakerValueIndex` as dedicated microphone/speaker level meters rather than redundant textual live rows.
-- Correct CloudLink Box 310 live microphone extraction for the hardware-observed `{deviceId, curVolume}` record shape while keeping Box protocol identity separate from Bar 310.
-- Preserve the pre-redesign behavior at `c442152...` for operations proven to work, including Polycom speaker step `2`, without weakening current exact-row/security/currentness rules.
-- Add a normative parser/normalization contract from model-specific microphone evidence to canonical accepted room evidence and then to the common dashboard.
-- Keep intentionally unsupported operations unavailable: CloudLink microphone gain is not re-enabled; reboot is not invented as a room network capability merely because the new dashboard shows a button.
-- Restore supported codec audio readback/control parity using targeted authoritative readback where available while preserving the current root fail-closed restore-authority rule for speaker unmute.
-- Ensure every codec user action reaches bounded terminal cleanup and cannot leave GUI/lifecycle locks permanently stuck.
-- Add composition/parser integration regression coverage that starts at the transport edge; manually prebuilt canonical snapshots are insufficient sole evidence.
-- Re-run architecture review, implementation validation, and exact-SHA hardware acceptance after this amendment; prior offline PASS on `467f2cbb...` does not satisfy the amended contract.
+## Pre-APPROVE discovery gates
 
-## Explicit defect families
+Two protocol facts are still missing and are now explicit **architecture gates**, not implementation tasks:
 
-The change tracks these user-visible actions separately so a fix on one model/action cannot be mistaken for full parity:
+1. **Huawei TE40 microphone-gain mutation contract.** Before final architecture `APPROVE`, record and review the exact non-secret state-changing method/ActionID, payload semantics, numeric range, step, and authoritative numeric post-write readback. Until that amendment is approved, the root/runtime `microphone_adjust` capability for TE40 remains `UNSUPPORTED`; accepted numeric `micValue` remains valid read-only presentation evidence.
+2. **CloudLink Box 310 live response role contract.** Before final architecture `APPROVE`, capture a redacted complete `WEB_GetCurrentAudioParam` response envelope and establish either that the relevant `{deviceId, curVolume}` collection is microphone-only or define the authoritative microphone filter/device-role rule. Until then, no normative `max(all curVolume)` rule is approved.
 
-- `Обновить статус`;
-- automatic three-call inline preview after initial connection;
-- explicit `Журнал звонков` / `Развернуть`;
-- CloudLink live microphone bar, including Box-specific live parsing;
-- TE20/TE40 live microphone/speaker level meters;
-- TE40 numeric microphone gain `-` / `+` and independent microphone mute;
-- TE40 camera detection/presentation for one-or-more returned camera records;
-- speaker `-` / `+` and speaker mute;
-- supported microphone mute;
-- misleading CloudLink microphone `-` / `+` affordances where gain is not a network capability;
-- misleading `Перезагрузить устройство` affordance where reboot is not a network capability.
+The implementation phase SHALL NOT begin while either gate is open.
 
-Presentation control, SIP fix, and TE20 Wake are not new functionality in this change; existing approved behavior must not regress, but they are not used to expand scope without a reproduced defect.
+## What this remediation changes now
+
+- Replace the conflicting root codec capability requirements with archive-compatible `MODIFIED Requirements`; TE40 numeric read evidence is separated from mutation capability, and TE40 mutation remains fail-closed pending protocol proof.
+- Replace the conflicting root codec Audio-card visual requirements with archive-compatible `MODIFIED Requirements`, preserving existing scenario names while establishing two live-meter slots and the exact new Audio-card order.
+- Make the automatic three-call boundary unambiguous and compatible with current root authority: **entire automatic room cycle terminal + exact codec row current/expanded/usable -> mandatory fresh preview -> bounded cleanup -> first LIVE**.
+- Keep automatic preview bound to the current expanded exact row; this change does not authorize background call-log I/O for collapsed/hidden codec rows.
+- Preserve fresh explicit detail acquisition as a separate auxiliary intent.
+- Preserve TE40 one-or-more camera normalization and TE40 static numeric `micValue` presentation.
+- Remove the unproven Box `max(all curVolume)` assertion and make response-envelope/device-role discovery a pre-APPROVE gate.
+- Keep CloudLink microphone gain and codec reboot fail-closed as before.
+- Preserve Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
+
+## Scope
+
+Affected exact models remain Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. TE30/TE50/TE60 expansion is a later change and SHALL NOT be inferred from this TE40 remediation.
 
 ## Hardware gate
 
-All five affected codec models are confirmed `AVAILABLE` for post-implementation real-device validation: Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310.
+All five current models remain `AVAILABLE`. Hardware observations from `467f2cbb...` are architecture-discovery evidence only. Final hardware acceptance must be repeated on the exact post-amendment implementation SHA after a new architecture `APPROVE`, implementation, and independent offline validation.
 
-`AVAILABLE` is an architecture input only: it means the device can be provided after implementation. It is not evidence that the amended fix is already verified. Every applicable affected scenario must still pass on the exact published post-amendment implementation SHA before independent implementation validation may issue a permitting verdict. Offline tests cannot replace this hardware gate.
+## Behavioral oracle
 
-Hardware observations collected against `467f2cbb502f698476f047d277052bf5ccb55147` are architecture-discovery evidence only. They invalidate conflicting assumptions but do not satisfy final acceptance for a later implementation SHA.
-
-## Non-Goals
-
-- Reverting the room codec visual redesign.
-- Replacing working Huawei/Polycom handlers solely because the new GUI is broken.
-- Introducing a second model/capability authority beside `diagnostic_dispatch`.
-- Allowing concurrent authoritative room network owners.
-- Inferring TE20/TE30/TE50/TE60 microphone-gain support from TE40 without separate evidence; broader Huawei TE-family model expansion is outside this amendment.
-- Re-enabling CloudLink microphone-gain mutation without separate authoritative target/readback proof.
-- Inventing reboot support that was not proven by the pre-redesign room behavior/current root contract.
-- Inventing speaker-unmute restore targets when current exact-row restore evidence is absent.
-- Redesigning Matrix, PDU, or Audio DSP surfaces.
-
-## Behavioral Oracle
-
-Primary pre-redesign reference:
+Pre-redesign behavioral reference:
 
 `c442152077dd8aa6251f1d8be9fc98b765406dbd`
 
-Current baseline at change creation:
+Change-creation baseline:
 
 `754099722ec14d4b9aa0516e0e085387fd0e727b`
 
-Hardware-discovery baseline that triggered this amendment:
+Hardware-discovery implementation baseline:
 
 `467f2cbb502f698476f047d277052bf5ccb55147`
 
-The oracle is behavioral rather than visual: the new UI may look different, but supported codec actions SHALL preserve successful model-specific request/readback semantics and cleanup behavior unless current device evidence proves that behavior invalid. Current real-device evidence takes precedence over a conflicting historical assumption, but a newly discovered state-changing protocol must be explicitly verified before implementation rather than guessed.
+Historical behavior is evidence, not authority over current root OpenSpec or contradictory real-device evidence. Newly discovered state-changing protocol details must be proven before they are promoted to capability.
 
 ## Affected Specs
 
 - `device-diagnostics-and-control`
+- `diagnostic-ui-presentation`
 - `room-device-interaction-lifecycle`
 - `codec-call-log-usage-statistics`
-- `diagnostic-ui-presentation`
