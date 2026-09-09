@@ -10,6 +10,8 @@ import random
 import time
 import traceback
 from datetime import datetime
+from math import isfinite
+from numbers import Real
 from typing import Callable, Dict, Any, Optional
 from core.codec_call_history import snapshot_from_display_records
 from core.base_handler import BaseHuaweiCodecHandler
@@ -21,6 +23,33 @@ from core.exceptions import (
     SessionInvalidError,
 )
 from core.redaction import redact_diagnostic
+
+
+_TE40_MONITOR_MIC_ARRAY_FIELD = re.compile(r"^micArray\d+_\d+ValIdx$")
+
+
+def extract_te40_monitor_microphone_level(payload: Any) -> Real | None:
+    """Return the strongest finite microphone sample in a TE40 monitor reply.
+
+    This exact-model boundary deliberately retains the vendor payload while
+    publishing one raw microphone value for both initial diagnostics and the
+    interactive LIVE path.  Speaker telemetry is never a microphone source.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    candidates: list[Real] = []
+    for key, value in payload.items():
+        if key != "MicValueIndex" and (
+            not isinstance(key, str) or not _TE40_MONITOR_MIC_ARRAY_FIELD.fullmatch(key)
+        ):
+            continue
+        if isinstance(value, bool) or not isinstance(value, Real):
+            continue
+        if not isfinite(float(value)):
+            continue
+        candidates.append(value)
+    return max(candidates) if candidates else None
 
 class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     """Обработчик для Huawei TE40 с рабочей реализацией подключения"""
@@ -778,7 +807,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     )
                     if monitor_audio_data:
                         status['monitor_mic_value'] = (
-                            monitor_audio_data.get('MicValueIndex')
+                            extract_te40_monitor_microphone_level(monitor_audio_data)
                         )
                         status['monitor_speaker_value'] = (
                             monitor_audio_data.get('SpeakerValueIndex')
@@ -1117,7 +1146,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 raise ProtocolError("TE40 live-audio data is malformed") from error
         if not isinstance(data, dict):
             raise ProtocolError("TE40 live-audio data is not an object")
-        return {"sleep_mode": sleep_mode, "audio": data}
+        return {
+            "sleep_mode": sleep_mode,
+            "audio": data,
+            "microphone": extract_te40_monitor_microphone_level(data),
+        }
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""

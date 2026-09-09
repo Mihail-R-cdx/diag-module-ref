@@ -1817,7 +1817,10 @@ class VCSDiagnosticApp(QMainWindow):
             row = None
         snapshot = dict(row.accepted_snapshot or {}) if row is not None else {}
         snapshot["live_audio"] = {
-            "microphone": audio.get("MicValueIndex"),
+            # Exact-model handlers publish the accepted raw microphone sample.
+            # The legacy primary-field fallback keeps the unchanged TE20 path
+            # and existing direct-controller test doubles model-agnostic.
+            "microphone": value.get("microphone", audio.get("MicValueIndex")),
             "speaker": audio.get("SpeakerValueIndex"),
         }
         self._accept_room_model_live_success(

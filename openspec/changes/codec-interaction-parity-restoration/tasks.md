@@ -122,13 +122,13 @@ Required re-validation on the new exact published SHA:
 - [x] 9.11 Add remediation regressions for TE40 canonical MIC1 gain/status/uptime, microphone meter normalization and seed precedence, absent speaker LIVE meter, and preview cleanup handoff.
 - [x] 9.12 Remediate review findings: persist successful preview credential/profile before first LIVE, establish MIC1-primary wording, and remove stale speaker-LIVE contract text.
 
-## 9A. Post-approval hardware-discovered remediation (pending architecture re-review)
+## 9A. Post-approval hardware-discovered remediation
 
-- [ ] 9.13 Obtain independent architecture review of the OpenSpec amendment for session-bound initial expansion preview admission and TE40 monitor-audio `micArray<N>_<NN>ValIdx` aggregation.
-- [ ] 9.14 Implement coordinator adoption of a generation-current session `expanded_record_id` at bind without bind/render I/O; preserve the one terminal-cycle automatic preview and preview-before-LIVE ordering.
-- [ ] 9.15 Implement one TE40 monitor-audio extractor for one-shot seed and true LIVE: maximum valid `MicValueIndex`/`micArray<N>_<NN>ValIdx` candidates, unavailable-versus-zero semantics, and existing `0..220 -> 0..100%` normalization.
-- [ ] 9.16 Add regression coverage for initial-expanded preview admission without synthetic Qt events and the TE40 primary/array aggregation, malformed/absent/zero/speaker-isolation, and seed-versus-true-LIVE boundaries.
-- [ ] 9.17 Re-run focused/full offline validation and strict OpenSpec checks after implementation; do not treat them as hardware evidence.
+- [x] 9.13 Obtain independent architecture review of the OpenSpec amendment for session-bound initial expansion preview admission and TE40 monitor-audio `micArray<N>_<NN>ValIdx` aggregation. Exact SHA `5b21dbe081e04c6e12f5c9448c34db9e4263d197`: APPROVE WITH NON-BLOCKING NOTES (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`).
+- [x] 9.14 Implement coordinator adoption of a generation-current session `expanded_record_id` at bind without bind/render I/O; preserve the one terminal-cycle automatic preview and preview-before-LIVE ordering.
+- [x] 9.15 Implement one TE40 monitor-audio extractor for one-shot seed and true LIVE: maximum valid `MicValueIndex`/`micArray<N>_<NN>ValIdx` candidates, unavailable-versus-zero semantics, and existing `0..220 -> 0..100%` normalization.
+- [x] 9.16 Add regression coverage for initial-expanded preview admission without synthetic Qt events and the TE40 primary/array aggregation, malformed/absent/zero/speaker-isolation, and seed-versus-true-LIVE boundaries.
+- [x] 9.17 Re-run focused/full offline validation and strict OpenSpec checks after implementation; do not treat them as hardware evidence.
 - [ ] 9.18 Repeat exact-SHA Huawei TE40 hardware acceptance for automatic preview after ordinary `Обновить данные` and microphone LIVE array telemetry after implementation.
 
 ## 10. Exact-SHA hardware acceptance

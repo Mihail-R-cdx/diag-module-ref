@@ -4,13 +4,18 @@ from unittest.mock import Mock, patch
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
+from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
 from core.parser import HuaweiTE40DataParser
 from core.cloudlink_microphone_meter import SUPPORTED_CLOUDLINK_METER_MODELS
-from core.room_diagnostic_tree import DeviceRowState, DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession, RoomDiagnosticSessionIdentity
+from core.room_diagnostic_tree import (
+    DeviceRowState, DeviceRowStatus, RoomCycleStatus, RoomDiagnosticSession,
+    RoomDiagnosticSessionIdentity, build_room_session, resolve_room_source,
+)
 from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator
 from core.exceptions import ConnectionError
-from gui.diagnostic_dispatch import dispatch_entry_for_model, normalize_codec_audio_projection
-from handlers.huawei.te40 import HuaweiTE40Handler
+from gui.diagnostic_dispatch import dispatch_entry_for_model, normalize_codec_audio_projection, room_model_capabilities
+from handlers.huawei.te20 import HuaweiTE20Handler
+from handlers.huawei.te40 import HuaweiTE40Handler, extract_te40_monitor_microphone_level
 
 
 def microphone_state(mic1=18, *, complete=True):
@@ -24,6 +29,113 @@ def microphone_state(mic1=18, *, complete=True):
 
 
 class CodecInteractionParityTests(unittest.TestCase):
+    def test_initial_expanded_waiting_source_admits_one_preview_after_terminal_cycle(self):
+        """Source expansion is adopted at bind; neither bind nor rendering signals start I/O."""
+        record = EquipmentRecord(
+            "te40", "Huawei TE40", "Huawei TE40", "192.0.2.10",
+            None, None, "R-1", "Room", "other",
+        )
+        inventory = EquipmentInventory.from_records(
+            (record,), EquipmentInventoryMetadata(1, "sha256:" + "a" * 64),
+        )
+        session = build_room_session(
+            inventory=inventory,
+            source=resolve_room_source(inventory, record.ip_address, room_model_capabilities()),
+            generation=7,
+            capabilities=room_model_capabilities(),
+        )
+        row = session.row_for(record.record_id)
+        self.assertEqual(DeviceRowStatus.WAITING, row.status)
+        self.assertEqual(record.record_id, session.expanded_record_id)
+        calls = []
+        bindings = RoomInteractionBindings(
+            auxiliary=lambda _context, action: calls.append(action),
+            live=lambda _context: calls.append("live"),
+            cancel=lambda _context: None,
+            cleanup=lambda _context: False,
+        )
+        coordinator = RoomInteractionCoordinator(bindings_for_model=lambda _model: bindings)
+
+        coordinator.bind_session(session)
+
+        self.assertEqual(record.record_id, coordinator._expanded_record_id)
+        self.assertEqual([], calls)  # Bind has no preview/device I/O.
+        self.assertIsNone(coordinator.active_context)
+
+        # The regular room cycle, not a synthetic Qt expansion event, makes
+        # the source row usable and reaches the terminal admission boundary.
+        row.status = DeviceRowStatus.CONNECTED
+        row.accepted_snapshot = {}
+        session.status = RoomCycleStatus.COMPLETE
+        coordinator.cycle_finished(session)
+        self.assertEqual(["call_log_preview"], calls)
+        preview = coordinator.active_context
+        self.assertIsNotNone(preview)
+        coordinator.complete(preview, success=True, data={})
+        self.assertEqual(["call_log_preview"], calls)
+        coordinator.cleanup_finished(preview)
+        self.assertEqual(["call_log_preview", "live"], calls)
+
+        # A same-generation repaint/collapse/re-expand cannot consume a
+        # second automatic preview; explicit journal acquisition is covered
+        # by the separate fresh-action regressions.
+        live = coordinator.active_context
+        coordinator.collapse(record.record_id)
+        coordinator.cleanup_finished(live)
+        coordinator.expand(record.record_id)
+        self.assertEqual(["call_log_preview", "live", "live"], calls)
+
+    def test_te40_monitor_microphone_extractor_aggregates_only_valid_exact_fields(self):
+        cases = (
+            ({"MicValueIndex": 41}, 41),
+            ({"micArray1_01ValIdx": 17, "micArray1_02ValIdx": 83, "micArray1_03ValIdx": 41}, 83),
+            ({"MicValueIndex": 20, "micArray1_01ValIdx": 70}, 70),
+            ({"micArray1_01ValIdx": 70, "micArray2_03ValIdx": 91}, 91),
+            ({"MicValueIndex": 20, "SpeakerValueIndex": 220}, 20),
+            ({"micArray1_01ValIdx": 0}, 0),
+            ({
+                "MicValueIndex": None, "micArray1_01ValIdx": True,
+                "micArray1_02ValIdx": "83", "micArray1_03ValIdx": float("nan"),
+                "micArray2_01ValIdx": float("inf"), "micArray2_02ValIdx": [],
+            }, None),
+            ({
+                "micArray1_01Value": 99, "micArrayX_01ValIdx": 99,
+                "micArray1_xxValIdx": 99, "unrelated": 99,
+            }, None),
+        )
+        for payload, expected in cases:
+            with self.subTest(payload=payload):
+                self.assertEqual(expected, extract_te40_monitor_microphone_level(payload))
+
+    def test_te40_seed_and_live_use_the_same_monitor_microphone_extractor(self):
+        payload = {"MicValueIndex": 20, "micArray1_01ValIdx": 70, "SpeakerValueIndex": 220}
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+
+        def response(action, _payload=None):
+            if action == "get_monitor_audio_params":
+                return {"success": 1, "data": payload}
+            return {"success": 0, "data": {}}
+
+        handler.send_command = Mock(side_effect=response)
+        seed = handler.get_status()["monitor_mic_value"]
+        handler.get_sleep_mode = Mock(return_value="Off")
+        live = handler.get_live_audio_status()["microphone"]
+
+        self.assertEqual(70, seed)
+        self.assertEqual(seed, live)
+
+    def test_te20_live_remains_primary_micvalueindex_only(self):
+        handler = HuaweiTE20Handler("192.0.2.10", username="u", password="p")
+        handler.get_sleep_mode = Mock(return_value="Off")
+        handler.send_command = Mock(return_value={"success": 1, "data": {
+            "MicValueIndex": 20,
+            "micArray1_01ValIdx": 220,
+        }})
+
+        live = handler.get_live_audio_status()
+
+        self.assertEqual(20, live["audio"]["MicValueIndex"])
+        self.assertNotIn("microphone", live)
     def test_te40_numeric_gain_and_mute_are_independent(self):
         snapshot = HuaweiTE40DataParser.parse_raw_data({"mic_volume": 18, "mic_mute": "Off"})
         audio = normalize_codec_audio_projection(snapshot, "Huawei TE40")

@@ -202,6 +202,20 @@ class RoomInteractionCoordinator:
         self._codec_preview_pending.clear()
         self._codec_preview_contexts.clear()
         self._pending_codec_preview = None
+        # A source-driven room cycle may already have selected its source row
+        # before the coordinator is bound.  Rendering restores that expansion
+        # without emitting a user event, so retain the application-owned
+        # identity as a real expansion epoch.  Binding intentionally performs
+        # no admission or I/O: the terminal-cycle boundary below decides when
+        # a usable row may start its mandatory preview.
+        if session is not None and session.expanded_record_id is not None:
+            try:
+                session.row_for(session.expanded_record_id)
+            except KeyError:
+                pass
+            else:
+                self._expanded_record_id = session.expanded_record_id
+                self._codec_preview_epochs[self._expanded_record_id] = 1
 
     def cycle_finished(self, session: RoomDiagnosticSession) -> None:
         if session is not self._session or session.invalidated:
