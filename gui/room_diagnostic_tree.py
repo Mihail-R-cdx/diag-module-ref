@@ -1545,7 +1545,7 @@ class RoomReadOnlyPresentation(QWidget):
         """Return only a finite accepted live meter level, scaled to percentage."""
         sample = source.get("live_microphone")
         if isinstance(sample, Real) and not isinstance(sample, bool) and isfinite(sample):
-            if model in {"Huawei TE20", "Huawei TE40"}:
+            if model in {"Huawei TE20", "Huawei TE40", "Huawei TE50"}:
                 return normalize_te20_monitor_audio_level(sample)
             return max(0, min(100, round(sample)))
         if not isinstance(sample, Mapping) or sample.get("available") is False:
@@ -1591,7 +1591,7 @@ class RoomReadOnlyPresentation(QWidget):
     def _codec_microphone_text(model: str | None, value: float | int | None) -> str:
         if value is None:
             return "Нет данных"
-        if model == "Huawei TE40" and isinstance(value, Real) and not isinstance(value, bool):
+        if model in {"Huawei TE40", "Huawei TE50"} and isinstance(value, Real) and not isinstance(value, bool):
             gain = value - 12
             return f"{gain:+g} dB"
         return f"{value}%"

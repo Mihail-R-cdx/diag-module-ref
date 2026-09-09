@@ -137,23 +137,23 @@ Required re-validation on the new exact published SHA:
 - [x] 9.20 Implement the reviewed TE40 current-audio endpoint/extractor correction with one seed/LIVE path, then add focused regressions and rerun required validation.
 - [x] 9.21 Repeat exact-SHA TE40 microphone LIVE hardware acceptance after the reviewed implementation. At exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`, current-audio LIVE PASSed on real TE40 hardware. This is TE40 current-audio evidence only, not whole-change hardware completion; later production changes require a new exact-SHA TE40 quick rerun.
 
-## 9C. TE50 declared protocol-equivalence expansion (pending independent architecture review)
+## 9C. TE50 declared protocol-equivalence expansion (architecture approved)
 
-- [ ] 9.22 Amend OpenSpec for exact-model TE50 reuse and obtain independent architecture review of the published amendment SHA.
-- [ ] 9.23 After permitting review, register exact `Huawei TE50` identity and reviewed TE40 handler reuse without family inference.
-- [ ] 9.24 Add focused TE50 reuse regressions while preserving TE30/TE60 exclusion and all existing safety/lifecycle regressions.
+- [x] 9.22 Amend OpenSpec for exact-model TE50 reuse and obtain independent architecture approval of published SHA `4aaad35cd4953ed1351b77a7635e2950da615fa1` (`APPROVE`; `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
+- [x] 9.23 After permitting review, register exact `Huawei TE50` identity and reviewed `HuaweiTE40Handler` reuse without family inference.
+- [x] 9.24 Add focused TE50 reuse regressions while preserving TE30/TE60 exclusion and all existing safety/lifecycle regressions.
 - [ ] 9.25 After TE50 implementation, repeat a quick exact-SHA TE40 hardware check for current-audio LIVE and affected shared behavior.
 - [ ] 9.26 Run exact-SHA TE50 hardware acceptance when TE50 hardware is available; do not mark PASS before real-device evidence.
 
-## 9D. TE50 inventory recognition contract (pending independent architecture review)
+## 9D. TE50 inventory recognition contract (architecture approved)
 
-- [ ] 9.27 Approve exact canonical `Huawei TE50`, reviewed components `te + 50`, importer-only expected kind `video_codec`, and deployment-local inventory regeneration without source-model dispatch authority.
+- [x] 9.27 Approve exact canonical `Huawei TE50`, reviewed components `te + 50`, importer-only expected kind `video_codec`, and deployment-local inventory regeneration without source-model dispatch authority at published SHA `90a3c346fb1c7938e5331aab4d79f593070ece83` (`APPROVE`; `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
 
-Implementation (all remain unchecked until a permitting architecture review):
+Implementation:
 
-- [ ] 9.28 Add `Huawei TE50` to `DIAGNOSTIC_MODEL_RULES` using only the approved existing component mechanism.
-- [ ] 9.29 Add `Huawei TE50 -> video_codec` to `EXPECTED_KIND_BY_DIAGNOSTIC_MODEL` as consistency evidence only; preserve exact source `Тип модели -> device_kind` authority.
-- [ ] 9.30 Add importer regressions for TE50 compact/separated evidence, canonical output, expected-kind consistency, TE20/TE40 preservation, and TE40/TE50 non-overlap.
+- [x] 9.28 Add `Huawei TE50` to `DIAGNOSTIC_MODEL_RULES` using only the approved existing component mechanism.
+- [x] 9.29 Add `Huawei TE50 -> video_codec` to `EXPECTED_KIND_BY_DIAGNOSTIC_MODEL` as consistency evidence only; preserve exact source `Тип модели -> device_kind` authority.
+- [x] 9.30 Add importer regressions for TE50 compact/separated evidence, canonical output, expected-kind consistency, TE20/TE40 preservation, and TE40/TE50 non-overlap.
 - [ ] 9.31 Regenerate deployment-local ignored `equipment_inventory.local.json` from the configured organization workbook outside Git after deployment.
 - [ ] 9.32 Verify the generated TE50 record has exact `diagnostic_model = Huawei TE50` without adding runtime XLSX parsing or source-model dispatch.
 

@@ -604,7 +604,7 @@ def _default_handler_factory(model: str, kwargs: Mapping[str, Any]) -> Any:
         from handlers.huawei.te20 import HuaweiTE20Handler
 
         return HuaweiTE20Handler(**dict(kwargs))
-    if model == "Huawei TE40":
+    if model in {"Huawei TE40", "Huawei TE50"}:
         from handlers.huawei.te40 import HuaweiTE40Handler
 
         return HuaweiTE40Handler(**dict(kwargs))

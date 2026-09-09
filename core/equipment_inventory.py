@@ -26,6 +26,7 @@ SUPPORTED_DIAGNOSTIC_MODELS = frozenset(
     {
         "Huawei TE20",
         "Huawei TE40",
+        "Huawei TE50",
         "CloudLink Bar 310",
         "CloudLink Box 310",
         "Polycom RPG 310",

@@ -158,7 +158,15 @@ def _codec_worker(context: OneShotAttemptContext):
         return HuaweiTE20Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
     if context.diagnostic_model in {"CloudLink Bar 310", "CloudLink Box 310"}:
         return HuaweiBar310Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), assigned_model=context.diagnostic_model, is_current=context.is_current)
-    return HuaweiTE40Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
+    if context.diagnostic_model in {"Huawei TE40", "Huawei TE50"}:
+        return HuaweiTE40Worker(
+            context.ip_address,
+            username=credentials.get("username"),
+            password=credentials.get("password"),
+            assigned_model=context.diagnostic_model,
+            is_current=context.is_current,
+        )
+    raise ValueError(f"Unsupported codec one-shot model: {context.diagnostic_model}")
 
 
 def _polycom_worker(context: OneShotAttemptContext):

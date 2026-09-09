@@ -179,17 +179,19 @@ class CodecInteractionParityTests(unittest.TestCase):
 
         self.assertEqual(20, live["audio"]["MicValueIndex"])
         self.assertNotIn("microphone", live)
-    def test_te40_numeric_gain_and_mute_are_independent(self):
-        snapshot = HuaweiTE40DataParser.parse_raw_data({"mic_volume": 18, "mic_mute": "Off"})
-        audio = normalize_codec_audio_projection(snapshot, "Huawei TE40")
-        self.assertEqual(18, audio.microphone_volume)
-        self.assertEqual(6, audio.microphone_volume - 12)
-        self.assertEqual("UNMUTED", audio.microphone_mute_state.value)
+    def test_te40_backed_numeric_gain_and_mute_are_independent(self):
+        for model in ("Huawei TE40", "Huawei TE50"):
+            with self.subTest(model=model):
+                snapshot = HuaweiTE40DataParser.parse_raw_data({"mic_volume": 18, "mic_mute": "Off"})
+                audio = normalize_codec_audio_projection(snapshot, model)
+                self.assertEqual(18, audio.microphone_volume)
+                self.assertEqual(6, audio.microphone_volume - 12)
+                self.assertEqual("UNMUTED", audio.microphone_mute_state.value)
 
-        zero = HuaweiTE40DataParser.parse_raw_data({"mic_volume": 0, "mic_mute": "Off"})
-        zero_audio = normalize_codec_audio_projection(zero, "Huawei TE40")
-        self.assertEqual(0, zero_audio.microphone_volume)
-        self.assertEqual("UNMUTED", zero_audio.microphone_mute_state.value)
+                zero = HuaweiTE40DataParser.parse_raw_data({"mic_volume": 0, "mic_mute": "Off"})
+                zero_audio = normalize_codec_audio_projection(zero, model)
+                self.assertEqual(0, zero_audio.microphone_volume)
+                self.assertEqual("UNMUTED", zero_audio.microphone_mute_state.value)
 
     def test_te40_gain_uses_fresh_full_state_and_preserves_collateral(self):
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")

@@ -46,6 +46,9 @@ from tools.import_equipment_inventory import (
     preflight_primary_source,
     resolve_converter_paths,
 )
+from core.interactive_session import _default_handler_factory
+from gui.diagnostic_dispatch import DiagnosticActionPurpose, ModelResolutionStatus, resolve_exact_model_for_ip
+from handlers.huawei.te40 import HuaweiTE40Handler
 
 
 HEADERS = [
@@ -377,6 +380,66 @@ load_equipment_inventory({str(path)!r})
 
 
 class EquipmentInventoryImporterTests(unittest.TestCase):
+    def test_te50_component_recognition_kind_consistency_and_dispatch_composition(self):
+        cases = (
+            ("RID-TE50-1", "TE50", None, "Video Conference", "Huawei TE50"),
+            ("RID-TE50-2", "TE 50", None, "Video Conference", "Huawei TE50"),
+            ("RID-TE50-3", "TE-50", None, "Video Conference", "Huawei TE50"),
+            ("RID-TE50-4", "Huawei TE50", None, "Video Conference", "Huawei TE50"),
+            ("RID-TE50-5", "Huawei_TE.50", None, "Video Conference", "Huawei TE50"),
+            ("RID-TE50-NAME", None, "Huawei_TE.50", "Video Conference", "Huawei TE50"),
+            ("RID-TE40", "TE40", None, "Video Conference", "Huawei TE40"),
+            ("RID-TE500", "TE500", None, "Video Conference", None),
+            ("RID-TE501", "TE501", None, "Video Conference", None),
+            ("RID-TE60", "TE60", None, "Video Conference", None),
+            ("RID-AMBIGUOUS", "TE40 / TE50", None, "Video Conference", None),
+            ("RID-TE50-KIND", "TE50", None, "Other", "Huawei TE50"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(source, [
+                source_row(
+                    record_id,
+                    room_id=f"ROOM-{index}",
+                    room_name=f"Room {index}",
+                    model=model,
+                    source_model=source_model,
+                    source_type=source_type,
+                    manufacturer=None,
+                    ip=f"192.0.2.{100 + index}",
+                    mac=f"00:11:22:33:aa:{index:02x}",
+                    serial=f"TE-{index}",
+                    controller=None,
+                )
+                for index, (record_id, model, source_model, source_type, _expected) in enumerate(cases, start=1)
+            ])
+            result = import_equipment_inventory(source, output_path=output)
+            imported = load_equipment_inventory(output)
+
+        self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+        by_id = {item.record_id: item for item in imported.records}
+        issues = issue_codes_by_record(result.issues)
+        for record_id, _model, _name, _kind, expected in cases:
+            with self.subTest(record_id=record_id):
+                self.assertEqual(expected, by_id[record_id].diagnostic_model)
+        self.assertEqual("other", by_id["RID-TE50-KIND"].device_kind)
+        self.assertIn("KNOWN_MODEL_TYPE_MISMATCH", issues["RID-TE50-KIND"])
+        self.assertEqual({"AMBIGUOUS_DIAGNOSTIC_MODEL"}, issues["RID-AMBIGUOUS"] & {"AMBIGUOUS_DIAGNOSTIC_MODEL", "UNMAPPED_DIAGNOSTIC_MODEL"})
+        self.assertEqual({"UNMAPPED_DIAGNOSTIC_MODEL"}, issues["RID-TE500"] & {"AMBIGUOUS_DIAGNOSTIC_MODEL", "UNMAPPED_DIAGNOSTIC_MODEL"})
+        self.assertEqual({"UNMAPPED_DIAGNOSTIC_MODEL"}, issues["RID-TE501"] & {"AMBIGUOUS_DIAGNOSTIC_MODEL", "UNMAPPED_DIAGNOSTIC_MODEL"})
+
+        te50 = by_id["RID-TE50-1"]
+        resolved = resolve_exact_model_for_ip(
+            purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+            normalized_ip=te50.ip_address,
+            inventory=imported,
+        )
+        self.assertEqual(ModelResolutionStatus.RESOLVED, resolved.status)
+        self.assertEqual("Huawei TE50", resolved.entry.diagnostic_model)
+        self.assertEqual("codec", resolved.entry.screen_key)
+        handler = _default_handler_factory("Huawei TE50", {"ip_address": te50.ip_address})
+        self.assertIsInstance(handler, HuaweiTE40Handler)
     def test_importer_maps_source_columns_and_nullable_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "inventory.xlsx"

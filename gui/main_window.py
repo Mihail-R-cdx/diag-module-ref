@@ -1020,7 +1020,7 @@ class VCSDiagnosticApp(QMainWindow):
             }
         if operation == "microphone_adjust":
             if (
-                row.diagnostic_model != "Huawei TE40"
+                row.diagnostic_model not in {"Huawei TE40", "Huawei TE50"}
                 or not isinstance(value, int)
                 or value not in {-1, 1}
                 or not isinstance(projection.microphone_volume, (int, float))
@@ -4088,7 +4088,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._publish_current_equipment_room_context("request_started")
         self._publish_current_equipment_switch_context("request_started", force=True)
 
-        if device_name == "Huawei TE40":
+        if device_name in {"Huawei TE40", "Huawei TE50"}:
             self.refresh_huawei_te40(ip_address, credential_snapshot=credential_snapshot)
         elif device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
             self.refresh_huawei_bar310(ip_address, credential_snapshot=credential_snapshot)
@@ -4608,6 +4608,7 @@ class VCSDiagnosticApp(QMainWindow):
                 preferred_profile=self.get_device_connection_profile(
                     device_name, ip_address
                 ),
+                assigned_model=device_name,
                 **creds,
             )
             
@@ -5175,7 +5176,7 @@ class VCSDiagnosticApp(QMainWindow):
                     )
                 
                     # Повторяем попытку с новыми credentials
-                    if device_name == "Huawei TE40":
+                    if device_name in {"Huawei TE40", "Huawei TE50"}:
                         self.refresh_huawei_te40(
                             worker.ip_address,
                             creds_list=creds_list,
