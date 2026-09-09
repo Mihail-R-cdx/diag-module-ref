@@ -15,11 +15,11 @@ The unified exact-model registration SHALL remain the sole runtime capability au
 
 This table is an OpenSpec/test oracle and SHALL NOT become a second runtime registry.
 
-TE40 numeric microphone gain is distinct from microphone mute. Its approved primary-input target is `MIC1`. User-facing configured gain range is `-12 dB .. +9 dB`, step `1 dB`; device/wire range is `0..21`, step `1`, with `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`.
+TE40 and exact-model TE50 numeric microphone gain are distinct from microphone mute. Their approved primary-input target is `MIC1`. User-facing configured gain range is `-12 dB .. +9 dB`, step `1 dB`; device/wire range is `0..21`, step `1`, with `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`.
 
-Speaker mute support for all five SHALL continue to use only the approved volume-zero/restore desired-state policy and proven exact-row/generation restore evidence; it does not imply a separate raw speaker-mute wire command.
+Speaker mute support for all six exact models SHALL continue to use only the approved volume-zero/restore desired-state policy and proven exact-row/generation restore evidence; it does not imply a separate raw speaker-mute wire command.
 
-Polycom RPG 310 speaker adjustment SHALL use range `0..100`, step `2`. TE20/TE40 speaker adjustment SHALL use `0..21`, step `1`. Bar/Box speaker adjustment SHALL use `0..15`, step `1`.
+Polycom RPG 310 speaker adjustment SHALL use range `0..100`, step `2`. TE20/TE40/TE50 speaker adjustment SHALL use `0..21`, step `1`. Bar/Box speaker adjustment SHALL use `0..15`, step `1`.
 
 Post-cycle LIVE capability is not inferred from this mutation table; it is advertised separately by the same exact-model registration. In this change Box 310 SHALL advertise no post-cycle LIVE binding.
 

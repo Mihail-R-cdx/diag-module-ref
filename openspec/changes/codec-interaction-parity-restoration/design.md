@@ -226,7 +226,7 @@ Every explicit `Развернуть` remains a separate fresh exact-row auxilia
 
 All network work remains under one application-owned serialized room interaction lane. Exact row/generation/model/IP/credential/currentness authority remains mandatory. State-changing operations require one send and authoritative reconciliation; ambiguous possible-send outcomes are blocked/unconfirmed; no blind replay.
 
-Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`. CloudLink microphone gain and reboot for all five codecs remain unsupported.
+Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`. CloudLink microphone gain and reboot for all six codecs remain unsupported.
 
 ## Acceptance inventory
 

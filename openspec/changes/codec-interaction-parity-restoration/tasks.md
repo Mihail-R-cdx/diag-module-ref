@@ -149,7 +149,7 @@ Required re-validation on the new exact published SHA:
 
 Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 remains pending exact-SHA hardware acceptance; physical availability at any one moment does not count as acceptance evidence.
 
-- [ ] 10.1 Run every applicable in-scope hardware scenario against the exact published post-amendment implementation SHA.
+- [ ] 10.1 Run every applicable six-model in-scope hardware scenario, including TE50's applicable exact-SHA hardware acceptance, against the exact published post-amendment implementation SHA.
 - [ ] 10.2 TE40: verify static numeric MIC1 gain/dB display, MIC1 gain exact `1 dB` step, fresh pre-write state acquisition, independent mute, microphone LIVE meter, exactly-one-camera behavior, automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
 - [ ] 10.3 TE40 mutation safety: where feasible, verify non-target microphone state is preserved; target/collateral reconciliation failure must not yield confirmed success or blind replay.
 - [ ] 10.4 Box310: verify deferred LIVE contract — no live binding/polling/request and microphone LIVE meter unsupported; separately verify automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
@@ -162,7 +162,7 @@ Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 rem
 - [ ] 11.1 Validate the exact published remote implementation SHA from a clean detached worktree.
 - [ ] 11.2 Re-run focused/full tests, strict OpenSpec validation, Git checks and required disposable archive-applicability check.
 - [ ] 11.3 Review implementation against the **new approved architecture SHA**, root MODIFIED contracts including `cloudlink-live-microphone-metering`, exact-row call-preview boundary, TE40 fresh full-state MIC1 contract, Box deferred LIVE contract, root mutation safety and behavioral oracle.
-- [ ] 11.4 Confirm all five models passed every applicable hardware gate on the exact validated implementation SHA.
+- [ ] 11.4 Confirm all six models passed every applicable hardware gate on the exact validated implementation SHA, including TE50's mandatory applicable exact-SHA hardware acceptance. Independent validation and archive are prohibited if that TE50 acceptance is missing or failed.
 - [ ] 11.5 Issue only `APPROVE`, `APPROVE WITH NON-BLOCKING NOTES`, or `CHANGES REQUIRED` according to repository rules.
 
 ## 12. Archive + completion
