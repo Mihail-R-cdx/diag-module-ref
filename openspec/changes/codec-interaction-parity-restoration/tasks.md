@@ -58,9 +58,9 @@ Required re-validation on the new exact published SHA:
 - [x] 4.9 Run `.\openspec.cmd validate --all --strict` for the current OpenSpec-only architecture remediation.
 - [x] 4.10 Run a disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario is archive-compatible without publishing archive output.
 - [x] 4.11 Run Git hygiene checks (`git diff --check`, `git diff --cached --check`) and confirm only in-scope OpenSpec artifacts are modified before the resulting commit.
-- [ ] 4.12 Perform independent architecture review against the exact newly published amendment SHA.
+- [x] 4.12 Independent reviewer completed architecture review of exact SHA `11af77b14010c34ae2d33de816678a6724971caa`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`).
 - [x] 4.13 Resolve the current Critical/High/Medium findings without production implementation: add the archive-compatible state-card uptime replacement and classify TE40 static status as an ADDED requirement.
-- [ ] 4.14 Obtain and record the new final architecture `APPROVE` SHA. No post-amendment production implementation before this gate.
+- [x] 4.14 Record final independent architecture `APPROVE` for exact content SHA `11af77b14010c34ae2d33de816678a6724971caa` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`). This bookkeeping descendant does not change the architecture-approved SHA.
 
 ## 5. Post-approval exact-model capability and parser implementation
 
