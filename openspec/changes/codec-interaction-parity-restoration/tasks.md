@@ -58,9 +58,9 @@ Required re-validation on the new exact published SHA:
 - [x] 4.9 Run `.\openspec.cmd validate --all --strict` for the current OpenSpec-only architecture remediation.
 - [x] 4.10 Run a disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario is archive-compatible without publishing archive output.
 - [x] 4.11 Run Git hygiene checks (`git diff --check`, `git diff --cached --check`) and confirm only in-scope OpenSpec artifacts are modified before the resulting commit.
-- [x] 4.12 Independent reviewer completed architecture review of exact SHA `11af77b14010c34ae2d33de816678a6724971caa`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`).
+- [x] 4.12 Independent reviewer completed the historical architecture review of exact SHA `11af77b14010c34ae2d33de816678a6724971caa`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`). The post-approval hardware amendment requires the new review in 9.13.
 - [x] 4.13 Resolve the current Critical/High/Medium findings without production implementation: add the archive-compatible state-card uptime replacement and classify TE40 static status as an ADDED requirement.
-- [x] 4.14 Record final independent architecture `APPROVE` for exact content SHA `11af77b14010c34ae2d33de816678a6724971caa` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`). This bookkeeping descendant does not change the architecture-approved SHA.
+- [x] 4.14 Record historical final independent architecture `APPROVE` for exact content SHA `11af77b14010c34ae2d33de816678a6724971caa` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`). This bookkeeping descendant does not change that historical architecture-approved SHA; the post-approval hardware amendment requires the new review in 9.13.
 
 ## 5. Post-approval exact-model capability and parser implementation
 
@@ -78,7 +78,7 @@ Required re-validation on the new exact published SHA:
 ## 6. Post-approval presentation and LIVE implementation
 
 - [x] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Громкость микрофона`, `Громкость динамиков`; no user-visible speaker LIVE meter.
-- [x] 6.2 TE20/TE40: normalize raw accepted `MicValueIndex` from `0..220` to `0..100%` for `Микрофон (уровень)`; `SpeakerValueIndex` may remain compatibility/internal evidence but creates no user-visible speaker LIVE meter. Seed from initial `monitor_mic_value` with the same normalization until a true LIVE sample is accepted, after which the true LIVE sample wins.
+- [x] 6.2 Implement the then-approved TE20/TE40 `MicValueIndex` normalization and seed precedence for `Микрофон (уровень)`; `SpeakerValueIndex` remains compatibility/internal evidence and creates no user-visible speaker LIVE meter. The TE40 MicValueIndex-only authority is superseded by post-approval hardware evidence tracked in 9.13-9.18.
 - [x] 6.3 Remove redundant textual Huawei live-audio rows; the Audio card has no user-visible speaker LIVE row.
 - [x] 6.4 TE40: display configured MIC1 gain from canonical `microphone_volume`, originating from authoritative `mic1Value`, via `gain_db = mic1Value - 12`; make `-`/`+` request exactly one dB through typed application intent.
 - [x] 6.5 Bar310: preserve approved microphone LIVE meter; room presentation has no user-visible speaker LIVE capability.
@@ -121,6 +121,15 @@ Required re-validation on the new exact published SHA:
 - [x] 9.10 Amend room codec presentation/lifecycle contracts: remove speaker LIVE, normalize Huawei monitor audio from `0..220`, seed microphone meter from initial evidence, preserve TE40 canonical state/uptime, and release preview ownership after already-completed physical cleanup.
 - [x] 9.11 Add remediation regressions for TE40 canonical MIC1 gain/status/uptime, microphone meter normalization and seed precedence, absent speaker LIVE meter, and preview cleanup handoff.
 - [x] 9.12 Remediate review findings: persist successful preview credential/profile before first LIVE, establish MIC1-primary wording, and remove stale speaker-LIVE contract text.
+
+## 9A. Post-approval hardware-discovered remediation (pending architecture re-review)
+
+- [ ] 9.13 Obtain independent architecture review of the OpenSpec amendment for session-bound initial expansion preview admission and TE40 monitor-audio `micArray<N>_<NN>ValIdx` aggregation.
+- [ ] 9.14 Implement coordinator adoption of a generation-current session `expanded_record_id` at bind without bind/render I/O; preserve the one terminal-cycle automatic preview and preview-before-LIVE ordering.
+- [ ] 9.15 Implement one TE40 monitor-audio extractor for one-shot seed and true LIVE: maximum valid `MicValueIndex`/`micArray<N>_<NN>ValIdx` candidates, unavailable-versus-zero semantics, and existing `0..220 -> 0..100%` normalization.
+- [ ] 9.16 Add regression coverage for initial-expanded preview admission without synthetic Qt events and the TE40 primary/array aggregation, malformed/absent/zero/speaker-isolation, and seed-versus-true-LIVE boundaries.
+- [ ] 9.17 Re-run focused/full offline validation and strict OpenSpec checks after implementation; do not treat them as hardware evidence.
+- [ ] 9.18 Repeat exact-SHA Huawei TE40 hardware acceptance for automatic preview after ordinary `Обновить данные` and microphone LIVE array telemetry after implementation.
 
 ## 10. Exact-SHA hardware acceptance
 

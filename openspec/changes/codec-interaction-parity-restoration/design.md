@@ -11,6 +11,8 @@ Independent review of `df5447...` found two remaining HIGH findings:
 
 This amendment resolves both at architecture level. It does not change production code.
 
+After architecture approval of content SHA `11af77b14010c34ae2d33de816678a6724971caa`, real TE40 hardware evidence exposed two in-scope defects: session-bound initial expansion was not adopted by coordinator preview admission, and monitor-audio microphone telemetry may be carried by `micArray<N>_<NN>ValIdx` fields rather than `MicValueIndex` alone. This amendment defines their minimal contracts and requires a new independent architecture review before implementation.
+
 Authority remains:
 
 `RULES.md -> current root OpenSpec -> approved change -> source/tests -> Git diff -> runbooks -> agent reports`
@@ -34,7 +36,7 @@ Post-cycle LIVE is a separate optional capability owned by the same exact-model 
 | Exact model | microphone LIVE |
 | --- | --- |
 | Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
-| Huawei TE40 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
+| Huawei TE40 | SUPPORTED from `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`, normalized `0..220 -> 0..100%` |
 | CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser |
 | CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** |
 | Polycom RPG 310 | UNSUPPORTED |
@@ -145,7 +147,7 @@ The fixed Audio-card order is:
 Громкость динамиков    [−] <accepted value/percentage or Нет данных> [+] [mute]
 ```
 
-Huawei TE20/TE40 use one normalized microphone LIVE meter from `get_live_audio_status`. TE40 configured `mic1Value` is rendered in dB separately from live `MicValueIndex` and mute.
+Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40 uses one shared monitor-audio extractor for initial seed and true LIVE: `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`, then the existing `0..220 -> 0..100%` normalization. TE40 configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
 
 CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders its microphone LIVE slot unsupported.
 
@@ -204,6 +206,8 @@ entire automatic room cycle terminal
 -> first eligible LIVE may start only afterward
 ```
 
+When a generation-current session is bound with an existing `expanded_record_id`, coordinator ownership SHALL accept that application-owned expansion identity without starting network I/O. The normal terminal-cycle boundary, not binding or render, then admits its one preview; no synthetic Qt expand event is required.
+
 For Box 310, the same preview runs, but there is no subsequent Box LIVE start because its live binding is absent.
 
 Collapse/re-expand, repaint, resize, theme switch and duplicate UI events do not create a second automatic preview in the same row/generation. A new full-room generation creates a new freshness boundary.
@@ -226,19 +230,19 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 | TE40 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
 | TE40 pre-read failure | no POST; no command-ambiguity block solely from pre-submit failure |
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
-| TE40 LIVE | microphone meter from normalized `MicValueIndex`; no speaker LIVE meter or duplicate textual live rows |
+| TE40 LIVE | microphone meter from normalized `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`; no speaker LIVE meter or duplicate textual live rows |
 | TE40 camera | one valid camera entry is sufficient |
 | Bar LIVE | supported under Bar-specific approved parser |
 | Box LIVE | microphone LIVE explicitly unsupported/deferred; no live binding/I/O; room presentation has no speaker LIVE capability |
 | Box non-LIVE | diagnostics, speaker, preview/journal, Local Refresh remain in scope |
-| Auto call preview | exact current expanded usable row, whole-cycle terminal, once per row/generation, before first eligible LIVE |
+| Auto call preview | session-bound current expanded usable row accepted without bind/render I/O; whole-cycle terminal, once per row/generation, before first eligible LIVE |
 | Explicit journal | always fresh and separate |
 | Speaker controls | preserve ranges/steps/readback and no-restore safety |
 | Cleanup/currentness | no stale publication, concurrent owner, or permanent lock |
 
 ## Architecture validation gates
 
-No unresolved device-protocol discovery remains inside this change. Before architecture `APPROVE`:
+No unproven Huawei endpoint semantics are introduced: the TE40 array-field maximum is an application aggregation contract derived from observed telemetry. Before a renewed architecture `APPROVE` for this amendment:
 
 1. `.\openspec.cmd validate codec-interaction-parity-restoration --strict` passes;
 2. `.\openspec.cmd validate --all --strict` passes;

@@ -79,7 +79,7 @@ The modern room live-meter support matrix is:
 | Exact model | `Микрофон (уровень)` |
 | --- | --- |
 | `Huawei TE20` | SUPPORTED from raw `MicValueIndex` evidence normalized `0..220 -> 0..100%` |
-| `Huawei TE40` | SUPPORTED from raw `MicValueIndex` evidence normalized `0..220 -> 0..100%` |
+| `Huawei TE40` | SUPPORTED from `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)` evidence normalized `0..220 -> 0..100%` |
 | `CloudLink Bar 310` | SUPPORTED from approved Bar-specific microphone LIVE evidence |
 | `CloudLink Box 310` | **UNSUPPORTED / DEFERRED in this change** |
 | `Polycom RPG 310` | UNSUPPORTED |
@@ -88,9 +88,9 @@ For a supported meter, accepted numeric zero is observed silence/zero level and 
 
 Rendering any meter SHALL consume only accepted application-owned live evidence and SHALL NOT itself start a timer, poll, handler/session acquisition, credential operation, or device request.
 
-For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. `MicValueIndex` is raw monitor-audio evidence normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. Accepted initial `monitor_mic_value` uses the same one-shot seed normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
+For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. TE20 uses raw `MicValueIndex` normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. TE40 uses the exact-model monitor-audio extractor defined by `device-diagnostics-and-control`: `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`, then the same normalization. Accepted initial `monitor_mic_value` uses that model's same one-shot extractor/normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
 
-For exact `Huawei TE40`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live `MicValueIndex` and microphone mute.
+For exact `Huawei TE40`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live microphone evidence and microphone mute.
 
 For TE40, `−` / `+` are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding. Presentation itself never builds the vendor full-state payload.
 
@@ -147,12 +147,12 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **AND** no room network interaction is started
 - **AND** current LIVE, cache and row authority remain unchanged
 
-#### Scenario: Huawei TE live audio uses microphone evidence only
+#### Scenario: Huawei TE live audio uses model-specific microphone evidence only
 
 - **GIVEN** the exact current model is `Huawei TE20` or `Huawei TE40`
 - **AND** current accepted `get_live_audio_status` evidence contains valid raw microphone evidence
 - **WHEN** the Audio card renders
-- **THEN** `Микрофон (уровень)` reflects normalized `MicValueIndex` evidence
+- **THEN** TE20 reflects normalized `MicValueIndex` evidence and TE40 reflects its normalized exact-model aggregate
 - **AND** no user-visible speaker live meter or duplicate textual `Live ...` row is rendered
 
 #### Scenario: TE40 static microphone gain is distinct from live level

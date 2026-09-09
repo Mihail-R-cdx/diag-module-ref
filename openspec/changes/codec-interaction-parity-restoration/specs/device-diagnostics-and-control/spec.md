@@ -179,6 +179,69 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 
 ## ADDED Requirements
 
+### Requirement: TE40 monitor-audio microphone LIVE aggregates established array evidence
+
+For exact `Huawei TE40`, both one-shot `WEB_GetMonitorAudioParam` evidence used to seed `monitor_mic_value` and true `get_live_audio_status` evidence SHALL use one exact-model monitor-audio microphone extractor. The source remains the approved TE40 monitor-audio boundary; this requirement does not add a request, polling source, or Huawei endpoint semantics.
+
+The extractor SHALL collect valid microphone candidates from present `MicValueIndex` and every present field whose name exactly matches `^micArray\d+_\d+ValIdx$`. A valid candidate is finite numeric evidence; booleans, null, malformed values, and non-numeric strings SHALL NOT be numeric candidates. The raw microphone level for the single room meter SHALL be `max(all valid microphone candidates)`. This is an application aggregation contract derived from observed TE40 telemetry; it does not assert that Huawei documents those fields as one vendor max-meter.
+
+If there is no valid candidate, the microphone LIVE sample is unavailable and presentation SHALL render `Нет данных`, not observed zero. A valid candidate of numeric `0` is observed zero/silence. After aggregation, the existing TE40 Huawei monitor-audio normalization SHALL map raw `0..220` to `0..100%` and clamp only the presentation result according to its existing helper. `SpeakerValueIndex` SHALL NOT participate in the microphone aggregate or create a speaker LIVE capability.
+
+The initial one-shot seed has lower authority than an accepted true LIVE sample, but both use this same extractor/aggregation contract. Exact `Huawei TE20` retains its existing `MicValueIndex`-only contract and SHALL NOT infer `micArray...` support from this TE40 evidence.
+
+#### Scenario: TE40 MicValueIndex remains a valid sole microphone candidate
+
+- **GIVEN** a TE40 monitor-audio payload has valid `MicValueIndex = 41` and no valid matching array field
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `41`
+
+#### Scenario: TE40 array evidence supplies microphone level when MicValueIndex is absent
+
+- **GIVEN** a TE40 monitor-audio payload lacks `MicValueIndex` and has `micArray1_01ValIdx = 17`, `micArray1_02ValIdx = 83`, and `micArray1_03ValIdx = 41`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `83`
+
+#### Scenario: TE40 aggregate retains the maximum across primary and array evidence
+
+- **GIVEN** a TE40 monitor-audio payload has `MicValueIndex = 20` and `micArray1_01ValIdx = 70`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `70`
+
+#### Scenario: TE40 malformed array evidence is ignored
+
+- **GIVEN** a TE40 monitor-audio payload has valid `micArray1_01ValIdx = 31` alongside matching array fields that are null, boolean, malformed, or non-numeric strings
+- **WHEN** exact-model microphone extraction runs
+- **THEN** only valid finite numeric candidates participate
+- **AND** raw microphone level is `31`
+
+#### Scenario: TE40 has no valid microphone candidate
+
+- **GIVEN** a TE40 monitor-audio payload has no valid `MicValueIndex` or matching array candidate
+- **WHEN** exact-model microphone extraction runs
+- **THEN** microphone LIVE is unavailable
+- **AND** presentation renders `Нет данных` rather than numeric zero
+
+#### Scenario: TE40 observed zero remains valid microphone evidence
+
+- **GIVEN** a TE40 monitor-audio payload has a valid microphone candidate of numeric `0`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** the raw microphone level is observed numeric `0`
+- **AND** the normalized meter is available at `0%`
+
+#### Scenario: TE40 speaker evidence does not affect microphone aggregate
+
+- **GIVEN** a TE40 monitor-audio payload has valid `MicValueIndex = 20` and `SpeakerValueIndex = 220`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level remains `20`
+- **AND** no user-visible speaker LIVE meter is created
+
+#### Scenario: TE40 initial seed and true LIVE share one extractor
+
+- **GIVEN** equivalent TE40 one-shot and true LIVE monitor-audio payloads contain matching valid primary/array evidence
+- **WHEN** each path extracts microphone level
+- **THEN** each produces the same raw aggregate and normalization result
+- **AND** accepted true LIVE takes precedence over the initial seed
+
 ### Requirement: TE40 static status publishes canonical room evidence without additional I/O
 
 The existing TE40 initial diagnostic snapshot SHALL publish canonical `microphone_status` from rich `mic_connection_status`, canonical `camera_status` from rich `camera_connection_status`, and canonical `uptime` from the already-read `runDay`/`runHour`/`runMin` presentation value when present. These fields remain distinct from microphone mute and require no additional request or polling.

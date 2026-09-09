@@ -18,6 +18,8 @@ At that boundary, one fresh network-backed preview SHALL enter the existing sing
 
 The requirement does not authorize call-log I/O for collapsed/non-current rows. If no codec row is expanded when the whole room cycle becomes terminal, automatic preview remains dormant. The first later eligible codec expansion may admit that exact row/generation's one preview. If a codec row is already expanded when the cycle becomes terminal, its preview is admitted then.
 
+When application composition binds a generation-current room session whose `expanded_record_id` already identifies a current codec row, coordinator ownership SHALL accept that application-owned expansion identity for later terminal-cycle preview admission. Binding and presentation render SHALL start zero device I/O and SHALL NOT require a synthetic Qt expansion notification. The mandatory preview remains admitted only when the ordinary whole-room terminal boundary is reached and all other eligibility conditions hold.
+
 After the row/generation's initial attempt is terminal, later expansion epochs are presentation-only for automatic call history: accepted up-to-three-row preview state may be rendered again, or a terminal unavailable state may remain visible, but collapse/re-expand SHALL NOT produce a second automatic call-history read in the same generation.
 
 Resize, theme switch, hover, repaint, rebuild, duplicate Qt expansion notification and LIVE continuation/resume also create zero additional automatic preview network I/O.
@@ -48,6 +50,17 @@ Explicit `Развернуть` / detailed journal remains separate fresh auxili
 - **THEN** one generation-bound automatic preview is admitted for that exact row
 - **AND** the earlier expansion itself started no call-log device I/O before the whole-room terminal boundary
 - **AND** first LIVE waits for preview terminal cleanup
+
+#### Scenario: Session binds an initially expanded codec before terminal cycle
+
+- **GIVEN** a generation-current room session is created with `expanded_record_id` for a connected/usable call-log-capable codec row
+- **AND** coordinator binding occurs before the automatic room cycle becomes terminal
+- **WHEN** the session binds and presentation renders without a synthetic expansion notification
+- **THEN** binding/render start zero device I/O
+- **WHEN** the ordinary automatic room cycle reaches terminal state and the same row remains current/eligible
+- **THEN** exactly one generation-current automatic `call_log_preview` is admitted
+- **AND** no manual collapse/re-expand is required
+- **AND** preview cleanup precedes first eligible LIVE
 
 #### Scenario: Current cached preview evidence completes the epoch locally
 

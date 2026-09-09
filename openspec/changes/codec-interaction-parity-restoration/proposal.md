@@ -30,7 +30,7 @@ The target product behavior is now:
 - The fresh pre-write state must contain every non-secret `micall`, `mic1..mic18`, and `mic1Value..mic18Value` field required by the save contract. The mutation changes only target `mic1Value`. If fresh full state is incomplete, no POST is sent.
 - Successful save ACK is not final authority. Post-write reconciliation re-reads full audio-control state, confirms target MIC1, and confirms preserved non-target fields against the fresh pre-write baseline.
 - TE40 microphone gain and microphone mute remain separate operations; numeric zero means `-12 dB`, not muted.
-- TE20/TE40 live raw `MicValueIndex` is normalized from `0..220` to the `Микрофон (уровень)` meter; no user-visible speaker LIVE meter is advertised.
+- TE20 live raw `MicValueIndex` is normalized from `0..220` to the `Микрофон (уровень)` meter. TE40 uses the same scale after taking the maximum valid numeric value from `MicValueIndex` and hardware-observed `micArray<N>_<NN>ValIdx` evidence; no user-visible speaker LIVE meter is advertised.
 - TE40 camera parsing accepts zero, one or many returned `itemList` records.
 - Every call-log-capable codec, including Box 310, shows up to the three newest calls automatically for the exact current expanded usable codec row after the entire automatic room cycle is terminal.
 - For a model that advertises LIVE, that LIVE waits for preview terminal cleanup. For a model that advertises no LIVE, preview cleanup releases the lane without creating or implying LIVE.
@@ -71,6 +71,8 @@ The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{dev
 - Correct Box call-log regression so automatic preview is followed by lane release, not by a fabricated first Box LIVE.
 - Keep exact `Huawei TE40 microphone_adjust = SUPPORTED` under the proven MIC1 contract and fresh full-state mutation safety.
 - Preserve Huawei microphone LIVE presentation, TE40 dB configured gain, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
+- Preserve a generation-current session `expanded_record_id` at coordinator binding without render-triggered I/O so the mandatory terminal-cycle preview does not depend on a synthetic Qt expansion event.
+- Use one TE40 monitor-audio extractor for initial seed and true LIVE: maximum valid `MicValueIndex`/`micArray<N>_<NN>ValIdx` evidence, followed by the existing Huawei `0..220 -> 0..100%` normalization.
 
 ## Scope
 
@@ -82,7 +84,7 @@ TE30/TE50/TE60 expansion is a later change and SHALL NOT be inferred from this r
 
 ## Architecture gates
 
-There is no unresolved device-protocol discovery gate inside this change. Before implementation may begin, the remaining gates are repository/process gates:
+No unproven Huawei endpoint semantics are introduced by this amendment: it records the observed TE40 monitor-audio field family as an application aggregation contract. Because that hardware evidence changes the approved TE40 LIVE source contract and exposes the initial-expanded preview admission defect, a new independent architecture review is required before implementation may begin. The remaining gates are:
 
 1. `.\openspec.cmd validate codec-interaction-parity-restoration --strict`;
 2. `.\openspec.cmd validate --all --strict`;
