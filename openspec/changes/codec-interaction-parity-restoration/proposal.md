@@ -20,19 +20,19 @@ git diff --cached --check: PASS
 
 The archive failure exposed one remaining root conflict: `cloudlink-live-microphone-metering` still declared Box LIVE and `WEB_GetCurrentAudioParam` polling as supported. The same review also found a Box call-log regression that still referenced a nonexistent first Box LIVE. This amendment resolves both without changing production code.
 
-Hardware acceptance of implementation `01226c6620932db01424a06211ba7292c6efc164` then found that TE40 dynamic microphone audio is acquired by browser request `WEB_GetCurrentAudioParam`, while the implementation's seed and LIVE paths use `WEB_GetMonitorAudioParam`. The decoded current-audio payload contains individual `mic<N>ValueIndex` and `micArray<N>_<NN>ValIdx` microphone evidence. This OpenSpec-only amendment corrects that approved source/evidence contract before further production implementation.
+Hardware acceptance of implementation `01226c6620932db01424a06211ba7292c6efc164` then found that TE40 dynamic microphone audio is acquired by browser request `WEB_GetCurrentAudioParam`, while the implementation's seed and LIVE paths use `WEB_GetMonitorAudioParam`. The decoded current-audio payload contains individual `mic<N>ValueIndex` and `micArray<N>_<NN>ValIdx` microphone evidence. This OpenSpec-only amendment corrects that approved source/evidence contract before further production implementation. The corrected TE40 implementation was subsequently hardware-accepted for current-audio LIVE at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`; that is historical TE40 evidence, not a whole-change hardware completion.
 
 ## Hardware-discovered product requirements
 
 The target product behavior is now:
 
-- Huawei TE40 static audio exposes independent primary `mic1Value` gain and independent microphone mute evidence.
-- TE40 primary `MIC1` microphone gain is supported. Native configured range is `-12..+9 dB`, step `1 dB`; wire `mic1Value` range is `0..21`, step `1`, with `gain_db = mic1Value - 12`.
+- Huawei TE40 static audio exposes independent primary `mic1Value` gain and independent microphone mute evidence. Exact-model Huawei TE50 reuses that approved contract by declared product protocol equivalence.
+- TE40 primary `MIC1` microphone gain is supported. Native configured range is `-12..+9 dB`, step `1 dB`; wire `mic1Value` range is `0..21`, step `1`, with `gain_db = mic1Value - 12`. Exact-model TE50 reuses this contract pending its own hardware acceptance.
 - TE40 gain setter is `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`; its full-state payload MUST be constructed only from a fresh serialized pre-write audio-control read after mutation ownership is acquired and prior LIVE is retired.
 - The fresh pre-write state must contain every non-secret `micall`, `mic1..mic18`, and `mic1Value..mic18Value` field required by the save contract. The mutation changes only target `mic1Value`. If fresh full state is incomplete, no POST is sent.
 - Successful save ACK is not final authority. Post-write reconciliation re-reads full audio-control state, confirms target MIC1, and confirms preserved non-target fields against the fresh pre-write baseline.
 - TE40 microphone gain and microphone mute remain separate operations; numeric zero means `-12 dB`, not muted.
-- TE20 live raw `MicValueIndex` is unchanged and normalized from `0..220` to the `Микрофон (уровень)` meter. TE40 uses `WEB_GetCurrentAudioParam` for both initial seed and true LIVE, takes the maximum valid numeric evidence from compatibility `MicValueIndex`, hardware-observed `mic<N>ValueIndex`, and `micArray<N>_<NN>ValIdx`, then uses the same scale; no user-visible speaker LIVE meter is advertised.
+- TE20 live raw `MicValueIndex` is unchanged and normalized from `0..220` to the `Микрофон (уровень)` meter. TE40 and exact-model TE50 use `WEB_GetCurrentAudioParam` for both initial seed and true LIVE, take the maximum valid numeric evidence from compatibility `MicValueIndex`, hardware-observed `mic<N>ValueIndex`, and `micArray<N>_<NN>ValIdx`, then use the same scale; no user-visible speaker LIVE meter is advertised.
 - TE40 camera parsing accepts zero, one or many returned `itemList` records.
 - Every call-log-capable codec, including Box 310, shows up to the three newest calls automatically for the exact current expanded usable codec row after the entire automatic room cycle is terminal.
 - For a model that advertises LIVE, that LIVE waits for preview terminal cleanup. For a model that advertises no LIVE, preview cleanup releases the lane without creating or implying LIVE.
@@ -78,11 +78,11 @@ The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{dev
 
 ## Scope
 
-Affected exact models remain Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310.
+Affected exact models are Huawei TE20, Huawei TE40, Huawei TE50, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. TE50 is an explicit exact-model registration that reuses the approved TE40 contract for all functions covered by this change: connection/session/authentication, static diagnostics, microphone/camera/status/uptime, `WEB_GetCurrentAudioParam` microphone LIVE decoding and normalization, MIC1 gain/mutation/mute, speaker, presentation, call-log/journal, Local Refresh, and preview/currentness/cleanup lifecycle. It does not authorize loose `TE*` or Huawei-family inference.
 
 Box 310 remains in scope for all approved non-LIVE behavior listed above. Only Box 310 microphone LIVE restoration is deferred.
 
-TE30/TE50/TE60 expansion is a later change and SHALL NOT be inferred from this remediation.
+TE30 and TE60 expansion remain later changes and SHALL NOT be inferred from this remediation. TE50 is admitted only through its named exact model registration.
 
 ## Architecture gates
 
@@ -98,7 +98,7 @@ The PASS/FAIL evidence from `01faf3...` is historical validation evidence only; 
 
 ## Hardware gate
 
-Hardware observations from `467f2cbb...` and subsequent TE40 captures are architecture-discovery evidence only. Final hardware acceptance must be repeated on the exact post-amendment implementation SHA after new architecture `APPROVE`, implementation, and independent offline validation.
+Hardware observations from `467f2cbb...` and subsequent TE40 captures are architecture-discovery evidence only, except that TE40 current-audio LIVE has a recorded PASS at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`. TE50 is admitted by declared protocol equivalence and remains pending exact-SHA TE50 hardware acceptance. Any later production implementation, including TE50 registration, requires a new exact-SHA TE40 quick rerun as well as applicable TE50 testing before whole-change hardware completion.
 
 For Box 310 in this change, hardware acceptance does **not** require working microphone LIVE. It requires the deferred contract: no Box live binding/request/polling context, legacy meter row hidden where applicable, modern `Микрофон (уровень) = Не поддерживается`, while all other applicable Box behaviors remain testable. A future dedicated Box LIVE change must carry its own hardware evidence and acceptance.
 

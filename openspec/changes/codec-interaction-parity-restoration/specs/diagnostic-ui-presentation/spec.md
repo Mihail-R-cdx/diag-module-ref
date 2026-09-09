@@ -80,6 +80,7 @@ The modern room live-meter support matrix is:
 | --- | --- |
 | `Huawei TE20` | SUPPORTED from raw `MicValueIndex` evidence normalized `0..220 -> 0..100%` |
 | `Huawei TE40` | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)` evidence normalized `0..220 -> 0..100%` |
+| `Huawei TE50` | SUPPORTED by exact-model reuse of the approved TE40 `WEB_GetCurrentAudioParam` contract; pending TE50 hardware acceptance |
 | `CloudLink Bar 310` | SUPPORTED from approved Bar-specific microphone LIVE evidence |
 | `CloudLink Box 310` | **UNSUPPORTED / DEFERRED in this change** |
 | `Polycom RPG 310` | UNSUPPORTED |
@@ -88,11 +89,11 @@ For a supported meter, accepted numeric zero is observed silence/zero level and 
 
 Rendering any meter SHALL consume only accepted application-owned live evidence and SHALL NOT itself start a timer, poll, handler/session acquisition, credential operation, or device request.
 
-For Huawei TE20/TE40, `get_live_audio_status` remains the live authority. TE20 uses raw `MicValueIndex` normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. TE40 uses the exact-model `WEB_GetCurrentAudioParam` extractor defined by `device-diagnostics-and-control`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, then the same normalization. Accepted initial `monitor_mic_value` uses that same current-audio extractor/normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
+For Huawei TE20/TE40/TE50, `get_live_audio_status` remains the live authority. TE20 uses raw `MicValueIndex` normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. TE40 and exact-model TE50 use the TE40 `WEB_GetCurrentAudioParam` extractor defined by `device-diagnostics-and-control`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, then the same normalization. Accepted initial `monitor_mic_value` uses that same current-audio extractor/normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
 
-For exact `Huawei TE40`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live microphone evidence and microphone mute.
+For exact `Huawei TE40` and `Huawei TE50`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live microphone evidence and microphone mute.
 
-For TE40, `−` / `+` are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding. Presentation itself never builds the vendor full-state payload.
+For TE40 and TE50, `−` / `+` are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding reused by exact TE50. Presentation itself never builds the vendor full-state payload.
 
 For `CloudLink Box 310`, microphone LIVE is explicitly unsupported in this change. Presentation SHALL show `Не поддерживается` for `Микрофон (уровень)`, SHALL NOT display stale/historical Box meter data as current, and SHALL NOT start or imply a Box LIVE lifecycle. A future reviewed change is required to restore Box microphone LIVE.
 
@@ -149,10 +150,10 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 
 #### Scenario: Huawei TE live audio uses model-specific microphone evidence only
 
-- **GIVEN** the exact current model is `Huawei TE20` or `Huawei TE40`
+- **GIVEN** the exact current model is `Huawei TE20`, `Huawei TE40`, or `Huawei TE50`
 - **AND** current accepted `get_live_audio_status` evidence contains valid raw microphone evidence
 - **WHEN** the Audio card renders
-- **THEN** TE20 reflects normalized `MicValueIndex` evidence and TE40 reflects its normalized exact-model aggregate
+- **THEN** TE20 reflects normalized `MicValueIndex` evidence and TE40/TE50 reflect the normalized approved TE40 aggregate under their own exact model identities
 - **AND** no user-visible speaker live meter or duplicate textual `Live ...` row is rendered
 
 #### Scenario: TE40 static microphone gain is distinct from live level
@@ -207,6 +208,7 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 | --- | --- | --- | --- |
 | `Huawei TE20` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
 | `Huawei TE40` | numeric `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state |
+| `Huawei TE50` | approved TE40 `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state; pending TE50 hardware acceptance |
 | `CloudLink Bar 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present |
 | `CloudLink Box 310` | existing non-LIVE diagnostic evidence only where already authoritative | canonical static fields only | may show accepted static evidence; SHALL NOT imply LIVE support |
 | `Polycom RPG 310` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |

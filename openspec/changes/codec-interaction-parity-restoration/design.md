@@ -29,6 +29,7 @@ The root-compatible room-control mutation matrix remains:
 | --- | --- | --- | --- | --- | --- |
 | Huawei TE20 | SUPPORTED | SUPPORTED | UNSUPPORTED | SUPPORTED | UNSUPPORTED |
 | Huawei TE40 | SUPPORTED | SUPPORTED | **SUPPORTED** | SUPPORTED | UNSUPPORTED |
+| Huawei TE50 | SUPPORTED | SUPPORTED | **SUPPORTED** | SUPPORTED | UNSUPPORTED |
 | CloudLink Bar 310 | SUPPORTED | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
 | CloudLink Box 310 | SUPPORTED | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
 | Polycom RPG 310 | SUPPORTED | SUPPORTED | UNSUPPORTED | SUPPORTED | UNSUPPORTED |
@@ -39,15 +40,18 @@ Post-cycle LIVE is a separate optional capability owned by the same exact-model 
 | --- | --- |
 | Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
 | Huawei TE40 | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, normalized `0..220 -> 0..100%` |
+| Huawei TE50 | SUPPORTED by exact-model reuse of the TE40 contract; pending TE50 hardware acceptance |
 | CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser |
 | CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** |
 | Polycom RPG 310 | UNSUPPORTED |
 
 The unified exact-model registry SHALL advertise no Box 310 post-cycle LIVE binding in this change. Runtime SHALL NOT infer Box LIVE from shared handler type, endpoint presence, old widget behavior, or historical Bar/Box sharing.
 
-## 2. TE40 static microphone authorities
+Huawei TE50 is an explicit sixth exact model, not a `TE*` or Huawei-family alias. By declared product protocol equivalence it reuses the approved TE40 handler/session/authentication, static diagnostics, status/uptime, microphone/camera, current-audio decode and normalization, MIC1 gain/mutation/mute, speaker, presentation, call-log/journal, Local Refresh, and preview/currentness/cleanup contracts covered here. The operation context and presented identity remain `Huawei TE50`. TE40 current-audio LIVE has recorded hardware PASS at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`; TE50 hardware acceptance remains pending on its own exact implementation SHA. TE30 and TE60 remain out of scope.
 
-TE40 keeps two independent authorities:
+## 2. TE40/TE50 static microphone authorities
+
+TE40, and exact-model TE50 by the declared reuse contract, keep two independent authorities:
 
 ```text
 static configured microphone gain -> mic1Value -> canonical microphone_volume
@@ -149,7 +153,7 @@ The fixed Audio-card order is:
 Громкость динамиков    [−] <accepted value/percentage or Нет данных> [+] [mute]
 ```
 
-Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40 uses one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, followed by the existing `0..220 -> 0..100%` normalization. TE40 configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
+Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40, and exact-model TE50 by the declared reuse contract, use one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, followed by the existing `0..220 -> 0..100%` normalization. Configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
 
 CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders its microphone LIVE slot unsupported.
 
@@ -228,8 +232,8 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 
 | Area | Required result |
 | --- | --- |
-| TE40 static mic | numeric `mic1Value` -> canonical `microphone_volume` -> `-12..+9 dB`; mute independent |
-| TE40 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
+| TE40/TE50 static mic | numeric `mic1Value` -> canonical `microphone_volume` -> `-12..+9 dB`; mute independent |
+| TE40/TE50 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
 | TE40 pre-read failure | no POST; no command-ambiguity block solely from pre-submit failure |
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
 | TE40 LIVE | `WEB_GetCurrentAudioParam` microphone meter from normalized `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`; no speaker LIVE meter or duplicate textual live rows |

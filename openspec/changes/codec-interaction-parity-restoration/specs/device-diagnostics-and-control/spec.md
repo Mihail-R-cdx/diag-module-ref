@@ -8,6 +8,7 @@ The unified exact-model registration SHALL remain the sole runtime capability au
 | --- | --- | --- | --- | --- | --- |
 | `Huawei TE20` | SUPPORTED | SUPPORTED | UNSUPPORTED | SUPPORTED | UNSUPPORTED |
 | `Huawei TE40` | SUPPORTED | SUPPORTED | **SUPPORTED** | SUPPORTED | UNSUPPORTED |
+| `Huawei TE50` | SUPPORTED | SUPPORTED | **SUPPORTED** | SUPPORTED | UNSUPPORTED |
 | `CloudLink Bar 310` | SUPPORTED | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
 | `CloudLink Box 310` | SUPPORTED | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
 | `Polycom RPG 310` | SUPPORTED | SUPPORTED | UNSUPPORTED | SUPPORTED | UNSUPPORTED |
@@ -24,9 +25,9 @@ Post-cycle LIVE capability is not inferred from this mutation table; it is adver
 
 #### Scenario: Current codec registration matrix is checked
 
-- **WHEN** composition tests inspect the five current exact codec registrations
+- **WHEN** composition tests inspect the six current exact codec registrations
 - **THEN** every operation matches the table above
-- **AND** TE40 exposes microphone gain and microphone mute as separate supported operations
+- **AND** TE40 and TE50 expose microphone gain and microphone mute as separate supported operations
 - **AND** Box 310 does not acquire a post-cycle LIVE capability by sharing a handler with Bar 310
 - **AND** runtime resolution still comes from the unified registry rather than this test-oracle table
 
@@ -36,9 +37,9 @@ The room codec-control capability SHALL reuse existing approved safe codec opera
 
 A standalone widget branch, handler attribute probe, accepted read-only field, shared handler type, or visually present button SHALL NOT silently promote a state-changing or LIVE capability.
 
-`Huawei TE20` and `Polycom RPG 310` remain microphone-mute models with no approved numeric microphone-adjust mutation in this change. `Huawei TE40` supports both independent numeric microphone gain and independent microphone mute under the exact contract below. `CloudLink Bar 310` and `CloudLink Box 310` retain both microphone-adjust and separate microphone-mute mutation as unsupported.
+`Huawei TE20` and `Polycom RPG 310` remain microphone-mute models with no approved numeric microphone-adjust mutation in this change. `Huawei TE40` and exact-model `Huawei TE50` support both independent numeric microphone gain and independent microphone mute under the approved TE40 contract. `CloudLink Bar 310` and `CloudLink Box 310` retain both microphone-adjust and separate microphone-mute mutation as unsupported.
 
-Reboot SHALL remain unsupported for the current five-codec baseline.
+Reboot SHALL remain unsupported for the current six-codec baseline.
 
 #### Scenario: Microphone has mute but no numeric gain contract
 
@@ -56,9 +57,9 @@ Reboot SHALL remain unsupported for the current five-codec baseline.
 - **AND** fixed visual affordances may use only the existing local informational path
 - **AND** no accepted numeric read evidence promotes either mutation capability
 
-#### Scenario: TE40 numeric gain and mute are independent supported operations
+#### Scenario: TE40/TE50 numeric gain and mute are independent supported operations
 
-- **GIVEN** exact model is `Huawei TE40`
+- **GIVEN** exact model is `Huawei TE40` or `Huawei TE50`
 - **WHEN** its room codec-control capability is composed
 - **THEN** `microphone_adjust` is supported only through the approved `MIC1` gain contract
 - **AND** `microphone_mute` remains separately supported
@@ -67,7 +68,7 @@ Reboot SHALL remain unsupported for the current five-codec baseline.
 
 ### Requirement: Model-specific interactive codec session paths
 
-The shared interactive controller SHALL preserve the supported transports, session artifacts, and operation boundaries of Huawei TE20, Huawei TE40, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. A model SHALL use only its supported functions, and functions on a separate worker path SHALL remain separate unless explicitly listed.
+The shared interactive controller SHALL preserve the supported transports, session artifacts, and operation boundaries of Huawei TE20, Huawei TE40, Huawei TE50, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. A model SHALL use only its supported functions, and functions on a separate worker path SHALL remain separate unless explicitly listed.
 
 CloudLink Bar 310 and CloudLink Box 310 SHALL continue to use the same reviewed `CloudLinkBar310Handler` implementation while retaining exact assigned application model in operation context. Shared protocol capability SHALL NOT authorize Bar/Box aliasing, credential sharing, successful-index/profile sharing, model switching during recovery, or capability promotion from one exact model to the other.
 
@@ -167,6 +168,14 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 - **THEN** it uses saved-first HTTPS:443 and HTTP:80 candidates with one credential
 - **AND** recovery replaces invalid opener, cookie, Session ID, CSRF, and browser-session state as one handler unit
 
+#### Scenario: Huawei TE50 keeps exact identity while reusing TE40 session behavior
+
+- **GIVEN** the exact application model is `Huawei TE50`
+- **WHEN** it performs a function covered by the approved TE40 contract
+- **THEN** it uses the same approved TE40 transport/session behavior
+- **AND** operation context, credential/profile memory, parser output, and presentation retain exact model identity `Huawei TE50`
+- **AND** no loose Huawei-family or `TE*` model inference is admitted
+
 #### Scenario: Polycom interactive controls
 - **WHEN** Polycom performs volume, mute, or presentation work
 - **THEN** its serialized shared handler uses HTTPS:443 login and the same credential for its lazy SSH:22 control session
@@ -178,6 +187,20 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 - **AND** it is not routed through Huawei/shared call-log session path
 
 ## ADDED Requirements
+
+### Requirement: Huawei TE50 is an exact-model reuse of the approved TE40 contract
+
+`Huawei TE50` is an explicitly admitted exact application model in this change. By the product requirement's declared protocol equivalence, it SHALL reuse every approved TE40 protocol, capability, parser/normalization, presentation, call-log, Local Refresh, and currentness/cleanup contract covered by this change, including `WEB_GetCurrentAudioParam`, current-audio JSON-string decoding, `MicValueIndex`/`mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx` aggregation, `0..220 -> 0..100%` microphone LIVE normalization, MIC1 configured gain/mutation, mute, speaker, camera, and lifecycle behavior.
+
+This is exact-model registration reuse, not substring/family inference: `Huawei TE50` SHALL remain distinguishable from `Huawei TE40` in model resolution and operation context while reusing its approved implementation boundary. TE40 protocol evidence is hardware-backed; TE50 admission is based on declared product equivalence and requires exact-SHA TE50 hardware acceptance before that equivalence is treated as hardware-proven. `Huawei TE30` and `Huawei TE60` remain out of scope and SHALL NOT be inferred from this requirement.
+
+#### Scenario: TE50 reuses the approved TE40 contract without widening the family
+
+- **GIVEN** exact model resolution yields `Huawei TE50`
+- **WHEN** a function covered by this change is composed
+- **THEN** TE50 receives the corresponding approved TE40 behavior under exact TE50 identity
+- **AND** `Huawei TE30` and `Huawei TE60` receive no capability merely from this reuse declaration
+- **AND** TE50 hardware acceptance remains pending until tested on the exact implementation SHA
 
 ### Requirement: TE40 current-audio microphone LIVE aggregates hardware-backed microphone evidence
 

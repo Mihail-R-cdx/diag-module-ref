@@ -135,11 +135,19 @@ Required re-validation on the new exact published SHA:
 
 - [x] 9.19 Obtain independent architecture review of the OpenSpec amendment that makes `WEB_GetCurrentAudioParam` the sole TE40 initial-seed/true-LIVE microphone authority and adds exact `mic<N>ValueIndex` aggregation. Exact SHA `23347fa1febb70cd1395041f0b02928b95d1eb56`: APPROVE WITH NON-BLOCKING NOTES (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`).
 - [x] 9.20 Implement the reviewed TE40 current-audio endpoint/extractor correction with one seed/LIVE path, then add focused regressions and rerun required validation.
-- [ ] 9.21 Repeat exact-SHA TE40 microphone LIVE hardware acceptance after the reviewed implementation; do not mark PASS until the real device passes.
+- [x] 9.21 Repeat exact-SHA TE40 microphone LIVE hardware acceptance after the reviewed implementation. At exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`, current-audio LIVE PASSed on real TE40 hardware. This is TE40 current-audio evidence only, not whole-change hardware completion; later production changes require a new exact-SHA TE40 quick rerun.
+
+## 9C. TE50 declared protocol-equivalence expansion (pending independent architecture review)
+
+- [ ] 9.22 Amend OpenSpec for exact-model TE50 reuse and obtain independent architecture review of the published amendment SHA.
+- [ ] 9.23 After permitting review, register exact `Huawei TE50` identity and reviewed TE40 handler reuse without family inference.
+- [ ] 9.24 Add focused TE50 reuse regressions while preserving TE30/TE60 exclusion and all existing safety/lifecycle regressions.
+- [ ] 9.25 After TE50 implementation, repeat a quick exact-SHA TE40 hardware check for current-audio LIVE and affected shared behavior.
+- [ ] 9.26 Run exact-SHA TE50 hardware acceptance when TE50 hardware is available; do not mark PASS before real-device evidence.
 
 ## 10. Exact-SHA hardware acceptance
 
-Current five-model scope remains TE20, TE40, Bar310, Box310 and RPG310. Physical availability at any one moment does not count as acceptance evidence.
+Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 remains pending exact-SHA hardware acceptance; physical availability at any one moment does not count as acceptance evidence.
 
 - [ ] 10.1 Run every applicable in-scope hardware scenario against the exact published post-amendment implementation SHA.
 - [ ] 10.2 TE40: verify static numeric MIC1 gain/dB display, MIC1 gain exact `1 dB` step, fresh pre-write state acquisition, independent mute, microphone LIVE meter, exactly-one-camera behavior, automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
