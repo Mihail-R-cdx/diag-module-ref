@@ -582,19 +582,19 @@ class ModernCodecDashboardTests(unittest.TestCase):
     def test_te40_aggregated_live_sample_is_normalized_once_for_the_microphone_meter(self):
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
         handler.get_sleep_mode = Mock(return_value="Off")
-        handler.send_command = Mock(return_value={"success": 1, "data": {
-            "MicValueIndex": 20,
-            "micArray1_01ValIdx": 83,
-            "SpeakerValueIndex": 220,
-        }})
+        handler.send_command = Mock(return_value={"success": 1, "data": """
+            {"mic1ValueIndex": 37, "micArray1_01ValIdx": 25,
+             "micArray1_02ValIdx": 12, "micArray1_03ValIdx": 37,
+             "SpeakerValueIndex": 220}
+        """})
         sample = handler.get_live_audio_status()
         presentation = RoomReadOnlyPresentation(self._row("Huawei TE40", {
             "live_audio": {"microphone": sample["microphone"]},
         }))
         self.addCleanup(presentation.deleteLater)
 
-        self.assertEqual(83, sample["microphone"])
-        self.assertEqual(38, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+        self.assertEqual(37, sample["microphone"])
+        self.assertEqual(17, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
 
     def test_te40_rich_state_statuses_and_uptime_are_room_canonical(self):
         presentation = RoomReadOnlyPresentation(self._row("Huawei TE40", {

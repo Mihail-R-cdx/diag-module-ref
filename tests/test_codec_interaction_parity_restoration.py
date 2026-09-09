@@ -1,4 +1,5 @@
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -12,10 +13,10 @@ from core.room_diagnostic_tree import (
     RoomDiagnosticSessionIdentity, build_room_session, resolve_room_source,
 )
 from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator
-from core.exceptions import ConnectionError
+from core.exceptions import ConnectionError, ProtocolError
 from gui.diagnostic_dispatch import dispatch_entry_for_model, normalize_codec_audio_projection, room_model_capabilities
 from handlers.huawei.te20 import HuaweiTE20Handler
-from handlers.huawei.te40 import HuaweiTE40Handler, extract_te40_monitor_microphone_level
+from handlers.huawei.te40 import HuaweiTE40Handler, extract_te40_current_audio_microphone_level
 
 
 def microphone_state(mic1=18, *, complete=True):
@@ -85,35 +86,45 @@ class CodecInteractionParityTests(unittest.TestCase):
         coordinator.expand(record.record_id)
         self.assertEqual(["call_log_preview", "live", "live"], calls)
 
-    def test_te40_monitor_microphone_extractor_aggregates_only_valid_exact_fields(self):
+    def test_te40_current_audio_microphone_extractor_aggregates_only_valid_exact_fields(self):
         cases = (
             ({"MicValueIndex": 41}, 41),
+            ({"mic1ValueIndex": 37}, 37),
+            ({"mic1ValueIndex": 37, "mic2ValueIndex": 41}, 41),
             ({"micArray1_01ValIdx": 17, "micArray1_02ValIdx": 83, "micArray1_03ValIdx": 41}, 83),
-            ({"MicValueIndex": 20, "micArray1_01ValIdx": 70}, 70),
+            ({"MicValueIndex": 20, "mic1ValueIndex": 37, "micArray1_01ValIdx": 70}, 70),
             ({"micArray1_01ValIdx": 70, "micArray2_03ValIdx": 91}, 91),
             ({"MicValueIndex": 20, "SpeakerValueIndex": 220}, 20),
+            ({"MicValueIndex": 20, "trsInput": 220, "rcaInput": 220, "hdmiInput": 220,
+              "dviInput": 220, "dpInput": 220, "pstnInput": 220, "sdiInput": 220}, 20),
             ({"micArray1_01ValIdx": 0}, 0),
             ({
-                "MicValueIndex": None, "micArray1_01ValIdx": True,
+                "MicValueIndex": None, "mic1ValueIndex": {}, "micArray1_01ValIdx": True,
                 "micArray1_02ValIdx": "83", "micArray1_03ValIdx": float("nan"),
                 "micArray2_01ValIdx": float("inf"), "micArray2_02ValIdx": [],
             }, None),
             ({
+                "mic1Value": 99, "micXValueIndex": 99, "mic19ValueIndexx": 99,
                 "micArray1_01Value": 99, "micArrayX_01ValIdx": 99,
                 "micArray1_xxValIdx": 99, "unrelated": 99,
             }, None),
         )
         for payload, expected in cases:
             with self.subTest(payload=payload):
-                self.assertEqual(expected, extract_te40_monitor_microphone_level(payload))
+                self.assertEqual(expected, extract_te40_current_audio_microphone_level(payload))
 
-    def test_te40_seed_and_live_use_the_same_monitor_microphone_extractor(self):
-        payload = {"MicValueIndex": 20, "micArray1_01ValIdx": 70, "SpeakerValueIndex": 220}
+    def test_te40_current_audio_seed_and_live_use_the_same_extractor(self):
+        payload = {
+            "mic1ValueIndex": 37, "micArray1_01ValIdx": 25,
+            "micArray1_02ValIdx": 12, "micArray1_03ValIdx": 37,
+            "SpeakerValueIndex": 220,
+        }
         handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
 
-        def response(action, _payload=None):
-            if action == "get_monitor_audio_params":
-                return {"success": 1, "data": payload}
+        def response(action, request_payload=None):
+            if action == "get_current_audio_params":
+                self.assertEqual({"acCSRFToken": ""}, request_payload)
+                return {"success": 1, "data": json.dumps(payload)}
             return {"success": 0, "data": {}}
 
         handler.send_command = Mock(side_effect=response)
@@ -121,8 +132,40 @@ class CodecInteractionParityTests(unittest.TestCase):
         handler.get_sleep_mode = Mock(return_value="Off")
         live = handler.get_live_audio_status()["microphone"]
 
-        self.assertEqual(70, seed)
+        self.assertEqual(37, seed)
         self.assertEqual(seed, live)
+        self.assertTrue(all(
+            call.args[0] != "get_monitor_audio_params"
+            for call in handler.send_command.call_args_list
+        ))
+
+    def test_te40_current_audio_request_is_post_with_rmd_and_existing_session_material(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+        handler.is_connected = Mock(return_value=True)
+        handler.session_id = "session-id"
+        handler.csrf_token = "csrf-token"
+        handler.opener = Mock()
+        handler.opener.open.return_value = SimpleNamespace(
+            read=lambda: b'{"success": 1, "data": "{}"}'
+        )
+
+        with patch("handlers.huawei.te40.random.random", return_value=0.25):
+            self.assertEqual({}, handler._get_current_audio_params())
+
+        request = handler.opener.open.call_args.args[0]
+        self.assertEqual("POST", request.get_method())
+        self.assertIn("ActionID=WEB_GetCurrentAudioParam", request.full_url)
+        self.assertIn("rmd=0.25", request.full_url)
+        self.assertIn(b'"acCSRFToken": "csrf-token"', request.data)
+
+    def test_te40_current_audio_malformed_or_non_object_data_is_typed_protocol_failure(self):
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+        handler.get_sleep_mode = Mock(return_value="Off")
+        for data in ("{bad json", "[]"):
+            with self.subTest(data=data):
+                handler.send_command = Mock(return_value={"success": 1, "data": data})
+                with self.assertRaises(ProtocolError):
+                    handler.get_live_audio_status()
 
     def test_te20_live_remains_primary_micvalueindex_only(self):
         handler = HuaweiTE20Handler("192.0.2.10", username="u", password="p")

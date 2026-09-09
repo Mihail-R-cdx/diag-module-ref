@@ -133,8 +133,8 @@ Required re-validation on the new exact published SHA:
 
 ## 9B. Hardware-corrected TE40 current-audio architecture (pending independent review)
 
-- [ ] 9.19 Obtain independent architecture review of the OpenSpec amendment that makes `WEB_GetCurrentAudioParam` the sole TE40 initial-seed/true-LIVE microphone authority and adds exact `mic<N>ValueIndex` aggregation.
-- [ ] 9.20 Implement the reviewed TE40 current-audio endpoint/extractor correction with one seed/LIVE path, then add focused regressions and rerun required validation.
+- [x] 9.19 Obtain independent architecture review of the OpenSpec amendment that makes `WEB_GetCurrentAudioParam` the sole TE40 initial-seed/true-LIVE microphone authority and adds exact `mic<N>ValueIndex` aggregation. Exact SHA `23347fa1febb70cd1395041f0b02928b95d1eb56`: APPROVE WITH NON-BLOCKING NOTES (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`).
+- [x] 9.20 Implement the reviewed TE40 current-audio endpoint/extractor correction with one seed/LIVE path, then add focused regressions and rerun required validation.
 - [ ] 9.21 Repeat exact-SHA TE40 microphone LIVE hardware acceptance after the reviewed implementation; do not mark PASS until the real device passes.
 
 ## 10. Exact-SHA hardware acceptance

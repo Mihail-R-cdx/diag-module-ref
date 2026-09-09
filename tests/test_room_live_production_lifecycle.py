@@ -8,13 +8,15 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QProgressBar
 
 from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
 from core.exceptions import CodecFailureCategory
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, build_room_session, resolve_room_source
 from core.room_interaction import RoomInteractionKind
 from gui.diagnostic_dispatch import dispatch_entry_for_model, room_model_capabilities
+from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+from handlers.huawei.te40 import HuaweiTE40Handler
 
 
 def _record(record_id, model, ip):
@@ -288,6 +290,31 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             self.assertTrue(owner.shutdown_requested)
             owner.finish_cleanup()
             self.assertEqual("AUXILIARY_READ", window.room_interaction_coordinator.active_context.kind.value)
+
+    def test_te40_current_audio_handler_result_reaches_room_snapshot_and_meter(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            window.room_interaction_coordinator.cycle_finished(session)
+            live = window.room_interaction_coordinator.active_context
+            handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+            handler.get_sleep_mode = Mock(return_value="Off")
+            handler.send_command = Mock(return_value={"success": 1, "data": """
+                {"mic1ValueIndex": 37, "micArray1_01ValIdx": 25,
+                 "micArray1_02ValIdx": 12, "micArray1_03ValIdx": 37,
+                 "SpeakerValueIndex": 220}
+            """})
+
+            ControlledTeSession.instances[-1].signals.result.emit({
+                "value": handler.get_live_audio_status(),
+                "connection_profile": {"protocol": "https", "port": 443},
+            })
+            snapshot = session.row_for("a").accepted_snapshot
+            presentation = RoomReadOnlyPresentation(session.row_for("a"))
+            self.addCleanup(presentation.deleteLater)
+
+            self.assertEqual(live, window.room_interaction_coordinator.active_context)
+            self.assertEqual(37, snapshot["live_audio"]["microphone"])
+            self.assertEqual(17, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
 
     def test_te_live_authentication_fallback_waits_for_owner_cleanup(self):
         for model in ("Huawei TE20", "Huawei TE40"):

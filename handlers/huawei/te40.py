@@ -26,10 +26,11 @@ from core.redaction import redact_diagnostic
 
 
 _TE40_MONITOR_MIC_ARRAY_FIELD = re.compile(r"^micArray\d+_\d+ValIdx$")
+_TE40_CURRENT_MIC_FIELD = re.compile(r"^mic\d+ValueIndex$")
 
 
-def extract_te40_monitor_microphone_level(payload: Any) -> Real | None:
-    """Return the strongest finite microphone sample in a TE40 monitor reply.
+def extract_te40_current_audio_microphone_level(payload: Any) -> Real | None:
+    """Return the strongest finite microphone sample in TE40 current-audio data.
 
     This exact-model boundary deliberately retains the vendor payload while
     publishing one raw microphone value for both initial diagnostics and the
@@ -41,7 +42,10 @@ def extract_te40_monitor_microphone_level(payload: Any) -> Real | None:
     candidates: list[Real] = []
     for key, value in payload.items():
         if key != "MicValueIndex" and (
-            not isinstance(key, str) or not _TE40_MONITOR_MIC_ARRAY_FIELD.fullmatch(key)
+            not isinstance(key, str) or not (
+                _TE40_CURRENT_MIC_FIELD.fullmatch(key)
+                or _TE40_MONITOR_MIC_ARRAY_FIELD.fullmatch(key)
+            )
         ):
             continue
         if isinstance(value, bool) or not isinstance(value, Real):
@@ -517,6 +521,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 'get_sip_status': 'WEB_GetLineStateInfoAPI',
                 'get_audio_status': 'WEB_InitAudioCtrlParamsAPI',
                 'get_monitor_audio_params': 'WEB_GetMonitorAudioParam',
+                'get_current_audio_params': 'WEB_GetCurrentAudioParam',
                 'get_presentation': 'WEB_IsSendAuxStreamAPI',
                 'get_system_sleep': 'WEB_IsSystemSleepAPI',
                 'get_camera_status': 'WEB_GetLocalCameraList',
@@ -793,27 +798,17 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
             except Exception as e:
                 self._report_exception("Audio-status request", e)
 
-            print("Запрос monitor audio params...")
+            print("Запрос current audio params...")
             try:
-                monitor_audio_result = self.send_command(
-                    'get_monitor_audio_params'
+                current_audio_data = self._get_current_audio_params()
+                status['monitor_mic_value'] = (
+                    extract_te40_current_audio_microphone_level(current_audio_data)
                 )
-                if (
-                    monitor_audio_result
-                    and monitor_audio_result.get('success') == 1
-                ):
-                    monitor_audio_data = self._parse_json_data(
-                        monitor_audio_result.get('data', {})
-                    )
-                    if monitor_audio_data:
-                        status['monitor_mic_value'] = (
-                            extract_te40_monitor_microphone_level(monitor_audio_data)
-                        )
-                        status['monitor_speaker_value'] = (
-                            monitor_audio_data.get('SpeakerValueIndex')
-                        )
+                status['monitor_speaker_value'] = (
+                    current_audio_data.get('SpeakerValueIndex')
+                )
             except Exception as e:
-                self._report_exception("Monitor-audio request", e)
+                self._report_exception("Current-audio request", e)
             
             # 6. Получаем статус презентации
             print("Запрос статуса презентации...")
@@ -1135,22 +1130,29 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def get_live_audio_status(self) -> Dict[str, Any]:
         """Return one authoritative sleep/audio sample for interactive polling."""
         sleep_mode = self.get_sleep_mode()
-        result = self.send_command("get_monitor_audio_params")
+        data = self._get_current_audio_params()
+        return {
+            "sleep_mode": sleep_mode,
+            "audio": data,
+            "microphone": extract_te40_current_audio_microphone_level(data),
+        }
+
+    def _get_current_audio_params(self) -> Dict[str, Any]:
+        """Read TE40 dynamic audio through the browser-proven POST authority."""
+        result = self.send_command(
+            "get_current_audio_params", {"acCSRFToken": self.csrf_token or ""}
+        )
         if not isinstance(result, dict) or result.get("success") != 1:
-            raise CommandError("TE40 live-audio read was rejected")
+            raise CommandError("TE40 current-audio read was rejected")
         data = result.get("data", {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
             except json.JSONDecodeError as error:
-                raise ProtocolError("TE40 live-audio data is malformed") from error
+                raise ProtocolError("TE40 current-audio data is malformed") from error
         if not isinstance(data, dict):
-            raise ProtocolError("TE40 live-audio data is not an object")
-        return {
-            "sleep_mode": sleep_mode,
-            "audio": data,
-            "microphone": extract_te40_monitor_microphone_level(data),
-        }
+            raise ProtocolError("TE40 current-audio data is not an object")
+        return data
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
