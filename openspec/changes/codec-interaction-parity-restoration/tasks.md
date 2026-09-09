@@ -129,7 +129,13 @@ Required re-validation on the new exact published SHA:
 - [x] 9.15 Implement one TE40 monitor-audio extractor for one-shot seed and true LIVE: maximum valid `MicValueIndex`/`micArray<N>_<NN>ValIdx` candidates, unavailable-versus-zero semantics, and existing `0..220 -> 0..100%` normalization.
 - [x] 9.16 Add regression coverage for initial-expanded preview admission without synthetic Qt events and the TE40 primary/array aggregation, malformed/absent/zero/speaker-isolation, and seed-versus-true-LIVE boundaries.
 - [x] 9.17 Re-run focused/full offline validation and strict OpenSpec checks after implementation; do not treat them as hardware evidence.
-- [ ] 9.18 Repeat exact-SHA Huawei TE40 hardware acceptance for automatic preview after ordinary `Обновить данные` and microphone LIVE array telemetry after implementation.
+- [x] 9.18 Attempt exact-SHA Huawei TE40 hardware acceptance for automatic preview after ordinary `Обновить данные` and microphone LIVE array telemetry after implementation. At `01226c6620932db01424a06211ba7292c6efc164`, TE40 microphone LIVE **FAILED**: browser-proven dynamic audio uses `WEB_GetCurrentAudioParam` with decoded `mic<N>ValueIndex` and `micArray<N>_<NN>ValIdx` evidence, while the implementation uses `WEB_GetMonitorAudioParam`; remediation and a new exact-SHA hardware rerun are required. This is failure evidence, not hardware acceptance PASS.
+
+## 9B. Hardware-corrected TE40 current-audio architecture (pending independent review)
+
+- [ ] 9.19 Obtain independent architecture review of the OpenSpec amendment that makes `WEB_GetCurrentAudioParam` the sole TE40 initial-seed/true-LIVE microphone authority and adds exact `mic<N>ValueIndex` aggregation.
+- [ ] 9.20 Implement the reviewed TE40 current-audio endpoint/extractor correction with one seed/LIVE path, then add focused regressions and rerun required validation.
+- [ ] 9.21 Repeat exact-SHA TE40 microphone LIVE hardware acceptance after the reviewed implementation; do not mark PASS until the real device passes.
 
 ## 10. Exact-SHA hardware acceptance
 

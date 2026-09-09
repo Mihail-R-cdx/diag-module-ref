@@ -13,6 +13,8 @@ This amendment resolves both at architecture level. It does not change productio
 
 After architecture approval of content SHA `11af77b14010c34ae2d33de816678a6724971caa`, real TE40 hardware evidence exposed two in-scope defects: session-bound initial expansion was not adopted by coordinator preview admission, and monitor-audio microphone telemetry may be carried by `micArray<N>_<NN>ValIdx` fields rather than `MicValueIndex` alone. This amendment defines their minimal contracts and requires a new independent architecture review before implementation.
 
+Hardware acceptance of `01226c6620932db01424a06211ba7292c6efc164` found a further TE40 LIVE boundary mismatch: browser-proven dynamic audio uses `WEB_GetCurrentAudioParam`, whose decoded JSON-string payload exposes `mic<N>ValueIndex` as well as `micArray<N>_<NN>ValIdx`. This OpenSpec-only amendment supersedes the prior TE40 `WEB_GetMonitorAudioParam` source authority for initial seed and periodic LIVE; production implementation remains stopped pending review of this exact amendment.
+
 Authority remains:
 
 `RULES.md -> current root OpenSpec -> approved change -> source/tests -> Git diff -> runbooks -> agent reports`
@@ -36,7 +38,7 @@ Post-cycle LIVE is a separate optional capability owned by the same exact-model 
 | Exact model | microphone LIVE |
 | --- | --- |
 | Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
-| Huawei TE40 | SUPPORTED from `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`, normalized `0..220 -> 0..100%` |
+| Huawei TE40 | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, normalized `0..220 -> 0..100%` |
 | CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser |
 | CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** |
 | Polycom RPG 310 | UNSUPPORTED |
@@ -147,7 +149,7 @@ The fixed Audio-card order is:
 Громкость динамиков    [−] <accepted value/percentage or Нет данных> [+] [mute]
 ```
 
-Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40 uses one shared monitor-audio extractor for initial seed and true LIVE: `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`, then the existing `0..220 -> 0..100%` normalization. TE40 configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
+Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40 uses one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, followed by the existing `0..220 -> 0..100%` normalization. TE40 configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
 
 CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders its microphone LIVE slot unsupported.
 
@@ -230,7 +232,7 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 | TE40 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
 | TE40 pre-read failure | no POST; no command-ambiguity block solely from pre-submit failure |
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
-| TE40 LIVE | microphone meter from normalized `max(valid MicValueIndex + valid micArray<N>_<NN>ValIdx)`; no speaker LIVE meter or duplicate textual live rows |
+| TE40 LIVE | `WEB_GetCurrentAudioParam` microphone meter from normalized `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`; no speaker LIVE meter or duplicate textual live rows |
 | TE40 camera | one valid camera entry is sufficient |
 | Bar LIVE | supported under Bar-specific approved parser |
 | Box LIVE | microphone LIVE explicitly unsupported/deferred; no live binding/I/O; room presentation has no speaker LIVE capability |
@@ -242,7 +244,7 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 
 ## Architecture validation gates
 
-No unproven Huawei endpoint semantics are introduced: the TE40 array-field maximum is an application aggregation contract derived from observed telemetry. Before a renewed architecture `APPROVE` for this amendment:
+The TE40 endpoint, JSON-string envelope, and individual/array microphone fields are hardware-backed evidence; their maximum remains an application aggregation contract derived from that evidence. Before a renewed architecture `APPROVE` for this amendment:
 
 1. `.\openspec.cmd validate codec-interaction-parity-restoration --strict` passes;
 2. `.\openspec.cmd validate --all --strict` passes;
