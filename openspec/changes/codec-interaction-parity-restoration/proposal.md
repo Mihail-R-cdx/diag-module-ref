@@ -22,6 +22,8 @@ The archive failure exposed one remaining root conflict: `cloudlink-live-microph
 
 Hardware acceptance of implementation `01226c6620932db01424a06211ba7292c6efc164` then found that TE40 dynamic microphone audio is acquired by browser request `WEB_GetCurrentAudioParam`, while the implementation's seed and LIVE paths use `WEB_GetMonitorAudioParam`. The decoded current-audio payload contains individual `mic<N>ValueIndex` and `micArray<N>_<NN>ValIdx` microphone evidence. This OpenSpec-only amendment corrects that approved source/evidence contract before further production implementation. The corrected TE40 implementation was subsequently hardware-accepted for current-audio LIVE at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`; that is historical TE40 evidence, not a whole-change hardware completion.
 
+The explicit TE50 runtime contract cannot be reached from organization workbook evidence while the offline importer's closed diagnostic-model registry omits `Huawei TE50`. This amendment therefore adds only the reviewed inventory-recognition and importer-side expected-kind contract required to produce the same canonical exact model, without making free-form source text runtime authority or expanding Huawei protocol semantics.
+
 ## Hardware-discovered product requirements
 
 The target product behavior is now:
@@ -75,10 +77,12 @@ The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{dev
 - Preserve Huawei microphone LIVE presentation, TE40 dB configured gain, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
 - Preserve a generation-current session `expanded_record_id` at coordinator binding without render-triggered I/O so the mandatory terminal-cycle preview does not depend on a synthetic Qt expansion event.
 - Use one TE40 current-audio extractor for initial seed and true LIVE: `WEB_GetCurrentAudioParam`, JSON-string envelope decoding, maximum valid `MicValueIndex`/`mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx` evidence, and the existing Huawei `0..220 -> 0..100%` normalization.
+- Add `Huawei TE50 | te + 50` to the closed offline diagnostic-model registry, retain existing component extraction and cardinality rules, and add importer-only `Huawei TE50 -> video_codec` expected-kind consistency evidence without overriding source `Тип модели` authority.
+- Require deployment-local regeneration of `equipment_inventory.local.json` from the configured organization workbook after the reviewed registry change; workbooks and generated inventory remain outside Git and runtime remains JSON-only.
 
 ## Scope
 
-Affected exact models are Huawei TE20, Huawei TE40, Huawei TE50, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. TE50 is an explicit exact-model registration that reuses the approved TE40 contract for all functions covered by this change: connection/session/authentication, static diagnostics, microphone/camera/status/uptime, `WEB_GetCurrentAudioParam` microphone LIVE decoding and normalization, MIC1 gain/mutation/mute, speaker, presentation, call-log/journal, Local Refresh, and preview/currentness/cleanup lifecycle. It does not authorize loose `TE*` or Huawei-family inference.
+Affected exact models are Huawei TE20, Huawei TE40, Huawei TE50, CloudLink Bar 310, CloudLink Box 310, and Polycom RPG 310. TE50 is an explicit exact-model registration that reuses the approved TE40 contract for all functions covered by this change: connection/session/authentication, static diagnostics, microphone/camera/status/uptime, `WEB_GetCurrentAudioParam` microphone LIVE decoding and normalization, MIC1 gain/mutation/mute, speaker, presentation, call-log/journal, Local Refresh, and preview/currentness/cleanup lifecycle. It does not authorize loose `TE*` or Huawei-family inference. The linked offline importer may recognize only the canonical TE50 component rule so runtime receives `diagnostic_model = Huawei TE50`; it does not use `source_model` for dispatch or add a protocol contract.
 
 Box 310 remains in scope for all approved non-LIVE behavior listed above. Only Box 310 microphone LIVE restoration is deferred.
 
@@ -125,3 +129,4 @@ Historical behavior is evidence, not authority over current root OpenSpec or con
 - `room-device-interaction-lifecycle`
 - `codec-call-log-usage-statistics`
 - `cloudlink-live-microphone-metering`
+- `equipment-inventory-snapshot`

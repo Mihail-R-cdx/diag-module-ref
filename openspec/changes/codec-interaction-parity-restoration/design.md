@@ -49,6 +49,18 @@ The unified exact-model registry SHALL advertise no Box 310 post-cycle LIVE bind
 
 Huawei TE50 is an explicit sixth exact model, not a `TE*` or Huawei-family alias. By declared product protocol equivalence it reuses the approved TE40 handler/session/authentication, static diagnostics, status/uptime, microphone/camera, current-audio decode and normalization, MIC1 gain/mutation/mute, speaker, presentation, call-log/journal, Local Refresh, and preview/currentness/cleanup contracts covered here. The operation context and presented identity remain `Huawei TE50`. TE40 current-audio LIVE has recorded hardware PASS at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`; TE50 hardware acceptance remains pending on its own exact implementation SHA. TE30 and TE60 remain out of scope.
 
+## 1A. TE50 inventory recognition boundary
+
+The offline converter, not runtime, converts normalized `Модель` and `Наименование` evidence into canonical `diagnostic_model`. The closed reviewed registry gains one exact entry:
+
+| Canonical `diagnostic_model` | Required components |
+| --- | --- |
+| `Huawei TE50` | `te` + `50` |
+
+Existing component extraction already yields those exact components from `TE50`, `TE 50`, `TE-50`, `Huawei TE50`, and `Huawei_TE.50`; this amendment adds no special tokenization, alias, fuzzy match, source-model dispatch, manufacturer inference, or protocol behavior. The existing union/cardinality contract remains authoritative: one distinct TE50 match publishes exact canonical `Huawei TE50`; competing matches remain ambiguous; TE40 and TE50 remain distinct.
+
+The importer-side expected-kind registry records `Huawei TE50 -> video_codec` only as consistency evidence. Exact source `Тип модели` remains the sole authority for canonical `device_kind`; recognition must not rewrite it. After an approved implementation of this registry change, the deployment operator regenerates ignored `equipment_inventory.local.json` from the configured organization workbook. Runtime remains JSON-snapshot-only and does not read `.xlsx`.
+
 ## 2. TE40/TE50 static microphone authorities
 
 TE40, and exact-model TE50 by the declared reuse contract, keep two independent authorities:
@@ -238,6 +250,7 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
 | TE40 LIVE | `WEB_GetCurrentAudioParam` microphone meter from normalized `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`; no speaker LIVE meter or duplicate textual live rows |
 | TE40 camera | one valid camera entry is sufficient |
+| TE50 inventory | `te` + `50` component evidence -> exact canonical `Huawei TE50`; expected kind `video_codec` is non-authoritative consistency evidence |
 | Bar LIVE | supported under Bar-specific approved parser |
 | Box LIVE | microphone LIVE explicitly unsupported/deferred; no live binding/I/O; room presentation has no speaker LIVE capability |
 | Box non-LIVE | diagnostics, speaker, preview/journal, Local Refresh remain in scope |

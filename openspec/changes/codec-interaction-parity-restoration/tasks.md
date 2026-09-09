@@ -145,6 +145,18 @@ Required re-validation on the new exact published SHA:
 - [ ] 9.25 After TE50 implementation, repeat a quick exact-SHA TE40 hardware check for current-audio LIVE and affected shared behavior.
 - [ ] 9.26 Run exact-SHA TE50 hardware acceptance when TE50 hardware is available; do not mark PASS before real-device evidence.
 
+## 9D. TE50 inventory recognition contract (pending independent architecture review)
+
+- [ ] 9.27 Approve exact canonical `Huawei TE50`, reviewed components `te + 50`, importer-only expected kind `video_codec`, and deployment-local inventory regeneration without source-model dispatch authority.
+
+Implementation (all remain unchecked until a permitting architecture review):
+
+- [ ] 9.28 Add `Huawei TE50` to `DIAGNOSTIC_MODEL_RULES` using only the approved existing component mechanism.
+- [ ] 9.29 Add `Huawei TE50 -> video_codec` to `EXPECTED_KIND_BY_DIAGNOSTIC_MODEL` as consistency evidence only; preserve exact source `Тип модели -> device_kind` authority.
+- [ ] 9.30 Add importer regressions for TE50 compact/separated evidence, canonical output, expected-kind consistency, TE20/TE40 preservation, and TE40/TE50 non-overlap.
+- [ ] 9.31 Regenerate deployment-local ignored `equipment_inventory.local.json` from the configured organization workbook outside Git after deployment.
+- [ ] 9.32 Verify the generated TE50 record has exact `diagnostic_model = Huawei TE50` without adding runtime XLSX parsing or source-model dispatch.
+
 ## 10. Exact-SHA hardware acceptance
 
 Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 remains pending exact-SHA hardware acceptance; physical availability at any one moment does not count as acceptance evidence.
