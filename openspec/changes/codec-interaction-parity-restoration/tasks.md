@@ -120,15 +120,16 @@ Required re-validation on the new exact published SHA:
 - [x] 9.9 Remediate TE40 mutation completion classification so the possible-send boundary controls unconfirmed state for pre-submit typed and ordinary failures, while post-send cancellation, timeout, and failed readback remain fail-closed; add composition regressions.
 - [x] 9.10 Amend room codec presentation/lifecycle contracts: remove speaker LIVE, normalize Huawei monitor audio from `0..220`, seed microphone meter from initial evidence, preserve TE40 canonical state/uptime, and release preview ownership after already-completed physical cleanup.
 - [x] 9.11 Add remediation regressions for TE40 canonical MIC1 gain/status/uptime, microphone meter normalization and seed precedence, absent speaker LIVE meter, and preview cleanup handoff.
+- [x] 9.12 Remediate review findings: persist successful preview credential/profile before first LIVE, establish MIC1-primary wording, and remove stale speaker-LIVE contract text.
 
 ## 10. Exact-SHA hardware acceptance
 
 Current five-model scope remains TE20, TE40, Bar310, Box310 and RPG310. Physical availability at any one moment does not count as acceptance evidence.
 
 - [ ] 10.1 Run every applicable in-scope hardware scenario against the exact published post-amendment implementation SHA.
-- [ ] 10.2 TE40: verify static numeric mic value/dB display, MIC1 gain exact `1 dB` step, fresh pre-write state acquisition, independent mute, two live meters, exactly-one-camera behavior, automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
+- [ ] 10.2 TE40: verify static numeric MIC1 gain/dB display, MIC1 gain exact `1 dB` step, fresh pre-write state acquisition, independent mute, microphone LIVE meter, exactly-one-camera behavior, automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
 - [ ] 10.3 TE40 mutation safety: where feasible, verify non-target microphone state is preserved; target/collateral reconciliation failure must not yield confirmed success or blind replay.
-- [ ] 10.4 Box310: verify deferred LIVE contract — no live binding/polling/request, legacy meter row absent where applicable, modern both live-level slots unsupported; separately verify automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
+- [ ] 10.4 Box310: verify deferred LIVE contract — no live binding/polling/request and microphone LIVE meter unsupported; separately verify automatic three-call preview, explicit fresh journal, speaker controls and Local Refresh.
 - [ ] 10.5 TE20/Bar310/RPG310: rerun all applicable original hardware gates plus new automatic three-call lifecycle and Audio-card expectations.
 - [ ] 10.6 Record exact SHA, model, action, non-secret method/path, raw outcome category, normalized result, GUI result and UI-unlocked status for every scenario.
 - [ ] 10.7 Missing/failed required hardware evidence is blocking `CHANGES REQUIRED` regardless of offline test count.

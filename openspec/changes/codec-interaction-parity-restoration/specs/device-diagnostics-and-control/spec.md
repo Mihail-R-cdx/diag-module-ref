@@ -192,19 +192,19 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 
 ## ADDED Requirements
 
-### Requirement: TE40 numeric microphone value and mute evidence are independent read authorities
+### Requirement: TE40 MIC1 gain and mute evidence are independent read authorities
 
 For exact `Huawei TE40`, static audio normalization SHALL preserve numeric microphone configuration evidence independently from mute evidence.
 
-When the approved TE40 audio-status parser receives a finite numeric `micValue` in wire domain `0..21`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
+When the approved TE40 audio-status parser receives a present finite numeric `mic1Value` in wire domain `0..21`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume` from that MIC1 value. Historical `micValue` MAY be a compatibility fallback only when `mic1Value` is absent; present `mic1Value` SHALL NOT be overridden by `micValue`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
 
 For presentation and typed gain intent, TE40 SHALL use `gain_db = microphone_volume - 12`. Thus wire value `21` is `+9 dB`, `18` is `+6 dB`, and `0` is `-12 dB`.
 
 A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute state SHALL NOT overwrite numeric gain evidence, and numeric gain evidence SHALL NOT overwrite mute state.
 
-#### Scenario: TE40 static audio contains numeric value and unmuted state
+#### Scenario: TE40 static audio contains MIC1 gain and unmuted state
 
-- **GIVEN** TE40 audio status contains numeric `micValue = 18`
+- **GIVEN** TE40 audio status contains numeric `mic1Value = 18`
 - **AND** independent authoritative mute evidence says unmuted
 - **WHEN** the room snapshot is accepted
 - **THEN** `microphone_volume` is numeric `18`
@@ -212,15 +212,28 @@ A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute 
 - **AND** `microphone_muted` is `false`
 - **AND** neither value is derived from the other
 
-#### Scenario: TE40 micValue zero is not mute authority
+#### Scenario: TE40 MIC1 zero is not mute authority
 
-- **GIVEN** TE40 audio status contains numeric `micValue = 0`
+- **GIVEN** TE40 audio status contains numeric `mic1Value = 0`
 - **AND** independent authoritative mute evidence says unmuted
 - **WHEN** the room snapshot is accepted
 - **THEN** `microphone_volume` remains numeric `0`
 - **AND** its configured gain meaning is `-12 dB`
 - **AND** `microphone_muted` remains `false`
 - **AND** the application does not fabricate a muted state from the numeric value
+
+#### Scenario: Present MIC1 gain wins over historical compatibility field
+
+- **GIVEN** TE40 audio status contains `mic1Value = 18` and `micValue = 12`
+- **WHEN** the room snapshot is accepted
+- **THEN** `microphone_volume` remains numeric `18`
+- **AND** the model-specific display value is `+6 dB`
+
+#### Scenario: Historical micValue is fallback only when MIC1 is absent
+
+- **GIVEN** TE40 audio status has no `mic1Value` and contains numeric `micValue = 18`
+- **WHEN** the room snapshot is accepted
+- **THEN** compatibility fallback may publish numeric `microphone_volume = 18`
 
 ### Requirement: TE40 microphone-gain mutation uses fresh full-state save and reconciliation
 
@@ -265,7 +278,7 @@ MIC1 target equals requested wire value
 all preserved non-target micall / micN / micNValue fields equal the fresh pre-write baseline
 ```
 
-The approved canonical `micValue` projection MAY confirm the MIC1 target when it is the exact primary-input alias, but target confirmation does not substitute for collateral-state comparison. If the post-write read cannot expose sufficient full state to compare the preserved fields, success SHALL NOT be declared.
+The approved canonical `microphone_volume` projection MAY confirm the MIC1 target, but target confirmation does not substitute for collateral-state comparison. If the post-write read cannot expose sufficient full state to compare the preserved fields, success SHALL NOT be declared.
 
 Missing/malformed/mismatched/stale readback, collateral mismatch, ambiguous send outcome, or cancellation after possible send SHALL follow the root blocked/unconfirmed mutation contract; no blind replay is permitted.
 

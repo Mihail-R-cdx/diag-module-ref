@@ -233,7 +233,7 @@ class CodecInteractionParityTests(unittest.TestCase):
         self.assertFalse(row.interaction_blocked)
         self.assertEqual(["call_log_preview", "live"], calls)
 
-    def test_physical_preview_cleanup_then_mainwindow_terminal_handoff_starts_live(self):
+    def test_preview_auth_retry_persists_success_authority_before_live_handoff(self):
         from gui.main_window import VCSDiagnosticApp
         from gui.room_codec_call_log_controller import RoomCodecCallLogController
 
@@ -273,10 +273,16 @@ class CodecInteractionParityTests(unittest.TestCase):
         entry = dispatch_entry_for_model("Huawei TE40")
         row = DeviceRowState("te40", "Huawei TE40", "192.0.2.10", "Huawei TE40", DeviceRowStatus.CONNECTED, capability=entry.room_capability(), accepted_snapshot={})
         session = RoomDiagnosticSession(RoomDiagnosticSessionIdentity("s", 1, None, None, "r"), "r", None, None, [row], status=RoomCycleStatus.COMPLETE)
-        calls = []
+        candidates = ({"username": "first"}, {"username": "second"})
+        persisted = {"credential_index": None, "profile": None}
+        live_authority = []
         controller = RoomCodecCallLogController(thread_pool=ImmediatePool())
         bindings = RoomInteractionBindings(
-            live=lambda _context: calls.append("get_live_audio_status"),
+            live=lambda _context: live_authority.append((
+                window.get_current_credential_index("Huawei TE40", "192.0.2.10"),
+                window.get_device_connection_profile("Huawei TE40", "192.0.2.10"),
+                "get_live_audio_status",
+            )),
             auxiliary=lambda _context, _action: None,
             cancel=controller.cancel,
             cleanup=lambda _context: False,
@@ -290,9 +296,16 @@ class CodecInteractionParityTests(unittest.TestCase):
             _room_call_log_actions={},
             _room_call_log_windows={},
             _room_credential_attempts={},
-            set_current_credential_index=lambda *_args: None,
-            set_device_connection_profile=lambda *_args: None,
+            set_current_credential_index=lambda _model, index, _ip: persisted.update(credential_index=index),
+            set_device_connection_profile=lambda _model, profile, _ip: persisted.update(profile=profile),
+            get_current_credential_index=lambda _model, _ip: persisted["credential_index"],
+            get_device_connection_profile=lambda _model, _ip: persisted["profile"],
         )
+        def retry(current):
+            window._room_credential_attempts[current] = (candidates, 1, None)
+            controller.start(current, (candidates[1],), 0)
+            return True
+        window._retry_room_authentication = retry
         controller.operationFinished.connect(
             lambda *args: VCSDiagnosticApp._on_room_call_log_finished(window, *args)
         )
@@ -300,14 +313,21 @@ class CodecInteractionParityTests(unittest.TestCase):
         coordinator.expand("te40")
         preview = coordinator.active_context
         window._room_call_log_actions[preview] = "call_log_preview"
-        window._room_credential_attempts[preview] = (({"username": "u"},), 0, None)
+        window._room_credential_attempts[preview] = (candidates, 0, None)
         with patch(
             "gui.room_codec_call_log_controller.InteractiveSessionController", ControlledSession
         ):
-            controller.start(preview, ({"username": "u"},), 0)
-            ControlledSession.instances[0].signals.result.emit({"value": {"records": []}})
+            controller.start(preview, (candidates[0],), 0)
+            ControlledSession.instances[0].signals.error.emit({"category": "authentication"})
+            self.assertEqual([], live_authority)
+            self.assertIs(coordinator.active_context, preview)
+            profile = {"protocol": "https", "port": 443}
+            ControlledSession.instances[1].signals.result.emit({
+                "value": {"records": []}, "credential_index": 0,
+                "connection_profile": profile,
+            })
 
-        self.assertEqual(["get_live_audio_status"], calls)
+        self.assertEqual([(1, profile, "get_live_audio_status")], live_authority)
         self.assertIsNotNone(coordinator.active_context)
         self.assertEqual("LIVE", coordinator.active_context.kind.value)
 

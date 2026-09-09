@@ -12,7 +12,7 @@ The `Аудио` card SHALL permanently contain, in this exact order:
 
 The level row is **live activity evidence**, not a configured volume/gain setting. The control rows are **static/configured/readback evidence**, not live activity. Presentation SHALL NOT overwrite one authority with the other.
 
-At baseline, each level label SHALL precede a horizontal indicator occupying the available card-body width. A visible supported meter bar SHALL use approximately `8-12 px` height. The microphone and speaker meter blocks SHALL be separated by approximately `6-10 px`; the control rows SHALL follow with approximately `8-12 px` vertical separation. Existing button-size rules remain:
+At baseline, the microphone level label SHALL precede a horizontal indicator occupying the available card-body width. A visible supported meter bar SHALL use approximately `8-12 px` height. The configured control rows SHALL follow the microphone meter block with approximately `8-12 px` vertical separation. Existing button-size rules remain:
 
 ```text
 minus / plus button target size       28-34 px square
@@ -134,7 +134,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 7. `Журнал вызовов` preserves three-row preview density/anatomy and places `Развернуть` after the preview;
 8. `Действия` retains exactly two vertically stacked full-width actions in the approved order/sizing;
 9. state/call cards remain dot-free with right-aligned values; call/presentation use normalized `Да`/`Нет`, and registration uses the required semantic icon/neutral unavailable state;
-10. light theme preserves the same geometry/order, including both Audio live-level slots, without starting device I/O.
+10. light theme preserves the same geometry/order, including the single microphone live-level slot and both configured control rows, without starting device I/O.
 
 Checkpoints 1, 5, 6, 7, 8 and 9 are mandatory structural/semantic checkpoints. The implementation SHALL satisfy all mandatory checkpoints and at least `9/10` total checkpoints. Font rasterization, platform glyph variation and one-pixel antialiasing differences are not failures when the repository-local geometry/semantic contract is met.
 
@@ -159,7 +159,7 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 | `CloudLink Box 310` | existing non-LIVE diagnostic evidence only where already authoritative | canonical static fields only | may show accepted static evidence; SHALL NOT imply LIVE support |
 | `Polycom RPG 310` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
 
-#### Scenario: TE40 has numeric micValue and independent mute evidence
+#### Scenario: TE40 has numeric MIC1 gain and independent mute evidence
 
 - **GIVEN** accepted exact-model normalization produced numeric `microphone_volume = 21` and independent `microphone_muted = false` for TE40
 - **WHEN** the dashboard renders

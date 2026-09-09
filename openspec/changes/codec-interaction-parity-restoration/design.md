@@ -31,13 +31,13 @@ The root-compatible room-control mutation matrix remains:
 
 Post-cycle LIVE is a separate optional capability owned by the same exact-model registration. Its amended support matrix is:
 
-| Exact model | microphone LIVE | speaker LIVE |
-| --- | --- | --- |
-| Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` | UNSUPPORTED in room presentation |
-| Huawei TE40 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` | UNSUPPORTED in room presentation |
-| CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser | UNSUPPORTED |
-| CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** | UNSUPPORTED |
-| Polycom RPG 310 | UNSUPPORTED | UNSUPPORTED |
+| Exact model | microphone LIVE |
+| --- | --- |
+| Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
+| Huawei TE40 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
+| CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser |
+| CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** |
+| Polycom RPG 310 | UNSUPPORTED |
 
 The unified exact-model registry SHALL advertise no Box 310 post-cycle LIVE binding in this change. Runtime SHALL NOT infer Box LIVE from shared handler type, endpoint presence, old widget behavior, or historical Bar/Box sharing.
 
@@ -126,7 +126,7 @@ is acknowledgement only.
 Post-write reconciliation SHALL perform a fresh full audio-control read from the same authority. Final success requires:
 
 1. exact current row/generation/currentness still matches;
-2. target primary gain confirms requested wire value (`mic1Value` and/or the approved canonical `micValue` projection for MIC1);
+2. target primary gain confirms requested MIC1 wire value through the approved canonical `microphone_volume` projection;
 3. every non-target `micall`, `micN`, and `micNValue` field included in the full-state save remains equal to the fresh pre-write baseline, excluding only the intentionally changed target `mic1Value` and any explicitly documented device-derived alias of that target.
 
 If the post-write authority cannot expose enough full state to prove these conditions, the mutation cannot be declared confirmed. Missing/malformed/stale readback, target mismatch, collateral mismatch, cancellation after possible send, or ambiguous send outcome enters the root blocked/unconfirmed state. No blind replay is authorized.
@@ -147,7 +147,7 @@ The fixed Audio-card order is:
 
 Huawei TE20/TE40 use one normalized microphone LIVE meter from `get_live_audio_status`. TE40 configured `mic1Value` is rendered in dB separately from live `MicValueIndex` and mute.
 
-CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders both meter slots unsupported.
+CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders its microphone LIVE slot unsupported.
 
 The dashboard SHALL NOT show duplicate textual `Live микрофон` / `Live динамик` rows for Huawei.
 
@@ -165,7 +165,6 @@ post-cycle LIVE binding: absent
 room microphone LIVE network I/O: zero
 WEB_GetCurrentAudioParam as room LIVE poll: not admitted
 Микрофон (уровень): Не поддерживается
-Динамик (уровень): Не поддерживается
 ```
 
 The existing legacy compatibility transport classification of `WEB_GetCurrentAudioParam` is retained only as dormant protocol knowledge for a future approved change; it does not advertise capability or authorize polling now.
@@ -230,7 +229,7 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 | TE40 LIVE | microphone meter from normalized `MicValueIndex`; no speaker LIVE meter or duplicate textual live rows |
 | TE40 camera | one valid camera entry is sufficient |
 | Bar LIVE | supported under Bar-specific approved parser |
-| Box LIVE | explicitly unsupported/deferred; no live binding/I/O; both live slots unsupported |
+| Box LIVE | microphone LIVE explicitly unsupported/deferred; no live binding/I/O; room presentation has no speaker LIVE capability |
 | Box non-LIVE | diagnostics, speaker, preview/journal, Local Refresh remain in scope |
 | Auto call preview | exact current expanded usable row, whole-cycle terminal, once per row/generation, before first eligible LIVE |
 | Explicit journal | always fresh and separate |
