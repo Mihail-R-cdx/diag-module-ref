@@ -161,13 +161,15 @@ Implementation:
 
 - [x] 9.33 Add archive-compatible root replacements that retain typed `CallDirection.UNKNOWN` while removing its visible direction text, requiring an empty detailed-journal cell and title-free/gap-free room preview.
 - [x] 9.34 Run strict OpenSpec validation, disposable archive-applicability verification, and Git checks for the OpenSpec-only amendment.
-- [ ] 9.35 Publish this OpenSpec-only amendment and obtain independent architecture review before production implementation.
+- [x] 9.35 Independent architecture review of exact SHA `a44179b9af1f55c68bbf3e9377461329f43e69b7`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`), permitting presentation implementation.
+- [x] 9.39 Implement detailed-journal and room-preview call-direction presentation: retain typed `UNKNOWN`, render its detailed cell empty, and omit its preview title widget/row without direction inference.
+- [x] 9.40 Add focused call-direction presentation regressions for incoming/outgoing text, typed unknown preservation, empty detailed fallback/cell, and title-free/gap-free neutral preview.
 
 ## 9F. Table-only network peer-tile presentation amendment (pending independent architecture review)
 
 - [x] 9.36 Add archive-compatible replacements for the upper peer-tile and network-table requirements: preserve the headed room block and all canonical network/disclosure semantics while removing right-tile title/header/icon chrome and requiring full-area table/tree rendering with zero new I/O.
-- [ ] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
-- [ ] 9.38 Add focused UI regressions for title/icon removal, full-area table geometry, preserved column headers, room-information heading, disclosure restoration, and zero-I/O rendering.
+- [x] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
+- [x] 9.38 Add focused UI regressions for title/icon removal, full-area table geometry, preserved column headers, room-information heading, disclosure restoration, and zero-I/O rendering.
 
 ## 10. Exact-SHA hardware acceptance
 

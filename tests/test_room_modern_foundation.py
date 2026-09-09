@@ -23,7 +23,7 @@ from gui.diagnostic_dispatch import dispatch_entries, validate_dispatch_registry
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
-    from PyQt5.QtWidgets import QApplication, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QSizePolicy, QTableWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -234,9 +234,25 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertIn("Room", widget.room_name_label.text())
         self.assertIn("Гарантия:", widget.room_warranty_label.text())
         self.assertFalse(widget.room_card.header_widget.isHidden())
-        self.assertFalse(widget.network_card.header_widget.isHidden())
+        self.assertEqual("Информация о комнате", widget.room_card.title_label.text())
+        self.assertTrue(widget.network_card.header_widget.isHidden())
+        self.assertTrue(widget.network_card.icon_label.isHidden())
+        self.assertEqual("", widget.network_card.title_label.text())
+        self.assertIs(widget.upper_cards.layout().itemAt(0).widget(), widget.room_card)
+        self.assertIs(widget.upper_cards.layout().itemAt(1).widget(), widget.network_card)
+        self.assertIs(widget.network_card.body_layout.itemAt(0).widget(), widget.network_tree)
+        self.assertEqual(1, widget.network_card.body_layout.count())
+        self.assertEqual((0, 0, 0, 0), widget.network_card.layout().getContentsMargins())
+        self.assertEqual((0, 0, 0, 0), widget.network_card.body_layout.getContentsMargins())
+        self.assertEqual(0, widget.network_card.layout().spacing())
+        self.assertEqual(QSizePolicy.Expanding, widget.network_tree.sizePolicy().horizontalPolicy())
+        self.assertEqual(QSizePolicy.Expanding, widget.network_tree.sizePolicy().verticalPolicy())
         self.assertEqual(186, widget.upper_cards.height())
         self.assertFalse(widget.network_tree.isHeaderHidden())
+        self.assertEqual(
+            ["Коммутатор (IP)", "Порты", "Подключено устройств"],
+            [widget.network_tree.headerItem().text(index) for index in range(3)],
+        )
         self.assertEqual(42, widget.tree.topLevelItem(0).sizeHint(0).height())
         self.assertEqual(28, widget.tree.iconSize().width())
         self.assertEqual("", widget.tree.topLevelItem(0).text(0))

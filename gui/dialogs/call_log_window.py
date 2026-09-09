@@ -121,7 +121,7 @@ class CallLogWindow(QDialog):
         if isinstance(record, (list, tuple)):
             values = list(record) + [""] * 5
             return tuple(values[:5])
-        return "", "", "", "", "Направление неизвестно"
+        return "", "", "", "", ""
 
     @staticmethod
     def _direction_text(direction) -> str:
@@ -129,4 +129,4 @@ class CallLogWindow(QDialog):
             return "Входящий"
         if direction is CallDirection.OUTGOING:
             return "Исходящий"
-        return "Направление неизвестно"
+        return ""

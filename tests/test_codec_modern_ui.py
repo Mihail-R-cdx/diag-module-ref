@@ -444,6 +444,23 @@ class ModernCodecDashboardTests(unittest.TestCase):
         expand = presentation.findChild(QPushButton, "roomCallLogButton")
         self.assertGreaterEqual(expand.minimumHeight(), 34)
 
+    def test_unknown_call_preview_keeps_neutral_icon_without_direction_title_gap(self):
+        now = datetime(2026, 9, 2, 10, 0)
+        row = self._row()
+        row.call_log_preview_snapshot = snapshot_from_records((
+            CallRecord("unknown", now, 60, room_number="123456789", direction=CallDirection.UNKNOWN),
+        ), reference_now=now, source_ended=True)
+        presentation = RoomReadOnlyPresentation(row)
+        self.addCleanup(presentation.deleteLater)
+
+        icon = presentation.findChild(QLabel, "roomCodecCallDirectionIcon")
+        self.assertEqual("↔", icon.text())
+        self.assertEqual("unknown", icon.property("direction"))
+        self.assertEqual([], presentation.findChildren(QLabel, "roomCodecCallDirectionTitle"))
+        number = presentation.findChild(QLabel, "roomCodecCallNumber")
+        self.assertEqual("123456789", number.text())
+        self.assertEqual(1, number.parentWidget().layout().count())
+
     def test_speaker_percentage_uses_registry_ranges_without_clamping(self):
         cases = (
             ("Huawei TE20", 0, 0), ("Huawei TE20", 10, 48), ("Huawei TE40", 21, 100),

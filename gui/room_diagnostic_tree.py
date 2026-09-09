@@ -126,9 +126,15 @@ class RoomDiagnosticTreeWidget(QWidget):
         self.room_card.body_layout.addWidget(self.room_header)
         self.room_card.body_layout.addWidget(self.room_warranty_label)
         self.room_card.body_layout.addWidget(self.occupancy_label)
-        self.network_card = SectionCard("Сетевые подключения", "⌘", upper)
+        self.network_card = SectionCard("", None, upper)
+        self.network_card.header_widget.setVisible(False)
+        network_card_layout = self.network_card.layout()
+        network_card_layout.setContentsMargins(0, 0, 0, 0)
+        network_card_layout.setSpacing(0)
+        self.network_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.network_tree = QTreeWidget(self.network_card)
         self.network_tree.setObjectName("roomNetworkConnections")
+        self.network_tree.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.network_tree.setColumnCount(3)
         self.network_tree.setHeaderLabels(("Коммутатор (IP)", "Порты", "Подключено устройств"))
         self.network_tree.setHeaderHidden(False)
@@ -139,7 +145,7 @@ class RoomDiagnosticTreeWidget(QWidget):
         self.network_tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.network_tree.itemExpanded.connect(self._network_item_expanded)
         self.network_tree.itemCollapsed.connect(self._network_item_collapsed)
-        self.network_card.body_layout.addWidget(self.network_tree)
+        self.network_card.body_layout.addWidget(self.network_tree, 1)
         upper_layout.addWidget(self.room_card, 1)
         upper_layout.addWidget(self.network_card, 1)
         layout.addWidget(upper)
@@ -337,7 +343,6 @@ class RoomDiagnosticTreeWidget(QWidget):
                 unknown.append(record)
             else:
                 known.setdefault(record.switch_ip_address, []).append(record)
-        self.network_card.set_title(f"Сетевые подключения ({len(known) + len(unknown)} коммутаторов)")
         self._network_expanded_switches.intersection_update(known)
         for switch_ip, records in sorted(known.items()):
             ports = list(dict.fromkeys(record.switch_port for record in records if record.switch_port is not None))
@@ -1494,11 +1499,13 @@ class RoomReadOnlyPresentation(QWidget):
             details_layout = QVBoxLayout(details)
             details_layout.setContentsMargins(0, 0, 0, 0)
             details_layout.setSpacing(1)
-            title = QLabel(self._codec_call_direction_title(direction), details)
-            title.setObjectName("roomCodecCallDirectionTitle")
             number = QLabel(getattr(record, "room_number", "") or missing, details)
             number.setObjectName("roomCodecCallNumber")
-            details_layout.addWidget(title)
+            direction_title = self._codec_call_direction_title(direction)
+            if direction_title:
+                title = QLabel(direction_title, details)
+                title.setObjectName("roomCodecCallDirectionTitle")
+                details_layout.addWidget(title)
             details_layout.addWidget(number)
             timestamp = QLabel(getattr(record, "start_display", "") or missing, entry)
             timestamp.setObjectName("roomCodecCallTimestamp")
@@ -1640,7 +1647,7 @@ class RoomReadOnlyPresentation(QWidget):
         return {
             "outgoing": "Исходящий",
             "incoming": "Входящий",
-        }.get(direction, "Направление неизвестно")
+        }.get(direction, "")
 
     def _codec_data_rows(self, card, source, rows, missing) -> None:
         for row_spec in rows:

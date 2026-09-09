@@ -3,7 +3,7 @@ import unittest
 
 from PyQt5.QtWidgets import QApplication
 
-from core.codec_call_history import CallRecord, snapshot_from_records
+from core.codec_call_history import CallDirection, CallRecord, snapshot_from_records
 from gui.dialogs.call_log_window import CallLogWindow
 
 
@@ -49,6 +49,25 @@ class CallLogPresentationTests(unittest.TestCase):
         self.assertEqual(2, dialog.preview_table.rowCount())
         self.assertEqual(3, dialog.table.rowCount())
         dialog.close()
+
+    def test_direction_text_hides_unknown_without_reclassifying_typed_record(self):
+        now = datetime(2026, 6, 10, 12)
+        incoming = CallRecord("incoming", now, 60, direction=CallDirection.INCOMING)
+        outgoing = CallRecord("outgoing", now, 60, direction=CallDirection.OUTGOING)
+        unknown = CallRecord("unknown", now, 60, direction=CallDirection.UNKNOWN)
+        snapshot = snapshot_from_records((incoming, outgoing, unknown), reference_now=now, source_ended=True)
+        dialog = CallLogWindow()
+        self.addCleanup(dialog.close)
+        dialog.set_snapshot(snapshot)
+
+        self.assertIs(CallDirection.UNKNOWN, snapshot.records[2].direction)
+        self.assertEqual("Входящий", dialog._direction_text(CallDirection.INCOMING))
+        self.assertEqual("Исходящий", dialog._direction_text(CallDirection.OUTGOING))
+        self.assertEqual("", dialog._direction_text(CallDirection.UNKNOWN))
+        self.assertEqual("", dialog.normalize_record(object(), 0)[4])
+        self.assertEqual("", dialog.normalize_record({"direction": "unrecognized"}, 0)[4])
+        self.assertEqual("", dialog.table.item(2, 4).text())
+        self.assertNotIn(dialog.table.item(2, 4).text(), {"Направление неизвестно", "—", "Нет данных"})
 
     def test_polycom_like_sixteen_record_source_limited_batch_shows_every_record(self):
         now = datetime(2026, 6, 10, 12)
