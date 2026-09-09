@@ -14,7 +14,7 @@
 - [x] 2.2 Independently review `969e4a55...`; verdict `CHANGES REQUIRED` with 4 HIGH and 1 MEDIUM findings.
 - [x] 2.3 Resolve root capability conflict through archive-compatible `MODIFIED Requirements`.
 - [x] 2.4 Resolve adapter conflict; TE20/RPG remain mute-only, TE40 gain/mute independent.
-- [x] 2.5 Resolve root presentation conflict with the two-live-meter Audio-card contract.
+- [x] 2.5 Resolve root presentation conflict with the then-current two-live-meter Audio-card contract (subsequently superseded by the single microphone LIVE meter contract in 9.10).
 - [x] 2.6 Replace root visual-checkpoint requirement with exact new Audio-card order.
 - [x] 2.7 Resolve automatic-preview lifecycle ambiguity: whole automatic room cycle terminal + exact codec current/expanded/usable -> one fresh preview -> cleanup -> first eligible LIVE.
 - [x] 2.8 Keep collapsed/non-current codec rows free of automatic call-log network I/O.
@@ -65,26 +65,26 @@ Required re-validation on the new exact published SHA:
 ## 5. Post-approval exact-model capability and parser implementation
 
 - [x] 5.1 Make `diagnostic_dispatch`/unified exact-model registration conform to final approved matrix; preserve RPG310 speaker step `2`; TE40 `microphone_adjust` supported only through MIC1 binding.
-- [x] 5.2 TE40: normalize numeric static `micValue` to canonical `microphone_volume` and independent mute evidence to `microphone_muted`.
+- [x] 5.2 TE40: normalize present numeric static `mic1Value` primary gain to canonical `microphone_volume`; use historical `micValue` only as a compatibility fallback when MIC1 is absent; preserve independent mute evidence as `microphone_muted`.
 - [x] 5.3 TE40: implement MIC1 gain mutation with mandatory fresh full-state pre-read after lane ownership/LIVE retirement; build save payload only from that fresh state; change only target `mic1Value`; send once via `WEB_SaveAudioMicCtrlParams`.
 - [x] 5.4 TE40: post-write full-state reconciliation must confirm target plus preserved non-target `micall`/`micN`/`micNValue`; insufficient/collateral mismatch -> blocked/unconfirmed, no replay.
 - [x] 5.5 TE40: preserve microphone mute as a separate supported desired-state/readback operation.
 - [x] 5.6 TE40 camera: process `itemList` as zero-to-many; cover exactly-one-camera shape.
-- [x] 5.7 Box 310: remove/disable all live-microphone capability surfaces for this change: no unified-registration LIVE binding, no Box meter polling context, no LIVE `WEB_GetCurrentAudioParam`, no legacy codec-page meter row, modern room meter slot unsupported. Do not implement a replacement Box parser.
+- [x] 5.7 Box 310: remove/disable all live-microphone capability surfaces for this change: no unified-registration LIVE binding, no Box meter polling context, no LIVE `WEB_GetCurrentAudioParam`, no legacy codec-page meter row, and the modern room microphone LIVE slot is unsupported. Do not implement a replacement Box parser.
 - [x] 5.8 Bar 310: preserve approved current-volume LIVE endpoint/session/parser/polling behavior and do not let Box deferral regress Bar.
 - [x] 5.9 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
 - [x] 5.10 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
 
 ## 6. Post-approval presentation and LIVE implementation
 
-- [x] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Динамик (уровень)`, `Громкость микрофона`, `Громкость динамиков`.
-- [x] 6.2 TE20/TE40: map accepted `MicValueIndex` to microphone meter and `SpeakerValueIndex` to speaker meter.
-- [x] 6.3 Remove redundant textual `Live микрофон` / `Live динамик` rows for Huawei.
-- [x] 6.4 TE40: display configured `micValue` via exact dB transform and make `-`/`+` request exactly one dB through typed application intent.
-- [x] 6.5 Bar310: preserve approved microphone LIVE meter; speaker live meter unsupported.
-- [x] 6.6 Box310: modern room both live-level slots render `Не поддерживается`; legacy codec-page live microphone row is hidden; no historical/stale Box meter data is rendered as current and no Box LIVE lifecycle is implied.
-- [x] 6.7 RPG310: both live-level slots unsupported.
-- [x] 6.8 Update repository-local visual acceptance tests/checkpoints for Huawei two-meter contract, TE40 dB value, Bar LIVE preservation, and Box deferred LIVE state.
+- [x] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Громкость микрофона`, `Громкость динамиков`; no user-visible speaker LIVE meter.
+- [x] 6.2 TE20/TE40: normalize raw accepted `MicValueIndex` from `0..220` to `0..100%` for `Микрофон (уровень)`; `SpeakerValueIndex` may remain compatibility/internal evidence but creates no user-visible speaker LIVE meter. Seed from initial `monitor_mic_value` with the same normalization until a true LIVE sample is accepted, after which the true LIVE sample wins.
+- [x] 6.3 Remove redundant textual Huawei live-audio rows; the Audio card has no user-visible speaker LIVE row.
+- [x] 6.4 TE40: display configured MIC1 gain from canonical `microphone_volume`, originating from authoritative `mic1Value`, via `gain_db = mic1Value - 12`; make `-`/`+` request exactly one dB through typed application intent.
+- [x] 6.5 Bar310: preserve approved microphone LIVE meter; room presentation has no user-visible speaker LIVE capability.
+- [x] 6.6 Box310: `Микрофон (уровень)` is unsupported/deferred; there is no Box LIVE binding, polling, or room LIVE `WEB_GetCurrentAudioParam`, and room presentation has no user-visible speaker LIVE capability. Legacy codec-page live microphone row is hidden; no historical/stale Box meter data is rendered as current.
+- [x] 6.7 RPG310: microphone LIVE is unsupported; the room Audio card retains its single microphone LIVE slot plus configured control rows.
+- [x] 6.8 Update repository-local visual acceptance tests/checkpoints for the Huawei single microphone LIVE meter contract, TE40 configured MIC1 dB value, Bar LIVE preservation, Box deferred microphone LIVE state, and absence of a user-visible speaker LIVE meter.
 
 ## 7. Initial three-call preview and explicit journal
 
