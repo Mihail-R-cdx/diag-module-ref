@@ -1,5 +1,57 @@
 ## MODIFIED Requirements
 
+### Requirement: Modern codec state and call cards use reduced permanent row geometry
+
+The `Состояние` card SHALL permanently render these rows in this exact order:
+
+```text
+Модель
+MAC-адрес
+Серийный номер
+Версия ПО
+Время работы системы
+Микрофон
+Камера
+```
+
+The modern room codec dashboard SHALL NOT render a `Платформа` row. Removal of that presentation slot SHALL NOT require deletion, suppression, or non-collection of existing internal `platform` evidence used by other approved diagnostics or consumers.
+
+The `Вызов и презентация` card SHALL permanently render these rows in this exact order:
+
+```text
+Статус звонка
+Презентация
+Регистрация SIP/H.323
+```
+
+At baseline each ordinary row SHALL use the common `28-34 px` row height. `Версия ПО` remains in its fixed row position but is the sole firmware exception: its safe firmware value MAY contain multiple lines and its row target is `48-56 px`. That value SHALL use plain text with word wrap; it SHALL NOT be interpreted as HTML. This exception does not permit other rows to increase their height. Label and value SHALL form a stable two-part row; the label remains visually secondary to the current value and may use an approximately `42-52%` label / `48-58%` value allocation where a grid is used. Long safe values MAY elide with tooltip/accessibility text rather than increase one row enough to destroy five-card alignment. Absent firmware evidence remains `Нет данных` in the same fixed slot.
+
+`Время работы системы` is a read-only presentation-evidence row. It SHALL consume only accepted current canonical `uptime`; presentation SHALL NOT start a new network request or polling, infer uptime from logs, widget state, model text, or localized strings, or manufacture a value. Absent, stale-unusable, failed, malformed or otherwise unavailable canonical uptime SHALL render `Нет данных` in the fixed row.
+
+For either card, absent, stale-unusable, failed, malformed or otherwise unavailable current evidence SHALL render `Нет данных` in the corresponding slot. The shared dashboard SHALL NOT hide a required row/card, invent `Unknown`, invent numeric zero, copy another model's value, or infer semantic values from model-name/localized-string substrings.
+
+The approved five-card visual layout uses no leading status dots in `Состояние` or `Вызов и презентация`; all values in their right column SHALL align to the right edge. `Микрофон` and `Камера` use their safe textual value. `Статус звонка` and `Презентация` render `Да` or `Нет` only from typed/structured or exact-adapter-normalized boolean evidence; unavailable evidence remains `Нет данных`.
+
+`Регистрация SIP/H.323` SHALL use a non-text icon in the right value column: `✓` for confirmed registration and `✕` for confirmed failure. The shared GUI SHALL receive this semantic state from the same typed/structured or exact-adapter-normalized evidence and SHALL NOT parse localized display strings, model names or substrings. If registration evidence is unavailable, it SHALL render a neutral `—` icon; icon color is supplementary and never the sole meaning.
+
+#### Scenario: State card renders the reduced permanent row set
+
+- **WHEN** a current supported codec `Состояние` card is rendered
+- **THEN** it contains exactly `Модель`, `MAC-адрес`, `Серийный номер`, `Версия ПО`, `Время работы системы`, `Микрофон`, and `Камера` in the required order
+- **AND** no `Платформа` row is visible
+- **AND** accepted current canonical `uptime` is rendered only in the `Время работы системы` slot
+- **AND** absent canonical `uptime` renders `Нет данных` in that fixed slot
+- **AND** rendering either uptime state starts zero device I/O
+- **AND** internal platform evidence MAY remain available outside this presentation
+
+#### Scenario: Call-card status has no current evidence
+
+- **GIVEN** current call, presentation or registration evidence has no usable normalized semantic state
+- **WHEN** the codec state/call cards are rendered
+- **THEN** each row remains in its fixed position
+- **AND** call/presentation render `Нет данных` while registration renders a neutral `—` icon
+- **AND** the GUI does not infer a state from a localized fallback string
+
 ### Requirement: Codec audio card distinguishes supported live-meter evidence from unsupported capability
 
 The `Аудио` card SHALL permanently contain, in this exact order:

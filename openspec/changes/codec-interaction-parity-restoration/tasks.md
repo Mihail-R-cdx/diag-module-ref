@@ -53,13 +53,13 @@ Historical validation at `01faf3cc522f89f936cb4daefa70161279093f40`:
 
 Required re-validation on the new exact published SHA:
 
-- [ ] 4.7 Re-read all current root specs affected by this change and confirm no competing capability/presentation/lifecycle contract remains, including root CloudLink meter Box deferral, Box call-log no-LIVE semantics, and TE40 fresh full-state mutation safety.
-- [ ] 4.8 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict`.
-- [ ] 4.9 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 4.10 Run disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario remains archive-compatible.
-- [ ] 4.11 Run Git hygiene checks (`git diff --check`, `git diff --cached --check`) and confirm worktree clean.
+- [x] 4.7 Re-read all current root specs affected by this change and confirm no competing capability/presentation/lifecycle contract remains, including the state-card uptime replacement, root CloudLink meter Box deferral, Box call-log no-LIVE semantics, and TE40 fresh full-state mutation safety.
+- [x] 4.8 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict` for the current OpenSpec-only architecture remediation.
+- [x] 4.9 Run `.\openspec.cmd validate --all --strict` for the current OpenSpec-only architecture remediation.
+- [x] 4.10 Run a disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario is archive-compatible without publishing archive output.
+- [x] 4.11 Run Git hygiene checks (`git diff --check`, `git diff --cached --check`) and confirm only in-scope OpenSpec artifacts are modified before the resulting commit.
 - [ ] 4.12 Perform independent architecture review against the exact newly published amendment SHA.
-- [ ] 4.13 Resolve every Critical/High/Medium finding without production implementation.
+- [x] 4.13 Resolve the current Critical/High/Medium findings without production implementation: add the archive-compatible state-card uptime replacement and classify TE40 static status as an ADDED requirement.
 - [ ] 4.14 Obtain and record the new final architecture `APPROVE` SHA. No post-amendment production implementation before this gate.
 
 ## 5. Post-approval exact-model capability and parser implementation
