@@ -1,5 +1,165 @@
 ## MODIFIED Requirements
 
+### Requirement: Diagnostic shell follows a self-contained modern room-oriented foundation contract
+
+The desktop application SHALL present the user-visible title `Диагностический модуль` and SHALL use a card-based desktop layout with consistent semantic spacing, typography, borders, radii, standard Qt/device-class icons, and status styling. External screenshots are product-design inputs only; implementation and review SHALL be possible from this repository-local foundation contract without access to the original conversation images.
+
+The baseline visual acceptance viewport SHALL be `1440 x 900` logical pixels. The layout SHALL remain usable at a minimum `1180 x 720` logical-pixel window; below the baseline, vertical scrolling or controlled card reflow MAY occur, but target-search, top Refresh, current selected-room cue, room/network peer tiles, common equipment accordion, and expanded current device content SHALL remain reachable.
+
+At the baseline viewport the following common visual scale SHALL apply:
+
+```text
+outer content margin              20-28 px
+major section gap                 16-24 px
+card internal padding             16-20 px
+card radius                       8-12 px
+toolbar/control height            44-56 px
+collapsed equipment row height    38-46 px (accepted target about 42 px)
+common equipment-row device-class icon  approximately 28 x 28 px
+section icon                       18-24 px
+room hero icon                    28-36 px
+body text                         10-11 pt
+secondary text                    9-10 pt
+section heading                   12-14 pt
+page/application heading          18-22 pt
+```
+
+The primary toolbar SHALL expose the single target-search field, top Refresh, application actions, and the session theme control. At baseline width, the target-search area including its selected-room cue SHALL consume approximately 45-60% of the usable toolbar width; top actions SHALL remain compact and SHALL NOT visually dominate the search field.
+
+Room mode SHALL place the headed room-summary card and the outer network peer tile above the equipment accordion. At baseline width the two outer tiles SHALL have aligned tops and approximately peer weight with a width ratio between `0.9:1` and `1.1:1`; neither tile SHALL collapse into a narrow sidebar while the other occupies the full row. The accepted upper-tile block SHALL be about `186` logical pixels high (a tuning range of `178-194` is permitted). The left room-summary block SHALL retain visible heading `Информация о комнате`. The right network tile SHALL have no separate visible heading, icon, dynamic switch-count title, header spacing, or SectionCard header; its network table/tree is its sole visible content.
+
+The foundation contract itself does not define final family-specific visual geometry for Audio DSP, Matrix/IN1804, codec, or PDU expanded content; such geometry is owned only by dedicated reviewed follow-up OpenSpec changes. MIH-10 and MIH-11 are those approved follow-ups for Audio DSP and Matrix/IN1804 respectively; codec and PDU redesign remain deferred. The common shell redesign SHALL NOT make Qt widget state authoritative for target identity, credentials, request generation, handler/session ownership, or device I/O.
+
+The accepted shell uses a transparent/common diagnostic-tree background with card-like equipment surfaces. Its compact accordion has no visible tree column header and no visible trailing common overflow/action placeholder. A hidden data-bearing or accessibility surface MAY retain cycle health, but the shell SHALL NOT insert a second visible global-cycle line between the upper tiles and the accordion. Hover, repaint, resize, theme switch, reflow, and scrolling remain presentation-only and SHALL start no device I/O or change authority.
+
+#### Scenario: Room shell is rendered at baseline size
+
+- **WHEN** room mode has an authoritative current room at the baseline viewport
+- **THEN** the headed room-summary tile and headerless network table-only tile appear side by side above the compact equipment accordion with peer visual weight
+- **AND** the accepted common spacing/typography/icon scale and taller upper-tile geometry are applied
+- **AND** device/network authority remains outside the presentation widgets
+
+#### Scenario: Minimum supported window remains usable
+
+- **WHEN** the application is shown at `1180 x 720` logical pixels
+- **THEN** target-search, selected-room cue when present, top Refresh, room/network peer tiles, equipment accordion, and current expanded device content remain reachable through controlled reflow/scrolling
+- **AND** no target or device authority changes merely because layout reflows
+
+### Requirement: Network card preserves all available canonical connection evidence
+
+The headerless right network peer tile SHALL use a compact summary tree/table with columns exactly `Коммутатор (IP)`, `Порты`, and `Подключено устройств`. It SHALL contain no separate visible `Сетевые подключения` title, dynamic `Сетевые подключения (N коммутаторов)` title, network-card icon, SectionCard header, or header spacer. The table/tree SHALL be the tile's sole visible content and fill all available area within the preserved outer peer tile; ordinary SectionCard inner padding or margins SHALL NOT reduce that table/tree area. Rendering, hover, disclosure, child-row display, and local table interaction SHALL be presentation-only and SHALL perform no device network I/O.
+
+Canonical connection evidence SHALL be presented according to these exact cases:
+
+```text
+switch_ip_address known + switch_port known
+    -> one summary row for the exact switch IP with that port in its summary
+
+switch_ip_address known + switch_port null
+    -> one summary row for the exact switch IP; its port summary may be `Нет данных`
+
+switch_ip_address null + switch_port known
+    -> do not invent or merge switch identity
+    -> one record-bound `Коммутатор не определён` row with that exact port and count 1
+
+switch_ip_address null + switch_port null
+    -> that record contributes no switch/port topology evidence
+```
+
+Records with unknown switch IP but known port SHALL NOT be grouped together merely because port text matches. Each such summary row remains tied to the exact canonical record evidence so no fictitious common switch is created.
+
+For each authoritative switch-IP row, attached canonical room-equipment records SHALL be ordered by canonical `record_id`. Its `Порты` cell SHALL collect non-null canonical `switch_port` values in that order and de-duplicate by first occurrence:
+
+```text
+zero known child ports     -> `Нет данных`
+one unique known port      -> that exact port, e.g. `Gi1/0/5`
+multiple unique ports      -> comma-separated exact values in deterministic child order
+```
+
+The summary row SHALL use a safe generic name equivalent to `SW (<IP>)` unless safe unique current canonical display evidence establishes a user-friendly name. The displayed ports summary and record count SHALL not be persisted as canonical data and SHALL not be used as switch identity, routing, or device-topology authority.
+
+Each known-switch summary row SHALL be a real disclosure parent with one visual child per current canonical room-equipment record attached to that exact switch, ordered by canonical `record_id`. A child SHALL display safe current equipment identity in the first column and that exact record's canonical `switch_port` or `Нет данных` in the Ports column; the parent remains the owner of the aggregate count. Child rows are read-only presentation of existing canonical records and SHALL NOT become target/routing/topology authority or start device I/O.
+
+User expansion/collapse of a known-switch row SHALL update presentation-local disclosure state only. That state SHALL survive background refresh/re-render while the exact `RoomDiagnosticSessionIdentity` remains unchanged and the switch row still exists. Background refresh SHALL NOT independently expand or collapse a current switch row. A different room/session identity or explicit presentation clear SHALL reset prior disclosure state rather than restore it into the new context. The default for a newly encountered known-switch row in a new presentation context SHALL be collapsed.
+
+For a record-bound `Коммутатор не определён` row with a known canonical port, the `Порты` cell SHALL display that exact port and count `1`. Such rows SHALL remain ungrouped and need not expose disclosure children because no authoritative common switch identity exists.
+
+If the room contains no presentable switch-IP or port evidence at all, the table/tree SHALL show a safe empty state equivalent to `Нет данных о сетевых подключениях` rather than an invented topology.
+
+The confirmed product decision that room switches with zero attached canonical equipment are not implemented remains unchanged. Current schema v4 cannot authoritatively establish such a switch, so implementation SHALL NOT fabricate it merely to provide an empty disclosure parent.
+
+#### Scenario: Network tile renders table without a title
+
+- **WHEN** the right network peer tile renders
+- **THEN** no visible `Сетевые подключения` text, dynamic switch-count title, network-card icon, or separate header is rendered
+- **AND** the network table/tree is visible
+- **AND** its column headers are exactly `Коммутатор (IP)`, `Порты`, and `Подключено устройств`
+
+#### Scenario: Network table fills the peer tile
+
+- **WHEN** the right network peer tile renders at an accepted layout size
+- **THEN** the table/tree fills its available outer-tile area
+- **AND** no header spacer or ordinary SectionCard inner padding reduces that area
+
+#### Scenario: Room information title remains visible
+
+- **WHEN** the upper peer tiles render
+- **THEN** the left room-summary block retains visible heading `Информация о комнате`
+- **AND** the right network tile does not add a separate heading
+
+#### Scenario: Network data and disclosure semantics remain unchanged
+
+- **GIVEN** current canonical switch evidence and same-context disclosure state exist
+- **WHEN** the table-only network tile renders or re-renders
+- **THEN** grouping, canonical `switch_ip_address`/`switch_port` evidence, counts, child rows, ordering, unknown-switch behavior, empty-state semantics, and disclosure restoration retain their existing contract
+- **AND** no visual simplification changes topology or target authority
+
+#### Scenario: Network tile rendering starts no I/O
+
+- **WHEN** the table-only network tile renders, reflows, repaints, or restores disclosure state
+- **THEN** it starts zero device/network I/O
+
+#### Scenario: Two room devices share a switch
+
+- **GIVEN** two room records contain the same non-null canonical `switch_ip_address`
+- **AND** their canonical ports are `Gi1/0/5` and `Gi1/0/6`
+- **WHEN** the network summary renders
+- **THEN** one switch summary row is shown for that IP
+- **AND** its Port summary displays `Gi1/0/5, Gi1/0/6` and its device count is `2`
+- **AND** expanding that row reveals exactly those two canonical equipment children in deterministic `record_id` order
+- **AND** neither displayed summary nor children become canonical switch/target state
+
+#### Scenario: Parent port summary de-duplicates repeated child evidence
+
+- **GIVEN** several canonical records under one exact switch IP contain the same non-null canonical port text
+- **WHEN** the network summary renders
+- **THEN** the repeated port appears once according to first canonical `record_id` occurrence
+- **AND** each canonical record may still appear as its own disclosed visual child
+- **AND** the summary does not replace the per-record canonical evidence
+
+#### Scenario: Known port with missing switch IP is not lost
+
+- **GIVEN** one room record has null `switch_ip_address` and non-null canonical `switch_port`
+- **WHEN** the network card renders
+- **THEN** the known port remains visible under a `Коммутатор не определён` record-bound row with count `1`
+- **AND** no switch IP, shared switch identity, or fictitious disclosure group is guessed
+
+#### Scenario: User disclosure survives same-context refresh
+
+- **GIVEN** the operator has manually expanded or collapsed a known-switch summary row
+- **AND** the current `RoomDiagnosticSessionIdentity` remains unchanged
+- **WHEN** background refresh/re-render rebuilds current network evidence
+- **THEN** the rebuilt current switch row restores that user disclosure state
+- **AND** refresh itself does not choose the expanded/collapsed state
+- **AND** restoration performs zero device I/O
+
+#### Scenario: Empty switch state is explicitly out of current scope
+
+- **GIVEN** the confirmed product scope defers room switches with zero attached canonical equipment
+- **WHEN** no canonical room record/evidence establishes an unattached switch node
+- **THEN** the GUI does not fabricate a switch solely to display an empty disclosure group
+- **AND** acceptance does not require that state in this change
+
 ### Requirement: Modern codec state and call cards use reduced permanent row geometry
 
 The `Состояние` card SHALL permanently render these rows in this exact order:

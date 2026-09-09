@@ -75,6 +75,12 @@ For the detailed journal, `UNKNOWN` renders an empty direction cell rather than 
 
 The GUI SHALL not infer an unknown direction from model, localized strings, peer number, call result, position, icon color, or other presentation heuristics. It must neither reclassify `UNKNOWN` to incoming/outgoing nor mutate the normalized typed state.
 
+## 1C. Table-only network peer-tile presentation boundary
+
+The existing outer peer tile beside the headed `Информация о комнате` block remains. Its content changes only at the presentation boundary: the right tile contains the existing canonical network summary table/tree and nothing else. It has no SectionCard header, network icon, `Сетевые подключения` text, dynamic switch-count title, header spacer, or ordinary inner padding/margins that consume table area. The table/tree fills the available right-tile area and retains headers `Коммутатор (IP)`, `Порты`, and `Подключено устройств`.
+
+No topology, authority, lifecycle, or I/O contract changes. `switch_ip_address`, `switch_port`, deterministic grouping/ordering/counts, disclosure parents and children, same-context disclosure restoration, unknown-switch and empty-state behavior remain canonical presentation evidence under their current contracts. Rendering, reflow, repaint, and disclosure restoration start zero new device/network I/O.
+
 ## 2. TE40/TE50 static microphone authorities
 
 TE40, and exact-model TE50 by the declared reuse contract, keep two independent authorities:

@@ -163,6 +163,12 @@ Implementation:
 - [x] 9.34 Run strict OpenSpec validation, disposable archive-applicability verification, and Git checks for the OpenSpec-only amendment.
 - [ ] 9.35 Publish this OpenSpec-only amendment and obtain independent architecture review before production implementation.
 
+## 9F. Table-only network peer-tile presentation amendment (pending independent architecture review)
+
+- [x] 9.36 Add archive-compatible replacements for the upper peer-tile and network-table requirements: preserve the headed room block and all canonical network/disclosure semantics while removing right-tile title/header/icon chrome and requiring full-area table/tree rendering with zero new I/O.
+- [ ] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
+- [ ] 9.38 Add focused UI regressions for title/icon removal, full-area table geometry, preserved column headers, room-information heading, disclosure restoration, and zero-I/O rendering.
+
 ## 10. Exact-SHA hardware acceptance
 
 Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 remains pending exact-SHA hardware acceptance; physical availability at any one moment does not count as acceptance evidence.

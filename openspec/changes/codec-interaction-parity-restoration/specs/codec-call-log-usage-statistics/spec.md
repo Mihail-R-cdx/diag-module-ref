@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Normalized call history carries typed direction and common duration semantics across all five codecs`
+- TO: `### Requirement: Normalized call history carries typed direction and common duration semantics across all six codecs`
+
 ## MODIFIED Requirements
 
 ### Requirement: Automatic room preview and explicit detailed journal preserve separate acquisition epochs
@@ -153,7 +158,7 @@ The regression SHALL prove:
 - **AND** explicit detail performs a separate fresh approved call-history acquisition
 - **AND** detailed rows/statistics publish from the explicit result, not the preview
 
-### Requirement: Normalized call history carries typed direction and common duration semantics across all five codecs
+### Requirement: Normalized call history carries typed direction and common duration semantics across all six codecs
 
 For the existing six supported exact models:
 
