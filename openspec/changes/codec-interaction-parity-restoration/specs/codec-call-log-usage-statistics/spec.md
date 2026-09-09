@@ -153,6 +153,66 @@ The regression SHALL prove:
 - **AND** explicit detail performs a separate fresh approved call-history acquisition
 - **AND** detailed rows/statistics publish from the explicit result, not the preview
 
+### Requirement: Normalized call history carries typed direction and common duration semantics across all five codecs
+
+For the existing six supported exact models:
+
+```text
+Huawei TE20
+Huawei TE40
+Huawei TE50
+CloudLink Bar 310
+CloudLink Box 310
+Polycom RPG 310
+```
+
+each accepted normalized call-history record SHALL expose direction as a typed application semantic equivalent to:
+
+```text
+INCOMING
+OUTGOING
+UNKNOWN
+```
+
+when source evidence permits. Vendor-specific source values SHALL be mapped inside model-specific retrieval/normalization boundaries. Presentation SHALL NOT determine direction from model name, icon color, peer-number formatting, localized strings, record position, success/failure, or other GUI heuristics.
+
+A source value that cannot be mapped authoritatively SHALL normalize to `UNKNOWN`; it SHALL NOT be guessed as incoming or outgoing.
+
+The visible semantic mapping SHALL be deterministic:
+
+```text
+INCOMING -> visible text `Входящий` with the incoming semantic cue
+OUTGOING -> visible text `Исходящий` with the outgoing semantic cue
+UNKNOWN  -> no visible direction text; neutral non-implying metadata/cue MAY remain
+```
+
+For `UNKNOWN`, the detailed `CallLogWindow` direction cell SHALL contain the empty string. It SHALL NOT substitute `—`, `Нет данных`, or `Направление неизвестно`. The concrete glyph or Qt asset MAY vary, but the semantic role binding SHALL NOT be swapped and visible presentation SHALL NOT alter the typed normalized direction.
+
+The existing machine-readable duration contract SHALL apply equally to all six models. A completed record with accepted non-negative duration SHALL expose/render that duration regardless of model. Missing or unparseable duration remains unavailable, remains visible, contributes zero to arithmetic, and follows the existing partial-calculation warning semantics. Active records remain active and follow the existing zero-usage-until-completed contract.
+
+#### Scenario: Incoming and outgoing records normalize and render consistently
+
+- **GIVEN** supported adapters provide authoritative vendor-specific direction evidence
+- **WHEN** their records are normalized and presented
+- **THEN** the application record contains `INCOMING` or `OUTGOING` as appropriate
+- **AND** visible text and the semantic cue match `Входящий` or `Исходящий` respectively
+- **AND** the GUI does not swap roles through a vendor/model-specific branch
+
+#### Scenario: Direction source is ambiguous
+
+- **WHEN** a source record has no authoritative direction mapping
+- **THEN** its normalized direction is `UNKNOWN`
+- **AND** the detailed journal direction cell contains the empty string
+- **AND** the cell does not display `—`, `Нет данных`, `Направление неизвестно`, `Входящий`, or `Исходящий`
+- **AND** no presentation heuristic reclassifies the direction
+
+#### Scenario: Huawei or CloudLink completed call has valid duration
+
+- **GIVEN** TE20, TE40, TE50, Bar 310, or Box 310 returns a completed call with accepted non-negative duration evidence
+- **WHEN** the normalized record is presented
+- **THEN** its duration is rendered using the same product semantics as Polycom RPG 310
+- **AND** model identity does not suppress the duration
+
 ## ADDED Requirements
 
 ### Requirement: Explicit codec call-log acquisition remains independent from automatic preview

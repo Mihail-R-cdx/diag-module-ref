@@ -61,6 +61,20 @@ Existing component extraction already yields those exact components from `TE50`,
 
 The importer-side expected-kind registry records `Huawei TE50 -> video_codec` only as consistency evidence. Exact source `Тип модели` remains the sole authority for canonical `device_kind`; recognition must not rewrite it. After an approved implementation of this registry change, the deployment operator regenerates ignored `equipment_inventory.local.json` from the configured organization workbook. Runtime remains JSON-snapshot-only and does not read `.xlsx`.
 
+## 1B. Call-direction presentation boundary
+
+Direction remains authoritative only after vendor-specific retrieval/normalization has produced typed `CallDirection`. This amendment does not change parsers, vendor mappings, acquisition, ordering, statistics, preview lifecycle, or any protocol behavior.
+
+```text
+INCOMING -> visible `Входящий` and the existing incoming cue
+OUTGOING -> visible `Исходящий` and the existing outgoing cue
+UNKNOWN  -> retain typed UNKNOWN; no visible direction text
+```
+
+For the detailed journal, `UNKNOWN` renders an empty direction cell rather than a dash, unavailable marker, or unknown-direction phrase. For the three-call room preview, it renders no visible direction title and no empty title row or vertical gap; a neutral icon may remain only if it does not imply incoming or outgoing. Accessibility/internal metadata may retain the unknown-direction meaning, but no visible `Направление неизвестно` text remains.
+
+The GUI SHALL not infer an unknown direction from model, localized strings, peer number, call result, position, icon color, or other presentation heuristics. It must neither reclassify `UNKNOWN` to incoming/outgoing nor mutate the normalized typed state.
+
 ## 2. TE40/TE50 static microphone authorities
 
 TE40, and exact-model TE50 by the declared reuse contract, keep two independent authorities:

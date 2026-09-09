@@ -198,6 +198,41 @@ Checkpoints 1, 5, 6, 7, 8 and 9 are mandatory structural/semantic checkpoints. T
 - **THEN** the validator can evaluate all ten checkpoints from this specification
 - **AND** no external image, prior chat or agent report is required to decide visual conformance
 
+### Requirement: Codec call-history direction cue maps typed direction to the correct visible semantic role
+
+Every modern room codec call-history record that renders a direction cue SHALL bind the cue to normalized `CallDirection` without vendor/model-specific reversal:
+
+```text
+INCOMING -> visible text `Входящий`; existing incoming semantic cue
+OUTGOING -> visible text `Исходящий`; existing outgoing semantic cue
+UNKNOWN  -> neutral cue MAY remain, but no visible direction text or title
+```
+
+The concrete icon glyph or Qt asset MAY vary with the shared theme, but the semantic role SHALL be testable independently of color and SHALL NOT be swapped between `INCOMING` and `OUTGOING`. `UNKNOWN` SHALL remain the typed normalized direction; presentation SHALL NOT infer direction from localized source strings, peer formatting, call result, record position, icon color, model identity, or other GUI heuristics.
+
+#### Scenario: Incoming record uses incoming visible role
+
+- **GIVEN** the normalized record direction is `INCOMING`
+- **WHEN** a room-preview or detailed call row renders its direction cue
+- **THEN** the visible/non-color semantic role is `Входящий`
+- **AND** the outgoing semantic role is not used
+
+#### Scenario: Outgoing record uses outgoing visible role
+
+- **GIVEN** the normalized record direction is `OUTGOING`
+- **WHEN** a room-preview or detailed call row renders its direction cue
+- **THEN** the visible/non-color semantic role is `Исходящий`
+- **AND** the incoming semantic role is not used
+
+#### Scenario: Unknown direction is neutral
+
+- **GIVEN** the normalized record direction is `UNKNOWN`
+- **WHEN** a room-preview call row renders
+- **THEN** it renders no visible direction title, including `Направление неизвестно`, `Входящий`, or `Исходящий`
+- **AND** it leaves no empty direction-text row or vertical gap
+- **AND** a neutral direction icon MAY remain only when it does not imply incoming or outgoing direction
+- **AND** the normalized direction remains `UNKNOWN`
+
 ## ADDED Requirements
 
 ### Requirement: Room codec presentation consumes exact-model normalized static microphone evidence

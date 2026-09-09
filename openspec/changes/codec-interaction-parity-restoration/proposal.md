@@ -39,6 +39,7 @@ The target product behavior is now:
 - Every call-log-capable codec, including Box 310, shows up to the three newest calls automatically for the exact current expanded usable codec row after the entire automatic room cycle is terminal.
 - For a model that advertises LIVE, that LIVE waits for preview terminal cleanup. For a model that advertises no LIVE, preview cleanup releases the lane without creating or implying LIVE.
 - Explicit `Развернуть` remains a separate fresh detailed-journal acquisition.
+- `CallDirection.UNKNOWN` remains a typed normalized state, while room preview hides its visible direction title without an empty row and the detailed journal renders an empty direction cell; presentation adds no direction inference.
 - CloudLink Bar 310 microphone LIVE remains supported under its approved Bar-specific contract.
 - **CloudLink Box 310 microphone LIVE is explicitly deferred from this change and from the archived root contract.** Exact Box registration advertises no LIVE binding, no Box meter polling context exists, no LIVE `WEB_GetCurrentAudioParam` request is sent, and current Box live-level presentation is unsupported.
 
@@ -79,6 +80,7 @@ The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{dev
 - Use one TE40 current-audio extractor for initial seed and true LIVE: `WEB_GetCurrentAudioParam`, JSON-string envelope decoding, maximum valid `MicValueIndex`/`mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx` evidence, and the existing Huawei `0..220 -> 0..100%` normalization.
 - Add `Huawei TE50 | te + 50` to the closed offline diagnostic-model registry, retain existing component extraction and cardinality rules, and add importer-only `Huawei TE50 -> video_codec` expected-kind consistency evidence without overriding source `Тип модели` authority.
 - Require deployment-local regeneration of `equipment_inventory.local.json` from the configured organization workbook after the reviewed registry change; workbooks and generated inventory remain outside Git and runtime remains JSON-only.
+- Replace the two root call-direction presentation requirements archive-compatibly: retain typed `UNKNOWN`, show no unknown/incoming/outgoing direction text for it, keep its detailed-journal cell empty, and prohibit presentation-side direction inference.
 
 ## Scope
 

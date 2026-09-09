@@ -157,6 +157,12 @@ Implementation:
 - [ ] 9.31 Regenerate deployment-local ignored `equipment_inventory.local.json` from the configured organization workbook outside Git after deployment.
 - [ ] 9.32 Verify the generated TE50 record has exact `diagnostic_model = Huawei TE50` without adding runtime XLSX parsing or source-model dispatch.
 
+## 9E. Unknown call-direction presentation amendment (pending independent architecture review)
+
+- [x] 9.33 Add archive-compatible root replacements that retain typed `CallDirection.UNKNOWN` while removing its visible direction text, requiring an empty detailed-journal cell and title-free/gap-free room preview.
+- [x] 9.34 Run strict OpenSpec validation, disposable archive-applicability verification, and Git checks for the OpenSpec-only amendment.
+- [ ] 9.35 Publish this OpenSpec-only amendment and obtain independent architecture review before production implementation.
+
 ## 10. Exact-SHA hardware acceptance
 
 Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 remains pending exact-SHA hardware acceptance; physical availability at any one moment does not count as acceptance evidence.
