@@ -165,7 +165,7 @@ Implementation:
 - [x] 9.39 Implement detailed-journal and room-preview call-direction presentation: retain typed `UNKNOWN`, render its detailed cell empty, and omit its preview title widget/row without direction inference.
 - [x] 9.40 Add focused call-direction presentation regressions for incoming/outgoing text, typed unknown preservation, empty detailed fallback/cell, and title-free/gap-free neutral preview.
 
-## 9F. Table-only network peer-tile presentation amendment (pending independent architecture review)
+## 9F. Table-only network peer-tile presentation amendment
 
 - [x] 9.36 Add archive-compatible replacements for the upper peer-tile and network-table requirements: preserve the headed room block and all canonical network/disclosure semantics while removing right-tile title/header/icon chrome and requiring full-area table/tree rendering with zero new I/O.
 - [x] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
@@ -181,17 +181,17 @@ Architecture:
 
 Implementation:
 
-- [ ] 9.44 Implement the approved TE40/TE50 extractor change using only explicit RCA input names; preserve no-candidate, numeric-zero, excluded-input, one-time-normalization, TE20, and exact-TE50 behavior.
-- [ ] 9.45 Implement the descriptive target-search visible label on the existing field without changing search/selection/Refresh authority or adding a second field.
-- [ ] 9.46 Implement the fixed `Гарантия: Нет гарантии` room-summary placeholder without a canonical/session warranty field, inventory-schema change, inference, lookup, or I/O.
+- [x] 9.44 Implement the approved TE40/TE50 extractor change using only explicit RCA input names; preserve no-candidate, numeric-zero, excluded-input, one-time-normalization, TE20, and exact-TE50 behavior.
+- [x] 9.45 Implement the descriptive target-search visible label on the existing field without changing search/selection/Refresh authority or adding a second field.
+- [x] 9.46 Implement the fixed `Гарантия: Нет гарантии` room-summary placeholder without a canonical/session warranty field, inventory-schema change, inference, lookup, or I/O.
 
 Regression:
 
-- [ ] 9.47 Add focused RCA aggregate regressions for the required TE40/TE50 maxima, valid zero, missing/invalid evidence, excluded high inputs, exact TE20 preservation, and one-time `0..220 -> 0..100%` normalization.
-- [ ] 9.48 Add focused UI regressions for the exact target-search label, single-field preservation, existing search/selection/Refresh behavior, and zero-I/O rendering.
-- [ ] 9.49 Add focused room-summary regressions for always-visible exact `Гарантия: Нет гарантии`, no unavailable fallback, no warranty authority/I/O, and independent room-name/address/VIP/occupancy behavior.
+- [x] 9.47 Add focused RCA aggregate regressions for the required TE40/TE50 maxima, valid zero, missing/invalid evidence, excluded high inputs, exact TE20 preservation, and one-time `0..220 -> 0..100%` normalization.
+- [x] 9.48 Add focused UI regressions for the exact target-search label, single-field preservation, existing search/selection/Refresh behavior, and zero-I/O rendering.
+- [x] 9.49 Add focused room-summary regressions for always-visible exact `Гарантия: Нет гарантии`, no unavailable fallback, no warranty authority/I/O, and independent room-name/address/VIP/occupancy behavior.
 
-- [ ] 9.50 Obtain and record an independent architecture review of the exact published OpenSpec amendment SHA before beginning 9.44-9.49.
+- [x] 9.50 Independent architecture review of exact SHA `56425b0f7e48b50cd975fd5752f72b7bd39cfd66`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`), implementation may proceed. The sole LOW is non-blocking stale bookkeeping text in the already completed 9F heading; that heading is synchronized here.
 
 ## 10. Exact-SHA hardware acceptance
 

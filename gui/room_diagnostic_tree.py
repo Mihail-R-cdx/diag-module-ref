@@ -214,7 +214,7 @@ class RoomDiagnosticTreeWidget(QWidget):
             self.room_name_label.setText(f"Название комнаты:  {session.room_name or '—'}")
             self.vip_badge.setVisible(session.room_vip is True)
             self.room_header.setText(f"Адрес комнаты:  {session.room_address or '—'}")
-            self.room_warranty_label.setText("Гарантия:  нет данных")
+            self.room_warranty_label.setText("Гарантия: Нет гарантии")
             self.global_status.setText(
                 "Есть проблемы с соединением" if session.post_cycle_problem else session.status.value
             )

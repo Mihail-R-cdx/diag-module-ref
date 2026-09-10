@@ -580,8 +580,8 @@ class VCSDiagnosticApp(QMainWindow):
             SPACING["md"], SPACING["md"], SPACING["md"], SPACING["lg"]
         )
         
-        # Метка и поле для IP-адреса
-        ip_label = QLabel("IP-адрес")
+        # Метка и поле единого поиска помещения или IP-адреса оборудования.
+        ip_label = QLabel("Введите название помещения или IP-адрес оборудования")
         ip_label.setProperty("uiRole", "fieldLabel")
         
         self.ip_entry = QLineEdit()

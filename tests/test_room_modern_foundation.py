@@ -215,7 +215,7 @@ class RoomPresentationTests(unittest.TestCase):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
         inv = inventory(
-            record("A", room_id="r", name="Room", ip="192.0.2.1", switch="10.0.0.1", port="Gi1/0/1"),
+            record("A", room_id="r", name="Room", address="Address", ip="192.0.2.1", switch="10.0.0.1", port="Gi1/0/1", vip=True),
             record("B", room_id="r", name="Room", ip="192.0.2.2", switch="10.0.0.1", port="Gi1/0/2"),
             record("C", room_id="r", name="Room", ip="192.0.2.3", port="Gi1/0/3"),
         )
@@ -231,8 +231,11 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertEqual("Huawei TE40", widget.network_tree.topLevelItem(0).child(0).text(0))
         self.assertEqual("Коммутатор не определён", widget.network_tree.topLevelItem(1).text(0))
         self.assertIn("Занято", widget.occupancy_label.text())
-        self.assertIn("Room", widget.room_name_label.text())
-        self.assertIn("Гарантия:", widget.room_warranty_label.text())
+        self.assertEqual("Название комнаты:  Room", widget.room_name_label.text())
+        self.assertEqual("Адрес комнаты:  Address", widget.room_header.text())
+        self.assertTrue(widget.vip_badge.isVisible() or not widget.vip_badge.isHidden())
+        self.assertEqual("Гарантия: Нет гарантии", widget.room_warranty_label.text())
+        self.assertFalse(hasattr(session, "room_warranty"))
         self.assertFalse(widget.room_card.header_widget.isHidden())
         self.assertEqual("Информация о комнате", widget.room_card.title_label.text())
         self.assertTrue(widget.network_card.header_widget.isHidden())

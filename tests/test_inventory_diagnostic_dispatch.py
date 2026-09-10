@@ -5,7 +5,7 @@ from unittest.mock import ANY, Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt5.QtWidgets import QApplication, QLabel
+    from PyQt5.QtWidgets import QApplication, QLabel, QLineEdit
     from PyQt5.QtCore import QThreadPool
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -192,13 +192,17 @@ class MainPanelTests(unittest.TestCase):
     def test_main_panel_has_no_persistent_model_selector(self):
         from gui.main_window import VCSDiagnosticApp
 
-        window = VCSDiagnosticApp()
+        with patch.object(VCSDiagnosticApp, "refresh_data") as refresh:
+            window = VCSDiagnosticApp()
+        refresh.assert_not_called()
         self.addCleanup(window.close)
         self.assertFalse(hasattr(window, "device_combo"))
         self.assertEqual([], window.findChildren(type(window.ip_entry), "deviceCombo"))
         labels = [label.text() for label in window.connection_panel.findChildren(QLabel)]
         self.assertNotIn("Устройство", labels)
-        self.assertIn("IP-адрес", labels)
+        self.assertIn("Введите название помещения или IP-адрес оборудования", labels)
+        self.assertNotIn("IP-адрес", labels)
+        self.assertEqual([window.ip_entry], window.connection_panel.findChildren(QLineEdit))
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")

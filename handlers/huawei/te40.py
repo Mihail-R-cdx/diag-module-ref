@@ -27,6 +27,11 @@ from core.redaction import redact_diagnostic
 
 _TE40_MONITOR_MIC_ARRAY_FIELD = re.compile(r"^micArray\d+_\d+ValIdx$")
 _TE40_CURRENT_MIC_FIELD = re.compile(r"^mic\d+ValueIndex$")
+_TE40_CURRENT_MIC_EXACT_FIELDS = (
+    "MicValueIndex",
+    "rcaLInValueIndex",
+    "rcaRInValueIndex",
+)
 
 
 def extract_te40_current_audio_microphone_level(payload: Any) -> Real | None:
@@ -41,7 +46,7 @@ def extract_te40_current_audio_microphone_level(payload: Any) -> Real | None:
 
     candidates: list[Real] = []
     for key, value in payload.items():
-        if key != "MicValueIndex" and (
+        if key not in _TE40_CURRENT_MIC_EXACT_FIELDS and (
             not isinstance(key, str) or not (
                 _TE40_CURRENT_MIC_FIELD.fullmatch(key)
                 or _TE40_MONITOR_MIC_ARRAY_FIELD.fullmatch(key)

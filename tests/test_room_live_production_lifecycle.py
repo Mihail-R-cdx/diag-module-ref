@@ -300,8 +300,8 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
                 handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
                 handler.get_sleep_mode = Mock(return_value="Off")
                 handler.send_command = Mock(return_value={"success": 1, "data": """
-                    {"mic1ValueIndex": 37, "micArray1_01ValIdx": 25,
-                     "micArray1_02ValIdx": 12, "micArray1_03ValIdx": 37,
+                    {"mic1ValueIndex": 37, "rcaLInValueIndex": 62,
+                     "rcaRInValueIndex": 0,
                      "SpeakerValueIndex": 220}
                 """})
 
@@ -314,8 +314,8 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
                 self.addCleanup(presentation.deleteLater)
 
                 self.assertEqual(live, window.room_interaction_coordinator.active_context)
-                self.assertEqual(37, snapshot["live_audio"]["microphone"])
-                self.assertEqual(17, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+                self.assertEqual(62, snapshot["live_audio"]["microphone"])
+                self.assertEqual(28, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
 
     def test_te_live_authentication_fallback_waits_for_owner_cleanup(self):
         for model in ("Huawei TE20", "Huawei TE40"):

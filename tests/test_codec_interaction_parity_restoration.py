@@ -95,14 +95,29 @@ class CodecInteractionParityTests(unittest.TestCase):
             ({"MicValueIndex": 20, "mic1ValueIndex": 37, "micArray1_01ValIdx": 70}, 70),
             ({"micArray1_01ValIdx": 70, "micArray2_03ValIdx": 91}, 91),
             ({"MicValueIndex": 20, "SpeakerValueIndex": 220}, 20),
+            ({"mic1ValueIndex": 37, "rcaLInValueIndex": 62, "rcaRInValueIndex": 0}, 62),
+            ({"mic1ValueIndex": 37, "rcaLInValueIndex": 0, "rcaRInValueIndex": 0}, 37),
+            ({"rcaLInValueIndex": 42}, 42),
+            ({"rcaLInValueIndex": 0, "rcaRInValueIndex": 0}, 0),
             ({"MicValueIndex": 20, "trsInput": 220, "rcaInput": 220, "hdmiInput": 220,
               "dviInput": 220, "dpInput": 220, "pstnInput": 220, "sdiInput": 220}, 20),
+            ({"mic1ValueIndex": 37, "trs1LInValueIndex": 220, "trs1RInValueIndex": 220,
+              "hdmiLInValueIndex": 220, "hdmiRInValueIndex": 220,
+              "dviLInValueIndex": 220, "dviRInValueIndex": 220,
+              "dpLInValueIndex": 220, "dpRInValueIndex": 220,
+              "pstnInValueIndex": 220, "sdiLInValueIndex": 220,
+              "sdiRInValueIndex": 220, "SpeakerValueIndex": 220}, 37),
             ({"micArray1_01ValIdx": 0}, 0),
             ({
                 "MicValueIndex": None, "mic1ValueIndex": {}, "micArray1_01ValIdx": True,
                 "micArray1_02ValIdx": "83", "micArray1_03ValIdx": float("nan"),
                 "micArray2_01ValIdx": float("inf"), "micArray2_02ValIdx": [],
+                "rcaLInValueIndex": None, "rcaRInValueIndex": True,
+                "rcaInvalidStringInValueIndex": 62,
             }, None),
+            ({"mic1ValueIndex": 37, "rcaLInValueIndex": "62", "rcaRInValueIndex": []}, 37),
+            ({"mic1ValueIndex": 37, "rcaLInValueIndex": {}, "rcaRInValueIndex": float("nan")}, 37),
+            ({"mic1ValueIndex": 37, "rcaLInValueIndex": float("inf"), "rcaRInValueIndex": float("-inf")}, 37),
             ({
                 "mic1Value": 99, "micXValueIndex": 99, "mic19ValueIndexx": 99,
                 "micArray1_01Value": 99, "micArrayX_01ValIdx": 99,
@@ -173,6 +188,8 @@ class CodecInteractionParityTests(unittest.TestCase):
         handler.send_command = Mock(return_value={"success": 1, "data": {
             "MicValueIndex": 20,
             "micArray1_01ValIdx": 220,
+            "rcaLInValueIndex": 220,
+            "rcaRInValueIndex": 220,
         }})
 
         live = handler.get_live_audio_status()
