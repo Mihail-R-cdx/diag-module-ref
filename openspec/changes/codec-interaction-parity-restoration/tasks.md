@@ -171,6 +171,28 @@ Implementation:
 - [x] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
 - [x] 9.38 Add focused UI regressions for title/icon removal, full-area table geometry, preserved column headers, room-information heading, disclosure restoration, and zero-I/O rendering.
 
+## 9G. RCA microphone aggregate and room-presentation amendment (pending independent architecture review)
+
+Architecture:
+
+- [x] 9.41 Add archive-compatible exact TE40/TE50 RCA input aggregate contract: admit only `rcaLInValueIndex`/`rcaRInValueIndex`, retain finite-numeric/zero semantics and the single existing normalization, and preserve all other input exclusions and TE20 behavior.
+- [x] 9.42 Add the one-field target-search visible-label contract without changing search, selection, Refresh, authority, or I/O.
+- [x] 9.43 Add the fixed room warranty placeholder contract and record future authoritative warranty integration as Linear `MIH-28` without introducing warranty authority, schema, lookup, or I/O.
+
+Implementation:
+
+- [ ] 9.44 Implement the approved TE40/TE50 extractor change using only explicit RCA input names; preserve no-candidate, numeric-zero, excluded-input, one-time-normalization, TE20, and exact-TE50 behavior.
+- [ ] 9.45 Implement the descriptive target-search visible label on the existing field without changing search/selection/Refresh authority or adding a second field.
+- [ ] 9.46 Implement the fixed `Гарантия: Нет гарантии` room-summary placeholder without a canonical/session warranty field, inventory-schema change, inference, lookup, or I/O.
+
+Regression:
+
+- [ ] 9.47 Add focused RCA aggregate regressions for the required TE40/TE50 maxima, valid zero, missing/invalid evidence, excluded high inputs, exact TE20 preservation, and one-time `0..220 -> 0..100%` normalization.
+- [ ] 9.48 Add focused UI regressions for the exact target-search label, single-field preservation, existing search/selection/Refresh behavior, and zero-I/O rendering.
+- [ ] 9.49 Add focused room-summary regressions for always-visible exact `Гарантия: Нет гарантии`, no unavailable fallback, no warranty authority/I/O, and independent room-name/address/VIP/occupancy behavior.
+
+- [ ] 9.50 Obtain and record an independent architecture review of the exact published OpenSpec amendment SHA before beginning 9.44-9.49.
+
 ## 10. Exact-SHA hardware acceptance
 
 Current six-model scope is TE20, TE40, TE50, Bar310, Box310 and RPG310. TE50 remains pending exact-SHA hardware acceptance; physical availability at any one moment does not count as acceptance evidence.

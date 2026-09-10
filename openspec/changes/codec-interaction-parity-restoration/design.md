@@ -39,7 +39,7 @@ Post-cycle LIVE is a separate optional capability owned by the same exact-model 
 | Exact model | microphone LIVE |
 | --- | --- |
 | Huawei TE20 | SUPPORTED from raw `MicValueIndex`, normalized `0..220 -> 0..100%` |
-| Huawei TE40 | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, normalized `0..220 -> 0..100%` |
+| Huawei TE40 | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + rcaLInValueIndex + rcaRInValueIndex)`, normalized `0..220 -> 0..100%` |
 | Huawei TE50 | SUPPORTED by exact-model reuse of the TE40 contract; pending TE50 hardware acceptance |
 | CloudLink Bar 310 | SUPPORTED from approved Bar-specific LIVE parser |
 | CloudLink Box 310 | **UNSUPPORTED / DEFERRED in this change** |
@@ -80,6 +80,12 @@ The GUI SHALL not infer an unknown direction from model, localized strings, peer
 The existing outer peer tile beside the headed `Информация о комнате` block remains. Its content changes only at the presentation boundary: the right tile contains the existing canonical network summary table/tree and nothing else. It has no SectionCard header, network icon, `Сетевые подключения` text, dynamic switch-count title, header spacer, or ordinary inner padding/margins that consume table area. The table/tree fills the available right-tile area and retains headers `Коммутатор (IP)`, `Порты`, and `Подключено устройств`.
 
 No topology, authority, lifecycle, or I/O contract changes. `switch_ip_address`, `switch_port`, deterministic grouping/ordering/counts, disclosure parents and children, same-context disclosure restoration, unknown-switch and empty-state behavior remain canonical presentation evidence under their current contracts. Rendering, reflow, repaint, and disclosure restoration start zero new device/network I/O.
+
+## 1D. RCA microphone aggregate and room presentation placeholders
+
+For exact TE40 and exact-model TE50 only, the current-audio extractor additionally admits the two named RCA input fields `rcaLInValueIndex` and `rcaRInValueIndex`. It takes the maximum of all valid finite numeric microphone candidates, including numeric zero, from the existing compatibility/individual/array fields and those two RCA fields. This is not wildcard `*InValueIndex` support: `trs*`, `hdmi*`, `dvi*`, `dp*`, `pstnInValueIndex`, `sdi*`, unrelated inputs, and `SpeakerValueIndex` remain excluded. Missing or invalid candidates do not imply zero; normalization remains the existing single `0..220 -> 0..100%` presentation operation. TE20 remains `MicValueIndex`-only.
+
+The existing one target-search field receives the descriptive visible label `Введите название помещения или IP-адрес оборудования`; all search, autocomplete, selection, Refresh, and authority semantics remain unchanged. The room summary's temporary warranty presentation is fixed as `Гарантия: Нет гарантии`. It is not canonical data and starts no lookup or I/O. Linear `MIH-28` tracks future real warranty data pending a separately reviewed authoritative source and canonical semantics.
 
 ## 2. TE40/TE50 static microphone authorities
 
@@ -185,7 +191,7 @@ The fixed Audio-card order is:
 Громкость динамиков    [−] <accepted value/percentage or Нет данных> [+] [mute]
 ```
 
-Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40, and exact-model TE50 by the declared reuse contract, use one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, followed by the existing `0..220 -> 0..100%` normalization. Configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
+Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40, and exact-model TE50 by the declared reuse contract, use one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`, followed by the existing one-time `0..220 -> 0..100%` normalization. Configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
 
 CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders its microphone LIVE slot unsupported.
 
@@ -268,7 +274,7 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 | TE40/TE50 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
 | TE40 pre-read failure | no POST; no command-ambiguity block solely from pre-submit failure |
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
-| TE40 LIVE | `WEB_GetCurrentAudioParam` microphone meter from normalized `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`; no speaker LIVE meter or duplicate textual live rows |
+| TE40/TE50 LIVE | `WEB_GetCurrentAudioParam` microphone meter from normalized `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`; no speaker LIVE meter or duplicate textual live rows |
 | TE40 camera | one valid camera entry is sufficient |
 | TE50 inventory | `te` + `50` component evidence -> exact canonical `Huawei TE50`; expected kind `video_codec` is non-authoritative consistency evidence |
 | Bar LIVE | supported under Bar-specific approved parser |

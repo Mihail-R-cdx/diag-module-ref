@@ -190,7 +190,7 @@ Both CloudLink subcontexts belong to one handler generation and assigned credent
 
 ### Requirement: Huawei TE50 is an exact-model reuse of the approved TE40 contract
 
-`Huawei TE50` is an explicitly admitted exact application model in this change. By the product requirement's declared protocol equivalence, it SHALL reuse every approved TE40 protocol, capability, parser/normalization, presentation, call-log, Local Refresh, and currentness/cleanup contract covered by this change, including `WEB_GetCurrentAudioParam`, current-audio JSON-string decoding, `MicValueIndex`/`mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx` aggregation, `0..220 -> 0..100%` microphone LIVE normalization, MIC1 configured gain/mutation, mute, speaker, camera, and lifecycle behavior.
+`Huawei TE50` is an explicitly admitted exact application model in this change. By the product requirement's declared protocol equivalence, it SHALL reuse every approved TE40 protocol, capability, parser/normalization, presentation, call-log, Local Refresh, and currentness/cleanup contract covered by this change, including `WEB_GetCurrentAudioParam`, current-audio JSON-string decoding, explicit `MicValueIndex`/`mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx`/`rcaLInValueIndex`/`rcaRInValueIndex` aggregation, `0..220 -> 0..100%` microphone LIVE normalization, MIC1 configured gain/mutation, mute, speaker, camera, and lifecycle behavior.
 
 This is exact-model registration reuse, not substring/family inference: `Huawei TE50` SHALL remain distinguishable from `Huawei TE40` in model resolution and operation context while reusing its approved implementation boundary. TE40 protocol evidence is hardware-backed; TE50 admission is based on declared product equivalence and requires exact-SHA TE50 hardware acceptance before that equivalence is treated as hardware-proven. `Huawei TE30` and `Huawei TE60` remain out of scope and SHALL NOT be inferred from this requirement.
 
@@ -204,13 +204,13 @@ This is exact-model registration reuse, not substring/family inference: `Huawei 
 
 ### Requirement: TE40 current-audio microphone LIVE aggregates hardware-backed microphone evidence
 
-For exact `Huawei TE40`, both one-shot `WEB_GetCurrentAudioParam` evidence used to seed `monitor_mic_value` and true periodic `get_live_audio_status` evidence SHALL use the same exact-model current-audio microphone extractor. The approved TE40 microphone-level authority is `WEB_GetCurrentAudioParam`; `WEB_GetMonitorAudioParam` SHALL NOT remain a co-authority for either initial seed or true LIVE without separate hardware-backed contract evidence.
+For exact `Huawei TE40`, and exact-model `Huawei TE50` through the declared TE40 reuse contract, both one-shot `WEB_GetCurrentAudioParam` evidence used to seed `monitor_mic_value` and true periodic `get_live_audio_status` evidence SHALL use the same exact-model current-audio microphone extractor. The approved TE40/TE50 microphone-level authority is `WEB_GetCurrentAudioParam`; `WEB_GetMonitorAudioParam` SHALL NOT remain a co-authority for either initial seed or true LIVE without separate hardware-backed contract evidence.
 
-The successful current-audio response has the outer envelope `{ "success": 1, "data": "<JSON string>" }`; when `data` is a JSON string, the exact-model boundary SHALL decode it to an object before extraction. The extractor SHALL collect valid microphone candidates from present compatibility `MicValueIndex`, every present field whose name exactly matches `^mic\d+ValueIndex$`, and every present field whose name exactly matches `^micArray\d+_\d+ValIdx$`. A valid candidate is finite numeric evidence; booleans, null, malformed values, non-numeric strings, lists, and objects SHALL NOT be numeric candidates. The raw microphone level for the single room meter SHALL be `max(all valid microphone candidates)`. This is an application aggregation contract derived from observed TE40 telemetry; it does not assert that Huawei documents those fields as one vendor max-meter.
+The successful current-audio response has the outer envelope `{ "success": 1, "data": "<JSON string>" }`; when `data` is a JSON string, the exact-model boundary SHALL decode it to an object before extraction. The extractor SHALL collect valid microphone candidates from present compatibility `MicValueIndex`, every present field whose name exactly matches `^mic\d+ValueIndex$`, every present field whose name exactly matches `^micArray\d+_\d+ValIdx$`, and exactly the named RCA input fields `rcaLInValueIndex` and `rcaRInValueIndex`. A valid candidate is finite numeric evidence; booleans, null, malformed values, non-numeric strings, lists, objects, `NaN`, and infinities SHALL NOT be numeric candidates. The raw microphone level for the single room meter SHALL be `max(all valid microphone candidates)`. This is an application aggregation contract derived from observed TE40 telemetry; it does not assert that Huawei documents those fields as one vendor max-meter.
 
-If there is no valid candidate, the microphone LIVE sample is unavailable and presentation SHALL render `Нет данных`, not observed zero. A valid candidate of numeric `0` is observed zero/silence. After aggregation, the existing TE40 Huawei monitor-audio normalization SHALL map raw `0..220` to `0..100%` and clamp only the presentation result according to its existing helper. `SpeakerValueIndex` SHALL NOT participate in the microphone aggregate or create a speaker LIVE capability.
+If there is no valid candidate, the microphone LIVE sample is unavailable and presentation SHALL render `Нет данных`, not observed zero. A valid candidate of numeric `0` is observed zero/silence. After aggregation, the existing TE40 Huawei monitor-audio normalization SHALL map raw `0..220` to `0..100%` exactly once and clamp only the presentation result according to its existing helper. `SpeakerValueIndex` SHALL NOT participate in the microphone aggregate or create a speaker LIVE capability. No wildcard `*InValueIndex` admission is authorized: all `trs*`, `hdmi*`, `dvi*`, `dp*`, `pstnInValueIndex`, `sdi*`, unrelated inputs, and `SpeakerValueIndex` remain excluded.
 
-The initial one-shot seed has lower authority than an accepted true LIVE sample, but both use this same extractor/aggregation contract. Exact `Huawei TE20` retains its existing `MicValueIndex`-only contract and SHALL NOT infer `micArray...` support from this TE40 evidence.
+The initial one-shot seed has lower authority than an accepted true LIVE sample, but both use this same extractor/aggregation contract. Exact `Huawei TE20` retains its existing `MicValueIndex`-only contract and SHALL NOT infer `micArray...` or RCA input support from this TE40/TE50 evidence.
 
 #### Scenario: TE40 current-audio authority serves initial seed and true LIVE
 
@@ -278,7 +278,7 @@ The initial one-shot seed has lower authority than an accepted true LIVE sample,
 
 #### Scenario: TE40 unrelated audio inputs are excluded
 
-- **GIVEN** a TE40 current-audio payload has valid `MicValueIndex = 20` and greater numeric `trs*`, `rca*`, `hdmi*`, `dvi*`, `dp*`, `pstn*`, or `sdi*` fields
+- **GIVEN** a TE40 current-audio payload has valid `MicValueIndex = 20` and greater numeric `trs*`, unrelated `rca*`, `hdmi*`, `dvi*`, `dp*`, `pstn*`, or `sdi*` fields
 - **WHEN** exact-model microphone extraction runs
 - **THEN** raw microphone level remains `20`
 
@@ -295,6 +295,44 @@ The initial one-shot seed has lower authority than an accepted true LIVE sample,
 - **WHEN** exact-model microphone extraction runs
 - **THEN** the raw microphone level is observed numeric `0`
 - **AND** the normalized meter is available at `0%`
+
+#### Scenario: TE40 RCA inputs contribute to the microphone aggregate
+
+- **GIVEN** a TE40 current-audio payload has valid `mic1ValueIndex = 37`, `rcaLInValueIndex = 62`, and `rcaRInValueIndex = 0`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `62`
+
+#### Scenario: TE40 silent RCA inputs do not override a microphone candidate
+
+- **GIVEN** a TE40 current-audio payload has valid `mic1ValueIndex = 37`, `rcaLInValueIndex = 0`, and `rcaRInValueIndex = 0`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `37`
+
+#### Scenario: TE40 RCA input supplies microphone evidence when microphone fields are absent
+
+- **GIVEN** a TE40 current-audio payload has no valid compatibility, individual, or array candidate and has valid `rcaLInValueIndex = 42`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `42`
+
+#### Scenario: TE40 RCA numeric zero remains valid microphone evidence
+
+- **GIVEN** a TE40 current-audio payload has no other valid candidate and has valid `rcaLInValueIndex = 0` and `rcaRInValueIndex = 0`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** the raw microphone level is observed numeric `0`
+- **AND** the normalized meter is available at `0%`
+
+#### Scenario: TE40 excluded high inputs do not contaminate the RCA aggregate
+
+- **GIVEN** a TE40 current-audio payload has valid `mic1ValueIndex = 37`, invalid `rcaLInValueIndex` or `rcaRInValueIndex` evidence, and valid `trs*`, `hdmi*`, or `sdi*` input evidence of `220`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** invalid RCA and excluded inputs do not participate
+- **AND** raw microphone level remains `37`
+
+#### Scenario: TE50 reuses the exact TE40 RCA aggregate
+
+- **GIVEN** exact current model is `Huawei TE50` and its current-audio payload has valid `mic1ValueIndex = 37`, `rcaLInValueIndex = 62`, and `rcaRInValueIndex = 0`
+- **WHEN** exact-model microphone extraction runs
+- **THEN** raw microphone level is `62` under the same TE40 aggregation and normalization contract
 
 #### Scenario: TE40 speaker evidence does not affect microphone aggregate
 
@@ -315,7 +353,7 @@ The initial one-shot seed has lower authority than an accepted true LIVE sample,
 - **GIVEN** exact current model is `Huawei TE20`
 - **WHEN** it obtains initial or LIVE microphone evidence
 - **THEN** its existing `MicValueIndex`-only source and extraction contract remains unchanged
-- **AND** TE40 individual/array fields are not promoted into TE20 evidence
+- **AND** TE40 individual/array fields and `rcaLInValueIndex`/`rcaRInValueIndex` are not promoted into TE20 evidence
 
 ### Requirement: TE40 static status publishes canonical room evidence without additional I/O
 

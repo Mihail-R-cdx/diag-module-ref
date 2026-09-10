@@ -239,7 +239,7 @@ The modern room live-meter support matrix is:
 | Exact model | `Микрофон (уровень)` |
 | --- | --- |
 | `Huawei TE20` | SUPPORTED from raw `MicValueIndex` evidence normalized `0..220 -> 0..100%` |
-| `Huawei TE40` | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)` evidence normalized `0..220 -> 0..100%` |
+| `Huawei TE40` | SUPPORTED from `WEB_GetCurrentAudioParam`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)` evidence normalized `0..220 -> 0..100%` |
 | `Huawei TE50` | SUPPORTED by exact-model reuse of the approved TE40 `WEB_GetCurrentAudioParam` contract; pending TE50 hardware acceptance |
 | `CloudLink Bar 310` | SUPPORTED from approved Bar-specific microphone LIVE evidence |
 | `CloudLink Box 310` | **UNSUPPORTED / DEFERRED in this change** |
@@ -249,7 +249,7 @@ For a supported meter, accepted numeric zero is observed silence/zero level and 
 
 Rendering any meter SHALL consume only accepted application-owned live evidence and SHALL NOT itself start a timer, poll, handler/session acquisition, credential operation, or device request.
 
-For Huawei TE20/TE40/TE50, `get_live_audio_status` remains the live authority. TE20 uses raw `MicValueIndex` normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. TE40 and exact-model TE50 use the TE40 `WEB_GetCurrentAudioParam` extractor defined by `device-diagnostics-and-control`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx)`, then the same normalization. Accepted initial `monitor_mic_value` uses that same current-audio extractor/normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
+For Huawei TE20/TE40/TE50, `get_live_audio_status` remains the live authority. TE20 uses raw `MicValueIndex` normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. TE40 and exact-model TE50 use the TE40 `WEB_GetCurrentAudioParam` extractor defined by `device-diagnostics-and-control`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`, then the same normalization. Accepted initial `monitor_mic_value` uses that same current-audio extractor/normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
 
 For exact `Huawei TE40` and `Huawei TE50`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live microphone evidence and microphone mute.
 
@@ -315,6 +315,85 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **WHEN** the Audio card renders
 - **THEN** TE20 reflects normalized `MicValueIndex` evidence and TE40/TE50 reflect the normalized approved TE40 aggregate under their own exact model identities
 - **AND** no user-visible speaker live meter or duplicate textual `Live ...` row is rendered
+
+### Requirement: Room summary card derives busy indication only from typed codec call activity
+
+The room-summary card SHALL permanently include labelled presentation slots for `Название комнаты`, `Адрес комнаты`, `Гарантия`, and `Занятость`, plus VIP. Current canonical `room_name`, `room_address`, and `room_vip` SHALL use the room metadata authority defined by `room-equipment-diagnostics`.
+
+The confirmed temporary product decision for this change is that the permanent warranty row SHALL always render exactly `Гарантия: Нет гарантии`. This is presentation-only placeholder text: it SHALL NOT fabricate or publish canonical warranty evidence, set a session warranty field, change the inventory schema, infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state, or start an external lookup/device or network I/O. Future real warranty integration is tracked as Linear `MIH-28` — `Room diagnostics: заменить заглушку «Нет гарантии» реальными данными` — and requires a separately reviewed authoritative source and canonical semantics before implementation.
+
+The confirmed product meaning of the operator-facing `Занятость` row in this change is **busy by current VKS call**, not physical room occupancy and not booking/calendar occupancy. Occupancy SHALL NOT become an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL consume only current model-neutral `CallActivity` evidence produced under `device-diagnostics-and-control`; the room presentation SHALL NOT parse model-specific or localized call-status strings.
+
+The current product decision defines only a positive busy indication:
+
+```text
+at least one current accepted relevant room codec has CallActivity.ACTIVE
+    -> `Занято`
+
+otherwise
+    -> `Нет данных`
+```
+
+`CallActivity.INACTIVE` is intentionally not presented as `Свободно` in this change because absence of a codec call does not establish physical room availability. `CallActivity.UNKNOWN`, missing/stale/failed call evidence, or a room with no current active call likewise renders `Нет данных`.
+
+A relevant call-capable codec row is defined exclusively by capability authority: its exact unified application model registration declares the required available call-activity normalization/projection binding defined by `device-diagnostics-and-control`. Runtime presence or absence of a `CallActivity` field or call-status payload SHALL NOT decide applicability. A registry-relevant row whose current evidence is missing, stale, failed, contradictory, or unrecognized remains relevant and contributes `CallActivity.UNKNOWN`; it SHALL NOT silently disappear from aggregation. Presentation SHALL NOT keep a second occupancy-supported model list.
+
+The occupancy projection SHALL update only when the existing application-owned room diagnostic or post-cycle codec lifecycle accepts new current typed call-activity evidence/currentness. Rendering occupancy SHALL NOT start a new timer, poll, handler/session acquisition, worker, credential attempt, or device network request.
+
+Hovering the `Занятость` row/value SHALL show a local tooltip or equivalent non-modal explanatory popup whose meaning is equivalent to: `Занятость определяется по текущему состоянию звонка кодека.` The tooltip SHALL perform no device I/O and SHALL NOT imply that occupancy comes from a room-booking/calendar system.
+
+VIP true SHALL have a clear badge/indicator in addition to textual/accessibility meaning. VIP false/null SHALL not be rendered as VIP true.
+
+At baseline size the room identity/name is the strongest text inside the card; address/warranty/occupancy are secondary rows. A room-card refresh icon MAY be present to match the visual hierarchy, but if actionable it SHALL be only an alias of the existing top full Refresh intent.
+
+#### Scenario: Typed active codec call marks the room busy
+
+- **GIVEN** a registry-relevant current room codec row has non-stale accepted `CallActivity.ACTIVE`
+- **WHEN** the room summary is rendered or that accepted typed activity changes
+- **THEN** occupancy is displayed as `Занято`
+- **AND** no additional occupancy-specific network request is started
+
+#### Scenario: Typed inactive evidence does not claim physical availability
+
+- **GIVEN** every registry-relevant current room codec has current accepted `CallActivity.INACTIVE`
+- **WHEN** the room summary is rendered
+- **THEN** occupancy is displayed as `Нет данных`
+- **AND** the GUI does not claim `Свободно`
+
+#### Scenario: Registry-relevant codec remains relevant without usable evidence
+
+- **GIVEN** a room codec exact registration declares the required call-activity binding
+- **AND** its current call evidence is missing, stale, failed, contradictory, or unrecognized
+- **WHEN** occupancy is aggregated
+- **THEN** that codec remains a relevant row
+- **AND** its contribution is `CallActivity.UNKNOWN`
+- **AND** runtime field absence does not remove it from applicability
+
+#### Scenario: Occupancy evidence is incomplete
+
+- **GIVEN** no registry-relevant current room codec has `CallActivity.ACTIVE`
+- **AND** call activity is `UNKNOWN`, missing, stale, failed, or otherwise unusable for one or more registry-relevant rows
+- **WHEN** the room summary is rendered
+- **THEN** occupancy is displayed as `Нет данных`
+- **AND** the GUI does not guess that the room is free
+
+#### Scenario: Occupancy explanation is available on hover
+
+- **WHEN** the operator hovers the occupancy row or value
+- **THEN** a local explanatory tooltip/popup states that occupancy is derived from the current codec call state
+- **AND** opening the explanation performs no device I/O
+
+#### Scenario: Warranty placeholder is always visible and fixed
+
+- **WHEN** the room summary renders with any room evidence state
+- **THEN** its warranty row renders exactly `Гарантия: Нет гарантии`
+- **AND** it never renders `Нет данных`, `—`, or `Unknown`
+
+#### Scenario: Warranty placeholder does not create authority or I/O
+
+- **WHEN** the room summary renders or refreshes the warranty placeholder
+- **THEN** no canonical warranty field, session warranty field, inventory-schema change, inference, lookup, device request, or network I/O is created
+- **AND** room name, address, VIP, and occupancy retain their existing independent authority and behavior
 
 #### Scenario: TE40 static microphone gain is distinct from live level
 
