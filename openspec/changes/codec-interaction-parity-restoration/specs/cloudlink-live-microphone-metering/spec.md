@@ -148,23 +148,23 @@ The GUI SHALL NOT display a fabricated dB, dBFS, percentage text, or physical-un
 
 The application/composition layer SHALL own the live microphone-meter context only for a current exact `CloudLink Bar 310` context. Network I/O SHALL execute outside the Qt GUI thread.
 
-One active Bar meter context SHALL be bound to immutable authority including exact model, exact IP address, meter generation or operation identity, and relevant credential-context identity. It SHALL use at most one sample operation in flight at a time and SHALL target a cadence of one completed sample cycle per second. A new cycle SHALL NOT overlap an unfinished prior sample request merely to maintain wall-clock cadence.
+One active Bar meter context SHALL be bound to immutable authority including exact model, exact IP address, meter generation or operation identity, and relevant credential-context identity. It SHALL use at most one sample operation in flight at a time and SHALL target a cadence of one completed sample cycle every `700 ms`. A new cycle SHALL NOT overlap an unfinished prior sample request merely to maintain wall-clock cadence. The historical one-second requirement name does not authorize a `1000 ms` target; this replacement follows the shared supported-codec microphone LIVE cadence.
 
 The current Bar meter SHALL be invalidated when the model changes, IP changes, current codec diagnostic/page context is superseded or deactivated, relevant credential context changes, repeat diagnostic refresh replaces the context, or application shutdown begins.
 
 Queued stale work SHALL be dropped before handler acquisition and before first network I/O where separable. Currentness SHALL be checked before every new sample request and before publication. Stale result, error, completion, credential metadata, or profile metadata SHALL NOT update the current UI or credential/profile memory. Background freshness SHALL NOT depend on reading Qt widgets.
 
-For exact `CloudLink Box 310`, this change SHALL create no meter polling context, schedule no one-second live cycle, acquire no handler/session for meter work, and send no `WEB_GetCurrentAudioParam` request as post-cycle LIVE.
+For exact `CloudLink Box 310`, this change SHALL create no meter polling context, schedule no microphone LIVE cycle, acquire no handler/session for meter work, and send no `WEB_GetCurrentAudioParam` request as post-cycle LIVE.
 
 #### Scenario: Meter cycle takes less than one second
 
-- **WHEN** a current Bar sample completes before the next one-second cadence point
+- **WHEN** a current Bar sample completes before the next `700 ms` cadence point
 - **THEN** the next sample is scheduled no faster than the approved cadence
 - **AND** no second sample overlaps the first
 
 #### Scenario: Meter cycle takes longer than one second
 
-- **WHEN** one Bar sample operation is still running after the nominal next cadence point
+- **WHEN** one Bar sample operation is still running after the nominal `700 ms` next cadence point
 - **THEN** another sample is not started concurrently
 - **AND** the next cycle begins only after the previous operation reaches an allowed completion boundary and currentness is rechecked
 
@@ -185,7 +185,7 @@ For exact `CloudLink Box 310`, this change SHALL create no meter polling context
 - **GIVEN** exact current model is `CloudLink Box 310`
 - **WHEN** post-cycle room interaction becomes active
 - **THEN** no CloudLink microphone-meter polling context is created for Box
-- **AND** no one-second Box meter timer/cycle is scheduled
+- **AND** no Box microphone LIVE meter timer/cycle is scheduled
 - **AND** no `WEB_GetCurrentAudioParam` request is sent by LIVE
 
 ### Requirement: Live meter failure is isolated from ordinary codec status
@@ -194,7 +194,7 @@ Supported Bar 310 live microphone sampling SHALL remain separate from ordinary C
 
 An endpoint-local unsuccessful Bar sample, malformed sample payload, or sample-specific command/protocol outcome on an otherwise usable established session SHALL mark only that Bar meter cycle unavailable. It SHALL preserve already accepted ordinary codec data and SHALL allow the next scheduled Bar sample cycle to attempt the read again.
 
-Structured authentication rejection, established-session invalidation, and transport/session failures SHALL preserve their typed categories and existing bounded read-only recovery rules. The Bar meter SHALL NOT create an unbounded one-second reconnect/login loop. If approved bounded recovery cannot restore the Bar meter session, the meter SHALL remain unavailable until a new authoritative Bar diagnostic context starts.
+Structured authentication rejection, established-session invalidation, and transport/session failures SHALL preserve their typed categories and existing bounded read-only recovery rules. The Bar meter SHALL NOT create an unbounded `700 ms` reconnect/login loop. If approved bounded recovery cannot restore the Bar meter session, the meter SHALL remain unavailable until a new authoritative Bar diagnostic context starts.
 
 Because Box 310 has no live meter lifecycle in this change, ordinary Box diagnostic failure/success SHALL NOT be reclassified through this meter-failure contract and no optional Box meter failure state is produced.
 

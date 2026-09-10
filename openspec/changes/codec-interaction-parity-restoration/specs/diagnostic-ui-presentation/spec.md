@@ -26,7 +26,7 @@ page/application heading          18-22 pt
 
 The primary toolbar SHALL expose the single target-search field, top Refresh, application actions, and the session theme control. At baseline width, the target-search area including its selected-room cue SHALL consume approximately 45-60% of the usable toolbar width; top actions SHALL remain compact and SHALL NOT visually dominate the search field.
 
-Room mode SHALL place the headed room-summary card and the outer network peer tile above the equipment accordion. At baseline width the two outer tiles SHALL have aligned tops and approximately peer weight with a width ratio between `0.9:1` and `1.1:1`; neither tile SHALL collapse into a narrow sidebar while the other occupies the full row. The accepted upper-tile block SHALL be about `186` logical pixels high (a tuning range of `178-194` is permitted). The left room-summary block SHALL retain visible heading `Информация о комнате`. The right network tile SHALL have no separate visible heading, icon, dynamic switch-count title, header spacing, or SectionCard header; its network table/tree is its sole visible content.
+Room mode SHALL place the outer room-summary peer tile and the outer network peer tile above the equipment accordion. At baseline width the two outer tiles SHALL have aligned tops and approximately peer weight with a width ratio between `0.9:1` and `1.1:1`; neither tile SHALL collapse into a narrow sidebar while the other occupies the full row. The accepted upper-tile block SHALL be about `186` logical pixels high (a tuning range of `178-194` is permitted). The left room-summary tile SHALL have no separate visible heading `Информация о комнате`, section icon, SectionCard header, header spacer, or header chrome; its room-information body is its sole visible content. The right network tile SHALL have no separate visible heading, icon, dynamic switch-count title, header spacing, or SectionCard header; its network table/tree is its sole visible content.
 
 The foundation contract itself does not define final family-specific visual geometry for Audio DSP, Matrix/IN1804, codec, or PDU expanded content; such geometry is owned only by dedicated reviewed follow-up OpenSpec changes. MIH-10 and MIH-11 are those approved follow-ups for Audio DSP and Matrix/IN1804 respectively; codec and PDU redesign remain deferred. The common shell redesign SHALL NOT make Qt widget state authoritative for target identity, credentials, request generation, handler/session ownership, or device I/O.
 
@@ -35,7 +35,7 @@ The accepted shell uses a transparent/common diagnostic-tree background with car
 #### Scenario: Room shell is rendered at baseline size
 
 - **WHEN** room mode has an authoritative current room at the baseline viewport
-- **THEN** the headed room-summary tile and headerless network table-only tile appear side by side above the compact equipment accordion with peer visual weight
+- **THEN** the headerless room-summary tile and headerless network table-only tile appear side by side above the compact equipment accordion with peer visual weight
 - **AND** the accepted common spacing/typography/icon scale and taller upper-tile geometry are applied
 - **AND** device/network authority remains outside the presentation widgets
 
@@ -101,10 +101,11 @@ The confirmed product decision that room switches with zero attached canonical e
 - **THEN** the table/tree fills its available outer-tile area
 - **AND** no header spacer or ordinary SectionCard inner padding reduces that area
 
-#### Scenario: Room information title remains visible
+#### Scenario: Room summary has no separate title chrome
 
 - **WHEN** the upper peer tiles render
-- **THEN** the left room-summary block retains visible heading `Информация о комнате`
+- **THEN** the left room-summary tile renders no visible `Информация о комнате` text, section icon, SectionCard header, header spacer, or header chrome
+- **AND** its room-information body remains visible without becoming full-bleed against the preserved outer tile border
 - **AND** the right network tile does not add a separate heading
 
 #### Scenario: Network data and disclosure semantics remain unchanged
@@ -320,6 +321,8 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 
 The room-summary card SHALL permanently include labelled presentation slots for `Название комнаты`, `Адрес комнаты`, `Гарантия`, and `Занятость`, plus VIP. Current canonical `room_name`, `room_address`, and `room_vip` SHALL use the room metadata authority defined by `room-equipment-diagnostics`.
 
+The outer room-summary peer tile SHALL retain its container but render no separate `Информация о комнате` title, section icon, SectionCard header, header spacer, or header chrome. Its first visible content row SHALL be `Название комнаты`; `Адрес комнаты`, `Гарантия`, and `Занятость` SHALL follow in that order. VIP remains associated with the room-name presentation. The body MAY retain ordinary non-zero content padding and SHALL NOT be made full-bleed against the outer tile border merely because the header is absent.
+
 The confirmed temporary product decision for this change is that the permanent warranty row SHALL always render exactly `Гарантия: Нет гарантии`. This is presentation-only placeholder text: it SHALL NOT fabricate or publish canonical warranty evidence, set a session warranty field, change the inventory schema, infer warranty from unrelated inventory columns, timestamps, device data, room text, or local UI state, or start an external lookup/device or network I/O. Future real warranty integration is tracked as Linear `MIH-28` — `Room diagnostics: заменить заглушку «Нет гарантии» реальными данными` — and requires a separately reviewed authoritative source and canonical semantics before implementation.
 
 The confirmed product meaning of the operator-facing `Занятость` row in this change is **busy by current VKS call**, not physical room occupancy and not booking/calendar occupancy. Occupancy SHALL NOT become an inventory field and SHALL NOT introduce a booking/calendar source in this change. It SHALL consume only current model-neutral `CallActivity` evidence produced under `device-diagnostics-and-control`; the room presentation SHALL NOT parse model-specific or localized call-status strings.
@@ -516,3 +519,24 @@ Box 310 remains call-log-capable in this change. Its automatic preview SHALL sti
 - **WHEN** the operator activates `Развернуть`
 - **THEN** the detailed view starts the separate fresh explicit acquisition defined by the lifecycle/call-log specs
 - **AND** preview data is not promoted to authoritative detailed/statistics state
+
+### Requirement: Supported codec microphone LIVE meters use a 700 ms serialized scheduling target
+
+For the currently supported room microphone LIVE meters only — exact `Huawei TE20`, `Huawei TE40`, `Huawei TE50`, and `CloudLink Bar 310` — application/composition scheduling SHALL target `700 ms` between completed sample cycles. This is a nominal scheduling target, not a paint-rate guarantee: rendering remains a consumer of accepted evidence and SHALL create zero new meter I/O.
+
+Each exact-model LIVE owner SHALL preserve immutable current row/generation/credential authority and SHALL permit at most one sample operation in flight. A cycle that remains in flight at its nominal next point SHALL not be overlapped; the next cycle may start only after its allowed completion boundary and a fresh currentness check. Late, stale, cancelled, superseded, or retired work SHALL remain powerless under the existing lifecycle.
+
+This requirement changes neither vendor protocol command/request semantics nor the support matrix. Exact `CloudLink Box 310` remains `UNSUPPORTED / DEFERRED` with no meter timer/context/request; `Polycom RPG 310` remains unsupported. It SHALL NOT change Matrix, DMP, PDU, general refresh, call-log, authentication, or unrelated timer scheduling.
+
+#### Scenario: Supported codec LIVE schedules after a short completed sample
+
+- **GIVEN** an exact supported codec microphone LIVE sample completes while its row remains current
+- **WHEN** the owner schedules the next sample
+- **THEN** it targets `700 ms` after the completed cycle
+- **AND** no second sample overlaps the completed or still-in-flight cycle
+
+#### Scenario: Unsupported or unrelated timer remains outside codec LIVE cadence
+
+- **WHEN** exact `CloudLink Box 310`, `Polycom RPG 310`, Matrix, DMP, PDU, general refresh, call-log, authentication, or another unrelated timer is active
+- **THEN** this requirement starts no new microphone LIVE context for unsupported codecs
+- **AND** it changes no unrelated timer cadence or network behavior

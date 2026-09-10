@@ -75,11 +75,19 @@ For the detailed journal, `UNKNOWN` renders an empty direction cell rather than 
 
 The GUI SHALL not infer an unknown direction from model, localized strings, peer number, call result, position, icon color, or other presentation heuristics. It must neither reclassify `UNKNOWN` to incoming/outgoing nor mutate the normalized typed state.
 
-## 1C. Table-only network peer-tile presentation boundary
+## 1C. Headerless upper peer-tile presentation boundary
 
-The existing outer peer tile beside the headed `Информация о комнате` block remains. Its content changes only at the presentation boundary: the right tile contains the existing canonical network summary table/tree and nothing else. It has no SectionCard header, network icon, `Сетевые подключения` text, dynamic switch-count title, header spacer, or ordinary inner padding/margins that consume table area. The table/tree fills the available right-tile area and retains headers `Коммутатор (IP)`, `Порты`, and `Подключено устройств`.
+The existing outer upper peer tiles remain. The left room-summary tile contains only its room-information body: no visible `Информация о комнате` title, section icon, SectionCard header, header spacer, or header chrome. Its first visible content row is `Название комнаты`, followed by `Адрес комнаты`, `Гарантия`, and `Занятость`; VIP remains associated with the name. Removing the header does not make the room body full-bleed against the outer border, so ordinary non-zero body padding remains permitted.
+
+The right tile contains the existing canonical network summary table/tree and nothing else. It has no SectionCard header, network icon, `Сетевые подключения` text, dynamic switch-count title, header spacer, or ordinary inner padding/margins that consume table area. The table/tree fills the available right-tile area and retains headers `Коммутатор (IP)`, `Порты`, and `Подключено устройств`.
 
 No topology, authority, lifecycle, or I/O contract changes. `switch_ip_address`, `switch_port`, deterministic grouping/ordering/counts, disclosure parents and children, same-context disclosure restoration, unknown-switch and empty-state behavior remain canonical presentation evidence under their current contracts. Rendering, reflow, repaint, and disclosure restoration start zero new device/network I/O.
+
+## 1E. Supported codec microphone LIVE cadence
+
+The current supported room microphone LIVE set is exactly Huawei TE20, TE40, TE50, and CloudLink Bar 310. Each owner schedules a new sample cycle at a nominal `700 ms` target after the prior completed cycle. The interval is not a repaint guarantee and cannot cause overlapping work: one sample remains in flight at most, and a delayed operation finishes/reaches its permitted boundary before currentness is rechecked for a new request.
+
+This is a scheduling-only contract. It retains each exact model's approved parser, normalization, authentication/session, currentness, and protocol command boundaries. Box 310 remains explicitly deferred with no meter context/request; Polycom remains unsupported. Matrix, DMP, PDU, general refresh, call-log, authentication, and other timers retain their existing cadence and behavior.
 
 ## 1D. RCA microphone aggregate and room presentation placeholders
 

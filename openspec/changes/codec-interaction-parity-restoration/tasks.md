@@ -171,7 +171,7 @@ Implementation:
 - [x] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
 - [x] 9.38 Add focused UI regressions for title/icon removal, full-area table geometry, preserved column headers, room-information heading, disclosure restoration, and zero-I/O rendering.
 
-## 9G. RCA microphone aggregate and room-presentation amendment (pending independent architecture review)
+## 9G. RCA microphone aggregate and room-presentation amendment
 
 Architecture:
 
@@ -192,6 +192,27 @@ Regression:
 - [x] 9.49 Add focused room-summary regressions for always-visible exact `Гарантия: Нет гарантии`, no unavailable fallback, no warranty authority/I/O, and independent room-name/address/VIP/occupancy behavior.
 
 - [x] 9.50 Independent architecture review of exact SHA `56425b0f7e48b50cd975fd5752f72b7bd39cfd66`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`), implementation may proceed. The sole LOW is non-blocking stale bookkeeping text in the already completed 9F heading; that heading is synchronized here.
+
+## 9H. Headerless room summary and codec microphone LIVE cadence amendment (pending independent architecture review)
+
+Architecture:
+
+- [x] 9.51 Add archive-compatible root presentation replacements: preserve both outer upper peer tiles and all room/network authority while removing left room-summary title/icon/header chrome, retaining ordered padded room body, and preserving the table-only right network tile.
+- [x] 9.52 Define the shared nominal `700 ms` completed-cycle scheduling target for supported Huawei TE20/TE40/TE50 and CloudLink Bar 310 microphone LIVE, preserving single-flight/currentness and unsupported/unrelated-timer boundaries.
+
+Implementation:
+
+- [ ] 9.53 Remove local room-card header/title/icon chrome while preserving the outer peer container, padded body, room-row order, VIP association, and zero-I/O rendering.
+- [ ] 9.54 Change the Huawei TE20/TE40/TE50 room LIVE scheduling target to `700 ms` without changing live protocol commands, aggregation, normalization, ownership, or overlap handling.
+- [ ] 9.55 Change the CloudLink Bar 310 meter scheduling target to `700 ms` without changing its parser/session/authentication contract or overlap handling.
+
+Regression:
+
+- [ ] 9.56 Add focused room-summary UI regressions for absent title/icon/header chrome, first room-name row, preserved body padding, room data/VIP/occupancy/warranty semantics, and zero new I/O.
+- [ ] 9.57 Add focused Huawei TE20/TE40/TE50 LIVE scheduling regressions for `700 ms`, one in-flight sample, currentness/stale behavior, and unchanged approved microphone evidence handling.
+- [ ] 9.58 Add focused CloudLink Bar 310 regressions for `700 ms`, no overlapping samples, and preserved parser/session/currentness behavior; prove Box 310 and Polycom remain without LIVE.
+- [ ] 9.59 Add focused regression proving Matrix, DMP, PDU, general-refresh, call-log, authentication, and unrelated timers retain their existing cadence/behavior.
+- [ ] 9.60 Obtain independent architecture review before implementation; do not mark hardware acceptance, independent final validation, archive, or merge complete.
 
 ## 10. Exact-SHA hardware acceptance
 
