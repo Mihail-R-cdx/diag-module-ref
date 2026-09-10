@@ -520,23 +520,55 @@ Box 310 remains call-log-capable in this change. Its automatic preview SHALL sti
 - **THEN** the detailed view starts the separate fresh explicit acquisition defined by the lifecycle/call-log specs
 - **AND** preview data is not promoted to authoritative detailed/statistics state
 
-### Requirement: Supported codec microphone LIVE meters use a 700 ms serialized scheduling target
+### Requirement: Supported codec microphone LIVE meters use nominal 700 ms cadence with model-owned scheduling
 
-For the currently supported room microphone LIVE meters only — exact `Huawei TE20`, `Huawei TE40`, `Huawei TE50`, and `CloudLink Bar 310` — application/composition scheduling SHALL target `700 ms` between completed sample cycles. This is a nominal scheduling target, not a paint-rate guarantee: rendering remains a consumer of accepted evidence and SHALL create zero new meter I/O.
+For the currently supported room microphone LIVE meters only — exact `Huawei TE20`, `Huawei TE40`, `Huawei TE50`, and `CloudLink Bar 310` — application/composition SHALL use a nominal `700 ms` update cadence. This is a product-level cadence, not a shared internal scheduler algorithm or a paint-rate guarantee: rendering remains a consumer of accepted evidence and SHALL create zero new meter I/O.
 
-Each exact-model LIVE owner SHALL preserve immutable current row/generation/credential authority and SHALL permit at most one sample operation in flight. A cycle that remains in flight at its nominal next point SHALL not be overlapped; the next cycle may start only after its allowed completion boundary and a fresh currentness check. Late, stale, cancelled, superseded, or retired work SHALL remain powerless under the existing lifecycle.
+For exact Huawei TE20/TE40/TE50, the existing periodic room-LIVE timer remains authoritative. Its interval SHALL be `700 ms`; it SHALL remain periodic and SHALL preserve one current sample operation at most. If it expires while a prior sample is in flight, it SHALL submit no duplicate request. If a sample completes before the next periodic tick, the next eligible request occurs at that tick, not `700 ms` after completion. Huawei SHALL NOT be converted to completion-triggered or single-shot scheduling.
+
+For exact CloudLink Bar 310, the existing serialized single-shot owner remains authoritative. After one permitted sample cycle completes, its next single-shot sample delay SHALL be `700 ms`. Its `_in_flight` protection SHALL permit at most one request in flight, and Bar SHALL NOT be converted to Huawei-style periodic scheduling.
+
+Each owner SHALL preserve immutable current row/generation/credential authority. Late, stale, cancelled, superseded, or retired work SHALL remain powerless under the existing lifecycle. This cadence change SHALL not alter vendor protocol command/request semantics, parser/aggregation/normalization, Bar authentication/session or terminal failure behavior, or Huawei parser/aggregation/normalization behavior.
 
 This requirement changes neither vendor protocol command/request semantics nor the support matrix. Exact `CloudLink Box 310` remains `UNSUPPORTED / DEFERRED` with no meter timer/context/request; `Polycom RPG 310` remains unsupported. It SHALL NOT change Matrix, DMP, PDU, general refresh, call-log, authentication, or unrelated timer scheduling.
 
-#### Scenario: Supported codec LIVE schedules after a short completed sample
+#### Scenario: Huawei periodic LIVE timer uses the 700 ms interval
 
-- **GIVEN** an exact supported codec microphone LIVE sample completes while its row remains current
-- **WHEN** the owner schedules the next sample
-- **THEN** it targets `700 ms` after the completed cycle
-- **AND** no second sample overlaps the completed or still-in-flight cycle
+- **GIVEN** a current exact `Huawei TE20`, `Huawei TE40`, or `Huawei TE50` room LIVE owner
+- **WHEN** its room LIVE timer is configured
+- **THEN** its interval is `700 ms`
+- **AND** the timer remains periodic
 
-#### Scenario: Unsupported or unrelated timer remains outside codec LIVE cadence
+#### Scenario: Huawei periodic LIVE skips an in-flight tick
 
-- **WHEN** exact `CloudLink Box 310`, `Polycom RPG 310`, Matrix, DMP, PDU, general refresh, call-log, authentication, or another unrelated timer is active
+- **GIVEN** a current exact Huawei room LIVE timer fires
+- **AND** the prior Huawei microphone sample is still in flight
+- **WHEN** the tick is processed
+- **THEN** no second request is submitted
+
+#### Scenario: Huawei fast completion waits for the next periodic tick
+
+- **GIVEN** a current Huawei microphone sample finishes before the next periodic timer tick
+- **WHEN** the owner remains current and eligible
+- **THEN** the next eligible request occurs at the next `700 ms` timer tick
+- **AND** it is not scheduled `700 ms` after completion
+
+#### Scenario: Bar retains completion-triggered single-shot scheduling
+
+- **GIVEN** one permitted current `CloudLink Bar 310` microphone sample cycle completes
+- **WHEN** the Bar owner schedules its next sample
+- **THEN** one single-shot sample is scheduled after `700 ms`
+- **AND** Bar is not converted to a periodic Huawei-style timer
+
+#### Scenario: Bar never overlaps microphone samples
+
+- **GIVEN** a current Bar microphone sample is in flight
+- **WHEN** its single-shot owner is considered for another submission
+- **THEN** at most one Bar sample remains in flight
+- **AND** no overlapping request is submitted
+
+#### Scenario: Unsupported and unrelated timers remain outside codec LIVE cadence
+
+- **WHEN** exact `CloudLink Box 310`, `Polycom RPG 310`, Matrix, DMP, PDU, general refresh, call-log, authentication, cleanup, application-time-update, or another unrelated timer is active
 - **THEN** this requirement starts no new microphone LIVE context for unsupported codecs
 - **AND** it changes no unrelated timer cadence or network behavior

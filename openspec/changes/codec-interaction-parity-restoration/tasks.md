@@ -193,12 +193,12 @@ Regression:
 
 - [x] 9.50 Independent architecture review of exact SHA `56425b0f7e48b50cd975fd5752f72b7bd39cfd66`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`), implementation may proceed. The sole LOW is non-blocking stale bookkeeping text in the already completed 9F heading; that heading is synchronized here.
 
-## 9H. Headerless room summary and codec microphone LIVE cadence amendment (pending independent architecture review)
+## 9H. Headerless room summary and codec microphone LIVE cadence amendment (scheduler remediation pending independent architecture review)
 
 Architecture:
 
 - [x] 9.51 Add archive-compatible root presentation replacements: preserve both outer upper peer tiles and all room/network authority while removing left room-summary title/icon/header chrome, retaining ordered padded room body, and preserving the table-only right network tile.
-- [x] 9.52 Define the shared nominal `700 ms` completed-cycle scheduling target for supported Huawei TE20/TE40/TE50 and CloudLink Bar 310 microphone LIVE, preserving single-flight/currentness and unsupported/unrelated-timer boundaries.
+- [x] 9.52 Define the nominal `700 ms` product cadence for supported Huawei TE20/TE40/TE50 and CloudLink Bar 310 microphone LIVE, preserving model-owned scheduling architecture, currentness, unsupported, and unrelated-timer boundaries.
 
 Implementation:
 
@@ -212,7 +212,10 @@ Regression:
 - [ ] 9.57 Add focused Huawei TE20/TE40/TE50 LIVE scheduling regressions for `700 ms`, one in-flight sample, currentness/stale behavior, and unchanged approved microphone evidence handling.
 - [ ] 9.58 Add focused CloudLink Bar 310 regressions for `700 ms`, no overlapping samples, and preserved parser/session/currentness behavior; prove Box 310 and Polycom remain without LIVE.
 - [ ] 9.59 Add focused regression proving Matrix, DMP, PDU, general-refresh, call-log, authentication, and unrelated timers retain their existing cadence/behavior.
-- [ ] 9.60 Obtain independent architecture review before implementation; do not mark hardware acceptance, independent final validation, archive, or merge complete.
+- [x] 9.60 Record independent architecture review of SHA `9c1ff437f5b2b937e8b9b0f470d5cbfcb5c2ff4d`: `CHANGES REQUIRED` (`CRITICAL 0 / HIGH 0 / MEDIUM 1 / LOW 1`); implementation may not proceed.
+- [x] 9.61 Remediate the MEDIUM finding by preserving Huawei periodic `700 ms` timer + in-flight tick skip and Bar single-shot `700 ms` post-completion delay as distinct scheduler ownership contracts.
+- [x] 9.62 Remediate the LOW finding by archive-compatibly replacing the stale CloudLink one-second requirement and scenario names with `700 ms` names; do not retain historical-name explanatory text in the current normative artifact.
+- [ ] 9.63 Obtain independent architecture review of this scheduler remediation before implementation; do not mark hardware acceptance, independent final validation, archive, or merge complete.
 
 ## 10. Exact-SHA hardware acceptance
 

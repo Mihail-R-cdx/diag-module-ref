@@ -1,3 +1,53 @@
+## REMOVED Requirements
+
+### Requirement: CloudLink microphone metering uses one-second serialized background polling
+
+## ADDED Requirements
+
+### Requirement: CloudLink microphone metering uses 700 ms serialized background polling
+
+The application/composition layer SHALL own the live microphone-meter context only for a current exact `CloudLink Bar 310` context. Network I/O SHALL execute outside the Qt GUI thread.
+
+One active Bar meter context SHALL be bound to immutable authority including exact model, exact IP address, meter generation or operation identity, and relevant credential-context identity. It SHALL use at most one sample operation in flight at a time. After one permitted Bar sample cycle completes, its existing single-shot owner SHALL schedule the next sample after `700 ms`; it SHALL not convert to a Huawei-style periodic timer.
+
+The current Bar meter SHALL be invalidated when the model changes, IP changes, current codec diagnostic/page context is superseded or deactivated, relevant credential context changes, repeat diagnostic refresh replaces the context, or application shutdown begins.
+
+Queued stale work SHALL be dropped before handler acquisition and before first network I/O where separable. Currentness SHALL be checked before every new sample request and before publication. Stale result, error, completion, credential metadata, or profile metadata SHALL NOT update the current UI or credential/profile memory. Background freshness SHALL NOT depend on reading Qt widgets.
+
+For exact `CloudLink Box 310`, this change SHALL create no meter polling context, schedule no microphone LIVE cycle, acquire no handler/session for meter work, and send no `WEB_GetCurrentAudioParam` request as post-cycle LIVE.
+
+#### Scenario: Meter cycle completes before the next 700 ms sample delay
+
+- **WHEN** a current Bar sample completes
+- **THEN** the next single-shot Bar sample is scheduled after `700 ms`
+- **AND** no second sample overlaps the completed or still-in-flight cycle
+
+#### Scenario: Meter cycle remains in flight across the next nominal cadence boundary
+
+- **WHEN** one Bar sample operation is still running when another submission would otherwise be considered
+- **THEN** another sample is not started concurrently
+- **AND** the next cycle begins only after the previous operation reaches an allowed completion boundary and currentness is rechecked
+
+#### Scenario: Codec IP changes before queued work starts
+
+- **WHEN** an old Bar meter operation is queued and the authoritative codec IP changes before handler acquisition
+- **THEN** the old operation is dropped
+- **AND** it acquires no handler and performs zero meter network I/O
+
+#### Scenario: Stale sample returns after replacement
+
+- **WHEN** an old Bar-context sample returns after a newer model/IP/generation is authoritative
+- **THEN** the stale sample does not update the meter
+- **AND** it does not modify credential index or connection-profile memory
+
+#### Scenario: Box 310 has no polling context
+
+- **GIVEN** exact current model is `CloudLink Box 310`
+- **WHEN** post-cycle room interaction becomes active
+- **THEN** no CloudLink microphone-meter polling context is created for Box
+- **AND** no Box microphone LIVE meter timer/cycle is scheduled
+- **AND** no `WEB_GetCurrentAudioParam` request is sent by LIVE
+
 ## MODIFIED Requirements
 
 ### Requirement: CloudLink live microphone metering has a closed model and protocol contract
@@ -143,50 +193,6 @@ The GUI SHALL NOT display a fabricated dB, dBFS, percentage text, or physical-un
 - **WHEN** supported Bar raw level is greater than `20`
 - **THEN** the raw observation remains valid
 - **AND** the display fraction is clipped to 100%
-
-### Requirement: CloudLink microphone metering uses one-second serialized background polling
-
-The application/composition layer SHALL own the live microphone-meter context only for a current exact `CloudLink Bar 310` context. Network I/O SHALL execute outside the Qt GUI thread.
-
-One active Bar meter context SHALL be bound to immutable authority including exact model, exact IP address, meter generation or operation identity, and relevant credential-context identity. It SHALL use at most one sample operation in flight at a time and SHALL target a cadence of one completed sample cycle every `700 ms`. A new cycle SHALL NOT overlap an unfinished prior sample request merely to maintain wall-clock cadence. The historical one-second requirement name does not authorize a `1000 ms` target; this replacement follows the shared supported-codec microphone LIVE cadence.
-
-The current Bar meter SHALL be invalidated when the model changes, IP changes, current codec diagnostic/page context is superseded or deactivated, relevant credential context changes, repeat diagnostic refresh replaces the context, or application shutdown begins.
-
-Queued stale work SHALL be dropped before handler acquisition and before first network I/O where separable. Currentness SHALL be checked before every new sample request and before publication. Stale result, error, completion, credential metadata, or profile metadata SHALL NOT update the current UI or credential/profile memory. Background freshness SHALL NOT depend on reading Qt widgets.
-
-For exact `CloudLink Box 310`, this change SHALL create no meter polling context, schedule no microphone LIVE cycle, acquire no handler/session for meter work, and send no `WEB_GetCurrentAudioParam` request as post-cycle LIVE.
-
-#### Scenario: Meter cycle takes less than one second
-
-- **WHEN** a current Bar sample completes before the next `700 ms` cadence point
-- **THEN** the next sample is scheduled no faster than the approved cadence
-- **AND** no second sample overlaps the first
-
-#### Scenario: Meter cycle takes longer than one second
-
-- **WHEN** one Bar sample operation is still running after the nominal `700 ms` next cadence point
-- **THEN** another sample is not started concurrently
-- **AND** the next cycle begins only after the previous operation reaches an allowed completion boundary and currentness is rechecked
-
-#### Scenario: Codec IP changes before queued work starts
-
-- **WHEN** an old Bar meter operation is queued and the authoritative codec IP changes before handler acquisition
-- **THEN** the old operation is dropped
-- **AND** it acquires no handler and performs zero meter network I/O
-
-#### Scenario: Stale sample returns after replacement
-
-- **WHEN** an old Bar-context sample returns after a newer model/IP/generation is authoritative
-- **THEN** the stale sample does not update the meter
-- **AND** it does not modify credential index or connection-profile memory
-
-#### Scenario: Box 310 has no polling context
-
-- **GIVEN** exact current model is `CloudLink Box 310`
-- **WHEN** post-cycle room interaction becomes active
-- **THEN** no CloudLink microphone-meter polling context is created for Box
-- **AND** no Box microphone LIVE meter timer/cycle is scheduled
-- **AND** no `WEB_GetCurrentAudioParam` request is sent by LIVE
 
 ### Requirement: Live meter failure is isolated from ordinary codec status
 

@@ -85,9 +85,13 @@ No topology, authority, lifecycle, or I/O contract changes. `switch_ip_address`,
 
 ## 1E. Supported codec microphone LIVE cadence
 
-The current supported room microphone LIVE set is exactly Huawei TE20, TE40, TE50, and CloudLink Bar 310. Each owner schedules a new sample cycle at a nominal `700 ms` target after the prior completed cycle. The interval is not a repaint guarantee and cannot cause overlapping work: one sample remains in flight at most, and a delayed operation finishes/reaches its permitted boundary before currentness is rechecked for a new request.
+The current supported room microphone LIVE set is exactly Huawei TE20, TE40, TE50, and CloudLink Bar 310. Their shared product-level update cadence is nominally `700 ms`, but scheduler ownership remains model-specific.
 
-This is a scheduling-only contract. It retains each exact model's approved parser, normalization, authentication/session, currentness, and protocol command boundaries. Box 310 remains explicitly deferred with no meter context/request; Polycom remains unsupported. Matrix, DMP, PDU, general refresh, call-log, authentication, and other timers retain their existing cadence and behavior.
+Huawei TE20/TE40/TE50 retain the existing periodic room-LIVE `QTimer`: its interval changes from `2000 ms` to `700 ms`, it remains periodic, and it skips submission when the current owner already has one sample in flight. A fast completion does not create a completion-triggered timer; the next eligible submission occurs at the next periodic tick. Current row/generation/credential identity, stale rejection, request semantics, parser, aggregation, and normalization remain unchanged.
+
+CloudLink Bar 310 retains the existing serialized single-shot owner: after a permitted completed sample cycle, its next single-shot delay is `700 ms`. Its `_in_flight` guard, generation/token matching, authentication/session behavior, terminal failure behavior, and no-overlap rule remain unchanged. It is not converted to a Huawei-style repeating timer.
+
+This is a scheduling-only contract. It retains each exact model's approved parser, normalization, authentication/session, currentness, and protocol command boundaries. Box 310 remains explicitly deferred with no meter context/request; Polycom remains unsupported. Matrix, DMP, PDU, general refresh, call-log, authentication, cleanup, application-time-update, and other timers retain their existing cadence and behavior.
 
 ## 1D. RCA microphone aggregate and room presentation placeholders
 
