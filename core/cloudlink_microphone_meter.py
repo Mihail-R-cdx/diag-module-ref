@@ -15,7 +15,7 @@ SUPPORTED_CLOUDLINK_METER_MODELS = {"CloudLink Bar 310"}
 
 
 class CloudLinkMicrophoneMeter(QObject):
-    """Owns one optional one-second polling lifecycle and never persists login state."""
+    """Owns one optional 700 ms polling lifecycle and never persists login state."""
 
     sample = pyqtSignal(dict)
     accepted = pyqtSignal(dict, dict)
@@ -136,4 +136,4 @@ class CloudLinkMicrophoneMeter(QObject):
             terminal_outcome["category"] = terminal_category
             self.terminal.emit(terminal_outcome)
             return
-        self._timer.start(1000)
+        self._timer.start(700)

@@ -1760,7 +1760,7 @@ class VCSDiagnosticApp(QMainWindow):
         """Own the proven TE20/TE40 monitor-audio polling session in room mode."""
         interactive = InteractiveSessionController(self)
         timer = QTimer(self)
-        timer.setInterval(2000)
+        timer.setInterval(700)
         self._room_te_live[context] = (interactive, timer)
         interactive.signals.result.connect(
             lambda payload, current=context: self._accept_room_te_live_sample(current, payload)

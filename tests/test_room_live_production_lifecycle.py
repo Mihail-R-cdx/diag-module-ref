@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 import unittest
 from dataclasses import replace
@@ -97,6 +98,20 @@ class ControlledRejectedSubmitTeSession(ControlledTeSession):
     def submit(self, operation, *, generation=None):
         self.submitted.append((operation, generation))
         return None
+
+
+class ControlledDeduplicatingTeSession(ControlledTeSession):
+    """Minimal duplicate-key behavior of the real live session owner."""
+
+    def __init__(self, _parent=None):
+        super().__init__(_parent)
+        self.pending_duplicate_keys = set()
+
+    def submit(self, operation, *, generation=None):
+        if operation.duplicate_key in self.pending_duplicate_keys:
+            return None
+        self.pending_duplicate_keys.add(operation.duplicate_key)
+        return super().submit(operation, generation=generation)
 
 
 class ControlledCloudMeter(QObject):
@@ -266,7 +281,7 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             window.room_diagnostic_controller.start_local_refresh.assert_called_once()
             self.assertNotEqual(live, window.room_interaction_coordinator.active_context)
 
-    def test_te_live_audio_uses_room_owned_two_second_binding_and_keeps_both_values(self):
+    def test_te_live_audio_uses_room_owned_periodic_700ms_binding_and_keeps_both_values(self):
         ControlledTeSession.instances.clear()
         with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
             window, session = self._window_session("Huawei TE20")
@@ -275,7 +290,9 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             owner = ControlledTeSession.instances[0]
             self.assertEqual("Huawei TE20", owner.activated[0])
             self.assertEqual("get_live_audio_status", owner.submitted[0][0].method)
-            self.assertEqual(2000, window._room_te_live[live][1].interval())
+            timer = window._room_te_live[live][1]
+            self.assertEqual(700, timer.interval())
+            self.assertFalse(timer.isSingleShot())
 
             owner.signals.result.emit({
                 "value": {"audio": {"MicValueIndex": 11, "SpeakerValueIndex": 22}},
@@ -290,6 +307,40 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             self.assertTrue(owner.shutdown_requested)
             owner.finish_cleanup()
             self.assertEqual("AUXILIARY_READ", window.room_interaction_coordinator.active_context.kind.value)
+
+    def test_te20_te40_and_te50_share_the_periodic_700ms_room_live_owner(self):
+        for model in ("Huawei TE20", "Huawei TE40", "Huawei TE50"):
+            with self.subTest(model=model), patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+                window, session = self._window_session(model)
+                window.room_interaction_coordinator.cycle_finished(session)
+                live = window.room_interaction_coordinator.active_context
+                timer = window._room_te_live[live][1]
+                self.assertEqual(700, timer.interval())
+                self.assertFalse(timer.isSingleShot())
+
+    def test_te_periodic_tick_skips_duplicate_inflight_request_and_later_tick_submits(self):
+        ControlledDeduplicatingTeSession.instances.clear()
+        with patch("gui.main_window.InteractiveSessionController", ControlledDeduplicatingTeSession):
+            window, session = self._window_session("Huawei TE40")
+            window.room_interaction_coordinator.cycle_finished(session)
+            live = window.room_interaction_coordinator.active_context
+            owner, timer = window._room_te_live[live]
+
+            self.assertEqual(1, len(owner.submitted))
+            timer.timeout.emit()
+            self.assertEqual(1, len(owner.submitted))
+
+            owner.pending_duplicate_keys.clear()
+            timer.timeout.emit()
+            self.assertEqual(2, len(owner.submitted))
+
+    def test_nearby_room_timer_contracts_remain_unchanged(self):
+        window, _session = self._window_session("Huawei TE20")
+        self.assertEqual(30000, window.update_timer.interval())
+        self.assertEqual(5000, window.room_live_cleanup_timeout_ms)
+        self.assertEqual(5000, window.room_codec_mutation_cleanup_timeout_ms)
+        self.assertIn("timer.setInterval(5000)", inspect.getsource(window._start_room_periodic_live))
+        self.assertNotIn("setInterval", inspect.getsource(window._start_room_dmp_live_attempt))
 
     def test_te40_backed_current_audio_handler_result_reaches_room_snapshot_and_meter(self):
         for model in ("Huawei TE40", "Huawei TE50"):

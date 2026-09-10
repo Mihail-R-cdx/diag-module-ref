@@ -236,8 +236,22 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertTrue(widget.vip_badge.isVisible() or not widget.vip_badge.isHidden())
         self.assertEqual("Гарантия: Нет гарантии", widget.room_warranty_label.text())
         self.assertFalse(hasattr(session, "room_warranty"))
-        self.assertFalse(widget.room_card.header_widget.isHidden())
+        self.assertTrue(widget.room_card.header_widget.isHidden())
+        self.assertFalse(widget.room_card.title_label.isVisible())
+        self.assertFalse(widget.room_card.icon_label.isVisible())
         self.assertEqual("Информация о комнате", widget.room_card.title_label.text())
+        self.assertEqual(0, widget.room_card.layout().spacing())
+        self.assertTrue(all(value > 0 for value in widget.room_card.layout().getContentsMargins()))
+        self.assertIs(widget.room_card.body_layout.itemAt(0).widget(), widget.room_name_row)
+        self.assertEqual(
+            [
+                widget.room_name_row,
+                widget.room_header,
+                widget.room_warranty_label,
+                widget.occupancy_label,
+            ],
+            [widget.room_card.body_layout.itemAt(index).widget() for index in range(4)],
+        )
         self.assertTrue(widget.network_card.header_widget.isHidden())
         self.assertTrue(widget.network_card.icon_label.isHidden())
         self.assertEqual("", widget.network_card.title_label.text())

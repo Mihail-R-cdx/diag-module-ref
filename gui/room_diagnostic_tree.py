@@ -99,6 +99,10 @@ class RoomDiagnosticTreeWidget(QWidget):
         upper_layout.setContentsMargins(0, 0, 0, 0)
         upper_layout.setSpacing(16)
         self.room_card = SectionCard("Информация о комнате", "ⓘ", upper)
+        self.room_card.header_widget.setVisible(False)
+        # Keep SectionCard's ordinary outer padding, while removing only the
+        # hidden header's former inter-layout gap from this room-local card.
+        self.room_card.layout().setSpacing(0)
         self.room_card.body_layout.setSpacing(6)
         self.room_name_row = QWidget(self.room_card)
         room_name_layout = QHBoxLayout(self.room_name_row)

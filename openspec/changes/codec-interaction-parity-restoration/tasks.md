@@ -193,7 +193,7 @@ Regression:
 
 - [x] 9.50 Independent architecture review of exact SHA `56425b0f7e48b50cd975fd5752f72b7bd39cfd66`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`), implementation may proceed. The sole LOW is non-blocking stale bookkeeping text in the already completed 9F heading; that heading is synchronized here.
 
-## 9H. Headerless room summary and codec microphone LIVE cadence amendment (scheduler remediation pending independent architecture review)
+## 9H. Headerless room summary and codec microphone LIVE cadence amendment
 
 Architecture:
 
@@ -202,20 +202,20 @@ Architecture:
 
 Implementation:
 
-- [ ] 9.53 Remove local room-card header/title/icon chrome while preserving the outer peer container, padded body, room-row order, VIP association, and zero-I/O rendering.
-- [ ] 9.54 Change the Huawei TE20/TE40/TE50 room LIVE scheduling target to `700 ms` without changing live protocol commands, aggregation, normalization, ownership, or overlap handling.
-- [ ] 9.55 Change the CloudLink Bar 310 meter scheduling target to `700 ms` without changing its parser/session/authentication contract or overlap handling.
+- [x] 9.53 Remove local room-card header/title/icon chrome while preserving the outer peer container, padded body, room-row order, VIP association, and zero-I/O rendering.
+- [x] 9.54 Change the Huawei TE20/TE40/TE50 room LIVE scheduling target to `700 ms` without changing live protocol commands, aggregation, normalization, ownership, or overlap handling.
+- [x] 9.55 Change the CloudLink Bar 310 meter scheduling target to `700 ms` without changing its parser/session/authentication contract or overlap handling.
 
 Regression:
 
-- [ ] 9.56 Add focused room-summary UI regressions for absent title/icon/header chrome, first room-name row, preserved body padding, room data/VIP/occupancy/warranty semantics, and zero new I/O.
-- [ ] 9.57 Add focused Huawei TE20/TE40/TE50 LIVE scheduling regressions for `700 ms`, one in-flight sample, currentness/stale behavior, and unchanged approved microphone evidence handling.
-- [ ] 9.58 Add focused CloudLink Bar 310 regressions for `700 ms`, no overlapping samples, and preserved parser/session/currentness behavior; prove Box 310 and Polycom remain without LIVE.
-- [ ] 9.59 Add focused regression proving Matrix, DMP, PDU, general-refresh, call-log, authentication, and unrelated timers retain their existing cadence/behavior.
+- [x] 9.56 Add focused room-summary UI regressions for absent title/icon/header chrome, first room-name row, preserved body padding, room data/VIP/occupancy/warranty semantics, and zero new I/O.
+- [x] 9.57 Add focused Huawei TE20/TE40/TE50 LIVE scheduling regressions for `700 ms`, one in-flight sample, currentness/stale behavior, and unchanged approved microphone evidence handling.
+- [x] 9.58 Add focused CloudLink Bar 310 regressions for `700 ms`, no overlapping samples, and preserved parser/session/currentness behavior; prove Box 310 and Polycom remain without LIVE.
+- [x] 9.59 Add focused regression proving Matrix, DMP, PDU, general-refresh, call-log, authentication, and unrelated timers retain their existing cadence/behavior.
 - [x] 9.60 Record independent architecture review of SHA `9c1ff437f5b2b937e8b9b0f470d5cbfcb5c2ff4d`: `CHANGES REQUIRED` (`CRITICAL 0 / HIGH 0 / MEDIUM 1 / LOW 1`); implementation may not proceed.
 - [x] 9.61 Remediate the MEDIUM finding by preserving Huawei periodic `700 ms` timer + in-flight tick skip and Bar single-shot `700 ms` post-completion delay as distinct scheduler ownership contracts.
 - [x] 9.62 Remediate the LOW finding by archive-compatibly replacing the stale CloudLink one-second requirement and scenario names with `700 ms` names; do not retain historical-name explanatory text in the current normative artifact.
-- [ ] 9.63 Obtain independent architecture review of this scheduler remediation before implementation; do not mark hardware acceptance, independent final validation, archive, or merge complete.
+- [x] 9.63 Record independent architecture re-review of SHA `6e6e04d881f70d8036a11886a2b7f7dceff539d3`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`); implementation may proceed. Hardware acceptance, independent final validation, archive, and merge remain incomplete.
 
 ## 10. Exact-SHA hardware acceptance
 
