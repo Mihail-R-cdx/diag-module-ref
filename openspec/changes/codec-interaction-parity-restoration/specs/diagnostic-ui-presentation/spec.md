@@ -572,3 +572,64 @@ This requirement changes neither vendor protocol command/request semantics nor t
 - **WHEN** exact `CloudLink Box 310`, `Polycom RPG 310`, Matrix, DMP, PDU, general refresh, call-log, authentication, cleanup, application-time-update, or another unrelated timer is active
 - **THEN** this requirement starts no new microphone LIVE context for unsupported codecs
 - **AND** it changes no unrelated timer cadence or network behavior
+
+### Requirement: Exact Huawei TE50 configured microphone presentation uses percentage while native MIC1 mutation stays unchanged
+
+This exact-model requirement is the specific presentation exception to broader TE40/TE50 dB wording earlier in this change. Wherever broader wording includes TE50 in dB presentation, this requirement is authoritative for exact `Huawei TE50` only. Exact `Huawei TE40` remains on the existing dB presentation and mutation contract.
+
+For exact `Huawei TE50`, accepted configured MIC1 evidence remains the same TE40-backed canonical `microphone_volume` originating from authoritative `mic1Value`. The native accepted range remains `0..21`, and the native mutation step remains one wire unit (`1 dB` device-native). The GUI SHALL derive display-only integer percentage evidence only when the accepted value `V` is finite numeric, is not a boolean, and is within `0..21` inclusive:
+
+```text
+scaled  = 100 * V / 21
+percent = floor(scaled + 0.5)
+```
+
+The configured microphone value region SHALL display `<percent>%`. Missing, malformed, non-finite, boolean, stale-unusable, or out-of-range configured evidence SHALL render `Нет данных`; the presentation SHALL NOT clamp, guess, or manufacture a percentage.
+
+The percentage is display-only and SHALL NOT become mutation authority. TE50 microphone `−` / `+` SHALL continue to request exactly one native target step (`V-1` / `V+1`, bounded to `0..21`) through the existing typed TE40-backed MIC1 mutation, fresh full-state pre-read, one-save, and full post-write reconciliation contract. The GUI SHALL NOT reverse-convert the rounded percentage into a wire value. Independent microphone mute semantics remain unchanged.
+
+Examples:
+
+```text
+V=0  -> 0%
+V=12 -> 57%
+V=18 -> 86%
+V=21 -> 100%
+```
+
+The repository-local visual acceptance checkpoint for configured microphone presentation therefore means: TE40 remains dB, while exact TE50 uses this percentage exception. All LIVE-meter semantics remain independent and unchanged.
+
+#### Scenario: TE50 configured MIC1 renders percentage
+
+- **GIVEN** exact model is `Huawei TE50`
+- **AND** accepted configured `microphone_volume = 18`
+- **WHEN** the Audio card renders
+- **THEN** the configured microphone value displays `86%`
+- **AND** it does not display `+6 dB`
+- **AND** microphone mute and microphone LIVE remain separate evidence
+
+#### Scenario: TE50 plus keeps native one-step mutation authority
+
+- **GIVEN** exact model is `Huawei TE50`
+- **AND** current accepted configured `microphone_volume = 18`, displayed as `86%`
+- **AND** room interaction controls are eligible
+- **WHEN** the operator activates microphone `+`
+- **THEN** the typed mutation target is native wire value `19`
+- **AND** after authoritative readback of `19` the display is `90%`
+- **AND** presentation does not derive the mutation target by reverse-converting `86%`
+
+#### Scenario: TE50 invalid configured evidence is not fabricated
+
+- **GIVEN** exact model is `Huawei TE50`
+- **AND** configured microphone evidence is missing, malformed, non-finite, boolean, stale-unusable, or outside `0..21`
+- **WHEN** the Audio card renders
+- **THEN** the configured value is `Нет данных`
+- **AND** no clamped/default percentage is manufactured
+
+#### Scenario: TE40 keeps dB presentation
+
+- **GIVEN** exact model is `Huawei TE40`
+- **AND** accepted configured `microphone_volume = 18`
+- **WHEN** the Audio card renders
+- **THEN** the configured microphone value remains `+6 dB`
+- **AND** the TE50 percentage exception does not alter TE40 presentation or mutation semantics

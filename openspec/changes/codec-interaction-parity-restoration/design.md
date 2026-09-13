@@ -310,3 +310,108 @@ The TE40 endpoint, JSON-string envelope, and individual/array microphone fields 
 Only then may post-amendment production implementation start.
 
 After implementation, focused/full offline validation and exact-SHA hardware acceptance must be repeated. Evidence from `467f2cbb...` remains discovery evidence only.
+
+## 10. Latest six-model hardware-remediation architecture
+
+This section supersedes earlier availability/pending statements in this design where they conflict with the real-device discovery pass completed on published SHA `6f90bf80671c2cb179deb60ba110e6317452cfb2`. That SHA is hardware-discovery evidence and is not an accepted implementation because in-scope scenarios failed.
+
+### 10.1 Hardware observations and unchanged contracts
+
+The remediation SHALL distinguish actual failures from expected unsupported/no-data states:
+
+- `Polycom RPG 310`: speaker adjustment and speaker mute are failures. The observed `+` action produced no device change and left Audio controls disabled; speaker mute also produced no device change. Numeric microphone gain `Нет данных`, microphone LIVE `Не поддерживается`, and absent camera evidence are not by themselves failures.
+- `CloudLink Bar 310`: inactive microphone gain/mute controls are expected because those mutations remain unsupported. The visible supported microphone LIVE meter remaining `Нет данных` is a failure for Bar hardware acceptance. Missing usage percentage in the detailed call-log result is also a failure when the explicit load succeeds without an approved partial/incomplete warning that explains why the percentage is unavailable. Static uptime/microphone/camera no-data values alone are not failures.
+- `CloudLink Box 310`: `Микрофон (уровень) = Не поддерживается` and inactive microphone gain/mute controls are expected and confirm the deferred-LIVE presentation. Failure is the missing automatic call preview and the explicit `Развернуть` path producing no journal content. Remediation SHALL NOT create Box LIVE while fixing call-log behavior.
+- `Huawei TE20`: unsupported numeric microphone gain controls/no-data are expected; unavailable call/presentation evidence may remain `Нет данных`. Failure is the explicit journal missing `Продолжительность` and usage statistics.
+- `Huawei TE50`: hardware is available and the current dB display does not match the confirmed product presentation requirement. The underlying native MIC1 authority/mutation is not changed by that observation.
+- No new TE40 protocol defect was reported in this discovery pass. Any shared-path production change made for other models still requires appropriate TE40 regression/smoke according to the touched boundary.
+
+### 10.2 Exact TE50 percent presentation exception
+
+TE40 and TE50 retain the same native accepted MIC1 authority and mutation lifecycle:
+
+```text
+accepted configured value V = mic1Value / canonical microphone_volume
+wire/native range          = 0 .. 21
+native mutation step        = 1 wire unit (= 1 dB)
+```
+
+Presentation now intentionally diverges by exact model:
+
+```text
+Huawei TE40 -> gain_db = V - 12 -> display -12..+9 dB
+Huawei TE50 -> scaled = 100 * V / 21
+             percent = floor(scaled + 0.5)
+             -> display 0..100%
+```
+
+TE50 percentage is display-only accepted evidence. It SHALL be produced only for finite numeric `V` in `0..21`; missing, malformed, non-finite, boolean, or out-of-range evidence yields no percentage and the configured value remains `Нет данных`. No clamping or guessed default is permitted.
+
+Examples:
+
+```text
+V=0  -> 0%
+V=12 -> 57%
+V=18 -> 86%
+V=21 -> 100%
+```
+
+TE50 `−/+` still request exactly one native target step (`V-1` / `V+1`, bounded to `0..21`) through the same typed TE40-backed MIC1 mutation/reconciliation contract. Because percent is rounded display-only evidence, one native step may visibly change the displayed percentage by four or five percentage points. The GUI SHALL NOT reverse-convert the displayed percentage into mutation authority. TE40 remains dB presentation.
+
+### 10.3 RPG310 remediation boundary
+
+The current capability oracle is unchanged:
+
+```text
+speaker_adjust = SUPPORTED
+speaker_mute   = SUPPORTED
+range          = 0..100
+step           = 2
+```
+
+Remediation must trace the existing Polycom serialized HTTPS/SSH interaction and exact-row mutation/reconciliation lifecycle. A terminal success, typed failure, timeout, cancellation, or cleanup completion must leave the current row usable according to the existing lock matrix; a failed operation may not leave Audio controls permanently disabled. The hardware observation alone does not authorize a new command grammar, alternate blind replay, or capability downgrade. Any protocol change requires non-secret readback/command evidence and, if it contradicts the current approved protocol contract, another reviewed architecture amendment before implementation.
+
+### 10.4 Bar310 LIVE remediation boundary
+
+Bar microphone LIVE remains supported exactly through the approved modern-session contract and `GET /v1/mediacontrol/mic/current-volume` parser/normalization until real protocol evidence proves otherwise. The UI-level `Нет данных` observation does not itself authorize changing endpoint, token routing, list selection, aggregation, or normalization.
+
+Implementation must first determine whether the failure is admission/lifecycle, session/token reuse, request failure category, parser rejection, or unavailable-sample publication. The investigation may record only non-secret method/path, typed category, payload shape metadata needed for review, and normalized outcome. If the real successful payload or session behavior contradicts the current approved contract, implementation SHALL stop and return to OpenSpec/design review before changing parser/session authority.
+
+Bar detailed journal usage statistics remain governed by the common call-log/statistics contract. Remediation must restore the shared normalized duration/statistics path rather than add Bar-specific percentage calculations in Qt presentation.
+
+### 10.5 Box310 call-log remediation boundary
+
+Box remains exact-model call-log-capable and LIVE-unsupported. Automatic preview after the whole-room terminal/current-expanded/usable boundary and explicit fresh `Развернуть` acquisition remain mandatory. Fixing the Box journal SHALL preserve exact Box identity, shared CloudLink handler/session boundaries, serialized lane ownership, fresh explicit acquisition, typed failure cleanup, and zero Box microphone-LIVE start/resume/request.
+
+### 10.6 TE20 call-log remediation boundary
+
+TE20 explicit journal must use the common normalized call-log contract. Accepted completed records with valid duration evidence must expose/render `Продолжительность`, and usage statistics must use the existing machine-readable duration/period rules. Remediation SHALL not parse formatted GUI duration text back into arithmetic and SHALL not manufacture duration or percentages when source evidence is unavailable. Existing explicit partial/incomplete warning semantics remain authoritative.
+
+### 10.7 Final hardware revalidation scope
+
+The current `6f90bf80...` run is discovery evidence, not final acceptance. After a reviewed remediation implementation creates a new production SHA, exact-SHA hardware validation must rerun:
+
+1. every scenario that failed in this discovery round on the model that exposed it;
+2. the TE50 configured-gain presentation scenario because its product contract changes from dB to percent;
+3. any cross-model smoke necessary for a shared production path touched by remediation, including shared call-log or common codec Audio/lifecycle code;
+4. bounded cleanup/UI-unlocked behavior for remediated mutations and auxiliary reads.
+
+Unrelated deep hardware scenarios whose authoritative code/protocol path is untouched by the final remediation diff do not need a complete six-model rerun solely because the commit SHA changes. This does not permit carrying a failed scenario forward: every remediated/changed scenario must have evidence tied to the final published SHA. Independent validation must review the actual production diff to decide which shared-path smoke is required.
+
+Deployment-local regeneration/inspection of ignored `equipment_inventory.local.json` is a deployment follow-up and not an archive gate for this source change. The importer implementation/tests and exact-model runtime contract remain required source acceptance evidence.
+
+## Updated acceptance inventory for the hardware-remediation amendment
+
+| Area | Required result |
+| --- | --- |
+| TE40 configured MIC1 | accepted `0..21` -> `-12..+9 dB`; native step 1; mute independent |
+| TE50 configured MIC1 | accepted `0..21` -> display-only integer `0..100%` by half-up linear mapping; native step remains 1 wire unit; mute independent |
+| RPG310 speaker adjust/mute | real device changes reconcile; every terminal path releases the UI/interaction lock |
+| Bar310 microphone LIVE | supported meter receives/publishes accepted samples under the approved Bar contract, or contradictory real protocol evidence triggers a new architecture review before parser/session changes |
+| Bar310 call-log statistics | common normalized detailed-journal usage statistics render when authoritative; degraded/partial states remain explicit |
+| Box310 call log | one automatic preview at the approved boundary plus fresh explicit journal; zero Box LIVE lifecycle |
+| TE20 call log | `Продолжительность` is present when authoritative duration exists; common usage statistics render under existing completeness rules |
+| Unsupported/no-data states | TE20/RPG numeric mic gain unsupported; Bar/Box mic mutations unsupported; Box/RPG mic LIVE unsupported; missing status/uptime/camera may remain `Нет данных` when no current evidence exists |
+| Hardware rerun | final-SHA rerun of all failed/changed scenarios plus shared-path smoke determined from the remediation diff |
+
+The amendment is architecture-only. Production code remains frozen until strict OpenSpec validation, disposable archive-applicability, Git checks, and independent architecture review of the exact published amendment SHA permit implementation.

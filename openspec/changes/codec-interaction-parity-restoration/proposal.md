@@ -139,3 +139,29 @@ Historical behavior is evidence, not authority over current root OpenSpec or con
 - `cloudlink-live-microphone-metering`
 - `equipment-inventory-snapshot`
 - `diagnostic-application-shell`
+
+## Latest six-model hardware-remediation amendment
+
+This section is the latest product/architecture amendment and supersedes earlier statements in this proposal that TE50 or Box 310 hardware is unavailable/pending solely because of device availability. A real-device discovery pass was completed against published implementation SHA `6f90bf80671c2cb179deb60ba110e6317452cfb2`. That SHA is now a hardware-discovery baseline, not an accepted implementation, because several in-scope scenarios failed.
+
+Observed product-significant outcomes were:
+
+- `Polycom RPG 310`: speaker `+` produced no device change and the Audio controls became disabled; speaker mute also produced no device change. Numeric microphone gain `Нет данных` and microphone LIVE `Не поддерживается` remain expected for this model.
+- `CloudLink Bar 310`: unsupported microphone gain/mute controls remained inactive as expected, but the supported microphone LIVE meter remained `Нет данных`; detailed call-log usage percentage was not presented. `Время работы системы`, static `Микрофон`, and `Камера` no-data states alone are not failures.
+- `CloudLink Box 310`: deferred microphone LIVE rendered `Не поддерживается` and microphone gain/mute controls remained inactive as expected, but the automatic call preview did not populate and explicit `Развернуть` produced no journal content.
+- `Huawei TE20`: unsupported numeric microphone gain remained inactive/`Нет данных` as expected, and unavailable call/presentation evidence may remain `Нет данных`; however the explicit journal lacked `Продолжительность` and usage statistics.
+- `Huawei TE50`: real hardware was reached. The current build presents configured MIC1 gain in dB, but the confirmed product requirement is percent presentation for exact TE50. This is a presentation-contract change, not evidence that the native TE40/TE50 MIC1 wire/mutation contract is different.
+
+The latest remediation keeps existing protocol/capability contracts unless real non-secret hardware evidence proves they are wrong. In particular:
+
+- RPG310 remains `speaker_adjust = SUPPORTED`, `speaker_mute = SUPPORTED`, range `0..100`, step `2`; remediation must restore operation completion/readback and bounded UI unlock rather than demote the capabilities.
+- Bar310 LIVE remains supported under the currently approved modern-session/current-volume endpoint and parser contract. `Нет данных` on hardware is a failure to diagnose inside that contract. If real endpoint evidence contradicts the approved parser/session contract, implementation must stop for a new reviewed architecture amendment rather than invent a new parser or endpoint.
+- Box310 remains LIVE-unsupported/deferred. Its call preview and explicit journal must be repaired without adding any Box LIVE context/request.
+- TE20 call-log duration/statistics must be restored through the common normalized call-log path; the GUI must not synthesize duration or percentage from formatted text.
+- TE50 keeps the approved TE40-backed native MIC1 authority and mutation lifecycle but receives an exact-model display exception: accepted `mic1Value`/canonical `microphone_volume` in `0..21` is displayed as an integer percent using `percent = floor((100 * V / 21) + 0.5)`. The mapping is display-only: `0 -> 0%`, `12 -> 57%`, `18 -> 86%`, `21 -> 100%`. TE50 `−/+` still request one native wire step (`±1`, device-native `1 dB`) and percentage is never reverse-converted into mutation authority. TE40 remains displayed in dB.
+
+Deployment-local regeneration/verification of ignored `equipment_inventory.local.json` remains required before a deployment that depends on refreshed organization-workbook content, but it is not an archive/completion gate for this source change. Runtime remains JSON-only and importer regressions remain source acceptance authority.
+
+Post-remediation hardware acceptance is narrowed to what the final production diff can affect. The final exact SHA must rerun every scenario that failed or whose product contract changed, on the corresponding real model, plus cross-model smoke for any shared code path touched by the remediation. Unrelated deep hardware scenarios that the final diff cannot affect do not need to be repeated solely because the SHA changed. Every required rerun still records the exact final SHA/model/scenario/result, and any failed required remediation scenario remains blocking.
+
+This amendment changes architecture/specification only. Production remediation may begin only after strict OpenSpec/archive-applicability/Git checks and an independent architecture review of the exact published amendment SHA return a permitting verdict.
