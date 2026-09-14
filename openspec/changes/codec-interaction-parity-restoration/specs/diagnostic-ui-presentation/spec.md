@@ -220,7 +220,7 @@ The `Аудио` card SHALL permanently contain, in this exact order:
 ```text
 Микрофон (уровень)     <horizontal live level indicator or explicit unsupported/no-data state>
 Громкость микрофона    [−] <accepted configured value or Нет данных> [+] [mute]
-Громкость динамиков    [−] <accepted value or Нет данных> [+] [mute]
+Громкость динамиков    [−] <accepted percentage or Нет данных> [+] [mute]
 ```
 
 The level row is **live activity evidence**, not a configured volume/gain setting. The control rows are **static/configured/readback evidence**, not live activity. Presentation SHALL NOT overwrite one authority with the other.
@@ -234,6 +234,12 @@ mute affordance target width           44-64 px
 numeric/no-data value region           at least 38 px, centered/aligned
 inter-control gap                       4-8 px
 ```
+
+The modern codec Audio card SHALL NOT render a speaker-volume horizontal meter, progress bar, scale, gauge, or second visual level indicator. Speaker volume is represented only by its control row and the accepted percentage/no-data value between `−` and `+`.
+
+The speaker value region SHALL render `<N>%` only from current accepted `speaker_volume_percent` evidence defined by `device-diagnostics-and-control`; accepted numeric zero SHALL render `0%`. Missing, malformed, stale-unusable, or otherwise unavailable accepted percentage SHALL render `Нет данных`. Presentation SHALL NOT derive percentage by guessing a device range, parse a localized/raw display string, use widget history/defaults, or reverse-convert displayed percentage into a device mutation target.
+
+The shared presentation SHALL consume separate native speaker volume and typed mute-state authority from `device-diagnostics-and-control`; it SHALL NOT put strings such as `Muted` into a numeric/percentage slot or treat displayed percentage as mutation authority.
 
 The modern room live-meter support matrix is:
 
@@ -256,7 +262,7 @@ For exact `Huawei TE40` and `Huawei TE50`, accepted static numeric `mic1Value` i
 
 The Huawei TE20/TE40/TE50 RCA input-gain scale is likewise `-12..+12 dB`; this fact does not add a new RCA control in this change. For TE40 and TE50, `−` / `+` microphone controls are network-supported. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+12 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding reused by exact TE50. Presentation itself never builds the vendor full-state payload.
 
-Huawei TE20/TE40/TE50 speaker volume is a separate native `0..21` scale. The speaker row SHALL consume only current accepted speaker evidence in that scale. It SHALL NOT treat `0..21` as configured microphone/RCA gain authority and SHALL NOT manufacture a TE50 microphone percentage from the speaker scale.
+Huawei TE20/TE40/TE50 speaker volume uses the separate native `0..21` mutation/readback scale. That native value remains application authority for safe speaker targets and reconciliation; the presentation value is the accepted `speaker_volume_percent` projection defined by `device-diagnostics-and-control`. The speaker scale SHALL NOT be treated as configured microphone/RCA gain authority and SHALL NOT be used to manufacture a TE50 microphone percentage.
 
 For `CloudLink Box 310`, microphone LIVE is explicitly unsupported in this change. Presentation SHALL show `Не поддерживается` for `Микрофон (уровень)`, SHALL NOT display stale/historical Box meter data as current, and SHALL NOT start or imply a Box LIVE lifecycle. A future reviewed change is required to restore Box microphone LIVE.
 
@@ -288,13 +294,28 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **AND** rendering performs zero meter handler/session/credential/network activity
 - **AND** Box 310 does not consume historical/stale meter evidence as if LIVE were supported
 
-#### Scenario: Huawei speaker volume uses the native 0..21 scale
+#### Scenario: Speaker volume has accepted percentage evidence
+
+- **GIVEN** current exact-row accepted state contains `speaker_volume_percent = 42`
+- **WHEN** the speaker control row renders
+- **THEN** `42%` appears between `−` and `+`
+- **AND** no speaker-volume scale/bar is rendered
+- **AND** the displayed percentage is not used as independent mutation authority
+
+#### Scenario: Speaker volume has no accepted percentage evidence
+
+- **WHEN** current exact-row accepted state has no usable `speaker_volume_percent`
+- **THEN** the speaker value region displays `Нет данных`
+- **AND** the GUI does not manufacture `0%`, a prior value, or a guessed mapping
+
+#### Scenario: Huawei speaker volume keeps native authority separate from displayed percentage
 
 - **GIVEN** the exact current model is `Huawei TE20`, `Huawei TE40`, or `Huawei TE50`
-- **AND** current accepted speaker volume evidence is `18`
-- **WHEN** the speaker control row renders
-- **THEN** the accepted speaker value `18` is presented according to the native `0..21` speaker contract
-- **AND** it is not reinterpreted as microphone/RCA gain or converted into a configured microphone percentage
+- **AND** current accepted native speaker volume evidence is `18`
+- **WHEN** the application projection and speaker control row render
+- **THEN** native `18` remains speaker mutation/reconciliation authority under the `0..21` speaker contract
+- **AND** presentation renders only the accepted `speaker_volume_percent` projection rather than treating raw `18` as a percentage
+- **AND** the native speaker value is not reinterpreted as microphone/RCA gain or converted into a configured microphone percentage
 
 #### Scenario: Audio operation is unsupported for the exact model
 
