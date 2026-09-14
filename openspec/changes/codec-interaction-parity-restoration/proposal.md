@@ -4,7 +4,7 @@
 
 The room codec redesign preserved most protocol handlers but replaced the working codec-screen interaction composition with the modern room lifecycle/dashboard. The first implementation of this change reached published SHA `467f2cbb502f698476f047d277052bf5ccb55147` and passed independent offline validation, but real-device testing then proved several architecture assumptions incomplete or wrong.
 
-A first hardware-discovered amendment was published as `969e4a55e44a4f6879daa5c664de812141fa1704`. Independent architecture review returned `CHANGES REQUIRED`. Remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295` resolved the root replacement/lifecycle findings, and `df5447abe556d53ce3d7fd2a2a56e1c042918272` closed the TE40 protocol-discovery gap with an explicit MIC1 gain contract.
+A first hardware-discovered amendment was published as `969e4a55e44a4f6879daa5c664de812141fa1704`. Independent architecture review returned `CHANGES REQUIRED`. Remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295` resolved the root replacement/lifecycle findings, and `df5447abe556d53ce3d7fd2a2a56e1c042918272` closed the then-understood TE40 protocol-discovery gap with an explicit MIC1 gain contract.
 
 Independent review of `df5447...` found two HIGH issues: Box 310 LIVE was still architecturally incomplete, and the TE40 full-state save contract could build a POST from stale non-target microphone state. Amendment `01faf3cc522f89f936cb4daefa70161279093f40` resolved those by deferring Box LIVE and requiring fresh full-state TE40 pre/post reads.
 
@@ -29,11 +29,13 @@ The explicit TE50 runtime contract cannot be reached from organization workbook 
 The target product behavior is now:
 
 - Huawei TE40 static audio exposes independent primary `mic1Value` gain and independent microphone mute evidence. Exact-model Huawei TE50 reuses that approved contract by declared product protocol equivalence.
-- TE40 primary `MIC1` microphone gain is supported. Native configured range is `-12..+9 dB`, step `1 dB`; wire `mic1Value` range is `0..21`, step `1`, with `gain_db = mic1Value - 12`. Exact-model TE50 reuses this contract pending its own hardware acceptance.
+- Huawei TE20/TE40/TE50 microphone input gain and RCA input gain use the confirmed user-facing `-12..+12 dB` scale with nominal `0 dB`. Huawei TE20/TE40/TE50 speaker volume uses a separate `0..21` scale. The speaker scale is not microphone/RCA percentage authority.
+- TE20 numeric microphone adjustment remains unsupported by this application. The common device input-gain scale does not create a new TE20 `microphone_adjust` capability.
+- TE40/TE50 configured MIC1 presentation remains dB. The established one-dB offset relation is `gain_db = mic1Value - 12`; with the confirmed complete `-12..+12 dB` gain range, accepted MIC1 spans `0..24`. The earlier `0..21` upper bound was a conflation with the separate Huawei speaker-volume scale.
 - TE40 gain setter is `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`; its full-state payload MUST be constructed only from a fresh serialized pre-write audio-control read after mutation ownership is acquired and prior LIVE is retired.
 - The fresh pre-write state must contain every non-secret `micall`, `mic1..mic18`, and `mic1Value..mic18Value` field required by the save contract. The mutation changes only target `mic1Value`. If fresh full state is incomplete, no POST is sent.
 - Successful save ACK is not final authority. Post-write reconciliation re-reads full audio-control state, confirms target MIC1, and confirms preserved non-target fields against the fresh pre-write baseline.
-- TE40 microphone gain and microphone mute remain separate operations; numeric zero means `-12 dB`, not muted.
+- TE40/TE50 microphone gain and microphone mute remain separate operations; wire zero maps to `-12 dB`, not muted.
 - TE20 live raw `MicValueIndex` is unchanged and normalized from `0..220` to the `Микрофон (уровень)` meter. TE40 and exact-model TE50 use `WEB_GetCurrentAudioParam` for both initial seed and true LIVE, take the maximum valid numeric evidence from compatibility `MicValueIndex`, hardware-observed `mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx`, and the explicitly admitted `rcaLInValueIndex`/`rcaRInValueIndex`, then use the same scale; no user-visible speaker LIVE meter is advertised.
 - TE40 camera parsing accepts zero, one or many returned `itemList` records.
 - Every call-log-capable codec, including Box 310, shows up to the three newest calls automatically for the exact current expanded usable codec row after the entire automatic room cycle is terminal.
@@ -76,8 +78,9 @@ The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{dev
 - Preserve the root Box scenario names for archive compatibility but redefine them as explicit no-capability/no-polling/deferred behavior.
 - Keep root-compatible codec capability and Audio-card contracts aligned with Box LIVE deferred semantics.
 - Correct Box call-log regression so automatic preview is followed by lane release, not by a fabricated first Box LIVE.
-- Keep exact `Huawei TE40 microphone_adjust = SUPPORTED` under the proven MIC1 contract and fresh full-state mutation safety.
-- Preserve Huawei microphone LIVE presentation, TE40 dB configured gain, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
+- Keep exact `Huawei TE40 microphone_adjust = SUPPORTED` under the proven MIC1 contract and fresh full-state mutation safety; exact TE50 reuses that reviewed path.
+- Preserve Huawei microphone LIVE presentation, TE40/TE50 configured MIC1 dB presentation, zero-to-many TE40 camera parsing, automatic three-call lifecycle, explicit fresh journal, Polycom speaker step `2`, speaker restore-authority safety, exact-row/currentness rules, one serialized network owner, typed failures, bounded cleanup, no blind mutation replay, and no Qt-thread network I/O.
+- Keep Huawei TE20/TE40/TE50 input gain (`MIC` and RCA) `-12..+12 dB` distinct from Huawei speaker volume `0..21`; remove the invented TE50 configured-MIC percent mapping and any use of speaker `0..21` as microphone percentage authority.
 - Preserve a generation-current session `expanded_record_id` at coordinator binding without render-triggered I/O so the mandatory terminal-cycle preview does not depend on a synthetic Qt expansion event.
 - Use one TE40/TE50 current-audio extractor for initial seed and true LIVE: `WEB_GetCurrentAudioParam`, JSON-string envelope decoding, maximum valid explicit `MicValueIndex`/`mic<N>ValueIndex`/`micArray<N>_<NN>ValIdx`/`rcaLInValueIndex`/`rcaRInValueIndex` evidence, and the existing Huawei `0..220 -> 0..100%` normalization.
 - Add `Huawei TE50 | te + 50` to the closed offline diagnostic-model registry, retain existing component extraction and cardinality rules, and add importer-only `Huawei TE50 -> video_codec` expected-kind consistency evidence without overriding source `Тип модели` authority.
@@ -98,19 +101,23 @@ TE30 and TE60 expansion remain later changes and SHALL NOT be inferred from this
 
 ## Architecture gates
 
-Hardware-backed TE40 endpoint evidence changes the approved LIVE source contract: it records `WEB_GetCurrentAudioParam`, its JSON-string envelope, and the observed TE40 microphone field families as an application aggregation contract. A new independent architecture review is required before implementation may begin. The remaining gates are:
+Hardware-backed TE40 endpoint evidence changes the approved LIVE source contract: it records `WEB_GetCurrentAudioParam`, its JSON-string envelope, and the observed TE40 microphone field families as an application aggregation contract. The latest Huawei audio-scale clarification also replaces the invalid TE50-percent interpretation: MIC/RCA gain is `-12..+12 dB`, speaker is separately `0..21`. A new independent architecture review is required before implementation may begin. The complete pre-implementation gate is:
 
-1. `.\openspec.cmd validate codec-interaction-parity-restoration --strict`;
-2. `.\openspec.cmd validate --all --strict`;
-3. disposable archive-applicability check for all `MODIFIED Requirements`;
-4. Git hygiene checks;
-5. independent architecture review of the exact published amendment SHA with a permitting verdict.
+1. `.\openspec.cmd validate codec-interaction-parity-restoration --strict` PASS;
+2. `.\openspec.cmd validate --all --strict` PASS;
+3. disposable archive-applicability check for all `MODIFIED Requirements` PASS;
+4. Git hygiene/scope checks PASS;
+5. independent architecture review of the exact published amendment SHA returns a permitting verdict.
+
+**Production remediation MUST NOT begin until all five gate items above are complete.** Post-implementation validation is a separate later gate and does not substitute for these pre-implementation checks.
 
 The PASS/FAIL evidence from `01faf3...` is historical validation evidence only; all required checks must be rerun against the new exact amendment SHA.
 
 ## Hardware gate
 
-Hardware observations from `467f2cbb...` and subsequent TE40 captures are architecture-discovery evidence only, except that TE40 current-audio LIVE has a recorded PASS at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`. TE50 is admitted by declared protocol equivalence and remains pending exact-SHA TE50 hardware acceptance. Any later production implementation, including TE50 registration, requires a new exact-SHA TE40 quick rerun as well as applicable TE50 testing before whole-change hardware completion.
+Hardware observations from `467f2cbb...` and subsequent TE40 captures are architecture-discovery evidence only, except that TE40 current-audio LIVE has a recorded PASS at exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`. TE50 hardware is now available; its latest discovery run is not acceptance because the audio-scale presentation contract was misclassified and other final remediation remains pending. Any later production implementation requires exact-SHA reruns for every failed/changed scenario plus diff-driven shared-path smoke.
+
+For Huawei audio, final acceptance SHALL verify the corrected domain split: TE40/TE50 configured MIC gain remains dB over `-12..+12 dB`, nominal `0 dB`; Huawei TE20/TE40/TE50 speaker volume remains `0..21`; no TE50 configured-MIC percentage mapping exists. TE20 numeric MIC gain remains unsupported by this application and need not be fabricated merely because the device family shares the input-gain scale.
 
 For Box 310 in this change, hardware acceptance does **not** require working microphone LIVE. It requires the deferred contract: no Box live binding/request/polling context, legacy meter row hidden where applicable, modern `Микрофон (уровень) = Не поддерживается`, while all other applicable Box behaviors remain testable. A future dedicated Box LIVE change must carry its own hardware evidence and acceptance.
 
@@ -150,7 +157,7 @@ Observed product-significant outcomes were:
 - `CloudLink Bar 310`: unsupported microphone gain/mute controls remained inactive as expected, but the supported microphone LIVE meter remained `Нет данных`; detailed call-log usage percentage was not presented. `Время работы системы`, static `Микрофон`, and `Камера` no-data states alone are not failures.
 - `CloudLink Box 310`: deferred microphone LIVE rendered `Не поддерживается` and microphone gain/mute controls remained inactive as expected, but the automatic call preview did not populate and explicit `Развернуть` produced no journal content.
 - `Huawei TE20`: unsupported numeric microphone gain remained inactive/`Нет данных` as expected, and unavailable call/presentation evidence may remain `Нет данных`; however the explicit journal lacked `Продолжительность` and usage statistics.
-- `Huawei TE50`: real hardware was reached. The current build presents configured MIC1 gain in dB, but the confirmed product requirement is percent presentation for exact TE50. This is a presentation-contract change, not evidence that the native TE40/TE50 MIC1 wire/mutation contract is different.
+- `Huawei TE50`: real hardware was reached. The discovery run was initially interpreted as requiring configured MIC gain in percent. Product clarification corrected that interpretation: TE50 follows the same Huawei input-gain contract as TE20/TE40 (`MIC` and RCA `-12..+12 dB`, nominal `0 dB`), while speaker volume separately uses `0..21`.
 
 The latest remediation keeps existing protocol/capability contracts unless real non-secret hardware evidence proves they are wrong. In particular:
 
@@ -158,10 +165,10 @@ The latest remediation keeps existing protocol/capability contracts unless real 
 - Bar310 LIVE remains supported under the currently approved modern-session/current-volume endpoint and parser contract. `Нет данных` on hardware is a failure to diagnose inside that contract. If real endpoint evidence contradicts the approved parser/session contract, implementation must stop for a new reviewed architecture amendment rather than invent a new parser or endpoint.
 - Box310 remains LIVE-unsupported/deferred. Its call preview and explicit journal must be repaired without adding any Box LIVE context/request.
 - TE20 call-log duration/statistics must be restored through the common normalized call-log path; the GUI must not synthesize duration or percentage from formatted text.
-- TE50 keeps the approved TE40-backed native MIC1 authority and mutation lifecycle but receives an exact-model display exception: accepted `mic1Value`/canonical `microphone_volume` in `0..21` is displayed as an integer percent using `percent = floor((100 * V / 21) + 0.5)`. The mapping is display-only: `0 -> 0%`, `12 -> 57%`, `18 -> 86%`, `21 -> 100%`. TE50 `−/+` still request one native wire step (`±1`, device-native `1 dB`) and percentage is never reverse-converted into mutation authority. TE40 remains displayed in dB.
+- Huawei TE40/TE50 configured MIC1 remains dB presentation. The established `gain_db = mic1Value - 12` one-dB relation combined with the confirmed `-12..+12 dB` device range yields accepted MIC1 `0..24`; speaker volume remains separately `0..21`. No configured TE50 MIC percentage conversion is authorized.
 
 Deployment-local regeneration/verification of ignored `equipment_inventory.local.json` remains required before a deployment that depends on refreshed organization-workbook content, but it is not an archive/completion gate for this source change. Runtime remains JSON-only and importer regressions remain source acceptance authority.
 
 Post-remediation hardware acceptance is narrowed to what the final production diff can affect. The final exact SHA must rerun every scenario that failed or whose product contract changed, on the corresponding real model, plus cross-model smoke for any shared code path touched by the remediation. Unrelated deep hardware scenarios that the final diff cannot affect do not need to be repeated solely because the SHA changed. Every required rerun still records the exact final SHA/model/scenario/result, and any failed required remediation scenario remains blocking.
 
-This amendment changes architecture/specification only. Production remediation may begin only after strict OpenSpec/archive-applicability/Git checks and an independent architecture review of the exact published amendment SHA return a permitting verdict.
+This amendment changes architecture/specification only. Production remediation may begin only after the full pre-implementation gate — change strict, all strict, disposable archive-applicability, Git checks, and independent architecture review of the exact published amendment SHA — returns PASS/permitting results.
