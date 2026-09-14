@@ -2,7 +2,7 @@
 
 ## Context and status
 
-The change is back in the OpenSpec / Design phase. Published implementation `467f2cbb502f698476f047d277052bf5ccb55147` passed offline validation but real-device testing exposed architecture defects. Amendment `969e4a55e44a4f6879daa5c664de812141fa1704` received independent `CHANGES REQUIRED`; remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295` resolved root-spec replacement and lifecycle ambiguity; `df5447abe556d53ce3d7fd2a2a56e1c042918272` then closed the TE40 setter/range/step gap.
+The change is back in the OpenSpec / Design phase. Published implementation `467f2cbb502f698476f047d277052bf5ccb55147` passed offline validation but real-device testing exposed architecture defects. Amendment `969e4a55e44a4f6879daa5c664de812141fa1704` received independent `CHANGES REQUIRED`; remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295` resolved root-spec replacement and lifecycle ambiguity; `df5447abe556d53ce3d7fd2a2a56e1c042918272` then closed the TE40 setter/range/step gap as understood at that stage.
 
 Independent review of `df5447...` found two remaining HIGH findings:
 
@@ -99,29 +99,41 @@ For exact TE40 and exact-model TE50 only, the current-audio extractor additional
 
 The existing one target-search field receives the descriptive visible label `Введите название помещения или IP-адрес оборудования`; all search, autocomplete, selection, Refresh, and authority semantics remain unchanged. The room summary's temporary warranty presentation is fixed as `Гарантия: Нет гарантии`. It is not canonical data and starts no lookup or I/O. Linear `MIH-28` tracks future real warranty data pending a separately reviewed authoritative source and canonical semantics.
 
-## 2. TE40/TE50 static microphone authorities
+## 2. Huawei TE20/TE40/TE50 audio-scale separation and TE40/TE50 static microphone authority
 
-TE40, and exact-model TE50 by the declared reuse contract, keep two independent authorities:
+Confirmed product/device scale authority is now explicit and must not be conflated:
+
+```text
+Huawei TE20/TE40/TE50 microphone input gain: -12 dB .. +12 dB
+Huawei TE20/TE40/TE50 RCA input gain:        -12 dB .. +12 dB
+nominal input-gain operating value:           0 dB
+Huawei TE20/TE40/TE50 speaker volume:         0 .. 21
+```
+
+The Huawei speaker `0..21` range is a separate speaker-volume scale. It is neither a microphone/RCA range nor percentage authority and SHALL NOT be used to derive configured microphone percentages.
+
+TE20 remains without supported numeric microphone adjustment in the current application capability matrix. The confirmed TE20 input-gain scale therefore does not create a TE20 `microphone_adjust` binding or new network operation.
+
+TE40, and exact-model TE50 by the declared reuse contract, keep two independent static microphone authorities:
 
 ```text
 static configured microphone gain -> mic1Value -> canonical microphone_volume
 microphone mute state              -> MicSwitch / approved equivalent -> canonical microphone_muted
 ```
 
-Configured numeric zero means `-12 dB`, not mute.
-
-The display/wire mapping is:
+The already established step/offset relation is retained:
 
 ```text
-native configured gain: -12 dB .. +9 dB
+native configured gain: -12 dB .. +12 dB
 native adjustment step: 1 dB
-wire mic1Value range:   0 .. 21
 wire step:              1
 gain_db = mic1Value - 12
 mic1Value = gain_db + 12
 ```
 
-Observed device points include `21 -> +9 dB` and `18 -> +6 dB`.
+Combining that established relation with the now-confirmed complete device gain range yields an admissible MIC1 wire range of `0..24`; `21` is an observed `+9 dB` point, not the microphone upper bound. Observed device points remain `18 -> +6 dB`, `21 -> +9 dB`; the corrected upper boundary is `24 -> +12 dB` by the same established offset/step relation. Numeric wire zero means `-12 dB`, not mute.
+
+This correction changes no RCA mutation capability: RCA is recorded here only to prevent reuse of the speaker scale for input-gain semantics.
 
 ## 3. TE40 MIC1 mutation uses fresh full-state compare-and-preserve
 
@@ -136,13 +148,13 @@ The native save payload is full-state: it carries `micall`, microphone enable fi
 The exact lifecycle is:
 
 ```text
-operator confirms TE40 MIC1 +/-
+operator confirms TE40/TE50 MIC1 +/-
 -> exact MUTATION owns the serialized room lane
 -> retire prior LIVE and finish bounded cleanup
--> fresh TE40 full audio-control read
+-> fresh TE40-compatible full audio-control read
 -> validate complete required non-secret save-state fields
 -> construct payload only from that fresh pre-write state
--> change only target mic1Value by exactly +/-1 wire unit (= 1 dB)
+-> change only target mic1Value by exactly +/-1 wire unit (= 1 dB), bounded to 0..24
 -> one POST WEB_SaveAudioMicCtrlParams
 -> ACK remains non-authoritative
 -> fresh post-write full audio-control read
@@ -200,10 +212,12 @@ The fixed Audio-card order is:
 ```text
 Микрофон (уровень)     <live horizontal meter or explicit unsupported/no-data state>
 Громкость микрофона    <configured value> [model-appropriate controls]
-Громкость динамиков    [−] <accepted value/percentage or Нет данных> [+] [mute]
+Громкость динамиков    [−] <accepted value or Нет данных> [+] [mute]
 ```
 
-Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40, and exact-model TE50 by the declared reuse contract, use one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`, followed by the existing one-time `0..220 -> 0..100%` normalization. Configured `mic1Value` is rendered in dB separately from live microphone evidence and mute.
+Huawei TE20 uses raw `MicValueIndex` for its normalized microphone LIVE meter from `get_live_audio_status`. TE40, and exact-model TE50 by the declared reuse contract, use one shared `WEB_GetCurrentAudioParam` extractor for initial seed and true LIVE: decode the JSON-string envelope, then take `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`, followed by the existing one-time `0..220 -> 0..100%` normalization. Configured TE40/TE50 MIC1 gain is rendered in dB separately from live microphone evidence and mute.
+
+For Huawei TE20/TE40/TE50, the speaker configured-value row uses the distinct device scale `0..21`. That value SHALL NOT be relabelled or normalized as configured microphone gain and SHALL NOT be used to manufacture a configured MIC percentage. TE20 continues to show no numeric configured microphone gain because the application does not support that capability.
 
 CloudLink Bar 310 keeps its approved microphone LIVE meter. CloudLink Box 310 renders `Микрофон (уровень) = Не поддерживается` in this change and starts no Box LIVE network lifecycle. Polycom renders its microphone LIVE slot unsupported.
 
@@ -282,8 +296,10 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 
 | Area | Required result |
 | --- | --- |
-| TE40/TE50 static mic | numeric `mic1Value` -> canonical `microphone_volume` -> `-12..+9 dB`; mute independent |
-| TE40/TE50 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation |
+| Huawei input/speaker scale separation | TE20/TE40/TE50 MIC and RCA input gain `-12..+12 dB`, nominal `0 dB`; speaker volume `0..21`; speaker scale never becomes MIC/RCA percentage authority |
+| TE40/TE50 static mic | numeric `mic1Value` -> canonical `microphone_volume` -> `-12..+12 dB`; established offset/step relation yields `0..24`; mute independent |
+| TE20 static mic | numeric microphone adjustment remains unsupported in this application; confirmed device input scale does not create a new capability |
+| TE40/TE50 mic mutation | fresh full pre-read after lane ownership; change only `mic1Value`; one save; full target + collateral post-read reconciliation; one-dB target bounded to confirmed `-12..+12 dB` |
 | TE40 pre-read failure | no POST; no command-ambiguity block solely from pre-submit failure |
 | TE40 collateral mismatch | mutation unconfirmed/blocked; no silent success/replay |
 | TE40/TE50 LIVE | `WEB_GetCurrentAudioParam` microphone meter from normalized `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`; no speaker LIVE meter or duplicate textual live rows |
@@ -294,7 +310,7 @@ Speaker zero/restore mute remains fail-closed. Polycom speaker step remains `2`.
 | Box non-LIVE | diagnostics, speaker, preview/journal, Local Refresh remain in scope |
 | Auto call preview | session-bound current expanded usable row accepted without bind/render I/O; whole-cycle terminal, once per row/generation, before first eligible LIVE |
 | Explicit journal | always fresh and separate |
-| Speaker controls | preserve ranges/steps/readback and no-restore safety |
+| Speaker controls | preserve model ranges/steps/readback and no-restore safety; Huawei TE20/TE40/TE50 speaker range is `0..21` |
 | Cleanup/currentness | no stale publication, concurrent owner, or permanent lock |
 
 ## Architecture validation gates
@@ -323,40 +339,42 @@ The remediation SHALL distinguish actual failures from expected unsupported/no-d
 - `CloudLink Bar 310`: inactive microphone gain/mute controls are expected because those mutations remain unsupported. The visible supported microphone LIVE meter remaining `Нет данных` is a failure for Bar hardware acceptance. Missing usage percentage in the detailed call-log result is also a failure when the explicit load succeeds without an approved partial/incomplete warning that explains why the percentage is unavailable. Static uptime/microphone/camera no-data values alone are not failures.
 - `CloudLink Box 310`: `Микрофон (уровень) = Не поддерживается` and inactive microphone gain/mute controls are expected and confirm the deferred-LIVE presentation. Failure is the missing automatic call preview and the explicit `Развернуть` path producing no journal content. Remediation SHALL NOT create Box LIVE while fixing call-log behavior.
 - `Huawei TE20`: unsupported numeric microphone gain controls/no-data are expected; unavailable call/presentation evidence may remain `Нет данных`. Failure is the explicit journal missing `Продолжительность` and usage statistics.
-- `Huawei TE50`: hardware is available and the current dB display does not match the confirmed product presentation requirement. The underlying native MIC1 authority/mutation is not changed by that observation.
-- No new TE40 protocol defect was reported in this discovery pass. Any shared-path production change made for other models still requires appropriate TE40 regression/smoke according to the touched boundary.
+- `Huawei TE50`: hardware is available. The discovery run was initially interpreted as requiring TE50 configured MIC percentage presentation; subsequent product clarification corrected that interpretation. TE50 follows the same Huawei input-gain scale as TE20/TE40 (`-12..+12 dB`), while speaker volume separately uses `0..21`.
+- No new TE40 protocol defect was reported in this discovery pass. The audio-scale clarification applies to TE40 as well: MIC/RCA gain is `-12..+12 dB`; speaker volume is `0..21`. Any shared-path production change made for other models still requires appropriate TE40 regression/smoke according to the touched boundary.
 
-### 10.2 Exact TE50 percent presentation exception
+### 10.2 Correct Huawei input-gain versus speaker-volume contract
 
-TE40 and TE50 retain the same native accepted MIC1 authority and mutation lifecycle:
-
-```text
-accepted configured value V = mic1Value / canonical microphone_volume
-wire/native range          = 0 .. 21
-native mutation step        = 1 wire unit (= 1 dB)
-```
-
-Presentation now intentionally diverges by exact model:
+The latest product authority for Huawei TE20/TE40/TE50 is:
 
 ```text
-Huawei TE40 -> gain_db = V - 12 -> display -12..+9 dB
-Huawei TE50 -> scaled = 100 * V / 21
-             percent = floor(scaled + 0.5)
-             -> display 0..100%
+microphone input gain = -12 .. +12 dB
+RCA input gain        = -12 .. +12 dB
+nominal input gain    = 0 dB
+speaker volume        = 0 .. 21
 ```
 
-TE50 percentage is display-only accepted evidence. It SHALL be produced only for finite numeric `V` in `0..21`; missing, malformed, non-finite, boolean, or out-of-range evidence yields no percentage and the configured value remains `Нет данных`. No clamping or guessed default is permitted.
+These are different control domains. The speaker `0..21` scale SHALL NOT be reused as a microphone/RCA range and SHALL NOT be linearly converted into a configured microphone percentage. The previously proposed TE50 formula `floor(100 * V / 21 + 0.5)` and examples `18 -> 86%` are withdrawn and are not implementation authority.
 
-Examples:
+TE20 remains `microphone_adjust = UNSUPPORTED` in the application despite sharing the device input-gain scale; this clarification does not add a TE20 numeric MIC control.
+
+For TE40/TE50 MIC1, the established one-dB step and offset relation remains:
 
 ```text
-V=0  -> 0%
-V=12 -> 57%
-V=18 -> 86%
-V=21 -> 100%
+gain_db = mic1Value - 12
+mic1Value = gain_db + 12
 ```
 
-TE50 `−/+` still request exactly one native target step (`V-1` / `V+1`, bounded to `0..21`) through the same typed TE40-backed MIC1 mutation/reconciliation contract. Because percent is rounded display-only evidence, one native step may visibly change the displayed percentage by four or five percentage points. The GUI SHALL NOT reverse-convert the displayed percentage into mutation authority. TE40 remains dB presentation.
+With the confirmed `-12..+12 dB` device range, the corresponding accepted MIC1 range is `0..24`. This is distinct from Huawei speaker volume `0..21`. Presentation for TE40 and TE50 is dB, not percent. Examples:
+
+```text
+mic1Value=0  -> -12 dB
+mic1Value=12 ->   0 dB
+mic1Value=18 ->  +6 dB
+mic1Value=21 ->  +9 dB
+mic1Value=24 -> +12 dB
+```
+
+TE40/TE50 `−/+` request exactly one one-dB/native wire step, bounded by the corrected MIC range, through the existing typed MIC1 mutation/reconciliation contract. Independent microphone mute remains unchanged. RCA scale clarification does not introduce a new RCA mutation path.
 
 ### 10.3 RPG310 remediation boundary
 
@@ -392,7 +410,7 @@ TE20 explicit journal must use the common normalized call-log contract. Accepted
 The current `6f90bf80...` run is discovery evidence, not final acceptance. After a reviewed remediation implementation creates a new production SHA, exact-SHA hardware validation must rerun:
 
 1. every scenario that failed in this discovery round on the model that exposed it;
-2. the TE50 configured-gain presentation scenario because its product contract changes from dB to percent;
+2. Huawei audio-scale scenarios affected by the corrected contract: TE40/TE50 configured MIC dB range and Huawei TE20/TE40/TE50 speaker `0..21` where the final diff touches the shared path; no TE50 configured-MIC percent presentation is expected;
 3. any cross-model smoke necessary for a shared production path touched by remediation, including shared call-log or common codec Audio/lifecycle code;
 4. bounded cleanup/UI-unlocked behavior for remediated mutations and auxiliary reads.
 
@@ -404,8 +422,11 @@ Deployment-local regeneration/inspection of ignored `equipment_inventory.local.j
 
 | Area | Required result |
 | --- | --- |
-| TE40 configured MIC1 | accepted `0..21` -> `-12..+9 dB`; native step 1; mute independent |
-| TE50 configured MIC1 | accepted `0..21` -> display-only integer `0..100%` by half-up linear mapping; native step remains 1 wire unit; mute independent |
+| Huawei audio-scale separation | TE20/TE40/TE50 MIC and RCA `-12..+12 dB`, nominal `0 dB`; speaker `0..21`; domains remain distinct |
+| TE40 configured MIC1 | accepted `0..24` -> `-12..+12 dB`; native step 1; mute independent |
+| TE50 configured MIC1 | same dB contract as TE40; no percentage exception; accepted `0..24` -> `-12..+12 dB`; native step 1; mute independent |
+| TE20 numeric MIC control | remains unsupported; confirmed input-gain scale does not create a new capability |
+| Huawei speaker | TE20/TE40/TE50 speaker volume uses separate `0..21`, step 1 |
 | RPG310 speaker adjust/mute | real device changes reconcile; every terminal path releases the UI/interaction lock |
 | Bar310 microphone LIVE | supported meter receives/publishes accepted samples under the approved Bar contract, or contradictory real protocol evidence triggers a new architecture review before parser/session changes |
 | Bar310 call-log statistics | common normalized detailed-journal usage statistics render when authoritative; degraded/partial states remain explicit |
