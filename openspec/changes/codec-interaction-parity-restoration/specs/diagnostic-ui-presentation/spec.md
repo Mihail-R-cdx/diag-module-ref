@@ -220,7 +220,7 @@ The `Аудио` card SHALL permanently contain, in this exact order:
 ```text
 Микрофон (уровень)     <horizontal live level indicator or explicit unsupported/no-data state>
 Громкость микрофона    [−] <accepted configured value or Нет данных> [+] [mute]
-Громкость динамиков    [−] <accepted percentage/value or Нет данных> [+] [mute]
+Громкость динамиков    [−] <accepted value or Нет данных> [+] [mute]
 ```
 
 The level row is **live activity evidence**, not a configured volume/gain setting. The control rows are **static/configured/readback evidence**, not live activity. Presentation SHALL NOT overwrite one authority with the other.
@@ -252,13 +252,15 @@ Rendering any meter SHALL consume only accepted application-owned live evidence 
 
 For Huawei TE20/TE40/TE50, `get_live_audio_status` remains the live authority. TE20 uses raw `MicValueIndex` normalized from `0..220` to `0..100%` for `Микрофон (уровень)`. TE40 and exact-model TE50 use the TE40 `WEB_GetCurrentAudioParam` extractor defined by `device-diagnostics-and-control`: `max(valid MicValueIndex + valid mic<N>ValueIndex + valid micArray<N>_<NN>ValIdx + valid rcaLInValueIndex + valid rcaRInValueIndex)`, then the same normalization. Accepted initial `monitor_mic_value` uses that same current-audio extractor/normalization only until a true LIVE sample is accepted. `SpeakerValueIndex` may remain compatibility evidence but SHALL NOT create a user-visible speaker LIVE capability or meter. The Audio card SHALL NOT additionally render standalone textual `Live ...` rows.
 
-For exact `Huawei TE40` and `Huawei TE50`, accepted static numeric `mic1Value` in wire range `0..21` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live microphone evidence and microphone mute.
+For exact `Huawei TE40` and `Huawei TE50`, accepted static numeric `mic1Value` in wire range `0..24` SHALL be presented in the `Громкость микрофона` value region as dB using `gain_db = mic1Value - 12`. Examples: wire `24 -> +12 dB`, `21 -> +9 dB`, `18 -> +6 dB`, `12 -> 0 dB`, `0 -> -12 dB`. This configured gain is independent from live microphone evidence and microphone mute. Exact TE20 shares the device input-gain scale `-12..+12 dB` but numeric microphone adjustment remains unsupported by this application, so presentation SHALL NOT fabricate a TE20 numeric configured gain.
 
-For TE40 and TE50, `−` / `+` are network-supported controls. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+9 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding reused by exact TE50. Presentation itself never builds the vendor full-state payload.
+The Huawei TE20/TE40/TE50 RCA input-gain scale is likewise `-12..+12 dB`; this fact does not add a new RCA control in this change. For TE40 and TE50, `−` / `+` microphone controls are network-supported. Each eligible click requests exactly `-1 dB` or `+1 dB`, bounded to `-12..+12 dB`, and enters the common exact-row mutation/reconciliation lifecycle through the approved TE40 `MIC1` binding reused by exact TE50. Presentation itself never builds the vendor full-state payload.
+
+Huawei TE20/TE40/TE50 speaker volume is a separate native `0..21` scale. The speaker row SHALL consume only current accepted speaker evidence in that scale. It SHALL NOT treat `0..21` as configured microphone/RCA gain authority and SHALL NOT manufacture a TE50 microphone percentage from the speaker scale.
 
 For `CloudLink Box 310`, microphone LIVE is explicitly unsupported in this change. Presentation SHALL show `Не поддерживается` for `Микрофон (уровень)`, SHALL NOT display stale/historical Box meter data as current, and SHALL NOT start or imply a Box LIVE lifecycle. A future reviewed change is required to restore Box microphone LIVE.
 
-For TE20/RPG310, no synthetic numeric microphone gain SHALL be fabricated. CloudLink microphone gain remains network-unsupported. Speaker percentage/value presentation SHALL continue to consume only current accepted speaker evidence and SHALL not reverse-convert display percentage into mutation authority.
+For TE20/RPG310, no synthetic numeric microphone gain SHALL be fabricated. CloudLink microphone gain remains network-unsupported.
 
 Microphone and speaker fixed control affordances remain subject to the common room lock matrix. A network operation marked unsupported by unified capability authority may be visible only as the approved disabled/local informational affordance and SHALL resolve before handler/session/network acquisition.
 
@@ -286,18 +288,13 @@ Microphone and speaker fixed control affordances remain subject to the common ro
 - **AND** rendering performs zero meter handler/session/credential/network activity
 - **AND** Box 310 does not consume historical/stale meter evidence as if LIVE were supported
 
-#### Scenario: Speaker volume has accepted percentage evidence
+#### Scenario: Huawei speaker volume uses the native 0..21 scale
 
-- **GIVEN** current exact-row accepted state contains `speaker_volume_percent = 42`
+- **GIVEN** the exact current model is `Huawei TE20`, `Huawei TE40`, or `Huawei TE50`
+- **AND** current accepted speaker volume evidence is `18`
 - **WHEN** the speaker control row renders
-- **THEN** `42%` appears between `−` and `+`
-- **AND** the displayed percentage is not used as independent mutation authority
-
-#### Scenario: Speaker volume has no accepted percentage evidence
-
-- **WHEN** current exact-row accepted state has no usable `speaker_volume_percent`
-- **THEN** the speaker configured-value region displays `Нет данных`
-- **AND** the GUI does not manufacture `0%`, a prior value, or a guessed mapping
+- **THEN** the accepted speaker value `18` is presented according to the native `0..21` speaker contract
+- **AND** it is not reinterpreted as microphone/RCA gain or converted into a configured microphone percentage
 
 #### Scenario: Audio operation is unsupported for the exact model
 
@@ -416,6 +413,23 @@ At baseline size the room identity/name is the strongest text inside the card; a
 - **AND** presentation itself sends no protocol request
 - **AND** microphone mute state is not changed by that gain intent
 
+#### Scenario: TE50 shares the Huawei dB microphone contract
+
+- **GIVEN** exact model is `Huawei TE50`
+- **AND** accepted configured `microphone_volume = 18`
+- **WHEN** the Audio card renders
+- **THEN** the configured microphone value displays `+6 dB`
+- **AND** no percentage is derived from the speaker `0..21` scale
+- **AND** microphone mute and microphone LIVE remain separate evidence
+
+#### Scenario: Huawei microphone upper bound remains distinct from speaker upper bound
+
+- **GIVEN** exact model is `Huawei TE40` or `Huawei TE50`
+- **AND** accepted configured `mic1Value = 24`
+- **WHEN** the Audio card renders
+- **THEN** configured microphone gain displays `+12 dB`
+- **AND** the value is not rejected merely because Huawei speaker volume has upper bound `21`
+
 ### Requirement: Codec visual acceptance is measurable from repository-local checkpoints
 
 Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repository-local checkpoints; access to an external screenshot is unnecessary:
@@ -425,7 +439,7 @@ Manual visual acceptance at `1440 x 900` in dark theme SHALL use these ten repos
 3. card tops align and card heights/gaps/padding remain within the existing baseline ranges;
 4. all card headers use the common icon/title anatomy and typography ranges;
 5. `Состояние` and `Вызов и презентация` retain their approved permanent rows/order;
-6. `Аудио` renders exactly `Микрофон (уровень) -> Громкость микрофона -> Громкость динамиков`, with no speaker LIVE meter or redundant textual `Live ...` rows, distinct live/static/mute semantics, TE40 configured MIC1 gain in dB, and Box 310 microphone LIVE explicitly unsupported;
+6. `Аудио` renders exactly `Микрофон (уровень) -> Громкость микрофона -> Громкость динамиков`, with no speaker LIVE meter or redundant textual `Live ...` rows, distinct live/static/mute semantics, TE40/TE50 configured MIC1 gain in dB, Huawei speaker `0..21` kept separate, and Box 310 microphone LIVE explicitly unsupported;
 7. `Журнал вызовов` preserves three-row preview density/anatomy and places `Развернуть` after the preview;
 8. `Действия` retains exactly two vertically stacked full-width actions in the approved order/sizing;
 9. state/call cards remain dot-free with right-aligned values; call/presentation use normalized `Да`/`Нет`, and registration uses the required semantic icon/neutral unavailable state;
@@ -483,12 +497,14 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 
 | Exact model | Static microphone source | Canonical evidence | Presentation |
 | --- | --- | --- | --- |
-| `Huawei TE20` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
-| `Huawei TE40` | numeric `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state |
-| `Huawei TE50` | approved TE40 `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+9 dB`; independent mute state; pending TE50 hardware acceptance |
+| `Huawei TE20` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain; device input-gain scale does not create a supported numeric control |
+| `Huawei TE40` | numeric `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | transform to `-12..+12 dB`; independent mute state |
+| `Huawei TE50` | approved TE40 `mic1Value`; independent `MicSwitch`/mute evidence | numeric `microphone_volume`; independent `microphone_muted` | same `-12..+12 dB` presentation as TE40; independent mute state |
 | `CloudLink Bar 310` | diagnostic `mic_volume`; mute only if authoritative | numeric `microphone_volume`; optional independent mute | show accepted numeric value where present |
 | `CloudLink Box 310` | existing non-LIVE diagnostic evidence only where already authoritative | canonical static fields only | may show accepted static evidence; SHALL NOT imply LIVE support |
 | `Polycom RPG 310` | authoritative mute evidence | `microphone_muted` | mute state; no fabricated numeric gain |
+
+For Huawei TE20/TE40/TE50, microphone/RCA input gain uses the confirmed device scale `-12..+12 dB` with nominal `0 dB`, while speaker volume separately uses `0..21`. These domains SHALL NOT share configured-value percentage conversion logic.
 
 #### Scenario: TE40 has numeric MIC1 gain and independent mute evidence
 
@@ -497,6 +513,13 @@ The common dashboard SHALL consume canonical static audio evidence from the exac
 - **THEN** the configured value is shown as `+9 dB` rather than `Нет данных`
 - **AND** mute state remains independent
 - **AND** numeric zero alone does not mean muted
+
+#### Scenario: TE50 uses the same dB configured microphone presentation
+
+- **GIVEN** accepted exact-model normalization produced numeric `microphone_volume = 24` for TE50
+- **WHEN** the dashboard renders
+- **THEN** the configured value is shown as `+12 dB`
+- **AND** no TE50-specific percentage exception is applied
 
 ### Requirement: Automatic codec call preview presents up to three generation-current records without explicit opening
 
@@ -572,64 +595,3 @@ This requirement changes neither vendor protocol command/request semantics nor t
 - **WHEN** exact `CloudLink Box 310`, `Polycom RPG 310`, Matrix, DMP, PDU, general refresh, call-log, authentication, cleanup, application-time-update, or another unrelated timer is active
 - **THEN** this requirement starts no new microphone LIVE context for unsupported codecs
 - **AND** it changes no unrelated timer cadence or network behavior
-
-### Requirement: Exact Huawei TE50 configured microphone presentation uses percentage while native MIC1 mutation stays unchanged
-
-This exact-model requirement is the specific presentation exception to broader TE40/TE50 dB wording earlier in this change. Wherever broader wording includes TE50 in dB presentation, this requirement is authoritative for exact `Huawei TE50` only. Exact `Huawei TE40` remains on the existing dB presentation and mutation contract.
-
-For exact `Huawei TE50`, accepted configured MIC1 evidence remains the same TE40-backed canonical `microphone_volume` originating from authoritative `mic1Value`. The native accepted range remains `0..21`, and the native mutation step remains one wire unit (`1 dB` device-native). The GUI SHALL derive display-only integer percentage evidence only when the accepted value `V` is finite numeric, is not a boolean, and is within `0..21` inclusive:
-
-```text
-scaled  = 100 * V / 21
-percent = floor(scaled + 0.5)
-```
-
-The configured microphone value region SHALL display `<percent>%`. Missing, malformed, non-finite, boolean, stale-unusable, or out-of-range configured evidence SHALL render `Нет данных`; the presentation SHALL NOT clamp, guess, or manufacture a percentage.
-
-The percentage is display-only and SHALL NOT become mutation authority. TE50 microphone `−` / `+` SHALL continue to request exactly one native target step (`V-1` / `V+1`, bounded to `0..21`) through the existing typed TE40-backed MIC1 mutation, fresh full-state pre-read, one-save, and full post-write reconciliation contract. The GUI SHALL NOT reverse-convert the rounded percentage into a wire value. Independent microphone mute semantics remain unchanged.
-
-Examples:
-
-```text
-V=0  -> 0%
-V=12 -> 57%
-V=18 -> 86%
-V=21 -> 100%
-```
-
-The repository-local visual acceptance checkpoint for configured microphone presentation therefore means: TE40 remains dB, while exact TE50 uses this percentage exception. All LIVE-meter semantics remain independent and unchanged.
-
-#### Scenario: TE50 configured MIC1 renders percentage
-
-- **GIVEN** exact model is `Huawei TE50`
-- **AND** accepted configured `microphone_volume = 18`
-- **WHEN** the Audio card renders
-- **THEN** the configured microphone value displays `86%`
-- **AND** it does not display `+6 dB`
-- **AND** microphone mute and microphone LIVE remain separate evidence
-
-#### Scenario: TE50 plus keeps native one-step mutation authority
-
-- **GIVEN** exact model is `Huawei TE50`
-- **AND** current accepted configured `microphone_volume = 18`, displayed as `86%`
-- **AND** room interaction controls are eligible
-- **WHEN** the operator activates microphone `+`
-- **THEN** the typed mutation target is native wire value `19`
-- **AND** after authoritative readback of `19` the display is `90%`
-- **AND** presentation does not derive the mutation target by reverse-converting `86%`
-
-#### Scenario: TE50 invalid configured evidence is not fabricated
-
-- **GIVEN** exact model is `Huawei TE50`
-- **AND** configured microphone evidence is missing, malformed, non-finite, boolean, stale-unusable, or outside `0..21`
-- **WHEN** the Audio card renders
-- **THEN** the configured value is `Нет данных`
-- **AND** no clamped/default percentage is manufactured
-
-#### Scenario: TE40 keeps dB presentation
-
-- **GIVEN** exact model is `Huawei TE40`
-- **AND** accepted configured `microphone_volume = 18`
-- **WHEN** the Audio card renders
-- **THEN** the configured microphone value remains `+6 dB`
-- **AND** the TE50 percentage exception does not alter TE40 presentation or mutation semantics
