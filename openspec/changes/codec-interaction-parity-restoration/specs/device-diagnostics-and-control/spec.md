@@ -15,7 +15,7 @@ The unified exact-model registration SHALL remain the sole runtime capability au
 
 This table is an OpenSpec/test oracle and SHALL NOT become a second runtime registry.
 
-TE40 and exact-model TE50 numeric microphone gain are distinct from microphone mute. Their approved primary-input target is `MIC1`. User-facing configured gain range is `-12 dB .. +9 dB`, step `1 dB`; device/wire range is `0..21`, step `1`, with `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`.
+TE40 and exact-model TE50 numeric microphone gain are distinct from microphone mute. Their approved primary-input target is `MIC1`. User-facing configured gain range is `-12 dB .. +12 dB`, step `1 dB`; device/wire range is `0..24`, step `1`, with `gain_db = mic1Value - 12` and `mic1Value = gain_db + 12`. Huawei speaker volume is a separate control domain: TE20/TE40/TE50 speaker adjustment remains `0..21`, step `1`; that speaker range SHALL NOT be reused as the MIC1 or RCA-input gain bound.
 
 Speaker mute support for all six exact models SHALL continue to use only the approved volume-zero/restore desired-state policy and proven exact-row/generation restore evidence; it does not imply a separate raw speaker-mute wire command.
 
@@ -372,9 +372,9 @@ Present numeric `mic1Value` is the authoritative configured-primary-gain source 
 
 For exact `Huawei TE40`, static audio normalization SHALL preserve numeric microphone configuration evidence independently from mute evidence.
 
-When the approved TE40 audio-status parser receives a present finite numeric `mic1Value` in wire domain `0..21`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume` from that MIC1 value. Historical `micValue` MAY be a compatibility fallback only when `mic1Value` is absent; present `mic1Value` SHALL NOT be overridden by `micValue`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
+When the approved TE40 audio-status parser receives a present finite numeric `mic1Value` in wire domain `0..24`, the accepted room snapshot SHALL publish canonical numeric `microphone_volume` from that MIC1 value. Historical `micValue` MAY be a compatibility fallback only when `mic1Value` is absent; present `mic1Value` SHALL NOT be overridden by `micValue`. When authoritative `MicSwitch` or equivalent approved mute evidence is present, the same snapshot SHALL independently publish canonical `microphone_muted`.
 
-For presentation and typed gain intent, TE40 SHALL use `gain_db = microphone_volume - 12`. Thus wire value `21` is `+9 dB`, `18` is `+6 dB`, and `0` is `-12 dB`.
+For presentation and typed gain intent, TE40 SHALL use `gain_db = microphone_volume - 12`. Thus wire value `24` is `+12 dB`, `21` is `+9 dB`, `18` is `+6 dB`, and `0` is `-12 dB`.
 
 A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute state SHALL NOT overwrite numeric gain evidence, and numeric gain evidence SHALL NOT overwrite mute state.
 
@@ -413,7 +413,7 @@ A numeric value, including `0`, SHALL NOT be interpreted as mute evidence. Mute 
 
 ### Requirement: TE40 microphone-gain mutation uses fresh full-state save and reconciliation
 
-For exact `Huawei TE40`, room `microphone_adjust` SHALL control primary `MIC1` configured input gain only. Each operator `-` / `+` intent changes configured gain by exactly `1 dB`, clamped to `-12 dB .. +9 dB`, equivalent to wire target `0..21` step `1`.
+For exact `Huawei TE40`, room `microphone_adjust` SHALL control primary `MIC1` configured input gain only. Each operator `-` / `+` intent changes configured gain by exactly `1 dB`, clamped to `-12 dB .. +12 dB`, equivalent to wire target `0..24` step `1`.
 
 The state-changing transport boundary is:
 
@@ -499,6 +499,14 @@ Microphone mute remains a separate desired-state operation and SHALL NOT change 
 - **GIVEN** exact TE40 has current accepted `microphone_volume = 0`, equivalent to `-12 dB`
 - **WHEN** the operator requests one microphone gain `-`
 - **THEN** no below-range target is constructed
+- **AND** no mutation/session/device I/O is started solely for that no-op
+- **AND** mute state remains unchanged
+
+#### Scenario: TE40 gain plus at upper bound is local no-op
+
+- **GIVEN** exact TE40 has current accepted `microphone_volume = 24`, equivalent to `+12 dB`
+- **WHEN** the operator requests one microphone gain `+`
+- **THEN** no above-range target is constructed
 - **AND** no mutation/session/device I/O is started solely for that no-op
 - **AND** mute state remains unchanged
 
