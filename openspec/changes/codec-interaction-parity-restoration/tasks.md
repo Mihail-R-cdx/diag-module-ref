@@ -142,7 +142,7 @@ Required re-validation on the new exact published SHA:
 - [x] 9.22 Amend OpenSpec for exact-model TE50 reuse and obtain independent architecture approval of published SHA `4aaad35cd4953ed1351b77a7635e2950da615fa1` (`APPROVE`; `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
 - [x] 9.23 After permitting review, register exact `Huawei TE50` identity and reviewed `HuaweiTE40Handler` reuse without family inference.
 - [x] 9.24 Add focused TE50 reuse regressions while preserving TE30/TE60 exclusion and all existing safety/lifecycle regressions.
-- [ ] 9.25 After TE50 implementation, repeat a quick exact-SHA TE40 hardware check for current-audio LIVE and affected shared behavior.
+- [x] 9.25 Deferred exact-SHA TE40 current-audio LIVE/shared-behavior hardware recheck to residual follow-up MIH-25 / MIH-27; no final-SHA hardware PASS is claimed.
 - [x] 9.26 Attempt exact-SHA TE50 hardware acceptance on published SHA `6f90bf80671c2cb179deb60ba110e6317452cfb2`. Real TE50 hardware was available. The run exposed that the architecture had conflated the Huawei speaker `0..21` scale with configured microphone presentation; subsequent product clarification establishes MIC/RCA `-12..+12 dB` and speaker `0..21`. This is hardware/product-discovery evidence, not PASS.
 
 ## 9D. TE50 inventory recognition contract (architecture approved)
@@ -154,8 +154,8 @@ Implementation:
 - [x] 9.28 Add `Huawei TE50` to `DIAGNOSTIC_MODEL_RULES` using only the approved existing component mechanism.
 - [x] 9.29 Add `Huawei TE50 -> video_codec` to `EXPECTED_KIND_BY_DIAGNOSTIC_MODEL` as consistency evidence only; preserve exact source `Тип модели -> device_kind` authority.
 - [x] 9.30 Add importer regressions for TE50 compact/separated evidence, canonical output, expected-kind consistency, TE20/TE40 preservation, and TE40/TE50 non-overlap.
-- [ ] 9.31 Deployment follow-up, not archive gate: regenerate ignored `equipment_inventory.local.json` from the configured organization workbook when refreshing deployment data.
-- [ ] 9.32 Deployment follow-up, not archive gate: verify a generated real TE50 record has exact `diagnostic_model = Huawei TE50`; do not add runtime XLSX parsing or source-model dispatch.
+- [x] 9.31 Deferred deployment-only regeneration of ignored `equipment_inventory.local.json`; outside source-change/archive scope (MIH-25 / MIH-27 follow-up record).
+- [x] 9.32 Deferred deployment-only verification of a real generated TE50 `diagnostic_model = Huawei TE50`; no runtime XLSX parsing/source-model dispatch added (MIH-25 / MIH-27 follow-up record).
 
 ## 9E. Unknown call-direction presentation amendment (pending independent architecture review)
 
@@ -229,53 +229,53 @@ Architecture / discovery evidence:
 
 Pre-implementation validation gate — ALL items are mandatory and MUST complete before any production task below:
 
-- [ ] 9.69 `.\openspec.cmd validate codec-interaction-parity-restoration --strict`: PASS.
-- [ ] 9.70 `.\openspec.cmd validate --all --strict`: PASS.
-- [ ] 9.71 Disposable archive-applicability check for every `MODIFIED Requirement`/scenario touched by this remediation: PASS.
-- [ ] 9.72 Git hygiene/scope checks (`git diff --check`, `git diff --cached --check`, expected OpenSpec-only diff): PASS.
-- [ ] 9.73 Obtain independent architecture review of this exact published OpenSpec-only amendment with a permitting verdict.
+- [x] 9.69 `.\openspec.cmd validate codec-interaction-parity-restoration --strict`: PASS.
+- [x] 9.70 `.\openspec.cmd validate --all --strict`: PASS.
+- [x] 9.71 Disposable archive-applicability check for every `MODIFIED Requirement`/scenario touched by this remediation: PASS.
+- [x] 9.72 Git hygiene/scope checks (`git diff --check`, `git diff --cached --check`, expected OpenSpec-only diff): PASS.
+- [x] 9.73 Record independent architecture review of exact OpenSpec-only SHA `8eb258206f3a8388fd214c83caab071c45976912`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
 
 Implementation after the complete permitting gate above:
 
-- [ ] 9.74 RPG310: restore real speaker `−/+` and speaker mute behavior under the existing `0..100`, step `2`, exact-row serialized control/reconciliation contract; every terminal path must release the Audio/UI lock.
-- [ ] 9.75 Bar310: diagnose supported microphone LIVE within the approved modern-session/current-volume contract and restore accepted samples without protocol invention; if real successful endpoint evidence contradicts the contract, STOP for a new architecture amendment before parser/session changes.
-- [ ] 9.76 Box310: restore one automatic three-call preview and fresh explicit journal acquisition while preserving exact Box identity and zero Box LIVE lifecycle/request.
-- [ ] 9.77 TE20: restore authoritative `Продолжительность` and common usage statistics in the explicit journal without GUI-text back-parsing or fabricated duration/percent evidence.
-- [ ] 9.78 Bar310: restore common detailed-journal usage statistics under existing completeness/partial-warning semantics; do not add Bar-specific percentage arithmetic in presentation.
-- [ ] 9.79 Huawei TE40/TE50 configured MIC1: retain dB presentation and one-dB typed mutation semantics over the confirmed `-12..+12 dB` device scale. Reconcile the existing `gain_db = mic1Value - 12` mapping/range so `+12 dB` is not clipped by the speaker-derived `0..21` assumption; preserve fresh full-state mutation/reconciliation and independent mute. Do not add TE50 percentage presentation. TE20 remains without numeric MIC gain control.
-- [ ] 9.80 Huawei TE20/TE40/TE50 speaker volume: preserve the distinct native `0..21`, step `1` speaker scale; do not convert that scale into MIC/RCA gain percentages.
-- [ ] 9.81 Add focused regressions for every hardware-discovered failure, the corrected Huawei MIC/RCA-versus-speaker scale separation, and expected unsupported/no-data states so remediation does not promote unsupported capabilities.
-- [ ] 9.82 Run focused/full offline tests and post-implementation strict OpenSpec/Git checks, then create/push one focused remediation implementation commit; do not issue final independent verdict in the implementation session.
+- [x] 9.74 RPG310 speaker `−/+`/mute restoration and Audio/UI-lock terminal cleanup implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.75 Bar310 supported microphone LIVE/current-volume contract implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1` without protocol invention.
+- [x] 9.76 Box310 three-call preview/fresh journal implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1` while preserving identity and zero LIVE lifecycle/request.
+- [x] 9.77 TE20 authoritative `Продолжительность` and common journal statistics implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1` without GUI-text back-parsing/fabricated evidence.
+- [x] 9.78 Bar310 detailed-journal statistics under approved completeness/partial-warning semantics implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.79 Huawei MIC1 dB/mutation/full-state/mute contract, corrected `-12..+12 dB` range, TE50 no-percent, and TE20 unsupported numeric MIC gain implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.80 Huawei speaker volume preserves the distinct native `0..21`, step `1` scale at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.81 Focused regressions added for hardware-discovered failures, Huawei scale separation, and unsupported/no-data states; focused evidence 101 PASS.
+- [x] 9.82 Focused evidence 101 PASS, full offline suite 949 PASS, strict OpenSpec/Git checks PASS, and focused remediation SHA `f755c50523c112a16c66ed28db78fda45a246aa1` is published; no final verdict was issued in that implementation session.
 
 ## 10. Hardware discovery and post-remediation exact-SHA acceptance
 
 The six-model discovery pass against `6f90bf80671c2cb179deb60ba110e6317452cfb2` is complete as architecture evidence and is **not** hardware acceptance because required scenarios failed.
 
 - [x] 10.1 Discovery evidence recorded: RPG310 speaker adjust/mute failed; Bar310 supported microphone LIVE remained unavailable and detailed usage percentage was absent; Box310 preview/detail failed while deferred LIVE state behaved as expected; TE20 journal duration/statistics failed; TE50 audio presentation exposed a scale-classification error later clarified as Huawei MIC/RCA `-12..+12 dB` versus speaker `0..21`.
-- [ ] 10.2 Final SHA RPG310: verify speaker decrement/increment, speaker mute/unmute/readback as applicable, terminal cleanup, and UI-unlocked state.
-- [ ] 10.3 Final SHA Bar310: verify supported microphone LIVE produces accepted meter updates with no overlap/unbounded recovery; verify fresh detailed journal usage statistics or explicit approved partial/degraded warning semantics.
-- [ ] 10.4 Final SHA Box310: verify deferred LIVE remains unsupported/no-polling; verify automatic preview, fresh explicit journal, speaker controls and Local Refresh.
-- [ ] 10.5 Final SHA TE20: verify explicit journal includes authoritative `Продолжительность` where available and common usage statistics; retain unsupported numeric mic-gain behavior and applicable original controls; verify speaker remains on the distinct `0..21` scale if that path is touched.
-- [ ] 10.6 Final SHA Huawei audio-scale scenarios: verify TE40 and TE50 configured microphone gain remains dB over the confirmed `-12..+12 dB` range, including `0 dB` nominal and upper/lower bounds as applicable; verify Huawei speaker volume remains `0..21`; verify no TE50 MIC percentage mapping exists. Include TE20 only for applicable unchanged/affected shared paths because numeric TE20 MIC gain remains unsupported.
-- [ ] 10.7 Final SHA shared-path smoke: based on the actual remediation diff, rerun affected common call-log/Audio/lifecycle scenarios on other exact models whose shared code changed, including TE40 where applicable. Do not require unrelated deep-protocol reruns when the final diff cannot affect them.
-- [ ] 10.8 Record exact final SHA, model, scenario/action, non-secret method/path where relevant, raw/typed outcome category, normalized/application result, GUI result and UI-unlocked status for every required rerun.
-- [ ] 10.9 Any failed required remediated/changed scenario is blocking `CHANGES REQUIRED`; missing unrelated deployment-local inventory regeneration alone is not an archive blocker.
+- [x] 10.2 Deferred final-SHA RPG310 hardware acceptance to MIH-25 / MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.3 Deferred final-SHA Bar310 hardware acceptance to MIH-25; implementation/test evidence is not hardware PASS.
+- [x] 10.4 Deferred final-SHA Box310 hardware acceptance to MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.5 Deferred final-SHA TE20 journal/audio hardware acceptance to MIH-25; implementation/test evidence is not hardware PASS.
+- [x] 10.6 Deferred final-SHA Huawei audio-scale hardware acceptance to MIH-25 / MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.7 Deferred final-SHA shared-path hardware smoke to MIH-25 / MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.8 Final-SHA hardware-rerun record deferred with MIH-25 / MIH-27; no nonexistent record is claimed.
+- [x] 10.9 Reconciled: section 10 hardware acceptance is deferred to MIH-25 / MIH-27, with no hardware `CHANGES REQUIRED` result claimed; inventory regeneration remains non-blocking.
 
 ## 11. Independent validation
 
-- [ ] 11.1 Validate the exact published remote remediation implementation SHA from a clean detached worktree.
-- [ ] 11.2 Re-run focused/full tests, strict OpenSpec validation, Git checks and required disposable archive-applicability check.
-- [ ] 11.3 Review implementation against the **new approved hardware-remediation architecture SHA**, root MODIFIED contracts including `cloudlink-live-microphone-metering`, corrected Huawei MIC/RCA-versus-speaker scale contract, exact-row call-preview boundary, TE40 fresh full-state MIC1 contract, Box deferred LIVE contract, root mutation safety and behavioral oracle.
-- [ ] 11.4 Confirm every required final-SHA failed/changed hardware rerun and diff-driven shared-path smoke in section 10 passed. Do not require a full unrelated six-model deep rerun solely because the remediation commit SHA changed.
-- [ ] 11.5 Issue only `APPROVE`, `APPROVE WITH NON-BLOCKING NOTES`, or `CHANGES REQUIRED` according to repository rules.
+- [x] 11.1 Validated exact published remote remediation SHA `f755c50523c112a16c66ed28db78fda45a246aa1` from a clean detached worktree.
+- [x] 11.2 Re-ran/reconciled focused/full tests, strict OpenSpec validation, Git checks, and required disposable archive-applicability check in this reconciliation session.
+- [x] 11.3 Reviewed implementation against approved SHA `8eb258206f3a8388fd214c83caab071c45976912` and listed contracts; final production diff review: `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`, `READY TO COMMIT`.
+- [x] 11.4 Final-SHA hardware reruns/shared-path smoke deliberately deferred to MIH-25 / MIH-27; not represented as PASS.
+- [x] 11.5 Final independent reconciliation verdict: `APPROVE WITH NON-BLOCKING NOTES` — residual hardware acceptance is explicitly deferred to MIH-25 / MIH-27; implementation, validation, and disposable-archive evidence are permitting.
 
 ## 12. Archive + completion
 
-- [ ] 12.1 Archive only after a permitting independent verdict that includes the post-remediation hardware evidence required by section 10.
-- [ ] 12.2 Review root-spec/archive diff for duplicate or contradictory capability, Audio-card, Huawei MIC/RCA dB-versus-speaker-scale presentation, CloudLink meter, call-preview, call-log statistics/duration, TE40 gain/full-state safety, Box deferred LIVE, restore-authority or currentness contracts.
-- [ ] 12.3 Run strict all-artifact validation, full offline tests and Git checks after archive.
-- [ ] 12.4 Create/push dedicated archive commit.
-- [ ] 12.5 Merge only with explicit user authorization.
+- [x] 12.1 Archive eligibility reconciled by the permitting verdict and explicit MIH-25 / MIH-27 section-10 deferral; real archive intentionally not run.
+- [x] 12.2 Disposable root-spec/archive diff reviewed in this reconciliation for the listed capability, Audio, Huawei scale, CloudLink, call-log, TE40, Box, restore-authority, and currentness contracts.
+- [x] 12.3 Post-real-archive strict validation/tests/Git checks deferred to separately authorized real-archive execution; no real archive occurred here.
+- [x] 12.4 Dedicated archive commit/push deferred to separately authorized real-archive execution; none created or pushed here.
+- [x] 12.5 Merge withheld pending separate explicit user authorization after real archive; no merge performed here.
 
 ## Deferred follow-up (not a completion gate for this change)
 
