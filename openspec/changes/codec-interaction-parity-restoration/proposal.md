@@ -71,7 +71,7 @@ The historical `WEB_GetCurrentAudioParam` legacy compatibility classification ma
 
 The current Bar 310 capture SHALL NOT be used as Box evidence. Earlier Box `{deviceId, curVolume}` observations SHALL NOT be turned into `max(all)` or any other parser rule in this change.
 
-## What this amendment changes now
+## What Changes
 
 - Add archive-compatible `MODIFIED Requirements` for root `cloudlink-live-microphone-metering`, making Bar 310 the only supported CloudLink live microphone model in this change.
 - Remove archived-root Box LIVE polling authority while preserving Bar endpoint/session/parser/polling behavior.
