@@ -23,7 +23,7 @@ from gui.diagnostic_dispatch import dispatch_entries, validate_dispatch_registry
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
-    from PyQt5.QtWidgets import QApplication, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QSizePolicy, QTableWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -215,7 +215,7 @@ class RoomPresentationTests(unittest.TestCase):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
         inv = inventory(
-            record("A", room_id="r", name="Room", ip="192.0.2.1", switch="10.0.0.1", port="Gi1/0/1"),
+            record("A", room_id="r", name="Room", address="Address", ip="192.0.2.1", switch="10.0.0.1", port="Gi1/0/1", vip=True),
             record("B", room_id="r", name="Room", ip="192.0.2.2", switch="10.0.0.1", port="Gi1/0/2"),
             record("C", room_id="r", name="Room", ip="192.0.2.3", port="Gi1/0/3"),
         )
@@ -231,12 +231,45 @@ class RoomPresentationTests(unittest.TestCase):
         self.assertEqual("Huawei TE40", widget.network_tree.topLevelItem(0).child(0).text(0))
         self.assertEqual("Коммутатор не определён", widget.network_tree.topLevelItem(1).text(0))
         self.assertIn("Занято", widget.occupancy_label.text())
-        self.assertIn("Room", widget.room_name_label.text())
-        self.assertIn("Гарантия:", widget.room_warranty_label.text())
-        self.assertFalse(widget.room_card.header_widget.isHidden())
-        self.assertFalse(widget.network_card.header_widget.isHidden())
+        self.assertEqual("Название комнаты:  Room", widget.room_name_label.text())
+        self.assertEqual("Адрес комнаты:  Address", widget.room_header.text())
+        self.assertTrue(widget.vip_badge.isVisible() or not widget.vip_badge.isHidden())
+        self.assertEqual("Гарантия: Нет гарантии", widget.room_warranty_label.text())
+        self.assertFalse(hasattr(session, "room_warranty"))
+        self.assertTrue(widget.room_card.header_widget.isHidden())
+        self.assertFalse(widget.room_card.title_label.isVisible())
+        self.assertFalse(widget.room_card.icon_label.isVisible())
+        self.assertEqual("Информация о комнате", widget.room_card.title_label.text())
+        self.assertEqual(0, widget.room_card.layout().spacing())
+        self.assertTrue(all(value > 0 for value in widget.room_card.layout().getContentsMargins()))
+        self.assertIs(widget.room_card.body_layout.itemAt(0).widget(), widget.room_name_row)
+        self.assertEqual(
+            [
+                widget.room_name_row,
+                widget.room_header,
+                widget.room_warranty_label,
+                widget.occupancy_label,
+            ],
+            [widget.room_card.body_layout.itemAt(index).widget() for index in range(4)],
+        )
+        self.assertTrue(widget.network_card.header_widget.isHidden())
+        self.assertTrue(widget.network_card.icon_label.isHidden())
+        self.assertEqual("", widget.network_card.title_label.text())
+        self.assertIs(widget.upper_cards.layout().itemAt(0).widget(), widget.room_card)
+        self.assertIs(widget.upper_cards.layout().itemAt(1).widget(), widget.network_card)
+        self.assertIs(widget.network_card.body_layout.itemAt(0).widget(), widget.network_tree)
+        self.assertEqual(1, widget.network_card.body_layout.count())
+        self.assertEqual((0, 0, 0, 0), widget.network_card.layout().getContentsMargins())
+        self.assertEqual((0, 0, 0, 0), widget.network_card.body_layout.getContentsMargins())
+        self.assertEqual(0, widget.network_card.layout().spacing())
+        self.assertEqual(QSizePolicy.Expanding, widget.network_tree.sizePolicy().horizontalPolicy())
+        self.assertEqual(QSizePolicy.Expanding, widget.network_tree.sizePolicy().verticalPolicy())
         self.assertEqual(186, widget.upper_cards.height())
         self.assertFalse(widget.network_tree.isHeaderHidden())
+        self.assertEqual(
+            ["Коммутатор (IP)", "Порты", "Подключено устройств"],
+            [widget.network_tree.headerItem().text(index) for index in range(3)],
+        )
         self.assertEqual(42, widget.tree.topLevelItem(0).sizeHint(0).height())
         self.assertEqual(28, widget.tree.iconSize().width())
         self.assertEqual("", widget.tree.topLevelItem(0).text(0))

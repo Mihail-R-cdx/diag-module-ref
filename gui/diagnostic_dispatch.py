@@ -269,11 +269,11 @@ def _room_entry(
     )
 
 
-def _codec_controls(*, microphone_mute: bool, speaker_minimum: int, speaker_maximum: int, speaker_step: int) -> CodecControlDescriptor:
+def _codec_controls(*, microphone_adjust: bool = False, microphone_mute: bool, speaker_minimum: int, speaker_maximum: int, speaker_step: int) -> CodecControlDescriptor:
     return CodecControlDescriptor(
         speaker_adjust=True,
         speaker_mute=True,
-        microphone_adjust=False,
+        microphone_adjust=microphone_adjust,
         microphone_mute=microphone_mute,
         reboot=False,
         speaker_minimum=speaker_minimum,
@@ -286,11 +286,12 @@ def _codec_controls(*, microphone_mute: bool, speaker_minimum: int, speaker_maxi
 
 
 DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
-    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
-    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True, call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
+    _room_entry("Huawei TE20", "codec", "huawei_te20", "codec_one_shot", call_log=True, live_binding_key="huawei_room_live", call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
+    _room_entry("Huawei TE40", "codec", "huawei_te40", "codec_one_shot", call_log=True, live_binding_key="huawei_room_live", call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_adjust=True, microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
+    _room_entry("Huawei TE50", "codec", "huawei_te40", "codec_one_shot", call_log=True, live_binding_key="huawei_room_live", call_activity_binding_key="huawei_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_adjust=True, microphone_mute=True, speaker_minimum=0, speaker_maximum=21, speaker_step=1)),
     _room_entry("CloudLink Bar 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=False, speaker_minimum=0, speaker_maximum=15, speaker_step=1)),
-    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, live_binding_key="cloudlink_room_live", call_activity_binding_key="cloudlink_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=False, speaker_minimum=0, speaker_maximum=15, speaker_step=1)),
-    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True, call_activity_binding_key="polycom_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=100, speaker_step=1)),
+    _room_entry("CloudLink Box 310", "codec", "cloudlink_bar_310", "codec_one_shot", call_log=True, call_activity_binding_key="cloudlink_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=False, speaker_minimum=0, speaker_maximum=15, speaker_step=1)),
+    _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True, call_activity_binding_key="polycom_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=100, speaker_step=2)),
     _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
     _room_entry("Aten PE8208AV", "pdu", "pdu_aten_pe8208av", "pdu_one_shot", pdu_mutation=True),
     _room_entry("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pdu_one_shot", credentialless_allowed=True, pdu_mutation=True),

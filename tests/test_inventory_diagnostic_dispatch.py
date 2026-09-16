@@ -5,7 +5,7 @@ from unittest.mock import ANY, Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt5.QtWidgets import QApplication, QLabel
+    from PyQt5.QtWidgets import QApplication, QLabel, QLineEdit
     from PyQt5.QtCore import QThreadPool
 except ImportError:  # pragma: no cover
     QApplication = None
@@ -59,6 +59,7 @@ class DispatchRegistryTests(unittest.TestCase):
         expected = (
             "Huawei TE20",
             "Huawei TE40",
+            "Huawei TE50",
             "CloudLink Bar 310",
             "CloudLink Box 310",
             "Polycom RPG 310",
@@ -101,6 +102,13 @@ class DispatchRegistryTests(unittest.TestCase):
             self.assertEqual("room_one_shot_refresh", entry.local_refresh_binding_key)
             self.assertEqual("room_one_shot_cleanup", entry.cleanup_binding_key)
         self.assertEqual("room_codec_call_log", entries["Huawei TE40"].auxiliary_binding_key)
+        te50 = entries["Huawei TE50"]
+        self.assertEqual("huawei_te40", te50.lifecycle_route)
+        self.assertEqual("huawei_room_live", te50.live_binding_key)
+        self.assertEqual("huawei_call_activity", te50.call_activity_binding_key)
+        self.assertTrue(te50.codec_controls.microphone_adjust)
+        self.assertTrue(te50.codec_controls.microphone_mute)
+        self.assertEqual((0, 21, 1), (te50.codec_controls.speaker_minimum, te50.codec_controls.speaker_maximum, te50.codec_controls.speaker_step))
         self.assertEqual("room_pdu_mutation", entries["Aten PE8208AV"].mutation_binding_key)
         self.assertEqual("room_one_shot_refresh", entries["Aten PE8208AV"].reconciliation_binding_key)
         self.assertEqual("dmp_room_live", entries["Extron DMP 64 Plus"].live_binding_key)
@@ -134,6 +142,7 @@ class ExactModelResolverTests(unittest.TestCase):
             "Aten PE8208AV": "pdu",
             "Extron IPL T PCS4i": "pdu",
             "Huawei TE40": "codec",
+            "Huawei TE50": "codec",
             "Extron IN1804": "matrix",
             "Biamp Tesira Forte CI": "audio_dsp",
             "Extron DMP 64 Plus": "audio_dsp",
@@ -183,13 +192,17 @@ class MainPanelTests(unittest.TestCase):
     def test_main_panel_has_no_persistent_model_selector(self):
         from gui.main_window import VCSDiagnosticApp
 
-        window = VCSDiagnosticApp()
+        with patch.object(VCSDiagnosticApp, "refresh_data") as refresh:
+            window = VCSDiagnosticApp()
+        refresh.assert_not_called()
         self.addCleanup(window.close)
         self.assertFalse(hasattr(window, "device_combo"))
         self.assertEqual([], window.findChildren(type(window.ip_entry), "deviceCombo"))
         labels = [label.text() for label in window.connection_panel.findChildren(QLabel)]
         self.assertNotIn("Устройство", labels)
-        self.assertIn("IP-адрес", labels)
+        self.assertIn("Введите название помещения или IP-адрес оборудования", labels)
+        self.assertNotIn("IP-адрес", labels)
+        self.assertEqual([window.ip_entry], window.connection_panel.findChildren(QLineEdit))
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")

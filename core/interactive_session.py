@@ -16,6 +16,7 @@ from core.exceptions import (
     AuthenticationError,
     CodecFailureCategory,
     CommandError,
+    CommandRejectedError,
     CommandOutcomeUnknownError,
     ConnectionError,
     SessionInvalidError,
@@ -44,6 +45,19 @@ class InteractiveOperation:
     target: Any = None
     original: Any = None
     allow_set_from_any_authoritative: bool = False
+    require_confirmed_readback: bool = False
+    # Full-state mutations perform their own compare-and-preserve
+    # reconciliation.  Retrying them here could replay a command after an
+    # ambiguous transport outcome, which is never safe.
+    suppress_recovery: bool = False
+    # A full-state mutation can expose its exact state-changing submission
+    # boundary.  This is intentionally opt-in so ordinary handlers retain
+    # their existing invocation contract.
+    report_mutation_stage: bool = False
+    mutation_stage_observer: Callable[[str], None] | None = None
+    # Recovery remains safe before the explicit possible-send boundary. Once
+    # crossed, a setter replay could duplicate a command with unknown outcome.
+    suppress_recovery_after_mutation_stage: bool = False
     duplicate_key: Optional[str] = None
     quiet: bool = False
     client_token: Optional[int] = None
@@ -97,6 +111,7 @@ class InteractiveSessionSignals(QObject):
     error = pyqtSignal(dict)
     finished = pyqtSignal(dict)
     dropped = pyqtSignal(dict)
+    mutation_stage = pyqtSignal(dict)
     shutdown_finished = pyqtSignal(dict)
 
 
@@ -257,6 +272,13 @@ class InteractiveSessionController(QObject):
     ) -> None:
         terminal = self._public_context(operation_id, generation, context, operation)
         recovery_budget = _OperationRecoveryBudget()
+        possible_send_reached = threading.Event()
+
+        def report_mutation_stage(stage: str) -> None:
+            if stage == "post_may_have_been_sent":
+                possible_send_reached.set()
+            self._emit_mutation_stage(terminal, operation, stage)
+
         try:
             if not self._context_is_current(generation, context):
                 _emit_signal(self.signals.dropped, terminal)
@@ -266,9 +288,15 @@ class InteractiveSessionController(QObject):
                 _emit_signal(self.signals.dropped, terminal)
                 return
             try:
-                value = self._invoke(record.handler, operation)
+                value = self._invoke(
+                    record.handler,
+                    operation,
+                    stage_callback=report_mutation_stage,
+                )
                 if operation.semantic != OperationSemantic.READ_ONLY and value is False:
                     raise CommandError("Device rejected the requested codec command.")
+                if operation.semantic != OperationSemantic.READ_ONLY and operation.require_confirmed_readback:
+                    value = self._readback(record.handler, operation)
                 reconciled = False
             except (
                 SessionInvalidError,
@@ -278,11 +306,23 @@ class InteractiveSessionController(QObject):
                 OSError,
                 CommandOutcomeUnknownError,
             ) as error:
+                if (
+                    operation.suppress_recovery
+                    or (
+                        operation.suppress_recovery_after_mutation_stage
+                        and possible_send_reached.is_set()
+                    )
+                ):
+                    raise
                 record = self._recover_once(
                     context, record, error, recovery_budget
                 )
                 value, record = self._complete_after_recovery(
-                    context, record, operation, recovery_budget
+                    context,
+                    record,
+                    operation,
+                    recovery_budget,
+                    stage_callback=report_mutation_stage,
                 )
                 reconciled = operation.semantic != OperationSemantic.READ_ONLY
 
@@ -305,6 +345,7 @@ class InteractiveSessionController(QObject):
                 payload.update(
                     {
                         "category": classify_codec_failure(error).value,
+                        "definite_rejection": isinstance(error, CommandRejectedError),
                         "message": _public_error_message(error),
                     }
                 )
@@ -328,29 +369,25 @@ class InteractiveSessionController(QObject):
     ) -> _HandlerRecord:
         if not recovery_budget.consume():
             raise error
-        preferred_index = record.credential_index
         self._close_handler()
         return self._acquire_handler(
             context,
             recovery_budget,
-            preferred_index=preferred_index,
+            preferred_index=record.credential_index,
         )
 
-    def _reconcile(self, handler: Any, operation: InteractiveOperation) -> Any:
+    def _reconcile(
+        self,
+        handler: Any,
+        operation: InteractiveOperation,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> Any:
         if not operation.readback_method:
             raise CommandOutcomeUnknownError(
                 "Codec state cannot be reconciled after session recovery."
             )
-        readback = getattr(handler, operation.readback_method, None)
-        if not callable(readback):
-            raise CommandOutcomeUnknownError(
-                "Codec does not expose authoritative state readback."
-            )
-        observed = readback(*operation.readback_args, **dict(operation.readback_kwargs))
-        if observed is None:
-            raise CommandOutcomeUnknownError(
-                "Codec state is unavailable after session recovery."
-            )
+        observed = self._readback_value(handler, operation)
         if _state_matches(observed, operation.target):
             return observed
         can_set = operation.allow_set_from_any_authoritative or (
@@ -361,10 +398,43 @@ class InteractiveSessionController(QObject):
             raise CommandOutcomeUnknownError(
                 "Codec state changed concurrently; command was not replayed."
             )
-        result = self._invoke(handler, operation)
+        result = self._invoke(handler, operation, stage_callback=stage_callback)
         if result is False:
             raise CommandError("Device rejected the reconciled codec command.")
-        return result
+        return self._readback(handler, operation) if operation.require_confirmed_readback else result
+
+    @staticmethod
+    def _readback(handler: Any, operation: InteractiveOperation) -> Any:
+        """Read and verify the smallest authoritative post-mutation field."""
+        readback = getattr(handler, operation.readback_method, None)
+        if not callable(readback):
+            raise CommandOutcomeUnknownError(
+                "Codec does not expose authoritative state readback."
+            )
+        observed = InteractiveSessionController._readback_value(handler, operation)
+        if observed is None:
+            raise CommandOutcomeUnknownError(
+                "Codec state is unavailable after mutation."
+            )
+        if not _state_matches(observed, operation.target):
+            raise CommandOutcomeUnknownError(
+                "Codec readback did not confirm the requested state."
+            )
+        return observed
+
+    @staticmethod
+    def _readback_value(handler: Any, operation: InteractiveOperation) -> Any:
+        readback = getattr(handler, operation.readback_method, None)
+        if not callable(readback):
+            raise CommandOutcomeUnknownError(
+                "Codec does not expose authoritative state readback."
+            )
+        observed = readback(*operation.readback_args, **dict(operation.readback_kwargs))
+        if observed is None:
+            raise CommandOutcomeUnknownError(
+                "Codec state is unavailable after mutation."
+            )
+        return observed
 
     def _complete_after_recovery(
         self,
@@ -372,6 +442,8 @@ class InteractiveSessionController(QObject):
         record: _HandlerRecord,
         operation: InteractiveOperation,
         recovery_budget: _OperationRecoveryBudget,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
     ) -> tuple[Any, _HandlerRecord]:
         """Finish one recovery while advancing confirmed Polycom SSH rejects."""
 
@@ -379,7 +451,11 @@ class InteractiveSessionController(QObject):
             try:
                 if operation.semantic == OperationSemantic.READ_ONLY:
                     return self._invoke(record.handler, operation), record
-                return self._reconcile(record.handler, operation), record
+                return self._reconcile(
+                    record.handler,
+                    operation,
+                    stage_callback=stage_callback,
+                ), record
             except AuthenticationError as error:
                 if context.model != "Polycom RPG 310":
                     raise
@@ -394,12 +470,32 @@ class InteractiveSessionController(QObject):
                     preferred_index=next_index,
                 )
 
-    @staticmethod
-    def _invoke(handler: Any, operation: InteractiveOperation) -> Any:
+    def _invoke(
+        self,
+        handler: Any,
+        operation: InteractiveOperation,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> Any:
         method = getattr(handler, operation.method, None)
         if not callable(method):
             raise CommandError("Selected codec does not support this operation.")
-        return method(*operation.args, **dict(operation.kwargs))
+        kwargs = dict(operation.kwargs)
+        if operation.report_mutation_stage and stage_callback is not None:
+            kwargs["stage_callback"] = stage_callback
+        return method(*operation.args, **kwargs)
+
+    def _emit_mutation_stage(
+        self,
+        terminal: Mapping[str, Any],
+        operation: InteractiveOperation,
+        stage: str,
+    ) -> None:
+        if operation.mutation_stage_observer is not None:
+            operation.mutation_stage_observer(str(stage))
+        payload = dict(terminal)
+        payload["stage"] = str(stage)
+        _emit_signal(self.signals.mutation_stage, payload)
 
     def _acquire_handler(
         self,
@@ -541,7 +637,7 @@ def _default_handler_factory(model: str, kwargs: Mapping[str, Any]) -> Any:
         from handlers.huawei.te20 import HuaweiTE20Handler
 
         return HuaweiTE20Handler(**dict(kwargs))
-    if model == "Huawei TE40":
+    if model in {"Huawei TE40", "Huawei TE50"}:
         from handlers.huawei.te40 import HuaweiTE40Handler
 
         return HuaweiTE40Handler(**dict(kwargs))
@@ -597,6 +693,8 @@ def _state_matches(observed: Any, target: Any) -> bool:
         return True
     if isinstance(observed, str) and isinstance(target, str):
         return observed.strip().casefold() == target.strip().casefold()
+    if isinstance(target, bool) and isinstance(observed, str):
+        return observed.strip().casefold() == ("muted" if target else "unmuted")
     return False
 
 

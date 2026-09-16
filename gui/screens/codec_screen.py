@@ -305,7 +305,7 @@ class CodecScreen(BaseScreen):
     def _uses_microphone_mute_control(self):
         return bool(
             self.parent
-            and _parent_device_name(self.parent) in {"Huawei TE20", "Huawei TE40", "Polycom RPG 310"}
+            and _parent_device_name(self.parent) in {"Huawei TE20", "Huawei TE40", "Huawei TE50", "Polycom RPG 310"}
         )
 
     def _uses_cloudlink_microphone_meter(self):
@@ -827,7 +827,7 @@ class CodecScreen(BaseScreen):
         device_name = _parent_device_name(self.parent) or ""
         ip_address = self.parent.ip_entry.text().strip() if self.parent else ""
 
-        if device_name not in {"Huawei TE20", "Huawei TE40", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"}:
+        if device_name not in {"Huawei TE20", "Huawei TE40", "Huawei TE50", "CloudLink Bar 310", "CloudLink Box 310", "Polycom RPG 310"}:
             self.call_log_window.status_label.setText("Получение журнала звонков для этого устройства будет добавлено позже.")
             return
 
@@ -1335,6 +1335,7 @@ class CodecScreen(BaseScreen):
         if command == "Start" and device_name in {
             "Huawei TE20",
             "Huawei TE40",
+            "Huawei TE50",
             "CloudLink Bar 310",
             "CloudLink Box 310",
         }:
@@ -1754,6 +1755,7 @@ class CodecScreen(BaseScreen):
             "speaker": {
                 "Huawei TE20": (0, 21),
                 "Huawei TE40": (0, 21),
+                "Huawei TE50": (0, 21),
                 "CloudLink Bar 310": (0, 15),
                 "CloudLink Box 310": (0, 15),
                 "Polycom RPG 310": (0, 100),
@@ -1761,6 +1763,7 @@ class CodecScreen(BaseScreen):
             "microphone": {
                 "Huawei TE20": (0, 21),
                 "Huawei TE40": (0, 21),
+                "Huawei TE50": (0, 21),
                 "CloudLink Bar 310": (0, 15),
                 "CloudLink Box 310": (0, 15),
                 "Polycom RPG 310": (-20, 30),
@@ -1798,6 +1801,7 @@ class CodecScreen(BaseScreen):
             return _parent_device_name(self.parent) in {
                 "Huawei TE20",
                 "Huawei TE40",
+                "Huawei TE50",
             }
         return False
 
@@ -1978,8 +1982,9 @@ class CodecScreen(BaseScreen):
         ip_address = self.parent.ip_entry.text().strip() if self.parent else None
         device_name = _parent_device_name(self.parent)
         if not ip_address or device_name not in {
-            "Huawei TE20",
-            "Huawei TE40",
+                "Huawei TE20",
+                "Huawei TE40",
+                "Huawei TE50",
         }:
             self.stop_te20_monitor_audio_polling()
             return

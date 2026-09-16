@@ -207,6 +207,8 @@ class HuaweiTE40DataParser:
         
         # Время работы
         parsed['Время работы'] = raw_data.get('uptime', 'N/A')
+        if raw_data.get('uptime') not in (None, '', 'N/A'):
+            parsed['uptime'] = raw_data.get('uptime')
         
         # Статус звонка
         parsed['Статус звонка'] = HuaweiTE40DataParser._map_call_status(
@@ -222,18 +224,24 @@ class HuaweiTE40DataParser:
         )
         
         # Аудио статусы
-        if raw_data.get('mic_connection_status'):
-            parsed['Статус микрофона'] = raw_data.get('mic_connection_status')
-        else:
-            parsed['Статус микрофона'] = HuaweiTE40DataParser._map_mic_status(
-                raw_data.get('mic_mute', 'Off')
-            )
+        microphone_status = raw_data.get('mic_connection_status') or HuaweiTE40DataParser._map_mic_status(
+            raw_data.get('mic_mute', 'Off')
+        )
+        parsed['Статус микрофона'] = microphone_status
+        parsed['microphone_status'] = microphone_status
         parsed['Статус динамика'] = HuaweiTE40DataParser._map_speaker_status(
             raw_data.get('speaker_mute', 'Off')
         )
         if 'speaker_volume' in raw_data and raw_data.get('speaker_volume') is not None:
             parsed['Громкость динамиков'] = str(raw_data.get('speaker_volume'))
             parsed['speaker_volume'] = raw_data.get('speaker_volume')
+        # TE40's configured primary microphone gain is a numeric wire value.
+        # It is deliberately independent from MicSwitch/mute evidence.
+        microphone_volume = raw_data.get('mic_volume')
+        if isinstance(microphone_volume, (int, float)) and not isinstance(microphone_volume, bool):
+            if 0 <= microphone_volume <= 24:
+                parsed['microphone_volume'] = microphone_volume
+                parsed['Громкость микрофона'] = str(microphone_volume - 12)
         if (
             'monitor_mic_value' in raw_data
             and raw_data.get('monitor_mic_value') is not None
@@ -266,14 +274,11 @@ class HuaweiTE40DataParser:
                 raw_data.get('mic_mute')
             )
         # Камера
-        if raw_data.get('camera_connection_status'):
-            parsed['Статус камеры'] = raw_data.get(
-                'camera_connection_status'
-            )
-        else:
-            parsed['Статус камеры'] = HuaweiTE40DataParser._map_camera_status(
-                raw_data.get('camera_status', 'OffOff')
-            )
+        camera_status = raw_data.get('camera_connection_status') or HuaweiTE40DataParser._map_camera_status(
+            raw_data.get('camera_status', 'OffOff')
+        )
+        parsed['Статус камеры'] = camera_status
+        parsed['camera_status'] = camera_status
         
         # WAN IP
         if 'wan_ip' in raw_data:

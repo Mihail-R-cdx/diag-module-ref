@@ -36,6 +36,8 @@ def handler_with_observations(*, modern_actions=None, modern_state=None, legacy=
         calls.append(("modern", method, endpoint, data))
         if endpoint == "v1/login/status":
             return modern_state
+        if endpoint == "v1/mediacontrol/mic/current-volume":
+            return {"success": 0, "data": {}}
         raise AssertionError(f"unexpected modern request: {endpoint}")
 
     def command(command, data=None):
@@ -49,6 +51,29 @@ def handler_with_observations(*, modern_actions=None, modern_state=None, legacy=
 
 
 class CloudLink310StatusTests(unittest.TestCase):
+    def test_static_microphone_volume_uses_real_model_specific_audio_evidence(self):
+        for identity, endpoint_response, expected in (
+            ("Huawei CloudLink Bar 310", {"success": 1, "data": {"curMicVouumeList": [{"curVolume": 9}]}}, 9),
+            ("Huawei CloudLink Box 310", {"success": 1, "data": {"mic2ValueIndex": 7}}, 7),
+        ):
+            with self.subTest(identity=identity):
+                handler = CloudLinkBar310Handler(
+                    "192.0.2.10", username="assigned", password="assigned", expected_identity=identity,
+                )
+                handler._modern_action = Mock(return_value={"success": 1, "data": {"softVersion": "V1"}})
+                handler._modern_request = Mock(return_value=endpoint_response)
+                handler.send_command = Mock(return_value=endpoint_response)
+                status = handler.get_status()
+                self.assertEqual(expected, status["mic_volume"])
+                parsed = HuaweiBar310DataParser.parse_raw_data(status, identity)
+                self.assertEqual(expected, parsed["microphone_volume"])
+
+    def test_static_microphone_volume_omits_malformed_or_absent_evidence(self):
+        handler = CloudLinkBar310Handler("192.0.2.10", username="assigned", password="assigned")
+        handler._modern_action = Mock(return_value={"success": 1, "data": {"softVersion": "V1"}})
+        handler._modern_request = Mock(return_value={"success": 1, "data": {"curMicVouumeList": [{"curVolume": "bad"}]}})
+        handler.send_command = Mock(return_value={"success": 0, "data": {}})
+        self.assertNotIn("mic_volume", handler.get_status())
     def test_closed_status_routing_preserves_legacy_and_modern_boundaries(self):
         handler, calls = handler_with_observations(
             modern_actions={
@@ -81,8 +106,8 @@ class CloudLink310StatusTests(unittest.TestCase):
         self.assertNotIn("mic_volume", status)
         self.assertEqual(
             [entry[:2] for entry in calls],
-            [("modern-action", "get_version"), ("modern-action", "get_mac"),
-             ("legacy", "get_audio_status"), ("legacy", "get_line_state"),
+             [("modern-action", "get_version"), ("modern-action", "get_mac"),
+             ("legacy", "get_audio_status"), ("modern", "GET"), ("legacy", "get_line_state"),
              ("modern-action", "get_call_status"), ("modern", "GET"),
              ("legacy", "get_presentation"), ("legacy", "get_camera_status")],
         )

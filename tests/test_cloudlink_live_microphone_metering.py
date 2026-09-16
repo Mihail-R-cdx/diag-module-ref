@@ -15,9 +15,21 @@ from handlers.huawei.bar310 import (
     normalize_cloudlink_box_microphone_sample,
 )
 from core.exceptions import SessionInvalidError
+from gui.room_diagnostic_tree import RoomReadOnlyPresentation
 
 
 class CloudLinkLiveMicrophoneMeteringTests(unittest.TestCase):
+    def test_approved_bar_fraction_reaches_room_meter_projection(self):
+        sample = normalize_cloudlink_bar_microphone_sample({
+            "curMicVouumeList": [{"deviceId": 0, "curVolume": 6}],
+        })
+        self.assertEqual(
+            30,
+            RoomReadOnlyPresentation._codec_microphone_level(
+                {"live_microphone": sample}, "CloudLink Bar 310"
+            ),
+        )
+
     class _Response:
         def __init__(self, status_code, payload):
             self.status_code = status_code
@@ -142,15 +154,34 @@ class CloudLinkMeterLifecycleTests(unittest.TestCase):
         meter.sample.connect(received.append)
         self.assertTrue(meter.start("CloudLink Bar 310", "192.0.2.10", (), generation=4, token=9))
         self.assertEqual(1, len(session.submits))
+        self.assertTrue(meter._timer.isSingleShot())
         QApplication.processEvents()
         self.assertEqual(1, len(session.submits))
         session.signals.result.emit({"kind": "cloudlink_microphone_meter", "generation": 4, "client_token": 9, "value": {"available": True, "raw_level": 0, "fraction": 0.0}})
         self.assertEqual([0], [sample["raw_level"] for sample in received])
-        QTest.qWait(1050)
+        self.assertEqual(700, meter._timer.interval())
+        QTest.qWait(800)
         self.assertEqual(2, len(session.submits))
         meter.stop()
         session.signals.result.emit({"kind": "cloudlink_microphone_meter", "generation": 4, "client_token": 9, "value": {"available": True, "raw_level": 20, "fraction": 1.0}})
         self.assertEqual([0], [sample["raw_level"] for sample in received])
+
+    def test_box_310_cannot_start_the_bar_single_shot_meter_lifecycle(self):
+        from core.cloudlink_microphone_meter import CloudLinkMicrophoneMeter
+
+        class Signals(QObject):
+            result = pyqtSignal(dict); error = pyqtSignal(dict); dropped = pyqtSignal(dict)
+
+        class Session:
+            def __init__(self): self.signals = Signals(); self.submits = []
+            def submit(self, operation, *, generation): self.submits.append((operation, generation)); return 1
+
+        session = Session()
+        meter = CloudLinkMicrophoneMeter(session=session)
+        self.assertFalse(meter.start("CloudLink Box 310", "192.0.2.10", (), generation=4, token=9))
+        self.assertFalse(meter._active)
+        self.assertFalse(meter._timer.isActive())
+        self.assertEqual([], session.submits)
 
     def test_protocol_failure_is_sample_local_and_auth_failure_is_terminal(self):
         from core.cloudlink_microphone_meter import CloudLinkMicrophoneMeter
@@ -172,11 +203,13 @@ class CloudLinkMeterLifecycleTests(unittest.TestCase):
         meter.terminal.connect(terminals.append)
         meter.start("CloudLink Bar 310", "192.0.2.10", (), generation=7, token=3)
         session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": 7, "client_token": 3, "category": "protocol_error"})
-        QTest.qWait(1050)
+        self.assertTrue(meter._timer.isSingleShot())
+        self.assertEqual(700, meter._timer.interval())
+        QTest.qWait(800)
         self.assertEqual(2, len(session.submits))
         self.assertFalse(samples[-1]["available"])
         session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": 7, "client_token": 3, "category": "authentication_error"})
-        QTest.qWait(1050)
+        QTest.qWait(800)
         self.assertEqual(2, len(session.submits))
         self.assertEqual(["authentication_error"], [outcome["category"] for outcome in terminals])
         self.assertFalse(meter._active)
@@ -196,7 +229,7 @@ class CloudLinkMeterLifecycleTests(unittest.TestCase):
         meter.start("CloudLink Bar 310", "192.0.2.10", (), generation=5, token=6)
         session.signals.error.emit({"kind": "cloudlink_microphone_meter", "generation": 5,
                                     "client_token": 6, "category": "protocol_error"})
-        QTest.qWait(1050)
+        QTest.qWait(800)
         session.signals.result.emit({"kind": "cloudlink_microphone_meter", "generation": 5,
                                      "client_token": 6, "value": {"available": True, "raw_level": 7, "fraction": .35}})
         self.assertEqual([False, True], [sample["available"] for sample in samples])

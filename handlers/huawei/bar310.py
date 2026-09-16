@@ -689,6 +689,22 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
             observed["speaker_volume"] = data["speakerValue"]
         return observed
 
+    def _collect_static_microphone_volume(self) -> Dict[str, Any]:
+        """Return read-only numeric mic evidence from the proved model endpoint."""
+        if self.device_model == "Huawei CloudLink Box 310":
+            response = self.send_command("action.cgi?ActionID=WEB_GetCurrentAudioParam")
+            if not isinstance(response, Mapping) or response.get("success") != 1:
+                return {}
+            sample = normalize_cloudlink_box_microphone_sample(response.get("data"))
+        else:
+            response = self._modern_request(
+                "v1/mediacontrol/mic/current-volume", method="GET"
+            )
+            if not isinstance(response, Mapping) or response.get("success") != 1:
+                return {}
+            sample = normalize_cloudlink_bar_microphone_sample(response.get("data"))
+        return {"mic_volume": sample["raw_level"]} if sample.get("available") else {}
+
     def _collect_line_state(self) -> Dict[str, Any]:
         data = self._optional_data(self.send_command("get_line_state"), "get_line_state")
         observed = {}
@@ -805,6 +821,9 @@ class CloudLinkBar310Handler(BaseHuaweiCodecHandler):
 
         self._collect_optional("get_mac", self._collect_mac, status)
         self._collect_optional("get_audio_status", self._collect_audio, status)
+        self._collect_optional(
+            "get_static_microphone_volume", self._collect_static_microphone_volume, status
+        )
         self._collect_optional("get_line_state", self._collect_line_state, status)
 
         mailbox = {}

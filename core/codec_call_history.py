@@ -288,8 +288,11 @@ def snapshot_from_display_records(
             start_at=start, duration_seconds=seconds, active=active,
             room_number=str(item.get("room_number") or ""),
             speed=str(item.get("speed") or ""),
-            start_display=str(item.get("start_time") or ""),
-            duration_display=duration_text,
+            start_display=str(item.get("start_time") or "") or format_start(start),
+            duration_display=(
+                format_duration(seconds, active)
+                if active or not duration_text else duration_text
+            ),
             direction=normalize_call_direction(
                 item.get("_direction", item.get("direction", item.get("call_direction")))
             ),

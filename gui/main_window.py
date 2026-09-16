@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHB
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent, QObject, QRunnable, QModelIndex, QStringListModel
 from PyQt5.QtGui import QColor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections.abc import Mapping
 import datetime
 import json
@@ -10,6 +10,7 @@ import os
 import random
 import platform
 import subprocess
+import threading
 import traceback
 from types import MappingProxyType
 
@@ -50,6 +51,7 @@ from core.equipment_inventory import (
     load_equipment_inventory,
     normalize_ip_address,
 )
+from core.codec_call_history import CallHistorySnapshot
 from core.room_context import RoomContextResolver, RoomResolutionStatus
 from core.room_diagnostic_tree import (
     DeviceRowStatus,
@@ -385,6 +387,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_call_log_windows = {}
         self._room_accepted_call_log_windows = {}
         self._room_codec_mutations = {}
+        self._room_codec_mutation_cleanup_timers = {}
         self._room_codec_restore_volumes = {}
         # These dialogs are deliberately presentation-only, but they still
         # belong to one exact room row.  Keeping that ownership here prevents
@@ -396,12 +399,14 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_live_timers = {}
         self._room_live_inflight = set()
         self._room_cloudlink_live = {}
+        self._room_te_live = {}
         self._room_matrix_live = {}
         self._room_dmp_live = {}
         self._room_live_retirements = {}
         self._room_live_cleanup_timers = {}
         self._room_live_successful_contexts = set()
         self.room_live_cleanup_timeout_ms = 5000
+        self.room_codec_mutation_cleanup_timeout_ms = 5000
         self.room_interaction_coordinator = RoomInteractionCoordinator(
             bindings_for_model=self._room_interaction_bindings_for_model,
             credential_context_revision=lambda: self.__dict__.get("_equipment_room_credential_context_revision", 0),
@@ -523,6 +528,7 @@ class VCSDiagnosticApp(QMainWindow):
                 "matrix_room_route",
                 "matrix_room_route_reconcile",
                 "cloudlink_room_live",
+                "huawei_room_live",
                 "matrix_room_live",
                 "dmp_room_live",
             },
@@ -575,8 +581,8 @@ class VCSDiagnosticApp(QMainWindow):
             SPACING["md"], SPACING["md"], SPACING["md"], SPACING["lg"]
         )
         
-        # Метка и поле для IP-адреса
-        ip_label = QLabel("IP-адрес")
+        # Метка и поле единого поиска помещения или IP-адреса оборудования.
+        ip_label = QLabel("Введите название помещения или IP-адрес оборудования")
         ip_label.setProperty("uiRole", "fieldLabel")
         
         self.ip_entry = QLineEdit()
@@ -878,6 +884,7 @@ class VCSDiagnosticApp(QMainWindow):
             ),
             live={
                 "cloudlink_room_live": self._start_room_cloudlink_live,
+                "huawei_room_live": self._start_room_te_live,
                 "matrix_room_live": self._start_room_matrix_live,
                 "dmp_room_live": self._start_room_dmp_live,
             }.get(entry.live_binding_key),
@@ -1011,6 +1018,20 @@ class VCSDiagnosticApp(QMainWindow):
             return {
                 "operation": "microphone_mute",
                 "target": projection.microphone_mute_state is CodecMuteState.UNMUTED,
+            }
+        if operation == "microphone_adjust":
+            if (
+                row.diagnostic_model not in {"Huawei TE40", "Huawei TE50"}
+                or not isinstance(value, int)
+                or value not in {-1, 1}
+                or not isinstance(projection.microphone_volume, (int, float))
+                or isinstance(projection.microphone_volume, bool)
+            ):
+                return None
+            target = max(0, min(24, int(projection.microphone_volume) + value))
+            # Bounds are a local no-op: do not acquire a mutation/session lane.
+            return None if target == projection.microphone_volume else {
+                "operation": "microphone_gain", "target": target,
             }
         return None
 
@@ -1271,79 +1292,326 @@ class VCSDiagnosticApp(QMainWindow):
     def _start_room_codec_mutation(self, context, command):
         self._start_room_credential_attempt(context, command=command)
 
-    def _start_room_codec_mutation_attempt(self, context, command, credential, candidate_index):
+    def _start_room_codec_mutation_attempt(
+        self, context, command, credential, candidate_index, credential_candidates=None
+    ):
         """Submit one already-authorized exact codec command on one owner lane."""
-        if not isinstance(command, Mapping) or command.get("operation") not in {"speaker_volume", "microphone_mute"}:
+        if not isinstance(command, Mapping) or command.get("operation") not in {"speaker_volume", "microphone_mute", "microphone_gain"}:
             self._finish_room_codec_mutation(context, False, None, False, "Команда кодека недоступна")
             return
         operation_name = command["operation"]
         target = command.get("target")
         interactive = InteractiveSessionController(self)
-        self._room_codec_mutations[context] = {"controller": interactive, "terminal": None}
+        possible_send = threading.Event()
+        self._room_codec_mutations[context] = {
+            "controller": interactive, "terminal": None, "command_submitted": False,
+            "possible_send": possible_send,
+        }
         interactive.signals.result.connect(
-            lambda payload, current=context: self._retire_room_codec_mutation(current, True, payload, False, None)
+            lambda payload, current=context, name=operation_name:
+            self._on_room_codec_mutation_result(current, name, payload)
         )
         interactive.signals.error.connect(
-            lambda payload, current=context: self._retire_room_codec_mutation(
-                current, False, None,
-                payload.get("category") in {"authentication", "transport", "session_invalid"},
-                payload.get("message") or "Операция кодека не подтверждена",
-            )
+            lambda payload, current=context:
+            self._on_room_codec_mutation_error(current, payload)
         )
+        mutation_stage_signal = getattr(interactive.signals, "mutation_stage", None)
+        if mutation_stage_signal is not None:
+            mutation_stage_signal.connect(
+                lambda payload, current=context, name=operation_name:
+                self._on_room_codec_mutation_stage(current, name, payload)
+            )
         interactive.signals.shutdown_finished.connect(
             lambda _payload, current=context: self._complete_retired_room_codec_mutation(current)
         )
         try:
+            session_candidates = (
+                tuple(credential_candidates)
+                if (
+                    context.diagnostic_model == "Polycom RPG 310"
+                    and credential_candidates
+                ) else (credential,)
+            )
+            session_start_index = (
+                candidate_index
+                if (
+                    context.diagnostic_model == "Polycom RPG 310"
+                    and credential_candidates
+                ) else 0
+            )
             generation = interactive.activate_context(
-                context.diagnostic_model, context.ip_address, (credential,), 0,
+                context.diagnostic_model, context.ip_address,
+                session_candidates, session_start_index,
                 self.get_device_connection_profile(context.diagnostic_model, context.ip_address),
             )
             operation = InteractiveOperation(
                 kind="room_codec_audio",
-                method="set_speaker_volume" if operation_name == "speaker_volume" else "set_microphone_mute",
+                method=("set_speaker_volume" if operation_name == "speaker_volume" else
+                        "set_microphone_mute" if operation_name == "microphone_mute" else
+                        "set_microphone_gain"),
                 args=(target,),
-                semantic=(OperationSemantic.ABSOLUTE if operation_name == "speaker_volume" else OperationSemantic.DESIRED_STATE),
+                semantic=(OperationSemantic.ABSOLUTE if operation_name == "speaker_volume" else
+                          OperationSemantic.DESIRED_STATE if operation_name == "microphone_mute" else
+                          OperationSemantic.RELATIVE_AS_ABSOLUTE),
                 target=target,
+                readback_method=(
+                    "get_speaker_volume"
+                    if operation_name == "speaker_volume"
+                    else "get_microphone_volume"
+                ),
+                require_confirmed_readback=operation_name != "microphone_gain",
+                allow_set_from_any_authoritative=(
+                    operation_name == "speaker_volume"
+                    and context.diagnostic_model == "Polycom RPG 310"
+                ),
+                suppress_recovery=operation_name == "microphone_gain",
+                suppress_recovery_after_mutation_stage=(
+                    operation_name == "speaker_volume"
+                    and context.diagnostic_model == "Polycom RPG 310"
+                ),
+                report_mutation_stage=(
+                    operation_name == "microphone_gain"
+                    or (
+                        operation_name == "speaker_volume"
+                        and context.diagnostic_model == "Polycom RPG 310"
+                    )
+                ),
+                mutation_stage_observer=(
+                    (lambda _stage, marker=possible_send: marker.set())
+                    if (
+                        operation_name == "microphone_gain"
+                        or (
+                            operation_name == "speaker_volume"
+                            and context.diagnostic_model == "Polycom RPG 310"
+                        )
+                    ) else None
+                ),
                 duplicate_key=f"{operation_name}:{target}",
                 quiet=True,
             )
             if interactive.submit(operation, generation=generation) is None:
-                raise RuntimeError("Codec command was not accepted")
-            self._room_credential_attempts[context] = ((credential,), candidate_index, dict(command))
+                # No executor admission means this operation cannot have sent a
+                # state-changing command. Retire resources without claiming an
+                # ambiguous device outcome.
+                self._room_codec_mutations[context]["pre_submit_failure"] = True
+                self._begin_room_codec_mutation_cleanup(context)
+                return
+            self._room_codec_mutations[context]["command_submitted"] = not (
+                operation_name == "microphone_gain"
+                or (
+                    operation_name == "speaker_volume"
+                    and context.diagnostic_model == "Polycom RPG 310"
+                )
+            )
+            self._room_credential_attempts[context] = (
+                session_candidates, session_start_index, dict(command)
+            )
         except Exception:
             self._retire_room_codec_mutation(context, False, None, False, "Не удалось запустить операцию кодека")
 
     def _retire_room_codec_mutation(self, context, success, data, connection_lost, warning):
         run = self._room_codec_mutations.get(context)
-        if run is None or run.get("terminal") is not None:
+        if run is None or run.get("cleanup_started"):
             return
-        run["terminal"] = (success, data, connection_lost, warning)
+        self._begin_room_codec_mutation_cleanup(
+            context, terminal=(success, data, connection_lost, warning)
+        )
+
+    def _on_room_codec_mutation_error(self, context, payload):
+        """Keep known rejected Polycom commands out of the ambiguous state."""
+        category = payload.get("category") if isinstance(payload, Mapping) else None
+        run = self._room_codec_mutations.get(context)
+        if (
+            run is not None
+            and context.diagnostic_model == "Polycom RPG 310"
+            and bool(payload.get("definite_rejection"))
+        ):
+            run["definite_failure"] = True
+        self._retire_room_codec_mutation(
+            context, False, None,
+            category in {
+                CodecFailureCategory.AUTHENTICATION.value,
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
+            (
+                payload.get("message")
+                if isinstance(payload, Mapping) else None
+            ) or "Операция кодека не подтверждена",
+        )
+
+    def _on_room_codec_mutation_result(self, context, operation_name, payload):
+        value = payload.get("value") if isinstance(payload, Mapping) else None
+        if operation_name == "microphone_gain":
+            if isinstance(value, Mapping) and value.get("pre_submit_failure"):
+                run = self._room_codec_mutations.get(context)
+                if run is not None:
+                    run["pre_submit_failure"] = True
+                self._retire_room_codec_mutation(
+                    context, False, None, bool(value.get("connection_lost")),
+                    "Не удалось получить полный актуальный audio state TE40",
+                )
+                return
+            if isinstance(value, Mapping) and value.get("confirmed"):
+                run = self._room_codec_mutations.get(context)
+                if run is not None:
+                    run["command_submitted"] = True
+        self._retire_room_codec_mutation(
+            context, True, {"operation": operation_name, "value": value}, False, None,
+        )
+
+    def _on_room_codec_mutation_stage(self, context, operation_name, payload):
+        """Record an approved device-side possible-send boundary on the UI owner."""
+        if operation_name not in {"microphone_gain", "speaker_volume"} or not isinstance(payload, Mapping):
+            return
+        if payload.get("stage") != "post_may_have_been_sent":
+            return
+        run = self._room_codec_mutations.get(context)
+        if run is not None and not run.get("cleanup_started"):
+            run["command_submitted"] = True
+
+    def _begin_room_codec_mutation_cleanup(self, context, *, terminal=None, cancelled=False):
+        """Start one bounded physical-release boundary for a codec mutation."""
+        run = self._room_codec_mutations.get(context)
+        if run is None or run.get("cleanup_started"):
+            return False
+        run["cleanup_started"] = True
+        run["cancelled"] = bool(cancelled)
+        if terminal is not None:
+            run["terminal"] = terminal
+        if cancelled and self._room_codec_mutation_may_have_sent(run):
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.block_ambiguous_mutation(
+                    context, "Состояние устройства не подтверждено после отмены команды"
+                )
         controller = run["controller"]
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(
+            lambda current=context: self._abandon_retired_room_codec_mutation(current)
+        )
+        self._room_codec_mutation_cleanup_timers[context] = timer
+        timer.start(self.room_codec_mutation_cleanup_timeout_ms)
         try:
+            if cancelled:
+                controller.invalidate_context()
             controller.shutdown(wait=False)
         except Exception:
             self._complete_retired_room_codec_mutation(context)
+        return True
 
     def _complete_retired_room_codec_mutation(self, context):
         run = self._room_codec_mutations.pop(context, None)
         if run is None:
             return
-        if run.get("terminal") is None:
+        timer = self._room_codec_mutation_cleanup_timers.pop(context, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        if self._room_codec_mutation_may_have_sent(run) and run.get("terminal") is None:
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.block_ambiguous_mutation(
+                    context, "Состояние устройства не подтверждено после отправки команды"
+                )
+        if run.get("cancelled") or run.get("terminal") is None:
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.cleanup_finished(context)
             return
         success, data, connection_lost, warning = run["terminal"]
-        self._finish_room_codec_mutation(context, success, data, connection_lost, warning)
+        self._finish_room_codec_mutation(
+            context, success, data, connection_lost, warning,
+            may_have_sent=self._room_codec_mutation_may_have_sent(run),
+        )
 
-    def _finish_room_codec_mutation(self, context, success, data, connection_lost, warning):
+    def _abandon_retired_room_codec_mutation(self, context):
+        """Fail closed if a terminal codec owner never sends shutdown_finished."""
+        run = self._room_codec_mutations.pop(context, None)
+        if run is None:
+            return
+        timer = self._room_codec_mutation_cleanup_timers.pop(context, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        try:
+            run["controller"].invalidate_context()
+        except Exception:
+            pass
+        if self._room_codec_mutation_may_have_sent(run) and run.get("terminal") is None:
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.block_ambiguous_mutation(
+                    context, "Состояние устройства не подтверждено после отправки команды"
+                )
+        if run.get("cancelled") or run.get("terminal") is None:
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is not None:
+                coordinator.cleanup_finished(context, timed_out=True)
+            return
+        self._finish_room_codec_mutation(
+            context, False, None, False,
+            "Операция кодека не подтверждена: завершение соединения не получено",
+            may_have_sent=self._room_codec_mutation_may_have_sent(run),
+        )
+
+    def _finish_room_codec_mutation(
+        self, context, success, data, connection_lost, warning, *, may_have_sent=None
+    ):
+        if may_have_sent is None:
+            may_have_sent = self._room_codec_mutation_may_have_sent(
+                self._room_codec_mutations.get(context) or {}
+            )
+        if success:
+            confirmed = self._codec_confirmed_mutation_fields(data)
+            if confirmed is None:
+                success = False
+                warning = "Операция кодека не подтверждена authoritative readback"
+            else:
+                data = {"_room_codec_confirmed": confirmed}
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.complete(
                 context, success=success, data=data, connection_lost=connection_lost,
-                unconfirmed=not success, warning=warning,
+                unconfirmed=not success and may_have_sent,
+                may_have_sent=may_have_sent,
+                warning=warning,
             )
         self._room_credential_attempts.pop(context, None)
+
+    @staticmethod
+    def _room_codec_mutation_may_have_sent(run):
+        if run.get("definite_failure"):
+            return False
+        marker = run.get("possible_send")
+        return bool(run.get("command_submitted") or (marker is not None and marker.is_set()))
+
+    @staticmethod
+    def _codec_confirmed_mutation_fields(data):
+        """Translate verified handler getter evidence into canonical fields."""
+        if not isinstance(data, Mapping):
+            return None
+        operation = data.get("operation")
+        value = data.get("value")
+        if operation == "speaker_volume":
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return {"speaker_volume": int(value), "speaker_muted": value == 0}
+            return None
+        if operation == "microphone_mute":
+            if isinstance(value, str):
+                normalized = value.strip().casefold()
+                if normalized == "muted":
+                    return {"microphone_muted": True}
+                if normalized == "unmuted":
+                    return {"microphone_muted": False}
+            if value is True or value is False:
+                return {"microphone_muted": value}
+        if operation == "microphone_gain" and isinstance(value, Mapping):
+            target = value.get("microphone_volume")
+            if value.get("confirmed") and isinstance(target, (int, float)) and not isinstance(target, bool):
+                return {"microphone_volume": target}
+        return None
 
     def _start_room_credential_attempt(self, context, *, command=None, candidate_index=None):
         """Composition owns candidate selection; workers receive one attempt only."""
@@ -1376,6 +1644,11 @@ class VCSDiagnosticApp(QMainWindow):
                     context, candidates[candidate_index], candidate_index
                 )
                 return
+            if live_key == "huawei_room_live":
+                self._start_room_te_live_attempt(
+                    context, candidates[candidate_index], candidate_index
+                )
+                return
             if live_key == "matrix_room_live":
                 self._start_room_matrix_live_attempt(
                     context, candidates[candidate_index], candidate_index
@@ -1388,7 +1661,10 @@ class VCSDiagnosticApp(QMainWindow):
                 return
         if context.kind is RoomInteractionKind.MUTATION:
             if entry is not None and entry.mutation_binding_key is None and entry.codec_controls is not None and entry.codec_controls.mutation_binding_key == "room_codec_audio_mutation":
-                self._start_room_codec_mutation_attempt(context, command, candidates[candidate_index], candidate_index)
+                self._start_room_codec_mutation_attempt(
+                    context, command, candidates[candidate_index], candidate_index,
+                    credential_candidates=candidates,
+                )
                 return
             if entry is not None and entry.mutation_binding_key == "matrix_room_route":
                 self.room_diagnostic_controller.start_matrix_mutation(context, command, credential=candidates[candidate_index], candidate_index=candidate_index)
@@ -1427,13 +1703,7 @@ class VCSDiagnosticApp(QMainWindow):
         elif context.kind is RoomInteractionKind.LOCAL_REFRESH:
             self.room_diagnostic_controller.cancel_local_refresh(context)
         elif context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION}:
-            codec_run = self._room_codec_mutations.get(context)
-            if codec_run is not None:
-                try:
-                    codec_run["controller"].invalidate_context()
-                    codec_run["controller"].shutdown(wait=False)
-                except Exception:
-                    pass
+            self._begin_room_codec_mutation_cleanup(context, cancelled=True)
             self.room_diagnostic_controller.cancel_matrix_mutation(context)
             self.room_diagnostic_controller.cancel_pdu_mutation(context)
             self.room_diagnostic_controller.cancel_local_refresh(context)
@@ -1445,9 +1715,10 @@ class VCSDiagnosticApp(QMainWindow):
         if context in self._room_live_retirements:
             return True
         cloudlink = self._room_cloudlink_live.pop(context, None)
+        te_live = self._room_te_live.pop(context, None)
         matrix = self._room_matrix_live.pop(context, None)
         dmp = self._room_dmp_live.pop(context, None)
-        if cloudlink is None and matrix is None and dmp is None:
+        if cloudlink is None and te_live is None and matrix is None and dmp is None:
             return False
         self._room_live_retirements[context] = after_cleanup
         timer = QTimer(self)
@@ -1464,6 +1735,12 @@ class VCSDiagnosticApp(QMainWindow):
             meter.stop()
             session.invalidate_context()
             session.shutdown(wait=False)
+        if te_live is not None:
+            interactive, timer = te_live
+            timer.stop()
+            timer.deleteLater()
+            interactive.invalidate_context()
+            interactive.shutdown(wait=False)
         if matrix is not None:
             matrix.shutdown()
         if dmp is not None:
@@ -1509,6 +1786,9 @@ class VCSDiagnosticApp(QMainWindow):
     def _start_room_cloudlink_live(self, context):
         self._start_room_credential_attempt(context)
 
+    def _start_room_te_live(self, context):
+        self._start_room_credential_attempt(context)
+
     def _start_room_matrix_live(self, context):
         self._start_room_credential_attempt(context)
 
@@ -1541,6 +1821,100 @@ class VCSDiagnosticApp(QMainWindow):
         meter.start(
             context.diagnostic_model, context.ip_address, (credential,), 0, profile,
             generation=generation, token=context.interaction_generation,
+        )
+
+    def _start_room_te_live_attempt(self, context, credential, candidate_index):
+        """Own the proven TE20/TE40 monitor-audio polling session in room mode."""
+        interactive = InteractiveSessionController(self)
+        timer = QTimer(self)
+        timer.setInterval(700)
+        self._room_te_live[context] = (interactive, timer)
+        interactive.signals.result.connect(
+            lambda payload, current=context: self._accept_room_te_live_sample(current, payload)
+        )
+        interactive.signals.error.connect(
+            lambda payload, current=context, index=candidate_index:
+            self._accept_room_te_live_error(current, payload, index)
+        )
+        interactive.signals.shutdown_finished.connect(
+            lambda _payload, current=context: self._finish_room_live_owner_cleanup(current)
+        )
+        try:
+            generation = interactive.activate_context(
+                context.diagnostic_model, context.ip_address, (credential,), 0,
+                self.get_device_connection_profile(context.diagnostic_model, context.ip_address),
+            )
+        except Exception:
+            self._on_room_local_refresh_finished(
+                context, False, None, True, "Не удалось запустить live audio"
+            )
+            return
+
+        def tick(current=context, controller=interactive, current_generation=generation):
+            coordinator = self.__dict__.get("room_interaction_coordinator")
+            if coordinator is None or coordinator.active_context != current:
+                return
+            controller.submit(
+                InteractiveOperation(
+                    kind="room_live_audio",
+                    method="get_live_audio_status",
+                    semantic=OperationSemantic.READ_ONLY,
+                    duplicate_key="room_live_audio",
+                    quiet=True,
+                ),
+                generation=current_generation,
+            )
+
+        timer.timeout.connect(tick)
+        tick()
+        timer.start()
+
+    def _accept_room_te_live_sample(self, context, payload):
+        value = payload.get("value") if isinstance(payload, Mapping) else None
+        audio = value.get("audio") if isinstance(value, Mapping) else None
+        if not isinstance(audio, Mapping):
+            self._on_room_local_refresh_finished(
+                context, False, None, False, "Некорректный live audio ответ"
+            )
+            return
+        session = self.__dict__.get("room_diagnostic_session")
+        try:
+            row = session.row_for(context.record_id) if session is not None else None
+        except KeyError:
+            row = None
+        snapshot = dict(row.accepted_snapshot or {}) if row is not None else {}
+        snapshot["live_audio"] = {
+            # Exact-model handlers publish the accepted raw microphone sample.
+            # The legacy primary-field fallback keeps the unchanged TE20 path
+            # and existing direct-controller test doubles model-agnostic.
+            "microphone": value.get("microphone", audio.get("MicValueIndex")),
+            "speaker": audio.get("SpeakerValueIndex"),
+        }
+        self._accept_room_model_live_success(
+            context, snapshot,
+            connection_profile=payload.get("connection_profile") if isinstance(payload, Mapping) else None,
+        )
+
+    def _accept_room_te_live_error(self, context, payload, candidate_index):
+        category = payload.get("category") if isinstance(payload, Mapping) else None
+        if category == CodecFailureCategory.AUTHENTICATION.value:
+            if self._retry_room_model_live_authentication(context, candidate_index):
+                return
+            self._room_credential_attempts.pop(context, None)
+            self.room_interaction_coordinator.complete(
+                context,
+                success=False,
+                connection_lost=True,
+                warning="Credentials отклонены",
+            )
+            return
+        self._on_room_local_refresh_finished(
+            context, False, None,
+            category in {
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
+            "Не удалось получить live audio TE",
         )
 
     def _accept_room_live_sample(self, context, sample, evidence=None):
@@ -1606,7 +1980,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _accept_room_cloudlink_terminal(self, context, outcome, candidate_index):
         category = outcome.get("category") if isinstance(outcome, Mapping) else None
-        if category == "authentication_error":
+        if category == CodecFailureCategory.AUTHENTICATION.value:
             if self._retry_room_model_live_authentication(context, candidate_index):
                 return
             self._room_credential_attempts.pop(context, None)
@@ -1618,7 +1992,10 @@ class VCSDiagnosticApp(QMainWindow):
             )
             return
         self._on_room_local_refresh_finished(
-            context, False, None, category in {"connection_error", "session_invalid"},
+            context, False, None, category in {
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
             "Соединение с CloudLink потеряно",
         )
 
@@ -1651,7 +2028,7 @@ class VCSDiagnosticApp(QMainWindow):
 
     def _accept_room_matrix_terminal(self, context, error, candidate_index):
         category = error[0] if error else None
-        if category == "authentication_error":
+        if category == CodecFailureCategory.AUTHENTICATION.value:
             if self._retry_room_model_live_authentication(context, candidate_index):
                 return
             self._room_credential_attempts.pop(context, None)
@@ -1663,7 +2040,10 @@ class VCSDiagnosticApp(QMainWindow):
             )
             return
         self._on_room_local_refresh_finished(
-            context, False, None, category in {"connection_error", "session_invalid"},
+            context, False, None, category in {
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
             "Соединение с Matrix потеряно",
         )
 
@@ -1712,7 +2092,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self._on_room_local_refresh_finished(
             context, False, None,
-            category in {CodecFailureCategory.TRANSPORT.value, "connection_error"},
+            category == CodecFailureCategory.TRANSPORT.value,
             "Соединение с DMP потеряно",
         )
 
@@ -1800,7 +2180,11 @@ class VCSDiagnosticApp(QMainWindow):
             session = self.__dict__.get("room_diagnostic_session")
             if session is not None:
                 try:
-                    session.row_for(context.record_id).call_log_preview_snapshot = data
+                    preview = (
+                        replace(data, records=tuple(data.records[:3]))
+                        if isinstance(data, CallHistorySnapshot) else data
+                    )
+                    session.row_for(context.record_id).call_log_preview_snapshot = preview
                 except KeyError:
                     pass
         if coordinator is not None:
@@ -1822,6 +2206,14 @@ class VCSDiagnosticApp(QMainWindow):
                     profile,
                     context.ip_address,
                 )
+        if coordinator is not None:
+            # The controller emits its terminal result only after the actual
+            # call-log worker/session cleanup completed.  Automatic preview
+            # completion retires coordinator ownership, so acknowledge that
+            # already-finished physical boundary exactly once here rather than
+            # asking cancel() to clean up a run that no longer exists.
+            if action == "call_log_preview":
+                coordinator.cleanup_finished(context)
 
     def _on_room_call_log_cleanup_finished(self, context, timed_out):
         self.__dict__.setdefault("_room_call_log_actions", {}).pop(context, None)
@@ -3767,7 +4159,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._publish_current_equipment_room_context("request_started")
         self._publish_current_equipment_switch_context("request_started", force=True)
 
-        if device_name == "Huawei TE40":
+        if device_name in {"Huawei TE40", "Huawei TE50"}:
             self.refresh_huawei_te40(ip_address, credential_snapshot=credential_snapshot)
         elif device_name in {"CloudLink Bar 310", "CloudLink Box 310"}:
             self.refresh_huawei_bar310(ip_address, credential_snapshot=credential_snapshot)
@@ -4287,6 +4679,7 @@ class VCSDiagnosticApp(QMainWindow):
                 preferred_profile=self.get_device_connection_profile(
                     device_name, ip_address
                 ),
+                assigned_model=device_name,
                 **creds,
             )
             
@@ -4854,7 +5247,7 @@ class VCSDiagnosticApp(QMainWindow):
                     )
                 
                     # Повторяем попытку с новыми credentials
-                    if device_name == "Huawei TE40":
+                    if device_name in {"Huawei TE40", "Huawei TE50"}:
                         self.refresh_huawei_te40(
                             worker.ip_address,
                             creds_list=creds_list,

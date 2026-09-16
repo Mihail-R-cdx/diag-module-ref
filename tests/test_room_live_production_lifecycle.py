@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 import unittest
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QProgressBar
 
 from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
+from core.exceptions import CodecFailureCategory
 from core.room_diagnostic_tree import DeviceRowStatus, RoomCycleStatus, build_room_session, resolve_room_source
+from core.room_interaction import RoomInteractionKind
 from gui.diagnostic_dispatch import dispatch_entry_for_model, room_model_capabilities
+from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+from handlers.huawei.te40 import HuaweiTE40Handler
 
 
 def _record(record_id, model, ip):
@@ -27,6 +32,12 @@ def _inventory(*records):
 
 
 class _CloudSessionSignals(QObject):
+    shutdown_finished = pyqtSignal(dict)
+
+
+class _TeSessionSignals(QObject):
+    result = pyqtSignal(dict)
+    error = pyqtSignal(dict)
     shutdown_finished = pyqtSignal(dict)
 
 
@@ -52,6 +63,55 @@ class ControlledCloudSession:
 
     def finish_cleanup(self):
         self.signals.shutdown_finished.emit({"generation": 18})
+
+
+class ControlledTeSession:
+    instances = []
+
+    def __init__(self, _parent=None):
+        self.signals = _TeSessionSignals()
+        self.activated = None
+        self.submitted = []
+        self.invalidated = False
+        self.shutdown_requested = False
+        self.__class__.instances.append(self)
+
+    def activate_context(self, model, ip, candidates, start_index, profile):
+        self.activated = (model, ip, tuple(candidates), start_index, profile)
+        return 29
+
+    def submit(self, operation, *, generation=None):
+        self.submitted.append((operation, generation))
+        return len(self.submitted)
+
+    def invalidate_context(self):
+        self.invalidated = True
+
+    def shutdown(self, *, wait=False):
+        self.shutdown_requested = True
+
+    def finish_cleanup(self):
+        self.signals.shutdown_finished.emit({"generation": 30})
+
+
+class ControlledRejectedSubmitTeSession(ControlledTeSession):
+    def submit(self, operation, *, generation=None):
+        self.submitted.append((operation, generation))
+        return None
+
+
+class ControlledDeduplicatingTeSession(ControlledTeSession):
+    """Minimal duplicate-key behavior of the real live session owner."""
+
+    def __init__(self, _parent=None):
+        super().__init__(_parent)
+        self.pending_duplicate_keys = set()
+
+    def submit(self, operation, *, generation=None):
+        if operation.duplicate_key in self.pending_duplicate_keys:
+            return None
+        self.pending_duplicate_keys.add(operation.duplicate_key)
+        return super().submit(operation, generation=generation)
 
 
 class ControlledCloudMeter(QObject):
@@ -182,6 +242,14 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
         window.room_diagnostic_session = session
         window.room_diagnostic_tree.render(session)
         window.room_interaction_coordinator.bind_session(session)
+        # These production-owner tests exercise LIVE retirement, fallback and
+        # mutation handoff after the mandatory automatic preview has already
+        # completed for the current generation.  Preview admission/order is
+        # asserted separately in the coordinator-focused regression tests.
+        if dispatch_entry_for_model(model).screen_key == "codec":
+            window.room_interaction_coordinator._codec_preview_attempts.update(
+                (session.identity, row.record_id) for row in session.rows
+            )
         window.device_credentials[model] = (
             {"username": "first", "password": "one"},
             {"username": "second", "password": "two"},
@@ -213,6 +281,355 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             window.room_diagnostic_controller.start_local_refresh.assert_called_once()
             self.assertNotEqual(live, window.room_interaction_coordinator.active_context)
 
+    def test_te_live_audio_uses_room_owned_periodic_700ms_binding_and_keeps_both_values(self):
+        ControlledTeSession.instances.clear()
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_interaction_coordinator.cycle_finished(session)
+            live = window.room_interaction_coordinator.active_context
+            owner = ControlledTeSession.instances[0]
+            self.assertEqual("Huawei TE20", owner.activated[0])
+            self.assertEqual("get_live_audio_status", owner.submitted[0][0].method)
+            timer = window._room_te_live[live][1]
+            self.assertEqual(700, timer.interval())
+            self.assertFalse(timer.isSingleShot())
+
+            owner.signals.result.emit({
+                "value": {"audio": {"MicValueIndex": 11, "SpeakerValueIndex": 22}},
+                "connection_profile": {"protocol": "https", "port": 443},
+            })
+            self.assertEqual(
+                {"microphone": 11, "speaker": 22},
+                session.row_for("a").accepted_snapshot["live_audio"],
+            )
+
+            window.room_interaction_coordinator.request_auxiliary("call_log")
+            self.assertTrue(owner.shutdown_requested)
+            owner.finish_cleanup()
+            self.assertEqual("AUXILIARY_READ", window.room_interaction_coordinator.active_context.kind.value)
+
+    def test_te20_te40_and_te50_share_the_periodic_700ms_room_live_owner(self):
+        for model in ("Huawei TE20", "Huawei TE40", "Huawei TE50"):
+            with self.subTest(model=model), patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+                window, session = self._window_session(model)
+                window.room_interaction_coordinator.cycle_finished(session)
+                live = window.room_interaction_coordinator.active_context
+                timer = window._room_te_live[live][1]
+                self.assertEqual(700, timer.interval())
+                self.assertFalse(timer.isSingleShot())
+
+    def test_te_periodic_tick_skips_duplicate_inflight_request_and_later_tick_submits(self):
+        ControlledDeduplicatingTeSession.instances.clear()
+        with patch("gui.main_window.InteractiveSessionController", ControlledDeduplicatingTeSession):
+            window, session = self._window_session("Huawei TE40")
+            window.room_interaction_coordinator.cycle_finished(session)
+            live = window.room_interaction_coordinator.active_context
+            owner, timer = window._room_te_live[live]
+
+            self.assertEqual(1, len(owner.submitted))
+            timer.timeout.emit()
+            self.assertEqual(1, len(owner.submitted))
+
+            owner.pending_duplicate_keys.clear()
+            timer.timeout.emit()
+            self.assertEqual(2, len(owner.submitted))
+
+    def test_nearby_room_timer_contracts_remain_unchanged(self):
+        window, _session = self._window_session("Huawei TE20")
+        self.assertEqual(30000, window.update_timer.interval())
+        self.assertEqual(5000, window.room_live_cleanup_timeout_ms)
+        self.assertEqual(5000, window.room_codec_mutation_cleanup_timeout_ms)
+        self.assertIn("timer.setInterval(5000)", inspect.getsource(window._start_room_periodic_live))
+        self.assertNotIn("setInterval", inspect.getsource(window._start_room_dmp_live_attempt))
+
+    def test_te40_backed_current_audio_handler_result_reaches_room_snapshot_and_meter(self):
+        for model in ("Huawei TE40", "Huawei TE50"):
+            with self.subTest(model=model), patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+                window, session = self._window_session(model)
+                window.room_interaction_coordinator.cycle_finished(session)
+                live = window.room_interaction_coordinator.active_context
+                handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+                handler.get_sleep_mode = Mock(return_value="Off")
+                handler.send_command = Mock(return_value={"success": 1, "data": """
+                    {"mic1ValueIndex": 37, "rcaLInValueIndex": 62,
+                     "rcaRInValueIndex": 0,
+                     "SpeakerValueIndex": 220}
+                """})
+
+                ControlledTeSession.instances[-1].signals.result.emit({
+                    "value": handler.get_live_audio_status(),
+                    "connection_profile": {"protocol": "https", "port": 443},
+                })
+                snapshot = session.row_for("a").accepted_snapshot
+                presentation = RoomReadOnlyPresentation(session.row_for("a"))
+                self.addCleanup(presentation.deleteLater)
+
+                self.assertEqual(live, window.room_interaction_coordinator.active_context)
+                self.assertEqual(62, snapshot["live_audio"]["microphone"])
+                self.assertEqual(28, presentation.findChild(QProgressBar, "roomCodecMicrophoneMeter").value())
+
+    def test_te_live_authentication_fallback_waits_for_owner_cleanup(self):
+        for model in ("Huawei TE20", "Huawei TE40"):
+            with self.subTest(model=model), patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+                window, session = self._window_session(model)
+                window.room_interaction_coordinator.cycle_finished(session)
+                first = ControlledTeSession.instances[-1]
+                first.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
+                self.assertIs(first, ControlledTeSession.instances[-1])
+                self.assertTrue(first.shutdown_requested)
+                first.finish_cleanup()
+                second = ControlledTeSession.instances[-1]
+                self.assertEqual("second", second.activated[2][0]["username"])
+                second.signals.result.emit({
+                    "value": {"audio": {"MicValueIndex": 2, "SpeakerValueIndex": 3}},
+                    "connection_profile": {"protocol": "https", "port": 443},
+                })
+                self.assertEqual(1, window.get_current_credential_index(model, "192.0.2.10"))
+                self.assertEqual({"microphone": 2, "speaker": 3}, session.row_for("a").accepted_snapshot["live_audio"])
+
+    def test_te_live_exhausted_authentication_does_not_loop_or_resurrect(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_interaction_coordinator.cycle_finished(session)
+            first = ControlledTeSession.instances[-1]
+            first.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
+            first.finish_cleanup()
+            second = ControlledTeSession.instances[-1]
+            second.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
+            self.assertTrue(second.shutdown_requested)
+            owner_count = len(ControlledTeSession.instances)
+            second.finish_cleanup()
+            self.assertEqual(owner_count, len(ControlledTeSession.instances))
+            self.assertEqual(DeviceRowStatus.DEGRADED, session.row_for("a").status)
+
+    def test_te_live_non_auth_canonical_categories_never_advance_credentials(self):
+        for category in (
+            CodecFailureCategory.TRANSPORT.value,
+            CodecFailureCategory.SESSION_INVALID.value,
+            CodecFailureCategory.PROTOCOL.value,
+            CodecFailureCategory.COMMAND.value,
+        ):
+            with self.subTest(category=category), patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+                window, session = self._window_session("Huawei TE20")
+                window.room_interaction_coordinator.cycle_finished(session)
+                owner = ControlledTeSession.instances[-1]
+                owner_count = len(ControlledTeSession.instances)
+                owner.signals.error.emit({"category": category, "message": "authentication 401 text is not authority"})
+                self.assertTrue(owner.shutdown_requested)
+                owner.finish_cleanup()
+                self.assertEqual(owner_count, len(ControlledTeSession.instances))
+                self.assertEqual(DeviceRowStatus.DEGRADED, session.row_for("a").status)
+
+    def test_codec_mutation_cleanup_timeout_blocks_row_and_late_callback_is_powerless(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledTeSession.instances[-1]
+            owner.signals.result.emit({"value": 7})
+            self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
+            self.assertTrue(row.interaction_blocked)
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
+            owner.finish_cleanup()
+            self.assertTrue(row.interaction_blocked)
+
+    def test_codec_mutation_error_cleanup_timeout_releases_lane_without_retry(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledTeSession.instances[-1]
+            owner_count = len(ControlledTeSession.instances)
+            owner.signals.error.emit({"category": CodecFailureCategory.TRANSPORT.value, "message": "synthetic"})
+            self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
+            self.assertTrue(row.interaction_blocked)
+            self.assertEqual(owner_count, len(ControlledTeSession.instances))
+
+    def test_codec_mutation_submit_none_is_safe_pre_submit_failure(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledRejectedSubmitTeSession):
+            window, session = self._window_session("Huawei TE20")
+            row = session.row_for("a")
+            row.network_actions_enabled = True
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledRejectedSubmitTeSession.instances[-1]
+            self.assertFalse(window._room_codec_mutations[context]["command_submitted"])
+            self.assertTrue(owner.shutdown_requested)
+            session.expanded_record_id = None
+            window.room_interaction_coordinator._expanded_record_id = None
+            owner.finish_cleanup()
+            self.assertFalse(row.interaction_blocked)
+            self.assertFalse(row.unconfirmed_after_command)
+            self.assertFalse(row.stale)
+            self.assertTrue(row.network_actions_enabled)
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
+
+    def test_te40_pre_submit_connection_failure_degrades_without_unconfirmed_command(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+
+            self.assertEqual("set_microphone_gain", owner.submitted[0][0].method)
+            owner.signals.result.emit({"value": {
+                "pre_submit_failure": True, "connection_lost": True,
+            }})
+            self.assertTrue(owner.shutdown_requested)
+            owner.finish_cleanup()
+
+            self.assertEqual(DeviceRowStatus.DEGRADED, row.status)
+            self.assertTrue(row.interaction_blocked)
+            self.assertFalse(row.unconfirmed_after_command)
+            self.assertFalse(row.network_actions_enabled)
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+            self.assertIsNone(window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 20}
+            ))
+            self.assertEqual(context.kind, RoomInteractionKind.MUTATION)
+
+    def test_te40_ordinary_pre_submit_failure_is_safe_and_releases_lane(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            row = session.row_for("a")
+            window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+
+            owner.signals.error.emit({
+                "category": CodecFailureCategory.PROTOCOL.value,
+                "message": "fresh pre-read malformed",
+            })
+            owner.finish_cleanup()
+
+            self.assertEqual(DeviceRowStatus.CONNECTED, row.status)
+            self.assertFalse(row.interaction_blocked)
+            self.assertFalse(row.unconfirmed_after_command)
+            # Normal cleanup may immediately re-admit the already eligible
+            # TE40 LIVE owner; it must not leave an unconfirmed/blocked row.
+            self.assertEqual(
+                RoomInteractionKind.LIVE,
+                window.room_interaction_coordinator.active_context.kind,
+            )
+
+    def test_te40_post_possible_send_cancellation_blocks_and_late_success_is_powerless(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+            window._on_room_codec_mutation_stage(
+                context, "microphone_gain", {"stage": "post_may_have_been_sent"}
+            )
+
+            window.room_interaction_coordinator.collapse("a")
+            owner.finish_cleanup()
+            owner.signals.result.emit({"value": {"confirmed": True, "microphone_volume": 19}})
+
+            self.assertTrue(row.interaction_blocked)
+            self.assertTrue(row.unconfirmed_after_command)
+            self.assertNotEqual(19, row.accepted_snapshot.get("microphone_volume"))
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+
+    def test_te40_post_possible_send_timeout_and_failed_readback_remain_unconfirmed(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE40")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator.confirm_mutation(
+                {"operation": "microphone_gain", "target": 19}
+            )
+            owner = ControlledTeSession.instances[-1]
+            window._on_room_codec_mutation_stage(
+                context, "microphone_gain", {"stage": "post_may_have_been_sent"}
+            )
+            owner.signals.error.emit({
+                "category": CodecFailureCategory.PROTOCOL.value,
+                "message": "authoritative readback malformed",
+            })
+
+            self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
+
+            self.assertTrue(row.interaction_blocked)
+            self.assertTrue(row.unconfirmed_after_command)
+            self.assertEqual(1, len(owner.submitted))
+            owner.signals.result.emit({"value": {"confirmed": True, "microphone_volume": 19}})
+            self.assertNotEqual(19, row.accepted_snapshot.get("microphone_volume"))
+
+    def test_cancelled_codec_mutation_timeout_releases_retired_lane_and_late_callbacks_are_powerless(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledTeSession.instances[-1]
+            window.room_interaction_coordinator.collapse("a")
+            self.assertTrue(owner.invalidated)
+            self.assertTrue(owner.shutdown_requested)
+            self._wait_for(lambda: window.room_interaction_coordinator.active_context is None)
+            self.assertNotIn(context, window._room_codec_mutations)
+            self.assertNotIn(context, window._room_codec_mutation_cleanup_timers)
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
+            self.assertTrue(row.interaction_blocked)
+            self.assertTrue(row.unconfirmed_after_command)
+            self.assertTrue(row.stale)
+            self.assertFalse(row.network_actions_enabled)
+            owner.signals.result.emit({"value": 7})
+            owner.signals.error.emit({"category": CodecFailureCategory.AUTHENTICATION.value})
+            owner.finish_cleanup()
+            self.assertNotEqual(7, row.accepted_snapshot.get("speaker_volume"))
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+
+    def test_cancelled_codec_mutation_physical_cleanup_stops_timeout_without_double_complete(self):
+        with patch("gui.main_window.InteractiveSessionController", ControlledTeSession):
+            window, session = self._window_session("Huawei TE20")
+            window.room_codec_mutation_cleanup_timeout_ms = 20
+            row = session.row_for("a")
+            context = window.room_interaction_coordinator._new_context(row, RoomInteractionKind.MUTATION)
+            window.room_interaction_coordinator._active = context
+            window._start_room_codec_mutation_attempt(
+                context, {"operation": "speaker_volume", "target": 7},
+                {"username": "first", "password": "one"}, 0,
+            )
+            owner = ControlledTeSession.instances[-1]
+            window.room_interaction_coordinator.collapse("a")
+            owner.finish_cleanup()
+            self.assertNotIn(context, window._room_codec_mutations)
+            self.assertNotIn(context, window._room_codec_mutation_cleanup_timers)
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+            self.assertTrue(row.interaction_blocked)
+            self.assertTrue(row.unconfirmed_after_command)
+            self.assertTrue(row.stale)
+            self.assertFalse(row.network_actions_enabled)
+            self._wait_for(lambda: True, timeout=0.04)
+            self.assertIsNone(window.room_interaction_coordinator.active_context)
+
     def test_top_refresh_waits_for_cloudlink_live_cleanup_before_room_replacement(self):
         with patch("gui.main_window.InteractiveSessionController", ControlledCloudSession), patch(
             "gui.main_window.CloudLinkMicrophoneMeter", ControlledCloudMeter
@@ -225,6 +642,9 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
             # room authority after it to model a top Refresh on the same target.
             window.room_diagnostic_session = session
             window.room_interaction_coordinator.bind_session(session)
+            window.room_interaction_coordinator._codec_preview_attempts.add(
+                (session.identity, "a")
+            )
             window.room_interaction_coordinator.cycle_finished(session)
             live = window.room_interaction_coordinator.active_context
             window._start_room_diagnostic_session = Mock()

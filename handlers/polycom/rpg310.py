@@ -14,6 +14,7 @@ import paramiko
 from core.exceptions import (
     AuthenticationError,
     CommandError,
+    CommandRejectedError,
     CommandOutcomeUnknownError,
     ConnectionError,
     ProtocolError,
@@ -248,15 +249,18 @@ class PolycomRPG310Handler:
             raise ConnectionError(f"SSH connection failed: {error}")
 
     def _clear_ssh_buffer(self) -> None:
-        if self.ssh_channel and self.ssh_channel.recv_ready():
-            self.ssh_channel.recv(self.buffer_size)
+        while self.ssh_channel and self.ssh_channel.recv_ready():
+            if not self.ssh_channel.recv(self.buffer_size):
+                break
 
     def _read_ssh_channel(self) -> str:
-        output = ""
-        if self.ssh_channel and self.ssh_channel.recv_ready():
-            data = self.ssh_channel.recv(self.buffer_size)
-            output = data.decode("utf-8", errors="ignore")
-        return output
+        chunks = []
+        while self.ssh_channel and self.ssh_channel.recv_ready():
+            chunk = self.ssh_channel.recv(self.buffer_size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="ignore")
 
     def send_command(self, command: str, wait_time: float = 2.0) -> str:
         if not self._is_ssh_connected():
@@ -636,19 +640,36 @@ class PolycomRPG310Handler:
             return "Stop"
         return None
 
-    def set_speaker_volume(self, value: int) -> bool:
+    def set_speaker_volume(self, value: int, stage_callback=None) -> bool:
         min_value, max_value = self.get_volume_range()
         gui_value = int(value)
         if not min_value <= gui_value <= max_value:
             raise ValueError(f"Speaker volume must be in range {min_value}..{max_value}")
 
         device_value = round(gui_value / 2)
+        # Connection or authentication must fail before the conservative
+        # possible-send boundary, so the UI can safely release the lane.
+        if not self._is_ssh_connected():
+            self._connect_ssh()
+        if callable(stage_callback):
+            stage_callback("post_may_have_been_sent")
         response = self.send_command(f"volume set {device_value}", wait_time=2.0)
         response_lower = response.lower()
         if "invalid" in response_lower or "error" in response_lower:
-            return False
+            raise CommandRejectedError("Polycom rejected the speaker-volume command")
         time.sleep(0.5)
-        return self.get_speaker_volume() == gui_value
+        observed = self.get_speaker_volume()
+        if observed is None:
+            raise CommandOutcomeUnknownError(
+                "Polycom speaker volume is unavailable after mutation"
+            )
+        if observed != gui_value:
+            # This readback is authoritative evidence that the requested
+            # target was not accepted.
+            raise CommandRejectedError(
+                "Polycom speaker-volume readback did not confirm the requested target"
+            )
+        return True
 
     def get_speaker_volume(self) -> Optional[int]:
         response = self.send_command("volume get", wait_time=2.0)

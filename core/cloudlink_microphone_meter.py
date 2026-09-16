@@ -9,11 +9,13 @@ from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 from core.interactive_session import InteractiveOperation, InteractiveSessionController, OperationSemantic
 
 
-SUPPORTED_CLOUDLINK_METER_MODELS = {"CloudLink Bar 310", "CloudLink Box 310"}
+# Box LIVE is intentionally deferred.  Keeping the exact supported set here
+# makes legacy codec-page composition fail closed as well as room composition.
+SUPPORTED_CLOUDLINK_METER_MODELS = {"CloudLink Bar 310"}
 
 
 class CloudLinkMicrophoneMeter(QObject):
-    """Owns one optional one-second polling lifecycle and never persists login state."""
+    """Owns one optional 700 ms polling lifecycle and never persists login state."""
 
     sample = pyqtSignal(dict)
     accepted = pyqtSignal(dict, dict)
@@ -134,4 +136,4 @@ class CloudLinkMicrophoneMeter(QObject):
             terminal_outcome["category"] = terminal_category
             self.terminal.emit(terminal_outcome)
             return
-        self._timer.start(1000)
+        self._timer.start(700)

@@ -290,21 +290,22 @@ For the confirmed organization workbook, the importer SHALL map exact normalized
 ```text
 Video Conference -> video_codec
 БРП              -> pdu
-any other value   -> other
+any other value  -> other
 ```
 
 The importer SHALL NOT use substring matching, fuzzy matching, model-name guessing, manufacturer guessing, recognized diagnostic-model evidence, GUI page registration, or runtime diagnostic routing to silently override the result of this exact source-type mapping.
 
 A known supported model whose source `Тип модели` maps to an unexpected `device_kind` MAY produce the structured non-fatal consistency issue `KNOWN_MODEL_TYPE_MISMATCH`. The expected-kind registry used by that diagnostic is importer-only consistency evidence. It SHALL NOT grant authority to change `device_kind`, suppress an exact recognized `diagnostic_model`, choose a runtime page/controller, or alter canonical schema.
 
-For the currently reviewed PDU diagnostic models, the consistency expectations SHALL be:
+For the currently reviewed diagnostic models, the importer-side consistency expectations SHALL be:
 
 ```text
-Aten PE8208AV          -> other
-Extron IPL T PCS4i     -> other
+Huawei TE50          -> video_codec
+Aten PE8208AV        -> other
+Extron IPL T PCS4i   -> other
 ```
 
-These expected values reflect the authoritative source-type contract for the reviewed organization rows. Runtime PDU dispatch is independently authorized by exact canonical `diagnostic_model`; it SHALL NOT require `device_kind = pdu`.
+These expected values reflect the authoritative source-type contract for the reviewed organization rows. Runtime PDU or codec dispatch is independently authorized by exact canonical `diagnostic_model`; it SHALL NOT require an expected `device_kind` result.
 
 #### Scenario: Video Conference type is mapped
 
@@ -321,6 +322,14 @@ These expected values reflect the authoritative source-type contract for the rev
 - **WHEN** normalized `Тип модели` is any value other than the two explicitly mapped values, including an unknown or new value
 - **THEN** canonical `device_kind` is exactly `other`
 - **AND** the importer does not guess a more specific kind from other text, recognized model, or diagnostic page registration
+
+#### Scenario: Huawei TE50 has a video-codec consistency expectation
+
+- **GIVEN** reviewed recognition yields exact `diagnostic_model = Huawei TE50`
+- **WHEN** importer consistency diagnostics evaluate the expected-kind registry
+- **THEN** the expected kind is exactly `video_codec`
+- **AND** exact source `Тип модели` mapping remains the sole authority for canonical `device_kind`
+- **AND** a mismatch is non-fatal consistency evidence and does not suppress the recognized diagnostic model
 
 #### Scenario: Correct Aten source type has no known-model mismatch
 
@@ -991,6 +1000,7 @@ The same closed reviewed registry SHALL be evaluated independently against each 
 | --- | --- |
 | `Huawei TE20` | `te` and `20` |
 | `Huawei TE40` | `te` and `40` |
+| `Huawei TE50` | `te` and `50` |
 | `CloudLink Bar 310` | `cloudlink`, `bar`, and `310` |
 | `CloudLink Box 310` | `cloudlink`, `box`, and `310` |
 | `Polycom RPG 310` | (`rpg` and `310`) or (`realpresence`, `group`, and `310`) |
@@ -1000,13 +1010,35 @@ The same closed reviewed registry SHALL be evaluated independently against each 
 | `Biamp Tesira Forte CI` | `tesira` and (`forte` or `forté`) |
 | `Extron DMP 64 Plus` | `dmp` and `64` |
 
-`AV`, `CI`, and `Plus` SHALL NOT be required components for their canonical rules. Rule order and evidence-field order SHALL NOT grant authority or priority. This requirement SHALL NOT add any canonical model outside the existing registry.
+`AV`, `CI`, and `Plus` SHALL NOT be required components for their canonical rules. Rule order and evidence-field order SHALL NOT grant authority or priority. This requirement SHALL NOT add any canonical model outside this reviewed registry.
+
+After deployment of this reviewed recognition-registry change, the organization workbook SHALL be converted again to regenerate deployment-local `equipment_inventory.local.json`. The workbook and generated snapshot SHALL remain outside Git, runtime SHALL continue to consume only the canonical JSON snapshot, and runtime SHALL NOT parse `.xlsx` data.
 
 #### Scenario: Compact TE40 evidence is recognized
 
 - **WHEN** normalized source `Модель` or normalized source `Наименование` is `TE40`, `TE 40`, or `TE-40`
 - **THEN** that field's evidence contains exact components `te` and `40`
 - **AND** the `Huawei TE40` rule matches that field
+
+#### Scenario: Compact TE50 evidence is recognized
+
+- **WHEN** normalized source `Модель` or normalized source `Наименование` is `TE50`, `TE 50`, `TE-50`, `Huawei TE50`, or `Huawei_TE.50`
+- **THEN** that field's evidence contains exact components `te` and `50`
+- **AND** the `Huawei TE50` rule matches that field without a new tokenization rule
+
+#### Scenario: TE50 recognition publishes the exact canonical diagnostic model
+
+- **GIVEN** the combined distinct match union from the two approved evidence fields contains only `Huawei TE50`
+- **WHEN** the diagnostic-model cardinality contract is applied
+- **THEN** canonical `diagnostic_model` is exactly `Huawei TE50`
+
+#### Scenario: TE20, TE40, and TE50 remain distinct component rules
+
+- **WHEN** approved evidence has exact components `te` and `40`
+- **THEN** `Huawei TE40` matches and `Huawei TE50` does not match
+- **WHEN** approved evidence has exact components `te` and `50`
+- **THEN** `Huawei TE50` matches and `Huawei TE40` does not match
+- **AND** existing `Huawei TE20` recognition remains unchanged
 
 #### Scenario: Optional canonical suffix is absent
 
@@ -1021,7 +1053,7 @@ The same closed reviewed registry SHALL be evaluated independently against each 
 
 #### Scenario: Similar longer components are rejected
 
-- **WHEN** either normalized approved evidence field is `LTE 40`, `TE200`, `TE401`, `IN18040`, `PE82080`, or `DMP640`
+- **WHEN** either normalized approved evidence field is `LTE 40`, `TE200`, `TE401`, `TE500`, `TE501`, `IN18040`, `PE82080`, or `DMP640`
 - **THEN** no reviewed rule matches that field merely because a shorter key appears as a substring
 
 #### Scenario: CloudLink Box 310 evidence is recognized

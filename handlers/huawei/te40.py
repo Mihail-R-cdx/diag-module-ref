@@ -10,7 +10,9 @@ import random
 import time
 import traceback
 from datetime import datetime
-from typing import Dict, Any, Optional
+from math import isfinite
+from numbers import Real
+from typing import Callable, Dict, Any, Optional
 from core.codec_call_history import snapshot_from_display_records
 from core.base_handler import BaseHuaweiCodecHandler
 from core.exceptions import (
@@ -21,6 +23,42 @@ from core.exceptions import (
     SessionInvalidError,
 )
 from core.redaction import redact_diagnostic
+
+
+_TE40_MONITOR_MIC_ARRAY_FIELD = re.compile(r"^micArray\d+_\d+ValIdx$")
+_TE40_CURRENT_MIC_FIELD = re.compile(r"^mic\d+ValueIndex$")
+_TE40_CURRENT_MIC_EXACT_FIELDS = (
+    "MicValueIndex",
+    "rcaLInValueIndex",
+    "rcaRInValueIndex",
+)
+
+
+def extract_te40_current_audio_microphone_level(payload: Any) -> Real | None:
+    """Return the strongest finite microphone sample in TE40 current-audio data.
+
+    This exact-model boundary deliberately retains the vendor payload while
+    publishing one raw microphone value for both initial diagnostics and the
+    interactive LIVE path.  Speaker telemetry is never a microphone source.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    candidates: list[Real] = []
+    for key, value in payload.items():
+        if key not in _TE40_CURRENT_MIC_EXACT_FIELDS and (
+            not isinstance(key, str) or not (
+                _TE40_CURRENT_MIC_FIELD.fullmatch(key)
+                or _TE40_MONITOR_MIC_ARRAY_FIELD.fullmatch(key)
+            )
+        ):
+            continue
+        if isinstance(value, bool) or not isinstance(value, Real):
+            continue
+        if not isfinite(float(value)):
+            continue
+        candidates.append(value)
+    return max(candidates) if candidates else None
 
 class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     """Обработчик для Huawei TE40 с рабочей реализацией подключения"""
@@ -55,6 +93,11 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         29: 'VPC800',
         30: 'VPT300',
     }
+    _MICROPHONE_SAVE_FIELDS = (
+        "micall",
+        *(f"mic{index}" for index in range(1, 19)),
+        *(f"mic{index}Value" for index in range(1, 19)),
+    )
     
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
@@ -483,6 +526,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                 'get_sip_status': 'WEB_GetLineStateInfoAPI',
                 'get_audio_status': 'WEB_InitAudioCtrlParamsAPI',
                 'get_monitor_audio_params': 'WEB_GetMonitorAudioParam',
+                'get_current_audio_params': 'WEB_GetCurrentAudioParam',
                 'get_presentation': 'WEB_IsSendAuxStreamAPI',
                 'get_system_sleep': 'WEB_IsSystemSleepAPI',
                 'get_camera_status': 'WEB_GetLocalCameraList',
@@ -748,39 +792,28 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                         status['mic_mute'] = 'On' if audio_data.get('MicSwitch', 0) == 0 else 'Off'
                         status['speaker_mute'] = 'On' if audio_data.get('SpeakerSwitch', 0) == 1 else 'Off'
                         status['speaker_volume'] = audio_data.get('speakerValue', 0)
-                        if (
-                            status.get(
-                                'mic_connection_status',
-                                '',
-                            ).startswith('Микрофон подключён')
-                            and 'micValue' in audio_data
-                        ):
+                        # MIC1 is the approved configured primary-gain
+                        # authority.  Older micValue evidence remains only a
+                        # compatibility fallback when MIC1 is absent.
+                        if 'mic1Value' in audio_data:
+                            status['mic_volume'] = audio_data.get('mic1Value')
+                        elif 'micValue' in audio_data:
                             status['mic_volume'] = audio_data.get('micValue')
                         print(f"Аудио статус получен")
             except Exception as e:
                 self._report_exception("Audio-status request", e)
 
-            print("Запрос monitor audio params...")
+            print("Запрос current audio params...")
             try:
-                monitor_audio_result = self.send_command(
-                    'get_monitor_audio_params'
+                current_audio_data = self._get_current_audio_params()
+                status['monitor_mic_value'] = (
+                    extract_te40_current_audio_microphone_level(current_audio_data)
                 )
-                if (
-                    monitor_audio_result
-                    and monitor_audio_result.get('success') == 1
-                ):
-                    monitor_audio_data = self._parse_json_data(
-                        monitor_audio_result.get('data', {})
-                    )
-                    if monitor_audio_data:
-                        status['monitor_mic_value'] = (
-                            monitor_audio_data.get('MicValueIndex')
-                        )
-                        status['monitor_speaker_value'] = (
-                            monitor_audio_data.get('SpeakerValueIndex')
-                        )
+                status['monitor_speaker_value'] = (
+                    current_audio_data.get('SpeakerValueIndex')
+                )
             except Exception as e:
-                self._report_exception("Monitor-audio request", e)
+                self._report_exception("Current-audio request", e)
             
             # 6. Получаем статус презентации
             print("Запрос статуса презентации...")
@@ -803,12 +836,13 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                     camera_data = self._parse_json_data(camera_result.get('data', '{}'))
                     if camera_data:
                         item_list = camera_data.get('itemList', [])
-                        if isinstance(item_list, list) and len(item_list) >= 2:
-                            cam1_status = 'On' if item_list[0].get('itemState', 0) == 1 else 'Off'
-                            cam2_status = 'On' if item_list[1].get('itemState', 0) == 1 else 'Off'
-                            status['camera_status'] = f"{cam1_status}{cam2_status}"
+                        if isinstance(item_list, list):
+                            camera_states = []
                             active_camera_models = []
                             for camera_item in item_list:
+                                if not isinstance(camera_item, dict):
+                                    continue
+                                camera_states.append('On' if camera_item.get('itemState', 0) == 1 else 'Off')
                                 if camera_item.get('itemState', 0) != 1:
                                     continue
                                 camera_type_result = self.send_command(
@@ -835,6 +869,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                                             camera_type
                                         )
                                     )
+                            if camera_states:
+                                status['camera_status'] = ''.join(camera_states)
                             if active_camera_models:
                                 status['camera_connection_status'] = (
                                     '; '.join(
@@ -843,7 +879,7 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
                                         )
                                     )
                                 )
-                            elif status['camera_status'] == 'OffOff':
+                            elif camera_states and not any(state == 'On' for state in camera_states):
                                 status['camera_connection_status'] = (
                                     'Камера не подключена'
                                 )
@@ -1099,18 +1135,29 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
     def get_live_audio_status(self) -> Dict[str, Any]:
         """Return one authoritative sleep/audio sample for interactive polling."""
         sleep_mode = self.get_sleep_mode()
-        result = self.send_command("get_monitor_audio_params")
+        data = self._get_current_audio_params()
+        return {
+            "sleep_mode": sleep_mode,
+            "audio": data,
+            "microphone": extract_te40_current_audio_microphone_level(data),
+        }
+
+    def _get_current_audio_params(self) -> Dict[str, Any]:
+        """Read TE40 dynamic audio through the browser-proven POST authority."""
+        result = self.send_command(
+            "get_current_audio_params", {"acCSRFToken": self.csrf_token or ""}
+        )
         if not isinstance(result, dict) or result.get("success") != 1:
-            raise CommandError("TE40 live-audio read was rejected")
+            raise CommandError("TE40 current-audio read was rejected")
         data = result.get("data", {})
         if isinstance(data, str):
             try:
                 data = json.loads(data)
             except json.JSONDecodeError as error:
-                raise ProtocolError("TE40 live-audio data is malformed") from error
+                raise ProtocolError("TE40 current-audio data is malformed") from error
         if not isinstance(data, dict):
-            raise ProtocolError("TE40 live-audio data is not an object")
-        return {"sleep_mode": sleep_mode, "audio": data}
+            raise ProtocolError("TE40 current-audio data is not an object")
+        return data
 
     def wake_up(self) -> bool:
         """Разбудить устройство из режима сна."""
@@ -1226,9 +1273,73 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         expected_state = 'Muted' if muted else 'Unmuted'
         return self.get_microphone_volume() == expected_state
 
+    def _read_full_microphone_state(self) -> Dict[str, Any] | None:
+        """Read the only safe authority for a TE40 full-state save."""
+        result = self.send_command('get_audio_status')
+        if not isinstance(result, dict) or result.get('success') != 1:
+            return None
+        data = self._parse_json_data(result.get('data', {}))
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    @classmethod
+    def _complete_microphone_save_state(cls, data: Dict[str, Any] | None) -> bool:
+        return isinstance(data, dict) and all(key in data for key in cls._MICROPHONE_SAVE_FIELDS)
+
+    def set_microphone_gain(
+        self,
+        target_wire: int,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> Dict[str, Any]:
+        """Set TE40 MIC1 gain by one already-resolved wire target.
+
+        The method owns a fresh full pre-read and post-read so that no caller
+        can accidentally build a native full-state payload from dashboard
+        cache.  A pre-submit failure is returned distinctly; any failure after
+        the save may have changed device state and is raised for fail-closed
+        mutation handling.
+        """
+        if isinstance(target_wire, bool) or not isinstance(target_wire, int) or not 0 <= target_wire <= 24:
+            raise CommandError('TE40 MIC1 gain target is outside 0..24')
+        try:
+            baseline = self._read_full_microphone_state()
+        except Exception as error:
+            # The save boundary has not been crossed.  Return a typed outcome
+            # to composition instead of allowing generic session recovery to
+            # make this definite no-send failure look ambiguous.
+            return {
+                'pre_submit_failure': True,
+                'connection_lost': isinstance(error, (ConnectionError, SessionInvalidError)),
+            }
+        if not self._complete_microphone_save_state(baseline):
+            return {'pre_submit_failure': True}
+        payload = {key: baseline[key] for key in self._MICROPHONE_SAVE_FIELDS}
+        payload['mic1Value'] = target_wire
+        if stage_callback is not None:
+            # This is the exact conservative possible-send boundary.  From
+            # here a timeout, cancellation, or malformed response can no
+            # longer prove that the device state remained unchanged.
+            stage_callback('post_may_have_been_sent')
+        acknowledgement = self.send_command('WEB_SaveAudioMicCtrlParams', payload)
+        if not isinstance(acknowledgement, dict) or acknowledgement.get('success') != 1:
+            raise CommandError('TE40 microphone gain command was not acknowledged')
+        observed = self._read_full_microphone_state()
+        if not self._complete_microphone_save_state(observed):
+            raise CommandError('TE40 microphone gain readback is incomplete')
+        if observed.get('mic1Value') != target_wire:
+            raise CommandError('TE40 microphone gain readback did not confirm MIC1')
+        for key in self._MICROPHONE_SAVE_FIELDS:
+            if key == 'mic1Value':
+                continue
+            if observed.get(key) != baseline.get(key):
+                raise CommandError('TE40 microphone gain readback found collateral change')
+        return {'confirmed': True, 'microphone_volume': target_wire}
+
     def set_microphone_volume(self, value: int) -> bool:
-        # TE40 web API exposes microphone mute, not a separate microphone gain command.
-        # The UI uses value 0 as muted and any positive value as unmuted.
+        # Legacy screen compatibility only.  Room MIC1 gain uses the safe
+        # full-state method above and never maps numeric value to mute.
         return self.set_microphone_mute(int(value) <= 0)
 
     def get_microphone_volume(self) -> Optional[str]:

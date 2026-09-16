@@ -1,0 +1,284 @@
+# Tasks: codec-interaction-parity-restoration
+
+## 1. Historical baseline and first implementation cycle
+
+- [x] 1.1 Compare current `master` with pre-codec-redesign `c442152077dd8aa6251f1d8be9fc98b765406dbd` and treat legacy `CodecScreen` as behavioral evidence, not room authority.
+- [x] 1.2 Establish the original exact-model matrix, parser normalization, LIVE/call-log lifecycle and hardware gate.
+- [x] 1.3 Obtain the original architecture `APPROVE` and implement through published SHA `467f2cbb502f698476f047d277052bf5ccb55147`.
+- [x] 1.4 Independently validate `467f2cbb...` offline; result was `PASS FOR HARDWARE ACCEPTANCE`.
+- [x] 1.5 Begin hardware acceptance and record that real-device findings invalidate parts of the original architecture; `467f2cbb...` is discovery baseline only.
+
+## 2. Hardware-discovered architecture amendment
+
+- [x] 2.1 Publish first amendment `969e4a55e44a4f6879daa5c664de812141fa1704`.
+- [x] 2.2 Independently review `969e4a55...`; verdict `CHANGES REQUIRED` with 4 HIGH and 1 MEDIUM findings.
+- [x] 2.3 Resolve root capability conflict through archive-compatible `MODIFIED Requirements`.
+- [x] 2.4 Resolve adapter conflict; TE20/RPG remain mute-only, TE40 gain/mute independent.
+- [x] 2.5 Resolve root presentation conflict with the then-current two-live-meter Audio-card contract (subsequently superseded by the single microphone LIVE meter contract in 9.10).
+- [x] 2.6 Replace root visual-checkpoint requirement with exact new Audio-card order.
+- [x] 2.7 Resolve automatic-preview lifecycle ambiguity: whole automatic room cycle terminal + exact codec current/expanded/usable -> one fresh preview -> cleanup -> first eligible LIVE.
+- [x] 2.8 Keep collapsed/non-current codec rows free of automatic call-log network I/O.
+- [x] 2.9 Remove unproven Box `max(all curVolume)` contract.
+- [x] 2.10 Publish remediation `918a046a4f525a3f2fede8dc142e6c1e8fbcf295`.
+- [x] 2.11 Publish `df5447abe556d53ce3d7fd2a2a56e1c042918272` with the then-proven TE40 MIC1 setter/range/step/readback.
+- [x] 2.12 Review `df5447...`; verdict `CHANGES REQUIRED` with 2 HIGH findings: unresolved Box LIVE architecture and stale full-state TE40 save risk.
+- [x] 2.13 Publish `01faf3cc522f89f936cb4daefa70161279093f40` deferring Box LIVE and hardening TE40 fresh full-state mutation safety.
+- [x] 2.14 Validate/review `01faf3...`: change strict PASS, all strict PASS, Git checks PASS, worktree clean, archive applicability FAIL; independent verdict `CHANGES REQUIRED` with one HIGH root CloudLink meter conflict and one MEDIUM Box call-log/LIVE contradiction.
+
+## 3. Final architecture corrections before re-validation
+
+- [x] 3.1 TE40 gain setter boundary: `POST action.cgi?ActionID=WEB_SaveAudioMicCtrlParams`.
+- [x] 3.2 Historical TE40 gain mapping established at that stage: `gain_db = mic1Value - 12`, step `1 dB`, with observed points through `mic1Value=21 -> +9 dB`. The later confirmed device scale through `+12 dB` is authoritative in section 9I and supersedes treating `21` as the MIC upper bound.
+- [x] 3.3 TE40 ACK/readback: ACK is non-authoritative; numeric target evidence uses approved TE40 audio-control readback; mute independent.
+- [x] 3.4 Strengthen TE40 full-state mutation: after MUTATION owns lane and LIVE retires, require a fresh full `WEB_InitAudioCtrlParamsAPI` audio-control read before POST; old accepted cache is not payload authority.
+- [x] 3.5 Require fresh pre-write state to contain `micall`, `mic1..mic18`, `mic1Value..mic18Value`; if incomplete, send nothing and do not create command ambiguity solely from that pre-submit failure.
+- [x] 3.6 Require post-write full-state reconciliation of MIC1 target plus every preserved non-target microphone field against the fresh pre-write baseline; collateral mismatch is blocked/unconfirmed and never silently accepted/replayed.
+- [x] 3.7 Resolve Box LIVE architecture by explicit scope reduction: Box microphone LIVE is UNSUPPORTED/DEFERRED, exact Box registration has no LIVE binding, and room LIVE performs zero Box `WEB_GetCurrentAudioParam` polling.
+- [x] 3.8 Preserve Box non-LIVE scope: diagnostics, speaker controls, call-log automatic preview/detail, Local Refresh, exact identity/currentness/cleanup remain in scope.
+- [x] 3.9 Preserve earlier `{deviceId, curVolume}` observations only as future Box LIVE discovery evidence; Bar evidence is Bar-only; no current Box parser implementation task remains.
+- [x] 3.10 Add archive-compatible `MODIFIED Requirements` for root `cloudlink-live-microphone-metering`: Bar 310 remains the only supported CloudLink live microphone model; Box LIVE/polling is removed from root authority while historical Box endpoint knowledge remains dormant.
+- [x] 3.11 Preserve every existing root CloudLink meter requirement/scenario identity needed for archive applicability while redefining Box-specific scenarios as explicit no-capability/no-polling/deferred behavior.
+- [x] 3.12 Correct Box call-log regression: Box preview still runs once per eligible row/generation, but terminal cleanup releases the lane with zero Box LIVE start/resume/request; generic preview ordering references first LIVE only when exact registration actually advertises LIVE.
+
+## 4. Architecture validation and approval
+
+Historical validation at `01faf3cc522f89f936cb4daefa70161279093f40`:
+
+- [x] 4.1 `.\openspec.cmd validate codec-interaction-parity-restoration --strict`: PASS.
+- [x] 4.2 `.\openspec.cmd validate --all --strict`: PASS.
+- [x] 4.3 `git diff --check` and `git diff --cached --check`: PASS.
+- [x] 4.4 Disposable archive-applicability check: FAIL because root `cloudlink-live-microphone-metering` still mandated Box LIVE.
+- [x] 4.5 Independent architecture review of `01faf3...`: `CHANGES REQUIRED` (1 HIGH, 1 MEDIUM).
+- [x] 4.6 Resolve the HIGH/MEDIUM findings in OpenSpec only; no production implementation.
+
+Required re-validation on the new exact published SHA:
+
+- [x] 4.7 Re-read all current root specs affected by this change and confirm no competing capability/presentation/lifecycle contract remains, including the state-card uptime replacement, root CloudLink meter Box deferral, Box call-log no-LIVE semantics, and TE40 fresh full-state mutation safety.
+- [x] 4.8 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict` for the current OpenSpec-only architecture remediation.
+- [x] 4.9 Run `.\openspec.cmd validate --all --strict` for the current OpenSpec-only architecture remediation.
+- [x] 4.10 Run a disposable archive-applicability check for all `MODIFIED Requirements`; verify every replaced root requirement/scenario is archive-compatible without publishing archive output.
+- [x] 4.11 Run Git hygiene checks (`git diff --check`, `git diff --cached --check`) and confirm only in-scope OpenSpec artifacts are modified before the resulting commit.
+- [x] 4.12 Independent reviewer completed the historical architecture review of exact SHA `11af77b14010c34ae2d33de816678a6724971caa`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`). The post-approval hardware amendment requires the new review in 9.13.
+- [x] 4.13 Resolve the current Critical/High/Medium findings without production implementation: add the archive-compatible state-card uptime replacement and classify TE40 static status as an ADDED requirement.
+- [x] 4.14 Record historical final independent architecture `APPROVE` for exact content SHA `11af77b14010c34ae2d33de816678a6724971caa` (`CRITICAL 0 / HIGH 0 / MEDIUM 0`). This bookkeeping descendant does not change that historical architecture-approved SHA; the post-approval hardware amendment requires the new review in 9.13.
+
+## 5. Post-approval exact-model capability and parser implementation
+
+- [x] 5.1 Make `diagnostic_dispatch`/unified exact-model registration conform to final approved matrix; preserve RPG310 speaker step `2`; TE40 `microphone_adjust` supported only through MIC1 binding.
+- [x] 5.2 TE40: normalize present numeric static `mic1Value` primary gain to canonical `microphone_volume`; use historical `micValue` only as a compatibility fallback when MIC1 is absent; preserve independent mute evidence as `microphone_muted`.
+- [x] 5.3 TE40: implement MIC1 gain mutation with mandatory fresh full-state pre-read after lane ownership/LIVE retirement; build save payload only from that fresh state; change only target `mic1Value`; send once via `WEB_SaveAudioMicCtrlParams`.
+- [x] 5.4 TE40: post-write full-state reconciliation must confirm target plus preserved non-target `micall`/`micN`/`micNValue`; insufficient/collateral mismatch -> blocked/unconfirmed, no replay.
+- [x] 5.5 TE40: preserve microphone mute as a separate supported desired-state/readback operation.
+- [x] 5.6 TE40 camera: process `itemList` as zero-to-many; cover exactly-one-camera shape.
+- [x] 5.7 Box 310: remove/disable all live-microphone capability surfaces for this change: no unified-registration LIVE binding, no Box meter polling context, no LIVE `WEB_GetCurrentAudioParam`, no legacy codec-page meter row, and the modern room microphone LIVE slot is unsupported. Do not implement a replacement Box parser.
+- [x] 5.8 Bar 310: preserve approved current-volume LIVE endpoint/session/parser/polling behavior and do not let Box deferral regress Bar.
+- [x] 5.9 Keep CloudLink microphone gain and all-five reboot unsupported/local-only with zero network I/O.
+- [x] 5.10 Preserve TE20/RPG310 microphone-mute semantics and no fabricated numeric gain.
+
+## 6. Post-approval presentation and LIVE implementation
+
+- [x] 6.1 Render Audio card in exact order: `Микрофон (уровень)`, `Громкость микрофона`, `Громкость динамиков`; no user-visible speaker LIVE meter.
+- [x] 6.2 Implement the then-approved TE20/TE40 `MicValueIndex` normalization and seed precedence for `Микрофон (уровень)`; `SpeakerValueIndex` remains compatibility/internal evidence and creates no user-visible speaker LIVE meter. The TE40 MicValueIndex-only authority is superseded by post-approval hardware evidence tracked in 9.13-9.18.
+- [x] 6.3 Remove redundant textual Huawei live-audio rows; the Audio card has no user-visible speaker LIVE row.
+- [x] 6.4 Historical implementation rendered TE40 configured MIC1 from `microphone_volume` via `gain_db = mic1Value - 12` and one-dB typed intents; the later confirmed `-12..+12 dB` device scale in 9I supersedes the old `+9 dB` upper-bound assumption.
+- [x] 6.5 Bar310: preserve approved microphone LIVE meter; room presentation has no user-visible speaker LIVE capability.
+- [x] 6.6 Box310: `Микрофон (уровень)` is unsupported/deferred; there is no Box LIVE binding, polling, or room LIVE `WEB_GetCurrentAudioParam`, and room presentation has no user-visible speaker LIVE capability. Legacy codec-page live microphone row is hidden; no historical/stale Box meter data is rendered as current.
+- [x] 6.7 RPG310: microphone LIVE is unsupported; the room Audio card retains its single microphone LIVE slot plus configured control rows.
+- [x] 6.8 Update repository-local visual acceptance tests/checkpoints for the Huawei single microphone LIVE meter contract, TE40 configured MIC1 dB value, Bar LIVE preservation, Box deferred microphone LIVE state, and absence of a user-visible speaker LIVE meter.
+
+## 7. Initial three-call preview and explicit journal
+
+- [x] 7.1 After the **entire** automatic room cycle is terminal, admit automatic call preview only for the exact current expanded connected/usable call-log-capable codec row.
+- [x] 7.2 For that exact row/generation, perform one fresh serialized call-history acquisition; if the exact registration advertises LIVE, first LIVE waits for preview terminal cleanup. If it advertises no LIVE, cleanup releases the lane with no LIVE start.
+- [x] 7.3 If no codec row is expanded at whole-room terminal time, perform zero hidden preview I/O until an eligible row is later expanded.
+- [x] 7.4 After a row/generation automatic attempt is terminal, collapse/re-expand, repaint, resize, theme switch and duplicate Qt events cause zero additional automatic call-log I/O.
+- [x] 7.5 Row switch may admit the newly current codec's own first generation-bound preview after prior lifecycle cleanup; stale old callbacks remain powerless.
+- [x] 7.6 Ordinary preview failure/no-data reaches bounded cleanup and does not permanently degrade a connected row; first LIVE may start afterward only when exact registration advertises LIVE.
+- [x] 7.7 Every explicit `Развернуть` remains a separate fresh call-log acquisition; active LIVE retires/resumes only where that exact model actually has LIVE. Box has zero LIVE retirement/resume in this change.
+- [x] 7.8 Add end-to-end call-log regressions for TE20, TE40, Bar310, Box310 and RPG310 proving up-to-three automatic rows and fresh explicit detail.
+- [x] 7.9 Box regression specifically proves: one preview, no Box LIVE context/request before or after cleanup, and later explicit detail remains fresh.
+
+## 8. Existing speaker/control safety regression
+
+- [x] 8.1 Preserve speaker ranges/steps: TE20/TE40/TE50 `0..21/1`, Bar/Box `0..15/1`, RPG310 `0..100/2`. Huawei speaker `0..21` is a distinct speaker-volume scale and SHALL NOT be reused as microphone/RCA gain range or percentage authority.
+- [x] 8.2 Preserve speaker zero/restore mute using only proven exact-row/generation positive restore evidence.
+- [x] 8.3 Preserve no-restore unmute at `0` as local unavailable with zero mutation/handler/device I/O.
+- [x] 8.4 Preserve root blocked/unconfirmed safety after possible send + failed/ambiguous readback; apply to TE40 MIC1 target or collateral mismatch.
+- [x] 8.5 Preserve definite pre-submit semantics: TE40 fresh pre-read failure before save does not create `unconfirmed_after_command` solely from no-send.
+- [x] 8.6 Preserve Local Refresh, cancellation, cleanup timeout, stale-callback and no-indefinite-lock behavior after amended lifecycles.
+
+## 9. Post-amendment implementation validation
+
+- [x] 9.1 Run focused parser/codec-control/live/call-log/camera/lifecycle tests.
+- [x] 9.2 Run the full offline unittest suite.
+- [x] 9.3 Run `.\openspec.cmd validate codec-interaction-parity-restoration --strict`.
+- [x] 9.4 Run `.\openspec.cmd validate --all --strict`.
+- [x] 9.5 Run `git diff --check` and `git diff --cached --check`.
+- [x] 9.6 Synchronize implementation evidence/tasks without treating synthetic tests as hardware acceptance.
+- [x] 9.7 Create and push focused implementation commit(s). Implementation session MUST NOT issue the independent final verdict.
+- [x] 9.8 Remediate automatic-preview terminal typed connection/session/authentication failure so exact-row degradation occurs before bounded preview cleanup and blocks first LIVE; retain non-degrading ordinary-preview failure semantics.
+- [x] 9.9 Remediate TE40 mutation completion classification so the possible-send boundary controls unconfirmed state for pre-submit typed and ordinary failures, while post-send cancellation, timeout, and failed readback remain fail-closed; add composition regressions.
+- [x] 9.10 Amend room codec presentation/lifecycle contracts: remove speaker LIVE, normalize Huawei monitor audio from `0..220`, seed microphone meter from initial evidence, preserve TE40 canonical state/uptime, and release preview ownership after already-completed physical cleanup.
+- [x] 9.11 Add remediation regressions for TE40 canonical MIC1 gain/status/uptime, microphone meter normalization and seed precedence, absent speaker LIVE meter, and preview cleanup handoff.
+- [x] 9.12 Remediate review findings: persist successful preview credential/profile before first LIVE, establish MIC1-primary wording, and remove stale speaker-LIVE contract text.
+
+## 9A. Post-approval hardware-discovered remediation
+
+- [x] 9.13 Obtain independent architecture review of the OpenSpec amendment for session-bound initial expansion preview admission and TE40 monitor-audio `micArray<N>_<NN>ValIdx` aggregation. Exact SHA `5b21dbe081e04c6e12f5c9448c34db9e4263d197`: APPROVE WITH NON-BLOCKING NOTES (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`).
+- [x] 9.14 Implement coordinator adoption of a generation-current session `expanded_record_id` at bind without bind/render I/O; preserve the one terminal-cycle automatic preview and preview-before-LIVE ordering.
+- [x] 9.15 Implement one TE40 monitor-audio extractor for one-shot seed and true LIVE: maximum valid `MicValueIndex`/`micArray<N>_<NN>ValIdx` candidates, unavailable-versus-zero semantics, and existing `0..220 -> 0..100%` normalization.
+- [x] 9.16 Add regression coverage for initial-expanded preview admission without synthetic Qt events and the TE40 primary/array aggregation, malformed/absent/zero/speaker-isolation, and seed-versus-true-LIVE boundaries.
+- [x] 9.17 Re-run focused/full offline validation and strict OpenSpec checks after implementation; do not treat them as hardware evidence.
+- [x] 9.18 Attempt exact-SHA Huawei TE40 hardware acceptance for automatic preview after ordinary `Обновить данные` and microphone LIVE array telemetry after implementation. At `01226c6620932db01424a06211ba7292c6efc164`, TE40 microphone LIVE **FAILED**: browser-proven dynamic audio uses `WEB_GetCurrentAudioParam` with decoded `mic<N>ValueIndex` and `micArray<N>_<NN>ValIdx` evidence, while the implementation uses `WEB_GetMonitorAudioParam`; remediation and a new exact-SHA hardware rerun are required. This is failure evidence, not hardware acceptance PASS.
+
+## 9B. Hardware-corrected TE40 current-audio architecture (pending independent review)
+
+- [x] 9.19 Obtain independent architecture review of the OpenSpec amendment that makes `WEB_GetCurrentAudioParam` the sole TE40 initial-seed/true-LIVE microphone authority and adds exact `mic<N>ValueIndex` aggregation. Exact SHA `23347fa1febb70cd1395041f0b02928b95d1eb56`: APPROVE WITH NON-BLOCKING NOTES (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`).
+- [x] 9.20 Implement the reviewed TE40 current-audio endpoint/extractor correction with one seed/LIVE path, then add focused regressions and rerun required validation.
+- [x] 9.21 Repeat exact-SHA TE40 microphone LIVE hardware acceptance after the reviewed implementation. At exact SHA `43fa6ca247898ff661e6e2fbcc4850c561512a2f`, current-audio LIVE PASSed on real TE40 hardware. This is TE40 current-audio evidence only, not whole-change hardware completion; later production changes require a new exact-SHA TE40 quick rerun.
+
+## 9C. TE50 declared protocol-equivalence expansion (architecture approved)
+
+- [x] 9.22 Amend OpenSpec for exact-model TE50 reuse and obtain independent architecture approval of published SHA `4aaad35cd4953ed1351b77a7635e2950da615fa1` (`APPROVE`; `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
+- [x] 9.23 After permitting review, register exact `Huawei TE50` identity and reviewed `HuaweiTE40Handler` reuse without family inference.
+- [x] 9.24 Add focused TE50 reuse regressions while preserving TE30/TE60 exclusion and all existing safety/lifecycle regressions.
+- [x] 9.25 Deferred exact-SHA TE40 current-audio LIVE/shared-behavior hardware recheck to residual follow-up MIH-25 / MIH-27; no final-SHA hardware PASS is claimed.
+- [x] 9.26 Attempt exact-SHA TE50 hardware acceptance on published SHA `6f90bf80671c2cb179deb60ba110e6317452cfb2`. Real TE50 hardware was available. The run exposed that the architecture had conflated the Huawei speaker `0..21` scale with configured microphone presentation; subsequent product clarification establishes MIC/RCA `-12..+12 dB` and speaker `0..21`. This is hardware/product-discovery evidence, not PASS.
+
+## 9D. TE50 inventory recognition contract (architecture approved)
+
+- [x] 9.27 Approve exact canonical `Huawei TE50`, reviewed components `te + 50`, importer-only expected kind `video_codec`, and deployment-local inventory regeneration without source-model dispatch authority at published SHA `90a3c346fb1c7938e5331aab4d79f593070ece83` (`APPROVE`; `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
+
+Implementation:
+
+- [x] 9.28 Add `Huawei TE50` to `DIAGNOSTIC_MODEL_RULES` using only the approved existing component mechanism.
+- [x] 9.29 Add `Huawei TE50 -> video_codec` to `EXPECTED_KIND_BY_DIAGNOSTIC_MODEL` as consistency evidence only; preserve exact source `Тип модели -> device_kind` authority.
+- [x] 9.30 Add importer regressions for TE50 compact/separated evidence, canonical output, expected-kind consistency, TE20/TE40 preservation, and TE40/TE50 non-overlap.
+- [x] 9.31 Deferred deployment-only regeneration of ignored `equipment_inventory.local.json`; outside source-change/archive scope (MIH-25 / MIH-27 follow-up record).
+- [x] 9.32 Deferred deployment-only verification of a real generated TE50 `diagnostic_model = Huawei TE50`; no runtime XLSX parsing/source-model dispatch added (MIH-25 / MIH-27 follow-up record).
+
+## 9E. Unknown call-direction presentation amendment (pending independent architecture review)
+
+- [x] 9.33 Add archive-compatible root replacements that retain typed `CallDirection.UNKNOWN` while removing its visible direction text, requiring an empty detailed-journal cell and title-free/gap-free room preview.
+- [x] 9.34 Run strict OpenSpec validation, disposable archive-applicability verification, and Git checks for the OpenSpec-only amendment.
+- [x] 9.35 Independent architecture review of exact SHA `a44179b9af1f55c68bbf3e9377461329f43e69b7`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`), permitting presentation implementation.
+- [x] 9.39 Implement detailed-journal and room-preview call-direction presentation: retain typed `UNKNOWN`, render its detailed cell empty, and omit its preview title widget/row without direction inference.
+- [x] 9.40 Add focused call-direction presentation regressions for incoming/outgoing text, typed unknown preservation, empty detailed fallback/cell, and title-free/gap-free neutral preview.
+
+## 9F. Table-only network peer-tile presentation amendment
+
+- [x] 9.36 Add archive-compatible replacements for the upper peer-tile and network-table requirements: preserve the headed room block and all canonical network/disclosure semantics while removing right-tile title/header/icon chrome and requiring full-area table/tree rendering with zero new I/O.
+- [x] 9.37 After permitting architecture review, implement the table-only network peer tile without changing canonical network evidence, disclosure behavior, or network I/O boundaries.
+- [x] 9.38 Add focused UI regressions for title/icon removal, full-area table geometry, preserved column headers, room-information heading, disclosure restoration, and zero-I/O rendering.
+
+## 9G. RCA microphone aggregate and room-presentation amendment
+
+Architecture:
+
+- [x] 9.41 Add archive-compatible exact TE40/TE50 RCA input aggregate contract: admit only `rcaLInValueIndex`/`rcaRInValueIndex`, retain finite-numeric/zero semantics and the single existing normalization, and preserve all other input exclusions and TE20 behavior.
+- [x] 9.42 Add the one-field target-search visible-label contract without changing search, selection, Refresh, authority, or I/O.
+- [x] 9.43 Add the fixed room warranty placeholder contract and record future authoritative warranty integration as Linear `MIH-28` without introducing warranty authority, schema, lookup, or I/O.
+
+Implementation:
+
+- [x] 9.44 Implement the approved TE40/TE50 extractor change using only explicit RCA input names; preserve no-candidate, numeric-zero, excluded-input, one-time-normalization, TE20, and exact-TE50 behavior.
+- [x] 9.45 Implement the descriptive target-search visible label on the existing field without changing search/selection/Refresh authority or adding a second field.
+- [x] 9.46 Implement the fixed `Гарантия: Нет гарантии` room-summary placeholder without a canonical/session warranty field, inventory-schema change, inference, lookup, or I/O.
+
+Regression:
+
+- [x] 9.47 Add focused RCA aggregate regressions for the required TE40/TE50 maxima, valid zero, missing/invalid evidence, excluded high inputs, exact TE20 preservation, and one-time `0..220 -> 0..100%` normalization.
+- [x] 9.48 Add focused UI regressions for the exact target-search label, single-field preservation, existing search/selection/Refresh behavior, and zero-I/O rendering.
+- [x] 9.49 Add focused room-summary regressions for always-visible exact `Гарантия: Нет гарантии`, no unavailable fallback, no warranty authority/I/O, and independent room-name/address/VIP/occupancy behavior.
+
+- [x] 9.50 Independent architecture review of exact SHA `56425b0f7e48b50cd975fd5752f72b7bd39cfd66`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 1`), implementation may proceed. The sole LOW is non-blocking stale bookkeeping text in the already completed 9F heading; that heading is synchronized here.
+
+## 9H. Headerless room summary and codec microphone LIVE cadence amendment
+
+Architecture:
+
+- [x] 9.51 Add archive-compatible root presentation replacements: preserve both outer upper peer tiles and all room/network authority while removing left room-summary title/icon/header chrome, retaining ordered padded room body, and preserving the table-only right network tile.
+- [x] 9.52 Define the nominal `700 ms` product cadence for supported Huawei TE20/TE40/TE50 and CloudLink Bar 310 microphone LIVE, preserving model-owned scheduling architecture, currentness, unsupported, and unrelated-timer boundaries.
+
+Implementation:
+
+- [x] 9.53 Remove local room-card header/title/icon chrome while preserving the outer peer container, padded body, room-row order, VIP association, and zero-I/O rendering.
+- [x] 9.54 Change the Huawei TE20/TE40/TE50 room LIVE scheduling target to `700 ms` without changing live protocol commands, aggregation, normalization, ownership, or overlap handling.
+- [x] 9.55 Change the CloudLink Bar 310 meter scheduling target to `700 ms` without changing its parser/session/authentication contract or overlap handling.
+
+Regression:
+
+- [x] 9.56 Add focused room-summary UI regressions for absent title/icon/header chrome, first room-name row, preserved body padding, room data/VIP/occupancy/warranty semantics, and zero new I/O.
+- [x] 9.57 Add focused Huawei TE20/TE40/TE50 LIVE scheduling regressions for `700 ms`, one in-flight sample, currentness/stale behavior, and unchanged approved microphone evidence handling.
+- [x] 9.58 Add focused CloudLink Bar 310 regressions for `700 ms`, no overlapping samples, and preserved parser/session/currentness behavior; prove Box 310 and Polycom remain without LIVE.
+- [x] 9.59 Add focused regression proving Matrix, DMP, PDU, general-refresh, call-log, authentication, and unrelated timers retain their existing cadence/behavior.
+- [x] 9.60 Record independent architecture review of SHA `9c1ff437f5b2b937e8b9b0f470d5cbfcb5c2ff4d`: `CHANGES REQUIRED` (`CRITICAL 0 / HIGH 0 / MEDIUM 1 / LOW 1`); implementation may not proceed.
+- [x] 9.61 Remediate the MEDIUM finding by preserving Huawei periodic `700 ms` timer + in-flight tick skip and Bar single-shot `700 ms` post-completion delay as distinct scheduler ownership contracts.
+- [x] 9.62 Remediate the LOW finding by archive-compatibly replacing the stale CloudLink one-second requirement and scenario names with `700 ms` names; do not retain historical-name explanatory text in the current normative artifact.
+- [x] 9.63 Record independent architecture re-review of SHA `6e6e04d881f70d8036a11886a2b7f7dceff539d3`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`); implementation may proceed. Hardware acceptance, independent final validation, archive, and merge remain incomplete.
+
+## 9I. Six-model hardware-remediation amendment (pending independent architecture review)
+
+Architecture / discovery evidence:
+
+- [x] 9.64 Record the real-device discovery pass on exact published SHA `6f90bf80671c2cb179deb60ba110e6317452cfb2` as failure/discovery evidence, not acceptance PASS.
+- [x] 9.65 Classify expected states correctly: TE20/RPG numeric microphone gain unsupported; Bar/Box microphone mutations unsupported; Box/RPG microphone LIVE unsupported; missing current status/uptime/camera evidence may remain `Нет данных` without becoming a defect by itself.
+- [x] 9.66 Correct Huawei audio-scale authority: TE20/TE40/TE50 microphone and RCA input gain use the confirmed user-facing `-12..+12 dB` scale with nominal `0 dB`; Huawei speaker volume uses the separate `0..21` scale. Remove the invented TE50 percentage mapping and never reuse speaker `0..21` as microphone/RCA percentage authority. TE20 numeric microphone adjustment remains unsupported by this application.
+- [x] 9.67 Preserve existing contracts and define remediation boundaries for RPG310 speaker adjust/mute + UI unlock, Bar310 supported LIVE and call-log statistics, Box310 preview/detail with zero LIVE, and TE20 duration/statistics.
+- [x] 9.68 Define final-SHA hardware revalidation as every failed/changed scenario plus cross-model smoke for shared paths touched by the remediation; unrelated deep hardware scenarios do not require a complete rerun solely because SHA changed.
+
+Pre-implementation validation gate — ALL items are mandatory and MUST complete before any production task below:
+
+- [x] 9.69 `.\openspec.cmd validate codec-interaction-parity-restoration --strict`: PASS.
+- [x] 9.70 `.\openspec.cmd validate --all --strict`: PASS.
+- [x] 9.71 Disposable archive-applicability check for every `MODIFIED Requirement`/scenario touched by this remediation: PASS.
+- [x] 9.72 Git hygiene/scope checks (`git diff --check`, `git diff --cached --check`, expected OpenSpec-only diff): PASS.
+- [x] 9.73 Record independent architecture review of exact OpenSpec-only SHA `8eb258206f3a8388fd214c83caab071c45976912`: `APPROVE` (`CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`).
+
+Implementation after the complete permitting gate above:
+
+- [x] 9.74 RPG310 speaker `−/+`/mute restoration and Audio/UI-lock terminal cleanup implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.75 Bar310 supported microphone LIVE/current-volume contract implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1` without protocol invention.
+- [x] 9.76 Box310 three-call preview/fresh journal implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1` while preserving identity and zero LIVE lifecycle/request.
+- [x] 9.77 TE20 authoritative `Продолжительность` and common journal statistics implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1` without GUI-text back-parsing/fabricated evidence.
+- [x] 9.78 Bar310 detailed-journal statistics under approved completeness/partial-warning semantics implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.79 Huawei MIC1 dB/mutation/full-state/mute contract, corrected `-12..+12 dB` range, TE50 no-percent, and TE20 unsupported numeric MIC gain implemented at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.80 Huawei speaker volume preserves the distinct native `0..21`, step `1` scale at SHA `f755c50523c112a16c66ed28db78fda45a246aa1`.
+- [x] 9.81 Focused regressions added for hardware-discovered failures, Huawei scale separation, and unsupported/no-data states; focused evidence 101 PASS.
+- [x] 9.82 Focused evidence 101 PASS, full offline suite 949 PASS, strict OpenSpec/Git checks PASS, and focused remediation SHA `f755c50523c112a16c66ed28db78fda45a246aa1` is published; no final verdict was issued in that implementation session.
+
+## 10. Hardware discovery and post-remediation exact-SHA acceptance
+
+The six-model discovery pass against `6f90bf80671c2cb179deb60ba110e6317452cfb2` is complete as architecture evidence and is **not** hardware acceptance because required scenarios failed.
+
+- [x] 10.1 Discovery evidence recorded: RPG310 speaker adjust/mute failed; Bar310 supported microphone LIVE remained unavailable and detailed usage percentage was absent; Box310 preview/detail failed while deferred LIVE state behaved as expected; TE20 journal duration/statistics failed; TE50 audio presentation exposed a scale-classification error later clarified as Huawei MIC/RCA `-12..+12 dB` versus speaker `0..21`.
+- [x] 10.2 Deferred final-SHA RPG310 hardware acceptance to MIH-25 / MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.3 Deferred final-SHA Bar310 hardware acceptance to MIH-25; implementation/test evidence is not hardware PASS.
+- [x] 10.4 Deferred final-SHA Box310 hardware acceptance to MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.5 Deferred final-SHA TE20 journal/audio hardware acceptance to MIH-25; implementation/test evidence is not hardware PASS.
+- [x] 10.6 Deferred final-SHA Huawei audio-scale hardware acceptance to MIH-25 / MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.7 Deferred final-SHA shared-path hardware smoke to MIH-25 / MIH-27; implementation/test evidence is not hardware PASS.
+- [x] 10.8 Final-SHA hardware-rerun record deferred with MIH-25 / MIH-27; no nonexistent record is claimed.
+- [x] 10.9 Reconciled: section 10 hardware acceptance is deferred to MIH-25 / MIH-27, with no hardware `CHANGES REQUIRED` result claimed; inventory regeneration remains non-blocking.
+
+## 11. Independent validation
+
+- [x] 11.1 Validated exact published remote remediation SHA `f755c50523c112a16c66ed28db78fda45a246aa1` from a clean detached worktree.
+- [x] 11.2 Re-ran/reconciled focused/full tests, strict OpenSpec validation, Git checks, and required disposable archive-applicability check in this reconciliation session.
+- [x] 11.3 Reviewed implementation against approved SHA `8eb258206f3a8388fd214c83caab071c45976912` and listed contracts; final production diff review: `CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0`, `READY TO COMMIT`.
+- [x] 11.4 Final-SHA hardware reruns/shared-path smoke deliberately deferred to MIH-25 / MIH-27; not represented as PASS.
+- [x] 11.5 Final independent reconciliation verdict: `APPROVE WITH NON-BLOCKING NOTES` — residual hardware acceptance is explicitly deferred to MIH-25 / MIH-27; implementation, validation, and disposable-archive evidence are permitting.
+
+## 12. Archive + completion
+
+- [x] 12.1 Archive eligibility reconciled by the permitting verdict and explicit MIH-25 / MIH-27 section-10 deferral; real archive intentionally not run.
+- [x] 12.2 Disposable root-spec/archive diff reviewed in this reconciliation for the listed capability, Audio, Huawei scale, CloudLink, call-log, TE40, Box, restore-authority, and currentness contracts.
+- [x] 12.3 Post-real-archive strict validation/tests/Git checks deferred to separately authorized real-archive execution; no real archive occurred here.
+- [x] 12.4 Dedicated archive commit/push deferred to separately authorized real-archive execution; none created or pushed here.
+- [x] 12.5 Merge withheld pending separate explicit user authorization after real archive; no merge performed here.
+
+## Deferred follow-up (not a completion gate for this change)
+
+A separate reviewed change is required to restore `CloudLink Box 310` microphone LIVE when authoritative Box hardware response evidence is intentionally collected for that purpose. It must prove the complete Box response envelope, microphone device-role selection, numeric validity, aggregation, normalization and unavailable/error semantics before re-advertising a Box LIVE binding.
+
+Deployment-local regeneration of ignored `equipment_inventory.local.json` from the organization workbook and inspection of a real generated TE50 record remain operational deployment follow-up tasks (9.31-9.32), not archive/completion gates for this source change.

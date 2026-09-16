@@ -26,7 +26,7 @@ class HuaweiTE40Worker(QRunnable):
 
     def __init__(self, ip_address: str, port: int = 443,
                  username: str = None, password: str = None,
-                 preferred_profile: dict = None, *, is_current=None):
+                 preferred_profile: dict = None, *, assigned_model: str = "Huawei TE40", is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
@@ -35,7 +35,9 @@ class HuaweiTE40Worker(QRunnable):
         self.signals = WorkerSignals()
         self.creds_list = []
         self.current_idx = 0
-        self.device_name = "Huawei TE40"
+        if assigned_model not in {"Huawei TE40", "Huawei TE50"}:
+            raise ValueError(f"Unsupported Huawei TE40-backed model: {assigned_model}")
+        self.device_name = assigned_model
         self.preferred_profile = dict(preferred_profile) if preferred_profile else None
         self.is_current = is_current or (lambda: True)
 
@@ -47,7 +49,7 @@ class HuaweiTE40Worker(QRunnable):
             if not self.is_current():
                 return
             if not self.username or not self.password:
-                raise AuthenticationError("Credentials are required for Huawei TE40 before connecting.")
+                raise AuthenticationError(f"Credentials are required for {self.device_name} before connecting.")
             self.signals.status.emit("Начинаю подключение...")
             self.signals.progress.emit(10)
 
@@ -57,9 +59,7 @@ class HuaweiTE40Worker(QRunnable):
 
             self.signals.status.emit("Подключаюсь к устройству...")
             self.signals.progress.emit(30)
-            profiles = order_codec_profiles(
-                "Huawei TE40", self.preferred_profile
-            )
+            profiles = order_codec_profiles(self.device_name, self.preferred_profile)
             last_error = None
             for ordinal, profile in enumerate(profiles, start=1):
                 if not self.is_current():
@@ -127,6 +127,7 @@ class HuaweiTE40Worker(QRunnable):
 
             print("Парсинг данных...")
             parsed_data = HuaweiTE40DataParser.parse_raw_data(raw_data)
+            parsed_data['Модель'] = self.device_name
             print(f"Парсинг завершен: {parsed_data}")
 
             parsed_data['ip_address'] = self.ip_address

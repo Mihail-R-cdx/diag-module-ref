@@ -258,6 +258,25 @@ class InteractiveSessionControllerTests(unittest.TestCase):
             [call for call in calls if call[0] == "connect"],
         )
 
+    def test_targeted_mutation_publishes_only_confirmed_getter_readback(self):
+        controller, calls = self.make_controller({"set": [True], "current": 7})
+        results, errors, _ = self.collect(controller)
+        controller.activate_context(
+            "Huawei TE20", "192.0.2.10", ({"username": "u", "password": "one"},),
+        )
+        controller.submit(InteractiveOperation(
+            kind="speaker_volume_set", method="set_value", args=(7,),
+            semantic=OperationSemantic.ABSOLUTE, target=7,
+            readback_method="get_value", require_confirmed_readback=True,
+        ))
+        controller.wait_until_idle(2)
+        self.drain()
+        controller.shutdown()
+
+        self.assertEqual([], errors)
+        self.assertEqual(7, results[0]["value"])
+        self.assertEqual([("set", 7), ("get",)], [call for call in calls if call[0] in {"set", "get"}])
+
     def test_stale_after_factory_never_connects(self):
         calls = []
         controller = None
