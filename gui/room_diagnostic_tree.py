@@ -1561,7 +1561,7 @@ class RoomReadOnlyPresentation(QWidget):
             return max(0, min(100, round(sample)))
         if not isinstance(sample, Mapping) or sample.get("available") is False:
             return None
-        raw = sample.get("normalized")
+        raw = sample.get("fraction", sample.get("normalized"))
         if not isinstance(raw, Real) or isinstance(raw, bool) or not isfinite(raw):
             return None
         return max(0, min(100, round(raw * 100)))

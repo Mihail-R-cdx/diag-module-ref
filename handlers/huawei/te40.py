@@ -1301,8 +1301,8 @@ class HuaweiTE40Handler(BaseHuaweiCodecHandler):
         the save may have changed device state and is raised for fail-closed
         mutation handling.
         """
-        if isinstance(target_wire, bool) or not isinstance(target_wire, int) or not 0 <= target_wire <= 21:
-            raise CommandError('TE40 MIC1 gain target is outside 0..21')
+        if isinstance(target_wire, bool) or not isinstance(target_wire, int) or not 0 <= target_wire <= 24:
+            raise CommandError('TE40 MIC1 gain target is outside 0..24')
         try:
             baseline = self._read_full_microphone_state()
         except Exception as error:

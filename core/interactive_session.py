@@ -16,6 +16,7 @@ from core.exceptions import (
     AuthenticationError,
     CodecFailureCategory,
     CommandError,
+    CommandRejectedError,
     CommandOutcomeUnknownError,
     ConnectionError,
     SessionInvalidError,
@@ -54,6 +55,9 @@ class InteractiveOperation:
     # their existing invocation contract.
     report_mutation_stage: bool = False
     mutation_stage_observer: Callable[[str], None] | None = None
+    # Recovery remains safe before the explicit possible-send boundary. Once
+    # crossed, a setter replay could duplicate a command with unknown outcome.
+    suppress_recovery_after_mutation_stage: bool = False
     duplicate_key: Optional[str] = None
     quiet: bool = False
     client_token: Optional[int] = None
@@ -268,6 +272,13 @@ class InteractiveSessionController(QObject):
     ) -> None:
         terminal = self._public_context(operation_id, generation, context, operation)
         recovery_budget = _OperationRecoveryBudget()
+        possible_send_reached = threading.Event()
+
+        def report_mutation_stage(stage: str) -> None:
+            if stage == "post_may_have_been_sent":
+                possible_send_reached.set()
+            self._emit_mutation_stage(terminal, operation, stage)
+
         try:
             if not self._context_is_current(generation, context):
                 _emit_signal(self.signals.dropped, terminal)
@@ -280,7 +291,7 @@ class InteractiveSessionController(QObject):
                 value = self._invoke(
                     record.handler,
                     operation,
-                    stage_callback=lambda stage: self._emit_mutation_stage(terminal, operation, stage),
+                    stage_callback=report_mutation_stage,
                 )
                 if operation.semantic != OperationSemantic.READ_ONLY and value is False:
                     raise CommandError("Device rejected the requested codec command.")
@@ -295,13 +306,23 @@ class InteractiveSessionController(QObject):
                 OSError,
                 CommandOutcomeUnknownError,
             ) as error:
-                if operation.suppress_recovery:
+                if (
+                    operation.suppress_recovery
+                    or (
+                        operation.suppress_recovery_after_mutation_stage
+                        and possible_send_reached.is_set()
+                    )
+                ):
                     raise
                 record = self._recover_once(
                     context, record, error, recovery_budget
                 )
                 value, record = self._complete_after_recovery(
-                    context, record, operation, recovery_budget
+                    context,
+                    record,
+                    operation,
+                    recovery_budget,
+                    stage_callback=report_mutation_stage,
                 )
                 reconciled = operation.semantic != OperationSemantic.READ_ONLY
 
@@ -324,6 +345,7 @@ class InteractiveSessionController(QObject):
                 payload.update(
                     {
                         "category": classify_codec_failure(error).value,
+                        "definite_rejection": isinstance(error, CommandRejectedError),
                         "message": _public_error_message(error),
                     }
                 )
@@ -347,15 +369,20 @@ class InteractiveSessionController(QObject):
     ) -> _HandlerRecord:
         if not recovery_budget.consume():
             raise error
-        preferred_index = record.credential_index
         self._close_handler()
         return self._acquire_handler(
             context,
             recovery_budget,
-            preferred_index=preferred_index,
+            preferred_index=record.credential_index,
         )
 
-    def _reconcile(self, handler: Any, operation: InteractiveOperation) -> Any:
+    def _reconcile(
+        self,
+        handler: Any,
+        operation: InteractiveOperation,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> Any:
         if not operation.readback_method:
             raise CommandOutcomeUnknownError(
                 "Codec state cannot be reconciled after session recovery."
@@ -371,7 +398,7 @@ class InteractiveSessionController(QObject):
             raise CommandOutcomeUnknownError(
                 "Codec state changed concurrently; command was not replayed."
             )
-        result = self._invoke(handler, operation)
+        result = self._invoke(handler, operation, stage_callback=stage_callback)
         if result is False:
             raise CommandError("Device rejected the reconciled codec command.")
         return self._readback(handler, operation) if operation.require_confirmed_readback else result
@@ -415,6 +442,8 @@ class InteractiveSessionController(QObject):
         record: _HandlerRecord,
         operation: InteractiveOperation,
         recovery_budget: _OperationRecoveryBudget,
+        *,
+        stage_callback: Callable[[str], None] | None = None,
     ) -> tuple[Any, _HandlerRecord]:
         """Finish one recovery while advancing confirmed Polycom SSH rejects."""
 
@@ -422,7 +451,11 @@ class InteractiveSessionController(QObject):
             try:
                 if operation.semantic == OperationSemantic.READ_ONLY:
                     return self._invoke(record.handler, operation), record
-                return self._reconcile(record.handler, operation), record
+                return self._reconcile(
+                    record.handler,
+                    operation,
+                    stage_callback=stage_callback,
+                ), record
             except AuthenticationError as error:
                 if context.model != "Polycom RPG 310":
                     raise

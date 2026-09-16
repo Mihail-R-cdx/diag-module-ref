@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHB
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThreadPool, QDateTime, QEvent, QObject, QRunnable, QModelIndex, QStringListModel
 from PyQt5.QtGui import QColor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections.abc import Mapping
 import datetime
 import json
@@ -51,6 +51,7 @@ from core.equipment_inventory import (
     load_equipment_inventory,
     normalize_ip_address,
 )
+from core.codec_call_history import CallHistorySnapshot
 from core.room_context import RoomContextResolver, RoomResolutionStatus
 from core.room_diagnostic_tree import (
     DeviceRowStatus,
@@ -1027,7 +1028,7 @@ class VCSDiagnosticApp(QMainWindow):
                 or isinstance(projection.microphone_volume, bool)
             ):
                 return None
-            target = max(0, min(21, int(projection.microphone_volume) + value))
+            target = max(0, min(24, int(projection.microphone_volume) + value))
             # Bounds are a local no-op: do not acquire a mutation/session lane.
             return None if target == projection.microphone_volume else {
                 "operation": "microphone_gain", "target": target,
@@ -1291,7 +1292,9 @@ class VCSDiagnosticApp(QMainWindow):
     def _start_room_codec_mutation(self, context, command):
         self._start_room_credential_attempt(context, command=command)
 
-    def _start_room_codec_mutation_attempt(self, context, command, credential, candidate_index):
+    def _start_room_codec_mutation_attempt(
+        self, context, command, credential, candidate_index, credential_candidates=None
+    ):
         """Submit one already-authorized exact codec command on one owner lane."""
         if not isinstance(command, Mapping) or command.get("operation") not in {"speaker_volume", "microphone_mute", "microphone_gain"}:
             self._finish_room_codec_mutation(context, False, None, False, "Команда кодека недоступна")
@@ -1309,15 +1312,8 @@ class VCSDiagnosticApp(QMainWindow):
             self._on_room_codec_mutation_result(current, name, payload)
         )
         interactive.signals.error.connect(
-            lambda payload, current=context: self._retire_room_codec_mutation(
-                current, False, None,
-                payload.get("category") in {
-                    CodecFailureCategory.AUTHENTICATION.value,
-                    CodecFailureCategory.TRANSPORT.value,
-                    CodecFailureCategory.SESSION_INVALID.value,
-                },
-                payload.get("message") or "Операция кодека не подтверждена",
-            )
+            lambda payload, current=context:
+            self._on_room_codec_mutation_error(current, payload)
         )
         mutation_stage_signal = getattr(interactive.signals, "mutation_stage", None)
         if mutation_stage_signal is not None:
@@ -1329,8 +1325,23 @@ class VCSDiagnosticApp(QMainWindow):
             lambda _payload, current=context: self._complete_retired_room_codec_mutation(current)
         )
         try:
+            session_candidates = (
+                tuple(credential_candidates)
+                if (
+                    context.diagnostic_model == "Polycom RPG 310"
+                    and credential_candidates
+                ) else (credential,)
+            )
+            session_start_index = (
+                candidate_index
+                if (
+                    context.diagnostic_model == "Polycom RPG 310"
+                    and credential_candidates
+                ) else 0
+            )
             generation = interactive.activate_context(
-                context.diagnostic_model, context.ip_address, (credential,), 0,
+                context.diagnostic_model, context.ip_address,
+                session_candidates, session_start_index,
                 self.get_device_connection_profile(context.diagnostic_model, context.ip_address),
             )
             operation = InteractiveOperation(
@@ -1349,11 +1360,31 @@ class VCSDiagnosticApp(QMainWindow):
                     else "get_microphone_volume"
                 ),
                 require_confirmed_readback=operation_name != "microphone_gain",
+                allow_set_from_any_authoritative=(
+                    operation_name == "speaker_volume"
+                    and context.diagnostic_model == "Polycom RPG 310"
+                ),
                 suppress_recovery=operation_name == "microphone_gain",
-                report_mutation_stage=operation_name == "microphone_gain",
+                suppress_recovery_after_mutation_stage=(
+                    operation_name == "speaker_volume"
+                    and context.diagnostic_model == "Polycom RPG 310"
+                ),
+                report_mutation_stage=(
+                    operation_name == "microphone_gain"
+                    or (
+                        operation_name == "speaker_volume"
+                        and context.diagnostic_model == "Polycom RPG 310"
+                    )
+                ),
                 mutation_stage_observer=(
                     (lambda _stage, marker=possible_send: marker.set())
-                    if operation_name == "microphone_gain" else None
+                    if (
+                        operation_name == "microphone_gain"
+                        or (
+                            operation_name == "speaker_volume"
+                            and context.diagnostic_model == "Polycom RPG 310"
+                        )
+                    ) else None
                 ),
                 duplicate_key=f"{operation_name}:{target}",
                 quiet=True,
@@ -1365,8 +1396,16 @@ class VCSDiagnosticApp(QMainWindow):
                 self._room_codec_mutations[context]["pre_submit_failure"] = True
                 self._begin_room_codec_mutation_cleanup(context)
                 return
-            self._room_codec_mutations[context]["command_submitted"] = operation_name != "microphone_gain"
-            self._room_credential_attempts[context] = ((credential,), candidate_index, dict(command))
+            self._room_codec_mutations[context]["command_submitted"] = not (
+                operation_name == "microphone_gain"
+                or (
+                    operation_name == "speaker_volume"
+                    and context.diagnostic_model == "Polycom RPG 310"
+                )
+            )
+            self._room_credential_attempts[context] = (
+                session_candidates, session_start_index, dict(command)
+            )
         except Exception:
             self._retire_room_codec_mutation(context, False, None, False, "Не удалось запустить операцию кодека")
 
@@ -1376,6 +1415,29 @@ class VCSDiagnosticApp(QMainWindow):
             return
         self._begin_room_codec_mutation_cleanup(
             context, terminal=(success, data, connection_lost, warning)
+        )
+
+    def _on_room_codec_mutation_error(self, context, payload):
+        """Keep known rejected Polycom commands out of the ambiguous state."""
+        category = payload.get("category") if isinstance(payload, Mapping) else None
+        run = self._room_codec_mutations.get(context)
+        if (
+            run is not None
+            and context.diagnostic_model == "Polycom RPG 310"
+            and bool(payload.get("definite_rejection"))
+        ):
+            run["definite_failure"] = True
+        self._retire_room_codec_mutation(
+            context, False, None,
+            category in {
+                CodecFailureCategory.AUTHENTICATION.value,
+                CodecFailureCategory.TRANSPORT.value,
+                CodecFailureCategory.SESSION_INVALID.value,
+            },
+            (
+                payload.get("message")
+                if isinstance(payload, Mapping) else None
+            ) or "Операция кодека не подтверждена",
         )
 
     def _on_room_codec_mutation_result(self, context, operation_name, payload):
@@ -1399,8 +1461,8 @@ class VCSDiagnosticApp(QMainWindow):
         )
 
     def _on_room_codec_mutation_stage(self, context, operation_name, payload):
-        """Record TE40's device-side possible-send boundary on the UI owner."""
-        if operation_name != "microphone_gain" or not isinstance(payload, Mapping):
+        """Record an approved device-side possible-send boundary on the UI owner."""
+        if operation_name not in {"microphone_gain", "speaker_volume"} or not isinstance(payload, Mapping):
             return
         if payload.get("stage") != "post_may_have_been_sent":
             return
@@ -1520,6 +1582,8 @@ class VCSDiagnosticApp(QMainWindow):
 
     @staticmethod
     def _room_codec_mutation_may_have_sent(run):
+        if run.get("definite_failure"):
+            return False
         marker = run.get("possible_send")
         return bool(run.get("command_submitted") or (marker is not None and marker.is_set()))
 
@@ -1597,7 +1661,10 @@ class VCSDiagnosticApp(QMainWindow):
                 return
         if context.kind is RoomInteractionKind.MUTATION:
             if entry is not None and entry.mutation_binding_key is None and entry.codec_controls is not None and entry.codec_controls.mutation_binding_key == "room_codec_audio_mutation":
-                self._start_room_codec_mutation_attempt(context, command, candidates[candidate_index], candidate_index)
+                self._start_room_codec_mutation_attempt(
+                    context, command, candidates[candidate_index], candidate_index,
+                    credential_candidates=candidates,
+                )
                 return
             if entry is not None and entry.mutation_binding_key == "matrix_room_route":
                 self.room_diagnostic_controller.start_matrix_mutation(context, command, credential=candidates[candidate_index], candidate_index=candidate_index)
@@ -2113,7 +2180,11 @@ class VCSDiagnosticApp(QMainWindow):
             session = self.__dict__.get("room_diagnostic_session")
             if session is not None:
                 try:
-                    session.row_for(context.record_id).call_log_preview_snapshot = data
+                    preview = (
+                        replace(data, records=tuple(data.records[:3]))
+                        if isinstance(data, CallHistorySnapshot) else data
+                    )
+                    session.row_for(context.record_id).call_log_preview_snapshot = preview
                 except KeyError:
                     pass
         if coordinator is not None:

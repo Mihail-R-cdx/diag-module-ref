@@ -18,7 +18,12 @@ from gui.diagnostic_dispatch import dispatch_entry_for_model
 from gui.room_diagnostic_controller import RoomAuthenticationRejected
 
 
-_CONNECTION_FAILURES = frozenset({"authentication", "session_invalid", "transport"})
+_CONNECTION_FAILURES = frozenset(
+    {
+        "authentication", "authentication_error", "session_invalid",
+        "transport", "connection_error",
+    }
+)
 
 
 @dataclass
@@ -144,7 +149,7 @@ class RoomCodecCallLogController(QObject):
         if context not in self._runs:
             return
         category = str(payload.get("category") or "")
-        if category == "authentication":
+        if category in {"authentication", "authentication_error"}:
             # The interactive controller reports this category only from its
             # structured AuthenticationError path.  Composition owns deciding
             # whether another one-candidate session is permitted.

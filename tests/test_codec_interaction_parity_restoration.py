@@ -13,7 +13,19 @@ from core.room_diagnostic_tree import (
     RoomDiagnosticSessionIdentity, build_room_session, resolve_room_source,
 )
 from core.room_interaction import RoomInteractionBindings, RoomInteractionCoordinator
-from core.exceptions import ConnectionError, ProtocolError
+from core.exceptions import (
+    AuthenticationError,
+    CommandError,
+    CommandOutcomeUnknownError,
+    CommandRejectedError,
+    ConnectionError,
+    ProtocolError,
+)
+from core.interactive_session import (
+    InteractiveOperation,
+    InteractiveSessionController,
+    OperationSemantic,
+)
 from gui.diagnostic_dispatch import dispatch_entry_for_model, normalize_codec_audio_projection, room_model_capabilities
 from handlers.huawei.te20 import HuaweiTE20Handler
 from handlers.huawei.te40 import HuaweiTE40Handler, extract_te40_current_audio_microphone_level
@@ -30,6 +42,24 @@ def microphone_state(mic1=18, *, complete=True):
 
 
 class CodecInteractionParityTests(unittest.TestCase):
+    def test_te40_mic1_accepts_24_and_never_reuses_speaker_upper_bound(self):
+        parsed = HuaweiTE40DataParser.parse_raw_data({"mic_volume": 24})
+        self.assertEqual(24, parsed["microphone_volume"])
+        self.assertEqual("12", parsed["Громкость микрофона"])
+
+        handler = HuaweiTE40Handler("192.0.2.10", username="u", password="p")
+        handler.send_command = Mock(side_effect=[microphone_state(23), {"success": 1}, microphone_state(24)])
+        self.assertEqual(
+            {"confirmed": True, "microphone_volume": 24},
+            handler.set_microphone_gain(24),
+        )
+        self.assertEqual(24, handler.send_command.call_args_list[1].args[1]["mic1Value"])
+
+        handler.send_command.reset_mock()
+        with self.assertRaises(CommandError):
+            handler.set_microphone_gain(25)
+        handler.send_command.assert_not_called()
+
     def test_initial_expanded_waiting_source_admits_one_preview_after_terminal_cycle(self):
         """Source expansion is adopted at bind; neither bind nor rendering signals start I/O."""
         record = EquipmentRecord(
@@ -299,6 +329,241 @@ class CodecInteractionParityTests(unittest.TestCase):
             window, context, "microphone_gain", {"stage": "post_may_have_been_sent"},
         )
         self.assertTrue(window._room_codec_mutations[context]["command_submitted"])
+
+    def test_rpg_pre_send_authentication_fallback_can_send_once_on_next_candidate(self):
+        class Handler:
+            state = 48
+            sends = []
+            created_passwords = []
+
+            def __init__(self, **kwargs):
+                self.password = kwargs["password"]
+                self.__class__.created_passwords.append(self.password)
+
+            def connect(self):
+                return True
+
+            def is_connected(self):
+                return True
+
+            def disconnect(self):
+                pass
+
+            def set_speaker_volume(self, target, stage_callback=None):
+                if self.password == "first":
+                    raise AuthenticationError("SSH login rejected before send")
+                stage_callback("post_may_have_been_sent")
+                self.__class__.sends.append((self.password, target))
+                self.__class__.state = target
+                return True
+
+            def get_speaker_volume(self):
+                return self.__class__.state
+
+        controller = InteractiveSessionController(
+            handler_factory=lambda _model, kwargs: Handler(**kwargs),
+            profile_orderer=lambda *_args: ({"port": 443, "use_ssl": True},),
+        )
+        self.addCleanup(lambda: controller.shutdown(wait=True))
+        results, errors, stages = [], [], []
+        controller.signals.result.connect(results.append)
+        controller.signals.error.connect(errors.append)
+        controller.signals.mutation_stage.connect(stages.append)
+        generation = controller.activate_context(
+            "Polycom RPG 310", "192.0.2.10",
+            ({"username": "u", "password": "first"}, {"username": "u", "password": "second"}),
+            0, None,
+        )
+        operation = InteractiveOperation(
+            kind="room_codec_audio", method="set_speaker_volume", args=(50,),
+            semantic=OperationSemantic.ABSOLUTE, target=50,
+            readback_method="get_speaker_volume", require_confirmed_readback=True,
+            allow_set_from_any_authoritative=True, report_mutation_stage=True,
+            suppress_recovery_after_mutation_stage=True,
+        )
+
+        controller._run_operation(1, generation, controller._context, operation)
+
+        self.assertEqual(["first", "first", "second"], Handler.created_passwords)
+        self.assertEqual([], errors)
+        self.assertEqual([("second", 50)], Handler.sends)
+        self.assertEqual(50, results[0]["value"])
+        self.assertEqual("post_may_have_been_sent", stages[0]["stage"])
+
+    def test_rpg_possible_send_blocks_recovery_and_second_credential_send(self):
+        class Handler:
+            sends = []
+            created_passwords = []
+
+            def __init__(self, **kwargs):
+                self.password = kwargs["password"]
+                self.__class__.created_passwords.append(self.password)
+
+            def connect(self):
+                return True
+
+            def is_connected(self):
+                return True
+
+            def disconnect(self):
+                pass
+
+            def set_speaker_volume(self, target, stage_callback=None):
+                stage_callback("post_may_have_been_sent")
+                self.__class__.sends.append((self.password, target))
+                raise CommandOutcomeUnknownError("connection lost after send")
+
+            def get_speaker_volume(self):
+                return 48
+
+        controller = InteractiveSessionController(
+            handler_factory=lambda _model, kwargs: Handler(**kwargs),
+            profile_orderer=lambda *_args: ({"port": 443, "use_ssl": True},),
+        )
+        self.addCleanup(lambda: controller.shutdown(wait=True))
+        errors = []
+        controller.signals.error.connect(errors.append)
+        generation = controller.activate_context(
+            "Polycom RPG 310", "192.0.2.10",
+            ({"username": "u", "password": "first"}, {"username": "u", "password": "second"}),
+            0, None,
+        )
+        operation = InteractiveOperation(
+            kind="room_codec_audio", method="set_speaker_volume", args=(50,),
+            semantic=OperationSemantic.ABSOLUTE, target=50,
+            readback_method="get_speaker_volume", require_confirmed_readback=True,
+            allow_set_from_any_authoritative=True, report_mutation_stage=True,
+            suppress_recovery_after_mutation_stage=True,
+        )
+
+        controller._run_operation(1, generation, controller._context, operation)
+
+        self.assertEqual([("first", 50)], Handler.sends)
+        self.assertEqual(["first"], Handler.created_passwords)
+        self.assertEqual("unknown_command_outcome", errors[0]["category"])
+        self.assertFalse(errors[0]["definite_rejection"])
+
+    def test_rpg_stale_post_send_callback_cannot_start_fallback_or_replay(self):
+        controller = None
+
+        class Handler:
+            sends = []
+            created_passwords = []
+
+            def __init__(self, **kwargs):
+                self.password = kwargs["password"]
+                self.__class__.created_passwords.append(self.password)
+
+            def connect(self):
+                return True
+
+            def is_connected(self):
+                return True
+
+            def disconnect(self):
+                pass
+
+            def set_speaker_volume(self, target, stage_callback=None):
+                stage_callback("post_may_have_been_sent")
+                self.__class__.sends.append((self.password, target))
+                controller.invalidate_context()
+                raise CommandOutcomeUnknownError("late transport failure")
+
+            def get_speaker_volume(self):
+                return 48
+
+        controller = InteractiveSessionController(
+            handler_factory=lambda _model, kwargs: Handler(**kwargs),
+            profile_orderer=lambda *_args: ({"port": 443, "use_ssl": True},),
+        )
+        self.addCleanup(lambda: controller.shutdown(wait=True))
+        dropped = []
+        controller.signals.dropped.connect(dropped.append)
+        generation = controller.activate_context(
+            "Polycom RPG 310", "192.0.2.10",
+            ({"username": "u", "password": "first"}, {"username": "u", "password": "second"}),
+            0, None,
+        )
+        operation = InteractiveOperation(
+            kind="room_codec_audio", method="set_speaker_volume", args=(50,),
+            semantic=OperationSemantic.ABSOLUTE, target=50,
+            readback_method="get_speaker_volume", require_confirmed_readback=True,
+            allow_set_from_any_authoritative=True, report_mutation_stage=True,
+            suppress_recovery_after_mutation_stage=True,
+        )
+
+        controller._run_operation(1, generation, controller._context, operation)
+
+        self.assertEqual([("first", 50)], Handler.sends)
+        self.assertEqual(["first"], Handler.created_passwords)
+        self.assertEqual(1, len(dropped))
+
+    def test_rpg_only_typed_rejection_releases_possible_send_protection(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        context = type("Context", (), {"diagnostic_model": "Polycom RPG 310"})()
+        retired = Mock()
+        window = SimpleNamespace(
+            _room_codec_mutations={context: {}},
+            _retire_room_codec_mutation=retired,
+        )
+
+        VCSDiagnosticApp._on_room_codec_mutation_error(
+            window, context, {"category": "command", "definite_rejection": False},
+        )
+        self.assertNotIn("definite_failure", window._room_codec_mutations[context])
+
+        VCSDiagnosticApp._on_room_codec_mutation_error(
+            window, context, {"category": "command", "definite_rejection": True},
+        )
+        self.assertTrue(window._room_codec_mutations[context]["definite_failure"])
+        self.assertEqual(2, retired.call_count)
+
+    def test_rpg_explicit_rejection_is_typed_definite_failure_without_replay(self):
+        from handlers.polycom.rpg310 import PolycomRPG310Handler
+
+        handler = PolycomRPG310Handler("192.0.2.10", username="u", password="p")
+        handler._is_ssh_connected = Mock(return_value=True)
+        handler.send_command = Mock(return_value="error: rejected")
+        stages = []
+
+        with self.assertRaises(CommandRejectedError):
+            handler.set_speaker_volume(50, stage_callback=stages.append)
+
+        self.assertEqual(["post_may_have_been_sent"], stages)
+        handler.send_command.assert_called_once_with("volume set 25", wait_time=2.0)
+
+    def test_rpg_authoritative_readback_mismatch_is_typed_definite_rejection(self):
+        from handlers.polycom.rpg310 import PolycomRPG310Handler
+
+        handler = PolycomRPG310Handler("192.0.2.10", username="u", password="p")
+        handler._is_ssh_connected = Mock(return_value=True)
+        handler.send_command = Mock(return_value="ok")
+        handler.get_speaker_volume = Mock(return_value=48)
+        stages = []
+
+        with patch("handlers.polycom.rpg310.time.sleep"), self.assertRaises(CommandRejectedError):
+            handler.set_speaker_volume(50, stage_callback=stages.append)
+
+        self.assertEqual(["post_may_have_been_sent"], stages)
+        handler.send_command.assert_called_once_with("volume set 25", wait_time=2.0)
+        handler.get_speaker_volume.assert_called_once_with()
+
+    def test_rpg_successful_plus_two_sends_once_and_confirms_readback(self):
+        from handlers.polycom.rpg310 import PolycomRPG310Handler
+
+        handler = PolycomRPG310Handler("192.0.2.10", username="u", password="p")
+        handler._is_ssh_connected = Mock(return_value=True)
+        handler.send_command = Mock(return_value="ok")
+        handler.get_speaker_volume = Mock(return_value=50)
+        stages = []
+
+        with patch("handlers.polycom.rpg310.time.sleep"):
+            self.assertTrue(handler.set_speaker_volume(50, stage_callback=stages.append))
+
+        self.assertEqual(["post_may_have_been_sent"], stages)
+        handler.send_command.assert_called_once_with("volume set 25", wait_time=2.0)
+        handler.get_speaker_volume.assert_called_once_with()
 
     def test_preterminal_codec_expansion_waits_for_preview_cleanup_before_live(self):
         entry = dispatch_entry_for_model("CloudLink Bar 310")

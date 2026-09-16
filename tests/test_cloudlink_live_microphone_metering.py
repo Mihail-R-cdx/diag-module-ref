@@ -15,9 +15,21 @@ from handlers.huawei.bar310 import (
     normalize_cloudlink_box_microphone_sample,
 )
 from core.exceptions import SessionInvalidError
+from gui.room_diagnostic_tree import RoomReadOnlyPresentation
 
 
 class CloudLinkLiveMicrophoneMeteringTests(unittest.TestCase):
+    def test_approved_bar_fraction_reaches_room_meter_projection(self):
+        sample = normalize_cloudlink_bar_microphone_sample({
+            "curMicVouumeList": [{"deviceId": 0, "curVolume": 6}],
+        })
+        self.assertEqual(
+            30,
+            RoomReadOnlyPresentation._codec_microphone_level(
+                {"live_microphone": sample}, "CloudLink Bar 310"
+            ),
+        )
+
     class _Response:
         def __init__(self, status_code, payload):
             self.status_code = status_code

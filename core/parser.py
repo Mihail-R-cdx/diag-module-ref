@@ -239,7 +239,7 @@ class HuaweiTE40DataParser:
         # It is deliberately independent from MicSwitch/mute evidence.
         microphone_volume = raw_data.get('mic_volume')
         if isinstance(microphone_volume, (int, float)) and not isinstance(microphone_volume, bool):
-            if 0 <= microphone_volume <= 21:
+            if 0 <= microphone_volume <= 24:
                 parsed['microphone_volume'] = microphone_volume
                 parsed['Громкость микрофона'] = str(microphone_volume - 12)
         if (
