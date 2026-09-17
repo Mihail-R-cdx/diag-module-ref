@@ -58,10 +58,21 @@ def resolve_matrix_capabilities(identity):
     if key in _XTP_II: return _fixed("XTP II", " ".join(identity.strip().split()), 0, 0, auth=True, input_names=False, output_names=False, output_hdcp=False, temperature=False, route="crosspoint", input_profile="modern", output_profile="unproven")
     return None
 
-# Exact documented compact identity tokens.  Wire identity is evidence, not a
-# marketing string; unknown tokens deliberately do not select a near profile.
-DTP_IDENTITY_TOKENS = {"DTPCP108": "DTP CrossPoint 108 4K"}
+# Exact documented compact identity tokens/part numbers.  Wire identity is
+# evidence, not a marketing string; unknown tokens deliberately do not select
+# a near profile.  The DTP CP 84 programming guide documents its ``I`` reply;
+# the DTP CP 4K programming guide documents ``N`` as the part-number reply and
+# Extron's product pages identify the exact base-frame part numbers below.
+DTP_IDENTITY_TOKENS = {
+    "DTPCP84": "DTP CrossPoint 84",
+    "DTPCP108": "DTP CrossPoint 108 4K",
+    "60-1583-01": "DTP CrossPoint 82 4K", "60-1583-92": "DTP CrossPoint 82 4K", "60-1583-92A": "DTP CrossPoint 82 4K", "60-1583-93": "DTP CrossPoint 82 4K", "60-1583-93A": "DTP CrossPoint 82 4K",
+    "60-1515-01": "DTP CrossPoint 84 4K", "60-1515-92": "DTP CrossPoint 84 4K", "60-1515-92A": "DTP CrossPoint 84 4K", "60-1515-93": "DTP CrossPoint 84 4K", "60-1515-93A": "DTP CrossPoint 84 4K",
+    "60-1382-01": "DTP CrossPoint 86 4K", "60-1382-92": "DTP CrossPoint 86 4K", "60-1382-92A": "DTP CrossPoint 86 4K", "60-1382-93": "DTP CrossPoint 86 4K", "60-1382-93A": "DTP CrossPoint 86 4K",
+    "60-1381-01": "DTP CrossPoint 108 4K", "60-1381-92": "DTP CrossPoint 108 4K", "60-1381-92A": "DTP CrossPoint 108 4K", "60-1381-93": "DTP CrossPoint 108 4K", "60-1381-93A": "DTP CrossPoint 108 4K",
+}
 XTP_PART_NUMBER_TO_MODEL = {
+    "60-1250-01": "XTP CrossPoint 1600", "60-1250-11": "XTP CrossPoint 1600",
     "60-1167-01": "XTP CrossPoint 3200",
     "60-2031-01": "XTP II CrossPoint 1600", "60-2031-11": "XTP II CrossPoint 1600",
     "60-1545-01": "XTP II CrossPoint 1600", "60-1545-11": "XTP II CrossPoint 1600",
@@ -84,22 +95,43 @@ def decode_hdcp(raw, profile):
     if value == 0: return HDCP_ABSENT
     return ({1: HDCP_PRESENT_NO_HDCP, 2: HDCP_PRESENT_HDCP} if profile == "legacy" else {1: HDCP_PRESENT_HDCP, 2: HDCP_PRESENT_NO_HDCP}).get(value, HDCP_UNKNOWN)
 
+def _unknown_signal_states(ids):
+    return {item: None for item in ids}
+
+def _documented_crosspoint_signal_bits(response, profile):
+    """Return only the documented all-input ``0LS`` payload.
+
+    DTP and XTP II programming guides specify a bare sequence of one status
+    bit per logical input, or ``Frq00*`` followed by that sequence in verbose
+    modes 2/3.  The first-generation XTP guide proves only the bare form, so
+    it remains deliberately narrower.  An echoed ``0LS`` command can precede
+    the response on some transports.  No inferred labels (for example
+    ``In00``) are accepted.
+    """
+    lines = _response_lines(response)
+    if lines and lines[0] == "0LS":
+        lines.pop(0)
+    if len(lines) != 1:
+        return None
+    prefix = r"(?:Frq00\*)?" if profile.family in {"DTP", "XTP II"} else ""
+    match = re.fullmatch(prefix + r"([01]+)", lines[0])
+    return match.group(1) if match else None
+
 def parse_signal_presence(response, profile, available_input_ids):
     ids = tuple(available_input_ids or ())
-    if not isinstance(response, str): return {item: None for item in ids}
+    if not isinstance(response, str): return _unknown_signal_states(ids)
+    if profile.family in {"DTP", "XTP", "XTP II"}:
+        states = _documented_crosspoint_signal_bits(response, profile)
+        max_id = max(getattr(profile, "logical_input_ids", ids) or ids, default=0)
+        if states is None or len(states) != max_id:
+            return _unknown_signal_states(ids)
+        return {item: states[item - 1] == "1" for item in ids}
     lines = _response_lines(response)
     if lines and lines[0] in {"0LS", "w0LS"}: lines.pop(0)
-    if len(lines) != 1: return {item: None for item in ids}
+    if len(lines) != 1: return _unknown_signal_states(ids)
     payload = lines[0]
-    if profile.family in {"XTP", "XTP II"}:
-        match = re.fullmatch(r"(?:In00\s+)?([01]+)", payload)
-        if not match: return {item: None for item in ids}
-        states = match.group(1)
-        max_id = max(getattr(profile, "logical_input_ids", ids) or ids, default=0)
-        if len(states) < max_id: return {item: None for item in ids}
-        return {item: states[item - 1] == "1" for item in ids}
     match = re.fullmatch(r"(?:In00\s+)?([01](?:\*[01])*)", payload)
-    if not match: return {item: None for item in ids}
+    if not match: return _unknown_signal_states(ids)
     states = match.group(1).split("*")
     return {item: states[index] == "1" if index < len(states) else None for index, item in enumerate(ids)}
 
@@ -119,18 +151,28 @@ def available_ids_from_slots(maximum, slots, channels_per_slot=4):
     return tuple(channel for slot, installed in enumerate(tuple(slots or ()), 1) if installed for channel in range((slot - 1) * channels_per_slot + 1, min(slot * channels_per_slot, maximum) + 1))
 XTP_INPUT_SYMBOLS = frozenset("AFGHIKNPS")
 XTP_OUTPUT_SYMBOLS = frozenset("BDEJMOU")
-# The official XTP II expanded board key was not supplied with this change.
-# Keep these independent empty tables so no first-generation meaning leaks in.
-XTP_II_INPUT_SYMBOLS = frozenset()
-XTP_II_OUTPUT_SYMBOLS = frozenset()
+# XTP II CrossPoint Series User Guide, SIS Configuration and Control,
+# Information requests / ``*N``: these symbols are case-sensitive.  They are
+# intentionally independent of first-generation XTP's symbol domains.
+XTP_II_INPUT_SYMBOLS = frozenset("nlaTPGFkIHjN")
+XTP_II_OUTPUT_SYMBOLS = frozenset("omrMbUhOJED")
+
+XTP_FRAME_SLOT_COUNTS = {
+    "XTP CrossPoint 1600": (4, 4),
+    "XTP CrossPoint 3200": (8, 8),
+    "XTP II CrossPoint 1600": (4, 4),
+    "XTP II CrossPoint 3200": (8, 8),
+    "XTP II CrossPoint 6400": (16, 16),
+}
 
 def parse_star_n(response):
-    match = re.fullmatch(r"\s*(60-\d{4}-\d{2})\.([A-Z]+)\s*", response or "", re.I)
-    return (match.group(1).upper(), match.group(2).upper()) if match else (None, None)
+    match = re.fullmatch(r"\s*(60-\d{4}-\d{2})\.([A-Za-z]+)\s*", response or "")
+    # Board symbols are case-sensitive in XTP II's official ``*N`` key.
+    return (match.group(1).upper(), match.group(2)) if match else (None, None)
 def decode_xtp_input_board_symbol(symbol): return symbol == "X" or symbol in XTP_INPUT_SYMBOLS
 def decode_xtp_output_board_symbol(symbol): return symbol == "X" or symbol in XTP_OUTPUT_SYMBOLS
-def decode_xtp_ii_input_board_symbol(symbol): return symbol == "X" or symbol in XTP_II_INPUT_SYMBOLS
-def decode_xtp_ii_output_board_symbol(symbol): return symbol == "X" or symbol in XTP_II_OUTPUT_SYMBOLS
+def decode_xtp_ii_input_board_symbol(symbol): return symbol == "x" or symbol in XTP_II_INPUT_SYMBOLS
+def decode_xtp_ii_output_board_symbol(symbol): return symbol == "x" or symbol in XTP_II_OUTPUT_SYMBOLS
 def parse_matrix_dimensions(response):
     if isinstance(response, str):
         found = re.search(r"(\d+)\s*[xX*]\s*(\d+)", response)
@@ -142,15 +184,20 @@ def parse_xtp_topology(dimensions, board_evidence, family="XTP", expected_part_n
     if family not in {"XTP", "XTP II"}: return (), ()
     part_number, sequence = parse_star_n(board_evidence)
     if not part_number or part_number != expected_part_number: return (), ()
+    profile = resolve_identity_token(part_number, family)
+    slot_counts = XTP_FRAME_SLOT_COUNTS.get(profile.exact_model) if profile else None
+    if slot_counts is None: return (), ()
     logical_inputs, logical_outputs = dimensions
-    if logical_inputs % 4 or logical_outputs % 4: return (), ()
-    input_slots, output_slots = logical_inputs // 4, logical_outputs // 4
+    input_slots, output_slots = slot_counts
+    if (logical_inputs % 4 or logical_outputs % 4 or
+            logical_inputs > input_slots * 4 or logical_outputs > output_slots * 4): return (), ()
     if len(sequence) != input_slots + output_slots: return (), ()
     in_symbols, out_symbols = sequence[:input_slots], sequence[input_slots:]
     decode_input = decode_xtp_ii_input_board_symbol if family == "XTP II" else decode_xtp_input_board_symbol
     decode_output = decode_xtp_ii_output_board_symbol if family == "XTP II" else decode_xtp_output_board_symbol
     if not all(decode_input(symbol) for symbol in in_symbols) or not all(decode_output(symbol) for symbol in out_symbols): return (), ()
-    return available_ids_from_slots(logical_inputs, tuple(symbol != "X" for symbol in in_symbols)), available_ids_from_slots(logical_outputs, tuple(symbol != "X" for symbol in out_symbols))
+    empty = "x" if family == "XTP II" else "X"
+    return available_ids_from_slots(logical_inputs, tuple(symbol != empty for symbol in in_symbols)), available_ids_from_slots(logical_outputs, tuple(symbol != empty for symbol in out_symbols))
 
 class ExtronMatrixHandler(BaseExtronMatrixHandler):
     """Exact-profile Matrix handler. Topology probes are read-only."""
@@ -162,10 +209,19 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
     def get_device_info(self):
         requested = resolve_matrix_capabilities(self.expected_model)
         family = requested.family if requested is not None else "IN"
-        command = "1I" if family == "IN" else "I" if family == "DTP" else "N"
+        # The legacy DTP CP 84 guide documents its exact ``I`` token.  The
+        # DTP CP 4K guide documents ``N`` as the exact frame part-number
+        # response; use it for the remaining fixed DTP models so CP 84's
+        # overlapping product spelling cannot be guessed from a token.
+        command = "1I" if family == "IN" else (
+            "I" if family == "DTP" and requested and requested.exact_model == "DTP CrossPoint 84" else
+            "N" if family in {"DTP", "XTP", "XTP II"} else "I"
+        )
         result = self._read(command); identity = result.get("response", "").strip() if result and result.get("success") else ""
         profile = resolve_matrix_capabilities(identity) if family == "IN" else resolve_identity_token(identity, family)
         if profile is None: raise ProtocolError("Unsupported Extron Matrix identity: %s" % (identity or "<empty>"))
+        if requested is not None and profile.exact_model != requested.exact_model:
+            raise ProtocolError("Extron Matrix identity does not match expected model")
         self.model, self.part_number, self.capabilities = profile.exact_model, identity.upper() if family != "IN" else None, profile
         if profile.family in {"XTP", "XTP II"}:
             dimensions = parse_matrix_dimensions(self._read("I").get("response", ""))

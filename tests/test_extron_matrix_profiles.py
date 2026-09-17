@@ -22,7 +22,7 @@ class RecordingMatrix(ExtronMatrixHandler):
 
     def send_command(self, command, data=None, **kwargs):
         self.commands.append((command, kwargs.get("replay_safe", True)))
-        is_dtp_identity = command == "I" and self.expected_model == "DTP CrossPoint 108 4K"
+        is_dtp_identity = command == "I" and self.expected_model == "DTP CrossPoint 84"
         response = self.identity if command in {"1I", "N"} or is_dtp_identity else self.responses.get(command, "")
         return {"success": True, "response": response}
 
@@ -54,10 +54,10 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertTrue(all(decode_xtp_output_board_symbol(symbol) for symbol in "BDEJMOUX"))
         self.assertFalse(decode_xtp_input_board_symbol("B"))
         self.assertFalse(decode_xtp_output_board_symbol("G"))
-        self.assertFalse(decode_xtp_ii_input_board_symbol("G"))
-        self.assertFalse(decode_xtp_ii_output_board_symbol("D"))
-        self.assertTrue(decode_xtp_ii_input_board_symbol("X"))
-        self.assertTrue(decode_xtp_ii_output_board_symbol("X"))
+        self.assertTrue(decode_xtp_ii_input_board_symbol("G"))
+        self.assertTrue(decode_xtp_ii_output_board_symbol("D"))
+        self.assertTrue(decode_xtp_ii_input_board_symbol("x"))
+        self.assertTrue(decode_xtp_ii_output_board_symbol("x"))
 
     def test_xtp_ii_exact_part_numbers_are_known_but_unknown_is_not(self):
         expected = {
@@ -69,19 +69,67 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertEqual(expected, {key: XTP_PART_NUMBER_TO_MODEL[key] for key in expected})
         self.assertIsNone(resolve_identity_token("60-1167-01", "XTP II"))
 
-    def test_unproven_identities_fail_closed(self):
+    def test_exact_documented_identities_and_unknowns(self):
+        # DTP CP 84 guide documents I -> DTPCP84.  DTP CP 4K's SIS guide
+        # documents N; Extron product pages identify these base part numbers.
+        self.assertEqual("DTP CrossPoint 84", resolve_identity_token("DTPCP84", "DTP").exact_model)
+        self.assertEqual("DTP CrossPoint 82 4K", resolve_identity_token("60-1583-01", "DTP").exact_model)
+        self.assertEqual("DTP CrossPoint 84 4K", resolve_identity_token("60-1515-01", "DTP").exact_model)
+        self.assertEqual("DTP CrossPoint 86 4K", resolve_identity_token("60-1382-01", "DTP").exact_model)
+        self.assertEqual("DTP CrossPoint 108 4K", resolve_identity_token("60-1381-01", "DTP").exact_model)
+        # Extron XTP Systems brochure: 60-1250-01/-11 identify XTP CP 1600.
+        self.assertEqual("XTP CrossPoint 1600", resolve_identity_token("60-1250-01", "XTP").exact_model)
         self.assertIsNone(resolve_identity_token("60-1167-01", "XTP II"))
         self.assertIsNone(resolve_identity_token("60-0000-01", "XTP"))
-        self.assertIsNone(resolve_identity_token("DTPCP84", "DTP"))
         self.assertEqual("DTP CrossPoint 108 4K", resolve_identity_token("DTPCP108", "DTP").exact_model)
         self.assertIsNone(resolve_matrix_capabilities("XTP CrossPoint 6400"))
 
     def test_signal_sequence_is_mapped_by_logical_position_not_available_order(self):
         profile = resolve_identity_token(self.XTP3200_PART, "XTP")
         profile = replace(profile, logical_input_ids=tuple(range(1, 17)), available_input_ids=(1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16))
-        states = parse_signal_presence("In00 1000000000001000", profile, profile.available_input_ids)
+        # XTP CrossPoint SIS guide: bare 0LS response is one status bit per
+        # logical input, beginning with input 1.
+        states = parse_signal_presence("1000000000001000", profile, profile.available_input_ids)
         self.assertTrue(states[1]); self.assertTrue(states[13]); self.assertNotIn(9, states)
-        self.assertEqual({item: None for item in profile.available_input_ids}, parse_signal_presence("1*0*1", profile, profile.available_input_ids))
+        self.assertEqual({item: None for item in profile.available_input_ids}, parse_signal_presence("In00 1000", profile, profile.available_input_ids))
+
+    def test_xtp_ii_documented_case_sensitive_star_n_key_and_slot_gaps(self):
+        # XTP II CrossPoint Series User Guide, SIS Configuration and Control
+        # p.60: N is part number and *N is part.slot-symbols; 1600 has four
+        # input and four output slots.  Symbols below are from its published
+        # key (n/T and o/U); x is its documented no-board symbol.
+        part = "60-2031-01"
+        fixture = "60-2031-01.nTxxoUxx"
+        self.assertEqual((tuple(range(1, 17)), tuple(range(1, 17))), parse_xtp_topology("16x16", "60-2031-01.nlaTomrM", "XTP II", part))
+        self.assertEqual((tuple(range(1, 9)), tuple(range(1, 9))), parse_xtp_topology("16x16", fixture, "XTP II", part))
+        self.assertEqual((tuple(range(1, 5)) + tuple(range(9, 13)), tuple(range(1, 5)) + tuple(range(9, 13))), parse_xtp_topology("16x16", "60-2031-01.nxTxoxUx", "XTP II", part))
+        self.assertEqual((tuple(range(1, 5)), tuple(range(1, 5))), parse_xtp_topology("16x16", "60-2031-01.nxxxoxxx", "XTP II", part))
+        self.assertEqual(((), ()), parse_xtp_topology("16x16", "60-2031-01.qTxxoUxx", "XTP II", part))
+        self.assertEqual(((), ()), parse_xtp_topology("16x16", "60-2031-01.nTxxqUxx", "XTP II", part))
+        self.assertEqual(((), ()), parse_xtp_topology("16x16", "60-2031-01.nTxxoUx", "XTP II", part))
+        self.assertEqual(((), ()), parse_xtp_topology("16x16", fixture, "XTP II", "60-1981-01"))
+
+    def test_documented_crosspoint_0ls_grammar_and_logical_positions(self):
+        # DTP CP 4K guide and XTP II guide both document bare status bits and
+        # verbose Frq00*<bits>; each bit is the corresponding logical input.
+        dtp = resolve_identity_token("60-1381-01", "DTP")
+        self.assertEqual({1: False, 2: True, 3: False, 4: True, 5: False, 6: True, 7: False, 8: True, 9: False, 10: True}, parse_signal_presence("0LS\r\nFrq00*0101010101", dtp, dtp.available_input_ids))
+        xtp = resolve_identity_token(self.XTP3200_PART, "XTP")
+        xtp = replace(xtp, logical_input_ids=tuple(range(1, 17)), available_input_ids=(1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16))
+        self.assertTrue(parse_signal_presence("0000000000001000", xtp, xtp.available_input_ids)[13])
+        self.assertEqual({item: None for item in xtp.available_input_ids}, parse_signal_presence("Frq00*0000000000001000", xtp, xtp.available_input_ids))
+        xtp_ii = resolve_identity_token("60-2031-01", "XTP II")
+        xtp_ii = replace(xtp_ii, logical_input_ids=tuple(range(1, 17)), available_input_ids=(1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16))
+        self.assertTrue(parse_signal_presence("Frq00*0000000000001000", xtp_ii, xtp_ii.available_input_ids)[13])
+        self.assertEqual({item: None for item in xtp_ii.available_input_ids}, parse_signal_presence("Frq00*0000", xtp_ii, xtp_ii.available_input_ids))
+
+    def test_expected_model_mismatch_fails_closed(self):
+        wrong_dtp = RecordingMatrix("60-1381-01", expected_model="DTP CrossPoint 84 4K")
+        with self.assertRaises(ProtocolError):
+            wrong_dtp.get_device_info()
+        wrong_xtp = RecordingMatrix("60-1981-01", expected_model="XTP II CrossPoint 1600")
+        with self.assertRaises(ProtocolError):
+            wrong_xtp.get_device_info()
 
     def test_hdcp_mapping_stays_profile_specific(self):
         self.assertEqual(HDCP_PRESENT_NO_HDCP, decode_hdcp("1", "legacy"))
@@ -100,7 +148,7 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertIn(("3!", False), in1608.commands)
 
     def test_dtp_and_xtp_output_hdcp_syntax_remains_separate(self):
-        dtp = RecordingMatrix("DTPCP108", expected_model="DTP CrossPoint 108 4K")
+        dtp = RecordingMatrix("60-1381-01", expected_model="DTP CrossPoint 108 4K")
         dtp.get_device_info(); dtp.get_hdcp_info()
         self.assertIn(("wO1HDCP", True), dtp.commands)
         xtp = RecordingMatrix(self.XTP3200_PART, {"I": "32x32", "*N": self.XTP3200_STAR_N}, expected_model="XTP CrossPoint 3200")
