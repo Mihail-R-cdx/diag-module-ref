@@ -1163,7 +1163,7 @@ class VCSDiagnosticApp(QMainWindow):
             expected_identity, expected_token,
         ):
             coordinator.confirm_mutation(
-                {"output_num": 1, "input_num": input_num},
+                {"output_num": output_num, "input_num": input_num},
                 expected_session_identity=expected_identity,
                 expected_record_id=record_id,
                 expected_row_token=expected_token,
@@ -1181,7 +1181,7 @@ class VCSDiagnosticApp(QMainWindow):
             or session.identity != expected_identity
             or session.expanded_record_id != record_id
             or session.status not in {RoomCycleStatus.COMPLETE, RoomCycleStatus.COMPLETE_WITH_PROBLEMS}
-            or output_num != 1
+            or not isinstance(output_num, int)
             or not isinstance(input_num, int)
         ):
             return False
@@ -1190,10 +1190,11 @@ class VCSDiagnosticApp(QMainWindow):
         except KeyError:
             return False
         entry = dispatch_entry_for_model(row.diagnostic_model)
-        inputs = (row.accepted_snapshot or {}).get("inputs_num") if isinstance(row.accepted_snapshot, Mapping) else None
+        snapshot = row.accepted_snapshot if isinstance(row.accepted_snapshot, Mapping) else {}
+        inputs = tuple(snapshot.get("available_input_ids") or range(1, int(snapshot.get("inputs_num") or 0) + 1))
+        outputs = tuple(snapshot.get("available_output_ids") or (1,))
         return (
             session.is_current(expected_identity, row, expected_token)
-            and row.diagnostic_model == "Extron IN1804"
             and entry is not None
             and entry.mutation_binding_key == "matrix_room_route"
             and entry.reconciliation_binding_key == "matrix_room_route_reconcile"
@@ -1202,11 +1203,9 @@ class VCSDiagnosticApp(QMainWindow):
             and not row.interaction_blocked
             and not row.unconfirmed_after_command
             and row.network_actions_enabled
-            and isinstance(inputs, int)
-            and not isinstance(inputs, bool)
-            and inputs > 0
-            and 1 <= input_num <= inputs
-            and (row.accepted_snapshot or {}).get("current_connection") != input_num
+            and input_num in inputs
+            and output_num in outputs
+            and snapshot.get("routes", {output_num: snapshot.get("current_connection")}).get(output_num, snapshot.get("current_connection") if output_num == 1 else None) != input_num
         )
 
     def _on_room_debug_requested(self, record_id):
@@ -1274,13 +1273,14 @@ class VCSDiagnosticApp(QMainWindow):
         self._start_room_credential_attempt(context)
 
     def _start_room_matrix_reconciliation(self, context, result):
-        requested = result.get("input_num") if isinstance(result, Mapping) else None
-        if not isinstance(requested, int):
+        requested_input = result.get("input_num") if isinstance(result, Mapping) else None
+        requested_output = result.get("output_num") if isinstance(result, Mapping) else None
+        if not isinstance(requested_input, int) or not isinstance(requested_output, int):
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.complete(context, success=False, unconfirmed=True, warning="Не удалось подтвердить Matrix route")
             return
-        self._room_matrix_reconciliation_requests[context] = requested
+        self._room_matrix_reconciliation_requests[context] = (requested_output, requested_input)
         self._start_room_credential_attempt(context)
 
     def _start_room_pdu_mutation(self, context, command):
@@ -2244,11 +2244,19 @@ class VCSDiagnosticApp(QMainWindow):
             if self._retry_room_authentication(context):
                 return
             success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
-        requested_input = self._room_matrix_reconciliation_requests.pop(context, None)
-        if requested_input is not None and (
+        requested_route = self._room_matrix_reconciliation_requests.pop(context, None)
+        if requested_route is not None:
+            requested_output, requested_input = requested_route
+            routes = data.get("routes") if isinstance(data, Mapping) and isinstance(data.get("routes"), Mapping) else {}
+            confirmed = routes.get(requested_output) == requested_input
+            if requested_output == 1 and not routes and isinstance(data, Mapping):
+                confirmed = data.get("current_connection") == requested_input
+            if not success or not confirmed:
+                success, data, connection_lost, warning = False, None, False, "Matrix route was not confirmed"
+        elif requested_route is not None and (
             not success
             or not isinstance(data, Mapping)
-            or data.get("current_connection") != requested_input
+            or data.get("current_connection") != requested_route
         ):
             success, data, connection_lost, warning = False, None, False, "Коммутация Matrix не подтверждена"
         coordinator.complete(
@@ -2494,7 +2502,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.matrix_controller.terminalAccepted.connect(self._on_matrix_terminal)
         self.matrix_controller.finishedAccepted.connect(self._on_matrix_finished)
         self.matrix_controller.routeAccepted.connect(self._on_matrix_route_accepted)
-        self.matrix_controller.routeAcceptedForOutput.connect(self._on_matrix_route_accepted_for_output)
+        route_output_signal = getattr(self.matrix_controller, "routeAcceptedForOutput", None)
+        if route_output_signal is not None:
+            route_output_signal.connect(self._on_matrix_route_accepted_for_output)
         self.matrix_controller.routeError.connect(self._on_matrix_route_error)
     
     def create_update_time_panel(self):

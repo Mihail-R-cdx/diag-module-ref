@@ -1955,7 +1955,9 @@ class RoomReadOnlyPresentation(QWidget):
             and not row.stale
             and isinstance(source.get("inputs_num"), int)
         )
-        for values in normalize_matrix_presentation(source):
+        # Rebuilt below from authoritative output IDs.  The legacy scalar
+        # projection is intentionally disabled for generalized Matrix state.
+        for values in ():
             index = table.rowCount()
             table.insertRow(index)
             for column, value in enumerate(values):
@@ -1983,6 +1985,61 @@ class RoomReadOnlyPresentation(QWidget):
                 return
             request_matrix_route(1, values[index][0])
         table.cellClicked.connect(request_route)
+        # The normalised Matrix domain owns available IDs and route map.  Do
+        # not derive room columns from connector count or outputs_num.
+        available_inputs = tuple(source.get("available_input_ids") or range(1, int(source.get("inputs_num") or 0) + 1))
+        available_outputs = tuple(source.get("available_output_ids") or (1,))
+        output_names = source.get("output_names") if isinstance(source.get("output_names"), Mapping) else {}
+        headers = ["#", "Signal", "HDCP", "Inputs"] + [str(output_names.get(item) or "Output %s" % item) for item in available_outputs]
+        table.setColumnCount(len(headers)); table.setHorizontalHeaderLabels(headers); table.setRowCount(0)
+        routes = source.get("routes") if isinstance(source.get("routes"), Mapping) else {}
+        if not routes and available_outputs == (1,): routes = {1: source.get("current_connection")}
+        signals = source.get("signal_presence") if isinstance(source.get("signal_presence"), Mapping) else {}
+        legacy_signals = source.get("signal_status") if isinstance(source.get("signal_status"), Mapping) else {}
+        hdcp = source.get("input_hdcp") if isinstance(source.get("input_hdcp"), Mapping) else {}
+        names = source.get("input_names") if isinstance(source.get("input_names"), Mapping) else {}
+        legacy_names = source.get("input_names") if isinstance(source.get("input_names"), (list, tuple)) else ()
+        legacy_hdcp = source.get("input_hdcp_status") if isinstance(source.get("input_hdcp_status"), (list, tuple)) else ()
+        for row_index, input_id in enumerate(available_inputs):
+            table.insertRow(row_index)
+            present = signals.get(input_id, (legacy_signals.get(input_id) or {}).get("has_signal"))
+            signal_value = "есть" if present is True else "нет сигнала" if present is False else "Нет данных"
+            hdcp_value = "active" if hdcp.get(input_id) == "PRESENT_HDCP" or (input_id - 1 < len(legacy_hdcp) and str(legacy_hdcp[input_id - 1]) == "2") else "inactive"
+            name_value = names.get(input_id) or (legacy_names[input_id - 1] if input_id - 1 < len(legacy_names) else "Input %s" % input_id)
+            values = [input_id, signal_value, hdcp_value, name_value] + ["активен" if routes.get(output_id) == input_id else "не выбран" for output_id in available_outputs]
+            for column, value in enumerate(values):
+                if column == 1:
+                    item = _matrix_indicator_item("есть" if value == "Нет данных" else value, positive="есть", inactive="нет сигнала")
+                    if value == "Нет данных": item.setData(Qt.UserRole, value)
+                else:
+                    item = _matrix_indicator_item(value, positive="активен", inactive="не выбран") if column >= 4 else QTableWidgetItem("есть" if column == 2 and value == "active" else "Нет данных" if column == 2 else str(value))
+                table.setItem(row_index, column, item)
+        table.cellClicked.disconnect(request_route)
+        def request_multi_route(index, column):
+            if not route_allowed or column < 4 or index < 0 or index >= len(available_inputs) or column - 4 >= len(available_outputs): return
+            output_id, input_id = available_outputs[column - 4], available_inputs[index]
+            if routes.get(output_id) != input_id: request_matrix_route(output_id, input_id)
+        table.cellClicked.connect(request_multi_route)
+        # Compatibility projection remains only for old accepted IN1804
+        # snapshots which predate the route map.  It is not authority for new
+        # multi-output Matrix snapshots.
+        if "available_output_ids" not in source and "routes" not in source:
+            legacy_names = source.get("output_names") or ()
+            legacy_output = legacy_names[0] if isinstance(legacy_names, (list, tuple)) and legacy_names else "Main Output"
+            table.setColumnCount(5)
+            table.setHorizontalHeaderLabels(["№", "Сигнал", "HDCP", "Входы", str(legacy_output)])
+            table.setRowCount(0)
+            for index, values in enumerate(normalize_matrix_presentation(source)):
+                table.insertRow(index)
+                for column, value in enumerate(values):
+                    if column in {1, 4}:
+                        item = QTableWidgetItem("●" if value not in {"не выбран", "нет сигнала"} else "○")
+                        item.setData(Qt.UserRole, value); item.setTextAlignment(Qt.AlignCenter)
+                    else:
+                        item = QTableWidgetItem(str(value))
+                    table.setItem(index, column, item)
+            table.cellClicked.disconnect(request_multi_route)
+            table.cellClicked.connect(request_route)
         table.apply_column_widths()
         card.add_widget(table)
         actions = SectionCard("Быстрые действия", "⚡", dashboard)

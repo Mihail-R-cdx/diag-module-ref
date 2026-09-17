@@ -448,6 +448,7 @@ class MatrixController(QObject):
                 port=22023,
                 username=candidate.get("username", ""),
                 password=candidate.get("password", ""),
+                expected_model=context.model,
             )
             handler.log_callback = redacted_callback(
                 lambda message: self._signals.terminal_log.emit(context, message),

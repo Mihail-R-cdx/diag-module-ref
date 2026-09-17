@@ -96,7 +96,7 @@ EQUIPMENT_PAGE_REGISTRY = (
             "Extron DTP CrossPoint 84", "Extron DTP CrossPoint 82 4K",
             "Extron DTP CrossPoint 84 4K", "Extron DTP CrossPoint 86 4K",
             "Extron DTP CrossPoint 108 4K", "Extron XTP CrossPoint 1600",
-            "Extron XTP CrossPoint 3200", "Extron XTP CrossPoint 6400",
+            "Extron XTP CrossPoint 3200",
             "Extron XTP II CrossPoint 1600", "Extron XTP II CrossPoint 3200",
             "Extron XTP II CrossPoint 6400",
         ),
