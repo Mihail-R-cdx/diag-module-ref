@@ -98,24 +98,36 @@ def decode_hdcp(raw, profile):
 def _unknown_signal_states(ids):
     return {item: None for item in ids}
 
+def _parse_documented_status_sequence(payload, *, allow_verbose, allow_spaces):
+    """Validate a whole documented ``0LS`` status payload and return bits."""
+    prefix = r"(?:Frq00\*)?" if allow_verbose else ""
+    values = r"([01]+|[01](?: [01])*)" if allow_spaces else r"([01]+)"
+    match = re.fullmatch(prefix + values, payload)
+    return match.group(1).replace(" ", "") if match else None
+
 def _documented_crosspoint_signal_bits(response, profile):
     """Return only the documented all-input ``0LS`` payload.
 
     DTP and XTP II programming guides specify a bare sequence of one status
     bit per logical input, or ``Frq00*`` followed by that sequence in verbose
-    modes 2/3.  The first-generation XTP guide proves only the bare form, so
-    it remains deliberately narrower.  An echoed ``0LS`` command can precede
-    the response on some transports.  No inferred labels (for example
-    ``In00``) are accepted.
+    modes 2/3.  Their documented presentation also permits one ASCII space
+    between adjacent status values.  The first-generation XTP guide proves
+    only the bare contiguous form, so it remains deliberately narrower.  An
+    echoed ``0LS`` command can precede the response on some transports.  No
+    inferred labels (for example ``In00``) are accepted.
     """
     lines = _response_lines(response)
     if lines and lines[0] == "0LS":
         lines.pop(0)
     if len(lines) != 1:
         return None
-    prefix = r"(?:Frq00\*)?" if profile.family in {"DTP", "XTP II"} else ""
-    match = re.fullmatch(prefix + r"([01]+)", lines[0])
-    return match.group(1) if match else None
+    if profile.family == "DTP":
+        return _parse_documented_status_sequence(lines[0], allow_verbose=True, allow_spaces=True)
+    if profile.family == "XTP":
+        return _parse_documented_status_sequence(lines[0], allow_verbose=False, allow_spaces=False)
+    if profile.family == "XTP II":
+        return _parse_documented_status_sequence(lines[0], allow_verbose=True, allow_spaces=True)
+    return None
 
 def parse_signal_presence(response, profile, available_input_ids):
     ids = tuple(available_input_ids or ())

@@ -110,18 +110,31 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertEqual(((), ()), parse_xtp_topology("16x16", fixture, "XTP II", "60-1981-01"))
 
     def test_documented_crosspoint_0ls_grammar_and_logical_positions(self):
-        # DTP CP 4K guide and XTP II guide both document bare status bits and
-        # verbose Frq00*<bits>; each bit is the corresponding logical input.
-        dtp = resolve_identity_token("60-1381-01", "DTP")
-        self.assertEqual({1: False, 2: True, 3: False, 4: True, 5: False, 6: True, 7: False, 8: True, 9: False, 10: True}, parse_signal_presence("0LS\r\nFrq00*0101010101", dtp, dtp.available_input_ids))
+        # DTP CP 84/4K and XTP II guides document one status per logical
+        # input and show the status sequence with single-space separators.
+        # DTP CP 84 has eight logical inputs.
+        dtp = resolve_identity_token("DTPCP84", "DTP")
+        expected_dtp = {1: False, 2: False, 3: False, 4: True, 5: True, 6: True, 7: False, 8: True}
+        self.assertEqual(expected_dtp, parse_signal_presence("0 0 0 1 1 1 0 1", dtp, dtp.available_input_ids))
+        self.assertEqual(expected_dtp, parse_signal_presence("Frq00*0 0 0 1 1 1 0 1", dtp, dtp.available_input_ids))
+        self.assertEqual(expected_dtp, parse_signal_presence("0LS\r\nFrq00*0 0 0 1 1 1 0 1", dtp, dtp.available_input_ids))
+
+        # XTP CrossPoint guide proves only the contiguous bare all-input form.
         xtp = resolve_identity_token(self.XTP3200_PART, "XTP")
         xtp = replace(xtp, logical_input_ids=tuple(range(1, 17)), available_input_ids=(1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16))
         self.assertTrue(parse_signal_presence("0000000000001000", xtp, xtp.available_input_ids)[13])
         self.assertEqual({item: None for item in xtp.available_input_ids}, parse_signal_presence("Frq00*0000000000001000", xtp, xtp.available_input_ids))
+        self.assertEqual({item: None for item in xtp.available_input_ids}, parse_signal_presence("0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0", xtp, xtp.available_input_ids))
+
         xtp_ii = resolve_identity_token("60-2031-01", "XTP II")
         xtp_ii = replace(xtp_ii, logical_input_ids=tuple(range(1, 17)), available_input_ids=(1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16))
+        expected_xtp_ii = {item: item == 13 for item in xtp_ii.available_input_ids}
+        self.assertEqual(expected_xtp_ii, parse_signal_presence("0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0", xtp_ii, xtp_ii.available_input_ids))
+        self.assertEqual(expected_xtp_ii, parse_signal_presence("Frq00*0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0", xtp_ii, xtp_ii.available_input_ids))
         self.assertTrue(parse_signal_presence("Frq00*0000000000001000", xtp_ii, xtp_ii.available_input_ids)[13])
-        self.assertEqual({item: None for item in xtp_ii.available_input_ids}, parse_signal_presence("Frq00*0000", xtp_ii, xtp_ii.available_input_ids))
+        unknown = {item: None for item in xtp_ii.available_input_ids}
+        for malformed in ("Frq00*0000", "Frq00*00000000000010000", "Frq00*0 1 A 0", "Frq00*001x01", "foo 0 1 0 1", "0,,1,,0", "0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 tail", "0 0\n0 1"):
+            self.assertEqual(unknown, parse_signal_presence(malformed, xtp_ii, xtp_ii.available_input_ids), malformed)
 
     def test_expected_model_mismatch_fails_closed(self):
         wrong_dtp = RecordingMatrix("60-1381-01", expected_model="DTP CrossPoint 84 4K")
