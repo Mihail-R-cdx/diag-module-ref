@@ -60,20 +60,48 @@ def resolve_matrix_capabilities(identity):
 
 # Exact documented compact identity tokens.  Wire identity is evidence, not a
 # marketing string; unknown tokens deliberately do not select a near profile.
-DTP_IDENTITY_TOKENS = {"DTPCP84": "DTP CrossPoint 84", "DTPCP82 4K": "DTP CrossPoint 82 4K", "DTPCP84 4K": "DTP CrossPoint 84 4K", "DTPCP86 4K": "DTP CrossPoint 86 4K", "DTPCP108": "DTP CrossPoint 108 4K"}
-XTP_PART_NUMBER_TOKENS = {"XTP1600": "XTP CrossPoint 1600", "XTP3200": "XTP CrossPoint 3200", "XTPII1600": "XTP II CrossPoint 1600", "XTPII3200": "XTP II CrossPoint 3200", "XTPII6400": "XTP II CrossPoint 6400"}
+DTP_IDENTITY_TOKENS = {"DTPCP108": "DTP CrossPoint 108 4K"}
+XTP_PART_NUMBER_TO_MODEL = {
+    "60-1167-01": "XTP CrossPoint 3200",
+    "60-2031-01": "XTP II CrossPoint 1600", "60-2031-11": "XTP II CrossPoint 1600",
+    "60-1545-01": "XTP II CrossPoint 1600", "60-1545-11": "XTP II CrossPoint 1600",
+    "60-1981-01": "XTP II CrossPoint 3200", "60-1546-01": "XTP II CrossPoint 3200",
+    "60-1386-01": "XTP II CrossPoint 6400",
+}
 
 def resolve_identity_token(token, family):
     key = _identity_key(token)
-    mapping = DTP_IDENTITY_TOKENS if family == "DTP" else XTP_PART_NUMBER_TOKENS
+    mapping = DTP_IDENTITY_TOKENS if family == "DTP" else XTP_PART_NUMBER_TO_MODEL
     model = mapping.get(key)
-    return resolve_matrix_capabilities(model) if model else None
+    profile = resolve_matrix_capabilities(model) if model else None
+    # A documented part number identifies one generation only.  Do not allow
+    # the compact XTP and XTP II probes to select one another's profile.
+    return profile if profile is not None and profile.family == family else None
 
 def decode_hdcp(raw, profile):
     try: value = int(str(raw).strip())
     except (TypeError, ValueError): return HDCP_UNKNOWN
     if value == 0: return HDCP_ABSENT
     return ({1: HDCP_PRESENT_NO_HDCP, 2: HDCP_PRESENT_HDCP} if profile == "legacy" else {1: HDCP_PRESENT_HDCP, 2: HDCP_PRESENT_NO_HDCP}).get(value, HDCP_UNKNOWN)
+
+def parse_signal_presence(response, profile, available_input_ids):
+    ids = tuple(available_input_ids or ())
+    if not isinstance(response, str): return {item: None for item in ids}
+    lines = _response_lines(response)
+    if lines and lines[0] in {"0LS", "w0LS"}: lines.pop(0)
+    if len(lines) != 1: return {item: None for item in ids}
+    payload = lines[0]
+    if profile.family in {"XTP", "XTP II"}:
+        match = re.fullmatch(r"(?:In00\s+)?([01]+)", payload)
+        if not match: return {item: None for item in ids}
+        states = match.group(1)
+        max_id = max(getattr(profile, "logical_input_ids", ids) or ids, default=0)
+        if len(states) < max_id: return {item: None for item in ids}
+        return {item: states[item - 1] == "1" for item in ids}
+    match = re.fullmatch(r"(?:In00\s+)?([01](?:\*[01])*)", payload)
+    if not match: return {item: None for item in ids}
+    states = match.group(1).split("*")
+    return {item: states[index] == "1" if index < len(states) else None for index, item in enumerate(ids)}
 
 def _response_lines(response): return [line.strip() for line in response.replace("\r", "\n").split("\n") if line.strip()] if isinstance(response, str) else []
 def parse_route_response(response, output_id, input_ids):
@@ -89,39 +117,45 @@ def parse_route_response(response, output_id, input_ids):
 def available_ids_from_slots(maximum, slots, channels_per_slot=4):
     if not isinstance(maximum, int) or maximum < 0: return ()
     return tuple(channel for slot, installed in enumerate(tuple(slots or ()), 1) if installed for channel in range((slot - 1) * channels_per_slot + 1, min(slot * channels_per_slot, maximum) + 1))
-def _decode_board_section(section, installed_pattern):
-    tokens = [token.strip().upper() for token in re.split(r"[,*\s]+", section) if token.strip()]
-    if not tokens or any(not (token == "X" or re.fullmatch(installed_pattern, token)) for token in tokens): return None
-    return tuple(token != "X" for token in tokens)
-def decode_xtp_board_inventory(evidence):
-    if not isinstance(evidence, str): return None
-    match = re.fullmatch(r"\s*I\s*:\s*([^;]+)\s*;\s*O\s*:\s*([^;]+)\s*", evidence, re.I)
-    if not match: return None
-    inputs, outputs = _decode_board_section(match.group(1), r"(?:I)?[1-4]"), _decode_board_section(match.group(2), r"(?:O)?[1-4]")
-    return (inputs, outputs) if inputs is not None and outputs is not None else None
-def decode_xtp_ii_board_inventory(evidence):
-    # XTP II has its own grammar entry point; it is intentionally not inferred
-    # from first-generation symbols.  The documented II inventory uses IIxN.
-    if not isinstance(evidence, str): return None
-    match = re.fullmatch(r"\s*II-I\s*:\s*([^;]+)\s*;\s*II-O\s*:\s*([^;]+)\s*", evidence, re.I)
-    if not match: return None
-    inputs, outputs = _decode_board_section(match.group(1), r"II[1-4]"), _decode_board_section(match.group(2), r"II[1-4]")
-    return (inputs, outputs) if inputs is not None and outputs is not None else None
-def parse_xtp_topology(dimensions, board_evidence, family="XTP"):
-    if isinstance(dimensions, str):
-        found = re.search(r"(\d+)\s*[xX*]\s*(\d+)", dimensions); dimensions = (int(found.group(1)), int(found.group(2))) if found else None
+XTP_INPUT_SYMBOLS = frozenset("AFGHIKNPS")
+XTP_OUTPUT_SYMBOLS = frozenset("BDEJMOU")
+# The official XTP II expanded board key was not supplied with this change.
+# Keep these independent empty tables so no first-generation meaning leaks in.
+XTP_II_INPUT_SYMBOLS = frozenset()
+XTP_II_OUTPUT_SYMBOLS = frozenset()
+
+def parse_star_n(response):
+    match = re.fullmatch(r"\s*(60-\d{4}-\d{2})\.([A-Z]+)\s*", response or "", re.I)
+    return (match.group(1).upper(), match.group(2).upper()) if match else (None, None)
+def decode_xtp_input_board_symbol(symbol): return symbol == "X" or symbol in XTP_INPUT_SYMBOLS
+def decode_xtp_output_board_symbol(symbol): return symbol == "X" or symbol in XTP_OUTPUT_SYMBOLS
+def decode_xtp_ii_input_board_symbol(symbol): return symbol == "X" or symbol in XTP_II_INPUT_SYMBOLS
+def decode_xtp_ii_output_board_symbol(symbol): return symbol == "X" or symbol in XTP_II_OUTPUT_SYMBOLS
+def parse_matrix_dimensions(response):
+    if isinstance(response, str):
+        found = re.search(r"(\d+)\s*[xX*]\s*(\d+)", response)
+        return (int(found.group(1)), int(found.group(2))) if found else None
+    return response if isinstance(response, tuple) and len(response) == 2 else None
+def parse_xtp_topology(dimensions, board_evidence, family="XTP", expected_part_number=None):
+    dimensions = parse_matrix_dimensions(dimensions)
     if not (isinstance(dimensions, tuple) and len(dimensions) == 2 and all(isinstance(x, int) and x >= 0 for x in dimensions)): return (), ()
-    evidence = board_evidence if isinstance(board_evidence, dict) else {}
-    if isinstance(board_evidence, str):
-        decoded = decode_xtp_ii_board_inventory(board_evidence) if family == "XTP II" else decode_xtp_board_inventory(board_evidence)
-        if decoded is None: return (), ()
-        evidence = {"input_slots": decoded[0], "output_slots": decoded[1]}
-    return available_ids_from_slots(dimensions[0], evidence.get("input_slots")), available_ids_from_slots(dimensions[1], evidence.get("output_slots"))
+    if family not in {"XTP", "XTP II"}: return (), ()
+    part_number, sequence = parse_star_n(board_evidence)
+    if not part_number or part_number != expected_part_number: return (), ()
+    logical_inputs, logical_outputs = dimensions
+    if logical_inputs % 4 or logical_outputs % 4: return (), ()
+    input_slots, output_slots = logical_inputs // 4, logical_outputs // 4
+    if len(sequence) != input_slots + output_slots: return (), ()
+    in_symbols, out_symbols = sequence[:input_slots], sequence[input_slots:]
+    decode_input = decode_xtp_ii_input_board_symbol if family == "XTP II" else decode_xtp_input_board_symbol
+    decode_output = decode_xtp_ii_output_board_symbol if family == "XTP II" else decode_xtp_output_board_symbol
+    if not all(decode_input(symbol) for symbol in in_symbols) or not all(decode_output(symbol) for symbol in out_symbols): return (), ()
+    return available_ids_from_slots(logical_inputs, tuple(symbol != "X" for symbol in in_symbols)), available_ids_from_slots(logical_outputs, tuple(symbol != "X" for symbol in out_symbols))
 
 class ExtronMatrixHandler(BaseExtronMatrixHandler):
     """Exact-profile Matrix handler. Topology probes are read-only."""
     def __init__(self, ip_address, port=22023, username=None, password=None, expected_model=None):
-        super().__init__(ip_address, port, username, password); self.model = None; self.expected_model = expected_model; self.capabilities = None; self.inputs_num = None; self.outputs_num = None; self.strict_session_failures = True
+        super().__init__(ip_address, port, username, password); self.model = None; self.part_number = None; self.expected_model = expected_model; self.capabilities = None; self.inputs_num = None; self.outputs_num = None; self.strict_session_failures = True
     def send_command(self, command, data=None, **kwargs): kwargs.setdefault("response_required", True); return super().send_command(command, data, **kwargs)
     def get_status(self): return self.get_full_status()
     def _read(self, command, *, replay_safe=True): return self.send_command(command, replay_safe=replay_safe)
@@ -132,11 +166,12 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         result = self._read(command); identity = result.get("response", "").strip() if result and result.get("success") else ""
         profile = resolve_matrix_capabilities(identity) if family == "IN" else resolve_identity_token(identity, family)
         if profile is None: raise ProtocolError("Unsupported Extron Matrix identity: %s" % (identity or "<empty>"))
-        self.model, self.capabilities = profile.exact_model, profile
+        self.model, self.part_number, self.capabilities = profile.exact_model, identity.upper() if family != "IN" else None, profile
         if profile.family in {"XTP", "XTP II"}:
-            available_inputs, available_outputs = parse_xtp_topology(self._read("I").get("response", ""), self._read("*N").get("response", ""), profile.family)
+            dimensions = parse_matrix_dimensions(self._read("I").get("response", ""))
+            available_inputs, available_outputs = parse_xtp_topology(dimensions, self._read("*N").get("response", ""), profile.family, self.part_number)
             if not available_inputs or not available_outputs: raise ProtocolError("XTP topology evidence was unavailable or malformed")
-            self.capabilities = replace(profile, logical_input_ids=tuple(range(1, max(available_inputs) + 1)), logical_output_ids=tuple(range(1, max(available_outputs) + 1)), available_input_ids=available_inputs, available_output_ids=available_outputs)
+            self.capabilities = replace(profile, logical_input_ids=_ids(dimensions[0]), logical_output_ids=_ids(dimensions[1]), available_input_ids=available_inputs, available_output_ids=available_outputs)
         self.inputs_num, self.outputs_num = len(self.capabilities.available_input_ids), len(self.capabilities.available_output_ids)
         temp = None
         if self.capabilities.supports_temperature:
@@ -162,8 +197,8 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
     def get_signal_status(self):
         profile = self._profile()
         if not profile.supports_signal_presence: return {}
-        response = self._read("w0LS" if profile.family == "IN" else "0LS").get("response", ""); match = re.search(r"(?:In00\s+)?([01](?:\*[01])*)", response); states = match.group(1).split("*") if match else ()
-        return {item: (states[index] == "1" if index < len(states) else None) for index, item in enumerate(profile.available_input_ids)}
+        response = self._read("w0LS" if profile.family == "IN" else "0LS").get("response", "")
+        return parse_signal_presence(response, profile, profile.available_input_ids)
     def get_hdcp_info(self):
         profile = self._profile(); states = {}; auth = {}; outputs = {}
         for item in profile.available_input_ids:

@@ -2253,12 +2253,6 @@ class VCSDiagnosticApp(QMainWindow):
                 confirmed = data.get("current_connection") == requested_input
             if not success or not confirmed:
                 success, data, connection_lost, warning = False, None, False, "Matrix route was not confirmed"
-        elif requested_route is not None and (
-            not success
-            or not isinstance(data, Mapping)
-            or data.get("current_connection") != requested_route
-        ):
-            success, data, connection_lost, warning = False, None, False, "Коммутация Matrix не подтверждена"
         coordinator.complete(
             context,
             success=success,

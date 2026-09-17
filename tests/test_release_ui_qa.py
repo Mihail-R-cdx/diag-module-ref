@@ -39,8 +39,10 @@ class ReleaseUIOffscreenTest(unittest.TestCase):
         QApplication.processEvents()
 
     def test_every_selectable_device_switches_to_its_expected_screen(self):
+        from gui.diagnostic_dispatch import dispatch_model_names
+
         selectable_devices = tuple(self.window.device_to_screen)
-        self.assertEqual(11, len(selectable_devices))
+        self.assertEqual(dispatch_model_names(), selectable_devices)
         self.assertEqual("codec", self.window.device_to_screen["CloudLink Box 310"])
 
         for device_name in selectable_devices:
