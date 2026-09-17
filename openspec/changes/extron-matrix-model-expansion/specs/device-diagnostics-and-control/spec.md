@@ -300,7 +300,7 @@ Approved profiles SHALL generate exact documented/hardware-confirmed route synta
 
 ### Requirement: CrossPoint output HDCP commands remain family-specific
 
-Approved DTP CrossPoint output-HDCP read uses `WO<N>HDCP`. First-generation XTP CrossPoint uses `W0<N>HDCP` and `W0*HDCP` for all outputs. XTP II output-HDCP remains unavailable/UNPROVEN until an exact official command and decoder are approved.
+Approved DTP CrossPoint output-HDCP reads SHALL use `WO<N>HDCP`. First-generation XTP CrossPoint output-HDCP reads SHALL use `W0<N>HDCP`, and the all-outputs query SHALL use `W0*HDCP`. XTP II output-HDCP SHALL remain unavailable/UNPROVEN until an exact official command and decoder are approved.
 
 #### Scenario: XTP does not reuse DTP output-HDCP syntax
 - **WHEN** output HDCP is read on an approved first-generation XTP frame for output `4`
@@ -315,7 +315,7 @@ Approved DTP CrossPoint output-HDCP read uses `WO<N>HDCP`. First-generation XTP 
 
 ### Requirement: Input HDCP status is normalized by profile-specific semantics
 
-IN1804/IN1808 raw input HDCP maps `0=absent, 1=present without HDCP, 2=present with HDCP`. IN1608 xi, approved DTP, XTP and XTP II input HDCP maps `0=absent, 1=HDCP-compliant/present, 2=non-compliant/absent`. Authorization/configuration remains distinct from actual status.
+The active Matrix profile SHALL normalize raw input HDCP status according to its approved family semantics. IN1804/IN1808 SHALL map `0=absent, 1=present without HDCP, 2=present with HDCP`. IN1608 xi, approved DTP, XTP and XTP II SHALL map `0=absent, 1=HDCP-compliant/present, 2=non-compliant/absent`. HDCP authorization/configuration SHALL remain distinct from actual input HDCP status.
 
 #### Scenario: Raw value 1 differs by generation
 - **WHEN** raw input HDCP value `1` is received from IN1808
