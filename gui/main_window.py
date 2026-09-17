@@ -2494,6 +2494,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.matrix_controller.terminalAccepted.connect(self._on_matrix_terminal)
         self.matrix_controller.finishedAccepted.connect(self._on_matrix_finished)
         self.matrix_controller.routeAccepted.connect(self._on_matrix_route_accepted)
+        self.matrix_controller.routeAcceptedForOutput.connect(self._on_matrix_route_accepted_for_output)
         self.matrix_controller.routeError.connect(self._on_matrix_route_error)
     
     def create_update_time_panel(self):
@@ -2780,7 +2781,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._active_diagnostic_model_context = context
         self.current_screen_type = entry.screen_key
         self.setWindowTitle(f"Диагностический модуль ММК - {entry.diagnostic_model}")
-        if entry.diagnostic_model != MATRIX_DEVICE_NAME:
+        if entry.screen_key != "matrix":
             self.matrix_controller.invalidate_context()
         if not self._is_pdu_device(entry.diagnostic_model):
             self._invalidate_pdu_context()
@@ -3124,8 +3125,10 @@ class VCSDiagnosticApp(QMainWindow):
         self._dmp_controller().invalidate_context()
 
     def _matrix_public_context(self):
+        selected = self.device_combo.currentText() if hasattr(self, "device_combo") else MATRIX_DEVICE_NAME
+        model = selected if screen_key_for_model(selected) == "matrix" else MATRIX_DEVICE_NAME
         return (
-            MATRIX_DEVICE_NAME,
+            model,
             self.ip_entry.text().strip() if hasattr(self, "ip_entry") else "",
         )
 
@@ -3560,6 +3563,19 @@ class VCSDiagnosticApp(QMainWindow):
         if matrix_screen is not None:
             matrix_screen.current_connection = input_num
             matrix_screen.update_connection_display()
+
+    def _on_matrix_route_accepted_for_output(self, output_num, input_num):
+        matrix_screen = self.screens.get("matrix")
+        if matrix_screen is None:
+            return
+        data = matrix_screen.matrix_data
+        if isinstance(data, dict):
+            routes = dict(data.get("routes") or {})
+            routes[output_num] = input_num
+            data["routes"] = routes
+        if output_num == 1:
+            matrix_screen.current_connection = input_num
+        matrix_screen.update_connection_display()
 
     def _on_matrix_route_error(self, message):
         QMessageBox.warning(

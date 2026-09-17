@@ -106,6 +106,7 @@ class MatrixController(QObject):
     finishedAccepted = pyqtSignal(object)
     cleanupFinished = pyqtSignal(object)
     routeAccepted = pyqtSignal(int)
+    routeAcceptedForOutput = pyqtSignal(int, int)
     routeError = pyqtSignal(str)
 
     def __init__(
@@ -143,6 +144,8 @@ class MatrixController(QObject):
         self._session_identity: Optional[MatrixSessionIdentity] = None
         self._session_handler = None
         self._candidate_snapshots = {}
+        self._authoritative_input_ids = ()
+        self._authoritative_output_ids = ()
         self._signals = MatrixOperationSignals()
         self._signals.result.connect(self._on_result)
         self._signals.error.connect(self._on_error)
@@ -183,6 +186,12 @@ class MatrixController(QObject):
         self._submit(context, candidates)
 
     def request_route(self, output_num: int, input_num: int):
+        if self._authoritative_input_ids and input_num not in self._authoritative_input_ids:
+            self.routeError.emit("Input is unavailable on the current Matrix topology")
+            return
+        if self._authoritative_output_ids and output_num not in self._authoritative_output_ids:
+            self.routeError.emit("Output is unavailable on the current Matrix topology")
+            return
         model, ip_address = self._context_provider()
         candidates = tuple(self._credential_candidates_provider(model, ip_address) or ())
         if not candidates:
@@ -251,7 +260,8 @@ class MatrixController(QObject):
         state_changing: bool,
         reuse_generation: Optional[int] = None,
     ) -> MatrixOperationContext:
-        model = MATRIX_DEVICE_NAME
+        model, _ignored_ip = self._context_provider()
+        model = model or MATRIX_DEVICE_NAME
         revision = self._credential_revision()
         if reuse_generation is None:
             self._generation += 1
@@ -357,14 +367,19 @@ class MatrixController(QObject):
             except Exception as error:
                 setattr(error, "_matrix_route_command_invoked", True)
                 raise
-            self._signals.result.emit(context, {"route_input": context.input_num})
+            # Command ACK is deliberately not route authority.  Reconciliation
+            # below reads the exact target output before acceptance.
+            self._signals.result.emit(context, {"route_input": context.input_num, "route_output": context.output_num})
         elif context.operation_kind == "quick_refresh":
             handler = self._acquire_session(context, secrets)
             if not self._is_current(context):
                 return
-            connections = handler.get_connections()
-            current = connections[0] if connections else None
-            self._signals.result.emit(context, {"current_connection": current})
+            if hasattr(handler, "get_routes"):
+                routes = handler.get_routes((context.output_num,)) if context.output_num else handler.get_routes()
+                self._signals.result.emit(context, {"routes": routes})
+            else:
+                connections = handler.get_connections()
+                self._signals.result.emit(context, {"routes": {1: connections[0] if connections else None}})
         elif context.operation_kind == "keepalive":
             with self._session_lock:
                 handler = self._session_handler
@@ -544,24 +559,30 @@ class MatrixController(QObject):
         if not self._is_current(context):
             return
         if context.operation_kind == "route":
-            self.routeAccepted.emit(context.input_num or 1)
             follow_up = self._make_context(
                 operation_kind="quick_refresh",
                 ip_address=context.ip_address,
                 candidate_index=context.candidate_index,
+                output_num=context.output_num,
+                input_num=context.input_num,
                 state_changing=False,
                 reuse_generation=context.generation,
             )
             self._submit(follow_up, self._candidate_snapshots.get(context.operation_id))
             return
         if context.operation_kind == "quick_refresh":
-            current = data.get("current_connection")
-            if current is not None:
+            routes = data.get("routes") if isinstance(data.get("routes"), Mapping) else {}
+            output_num = context.output_num or 1
+            current = routes.get(output_num)
+            if current is not None and (context.input_num is None or current == context.input_num):
                 self.routeAccepted.emit(current)
+                self.routeAcceptedForOutput.emit(output_num, current)
             return
         if context.operation_kind == "keepalive":
             self._active_context = None
             return
+        self._authoritative_input_ids = tuple(data.get("available_input_ids", ()) or ())
+        self._authoritative_output_ids = tuple(data.get("available_output_ids", ()) or ())
         self.resultAccepted.emit(data, self._handle(context))
 
     def _on_error(self, context: MatrixOperationContext, error: tuple):
