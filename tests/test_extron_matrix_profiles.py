@@ -11,6 +11,7 @@ from handlers.extron.matrix import (
     decode_xtp_ii_output_board_symbol, parse_signal_presence, parse_star_n,
     parse_xtp_topology,
     resolve_identity_token, resolve_matrix_capabilities,
+    normalize_identity_response,
 )
 
 
@@ -31,6 +32,14 @@ class RecordingMatrix(ExtronMatrixHandler):
 class MatrixProtocolFixtureTests(unittest.TestCase):
     XTP3200_PART = "60-1167-01"
     XTP3200_STAR_N = "60-1167-01.GGHFXFIHDDDEJXXM"
+
+    def test_tagged_identity_grammars_are_command_specific_and_fail_closed(self):
+        self.assertEqual("IN1808 IPCP SA", normalize_identity_response("1I", "Inf01*IN1808 IPCP SA"))
+        self.assertEqual("60-1381-01", normalize_identity_response("N", "Pno60-1381-01"))
+        for command, value in (("1I", "Pno60-1381-01"), ("N", "Inf01*IN1808"), ("1I", "Inf01*IN1808\njunk")):
+            self.assertIsNone(normalize_identity_response(command, value))
+        self.assertEqual("IN1808", RecordingMatrix("Inf01*IN1808 IPCP SA", expected_model="Extron IN1808").get_device_info()["model"])
+        self.assertEqual("DTP CrossPoint 108 4K", RecordingMatrix("Pno60-1381-01", expected_model="DTP CrossPoint 108 4K").get_device_info()["model"])
 
     def test_xtp3200_documented_part_identity_and_compact_star_n(self):
         profile = resolve_identity_token(self.XTP3200_PART, "XTP")

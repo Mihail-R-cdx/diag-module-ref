@@ -70,6 +70,22 @@ def _identity_key(identity):
     text = " ".join(identity.strip().split())
     return (text[7:] if text.upper().startswith("EXTRON ") else text).upper()
 
+def normalize_identity_response(command, response):
+    """Accept one documented identity record for its exact SIS command."""
+    lines = _response_lines(response)
+    if len(lines) != 1:
+        return None
+    value = lines[0]
+    if command == "1I":
+        match = re.fullmatch(r"(?:Inf01\*)?((?!Pno)[A-Za-z0-9][A-Za-z0-9 /-]*)", value)
+    elif command == "N":
+        match = re.fullmatch(r"(?:Pno)?(60-\d{4}-\d{2}[A-Za-z]?)", value)
+    elif command == "I":
+        match = re.fullmatch(r"[A-Z0-9]+", value)
+    else:
+        return None
+    return (match.group(1) if match.lastindex else match.group(0)) if match else None
+
 def resolve_matrix_capabilities(identity):
     key = _identity_key(identity)
     canonical_in1804 = IN1804_WIRE_IDENTITY_TO_CANONICAL.get(key)
@@ -252,7 +268,7 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
             "I" if family == "DTP" and requested and requested.exact_model == "DTP CrossPoint 84" else
             "N" if family in {"DTP", "XTP", "XTP II"} else "I"
         )
-        result = self._read(command); identity = result.get("response", "").strip() if result and result.get("success") else ""
+        result = self._read(command); identity = normalize_identity_response(command, result.get("response", "") if result and result.get("success") else "")
         profile = resolve_matrix_capabilities(identity) if family == "IN" else resolve_identity_token(identity, family)
         if profile is None: raise ProtocolError("Unsupported Extron Matrix identity: %s" % (identity or "<empty>"))
         if requested is not None and profile.exact_model != requested.exact_model:
