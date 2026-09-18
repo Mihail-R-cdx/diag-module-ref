@@ -13,7 +13,7 @@
 - [x] 1.9 Reconcile every `MODIFIED Requirements` block against exact current root requirement identity and preserve all existing scenario identities in replacement blocks; genuinely new independent contracts must be `ADDED Requirements`.
 - [x] 1.10 Run `openspec validate extron-matrix-model-expansion --strict` and record PASS.
 - [x] 1.11 Run `openspec validate --all --strict` and record PASS.
-- [ ] 1.12 Perform disposable archive-applicability validation and confirm the modified requirements replace current root identities without contradiction or scenario loss.
+- [x] 1.12 Perform disposable archive-applicability validation and confirm the modified requirements replace current root identities without contradiction or scenario loss.
 - [x] 1.13 Run Git scope/hygiene checks (`git diff --check`, OpenSpec-only changed-file review, exact branch/SHA verification).
 - [x] 1.14 Obtain independent architecture review with CRITICAL=0, HIGH=0 and explicit `IMPLEMENTATION MAY PROCEED: YES`.
 
