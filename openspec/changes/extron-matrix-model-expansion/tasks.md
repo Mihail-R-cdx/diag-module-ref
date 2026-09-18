@@ -135,3 +135,9 @@
 - [ ] 13.2 Preserve canonical expected-model comparison, strict unknown-identity rejection, and DTP/XTP/XTP II identity rules.
 - [ ] 13.3 Add production-path full-refresh, framing, parser, and presentation regressions for the baseline IN1804 profile.
 - [ ] 13.4 Re-run read-only hardware validation when the observed IN1804 is reachable; do not perform route mutation.
+
+## 14. IN1808 identity and IN1804 HDCP remediation
+
+- [ ] 14.1 Add only documented IN1808 wire aliases and preserve expected-model fail-closed behavior.
+- [ ] 14.2 Normalize legacy IN1804 HDCP list/scalar evidence into canonical per-ID Matrix state.
+- [ ] 14.3 Re-run read-only IN1804 and IN1808 hardware validation when devices are reachable; do not route-switch.

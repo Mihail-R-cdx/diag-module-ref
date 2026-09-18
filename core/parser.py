@@ -994,6 +994,18 @@ class ExtronMatrixDataParser:
     """
 
     @staticmethod
+    def _legacy_hdcp_state(value, profile):
+        if value in {"ABSENT", "PRESENT_HDCP", "PRESENT_NO_HDCP", "UNKNOWN"}:
+            return value
+        try:
+            value = int(str(value).strip())
+        except (TypeError, ValueError):
+            return "UNKNOWN"
+        if value == 0:
+            return "ABSENT"
+        return ({1: "PRESENT_NO_HDCP", 2: "PRESENT_HDCP"} if profile == "legacy" else {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP"}).get(value, "UNKNOWN")
+
+    @staticmethod
     def parse(data):
         if not isinstance(data, Mapping):
             return {}
@@ -1010,8 +1022,20 @@ class ExtronMatrixDataParser:
         }
         signal_raw = data.get("signal_status") if isinstance(data.get("signal_status"), Mapping) else {}
         signal = {item: signal_raw.get(item) if isinstance(signal_raw.get(item), bool) else None for item in inputs}
-        input_hdcp = data.get("input_hdcp_status") if isinstance(data.get("input_hdcp_status"), Mapping) else {}
-        output_hdcp = data.get("output_hdcp") if isinstance(data.get("output_hdcp"), Mapping) else {}
+        input_hdcp_raw = data.get("input_hdcp_status")
+        input_hdcp = input_hdcp_raw if isinstance(input_hdcp_raw, Mapping) else {
+            item: input_hdcp_raw[index]
+            for index, item in enumerate(inputs)
+            if isinstance(input_hdcp_raw, (list, tuple)) and index < len(input_hdcp_raw)
+        }
+        output_hdcp_raw = data.get("output_hdcp")
+        output_hdcp = output_hdcp_raw if isinstance(output_hdcp_raw, Mapping) else ({1: output_hdcp_raw} if outputs == (1,) else {})
+        auth_raw = data.get("input_hdcp_auth")
+        input_hdcp_auth = auth_raw if isinstance(auth_raw, Mapping) else {
+            item: auth_raw[index]
+            for index, item in enumerate(inputs)
+            if isinstance(auth_raw, (list, tuple)) and index < len(auth_raw)
+        }
         input_names = data.get("input_names") if isinstance(data.get("input_names"), Mapping) else {}
         output_names = data.get("output_names") if isinstance(data.get("output_names"), Mapping) else {}
         info = data.get("device_info") if isinstance(data.get("device_info"), Mapping) else {}
@@ -1023,9 +1047,9 @@ class ExtronMatrixDataParser:
             "input_names": {item: input_names.get(item) for item in inputs},
             "output_names": {item: output_names.get(item) for item in outputs},
             "signal_presence": signal, "signal_status": {item: {"has_signal": value} for item, value in signal.items()},
-            "input_hdcp": {item: input_hdcp.get(item, "UNKNOWN") for item in inputs},
+            "input_hdcp": {item: ExtronMatrixDataParser._legacy_hdcp_state(input_hdcp.get(item), getattr(caps, "input_hdcp_profile", "modern")) for item in inputs},
             "output_hdcp": {item: output_hdcp.get(item) for item in outputs},
-            "input_hdcp_auth": data.get("input_hdcp_auth", {}), "routes": routes,
+            "input_hdcp_auth": {item: input_hdcp_auth.get(item) for item in inputs}, "routes": routes,
             "inputs_num": len(inputs), "outputs_num": len(outputs),
             "connection_protocol": data.get("connection_protocol", "Unknown"),
         }

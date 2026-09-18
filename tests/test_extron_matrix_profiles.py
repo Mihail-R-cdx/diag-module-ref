@@ -161,6 +161,24 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
                 else:
                     self.assertIsNone(resolve_matrix_capabilities(identity))
 
+    def test_in1808_documented_wire_identities_and_mismatches_fail_closed(self):
+        aliases = ("IN1808", "IN1808 IPCP SA", "IN1808 IPCP MA 70", "IN1808 IPCP Q SA", "IN1808 IPCP Q MA 70")
+        for identity in aliases:
+            with self.subTest(identity=identity):
+                self.assertEqual("IN1808", resolve_matrix_capabilities(identity).exact_model)
+                self.assertEqual("IN1808", RecordingMatrix(identity, expected_model="Extron IN1808").get_device_info()["model"])
+        for identity in ("IN1808 IPCP", "IN1808 EXTRA", "IN1808 IPCP SA EXTRA"):
+            self.assertIsNone(resolve_matrix_capabilities(identity))
+        with self.assertRaises(ProtocolError): RecordingMatrix("IN1804", expected_model="Extron IN1808").get_device_info()
+        with self.assertRaises(ProtocolError): RecordingMatrix("IN1808 IPCP SA", expected_model="Extron IN1804").get_device_info()
+
+    def test_in1804_legacy_hdcp_shapes_normalize_at_matrix_parser_boundary(self):
+        caps = resolve_matrix_capabilities("IN1804")
+        parsed = ExtronMatrixDataParser.parse({"capabilities": caps, "device_info": {"model": "IN1804"}, "input_hdcp_status": ["2", "1", "0", None], "input_hdcp_auth": [1, 1, 0, None], "output_hdcp": "1", "routes": {1: 3}})
+        self.assertEqual({1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "UNKNOWN"}, parsed["input_hdcp"])
+        self.assertEqual({1: 1, 2: 1, 3: 0, 4: None}, parsed["input_hdcp_auth"])
+        self.assertEqual({1: "1"}, parsed["output_hdcp"])
+
     def test_in1804_alias_full_refresh_normalizes_baseline_snapshot(self):
         responses = {
             "w20STAT": "25",

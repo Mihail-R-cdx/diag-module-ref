@@ -361,3 +361,16 @@ II exact identity/part-number resolution remains unchanged.
 
 - **WHEN** an IN-family wire identity is not one of the documented IN1804 aliases
 - **THEN** it is not promoted by substring similarity
+
+### Requirement: IN1808 aliases and legacy IN1804 HDCP remain canonical
+
+Only documented IN1808 `1I` identities may resolve to canonical `IN1808`; all
+other suffixes fail closed. The Matrix parser SHALL convert legacy IN1804
+list-shaped input HDCP/auth and scalar output HDCP evidence into canonical
+per-input/per-output state before GUI presentation.
+
+#### Scenario: Legacy IN1804 HDCP evidence reaches presentation
+
+- **WHEN** IN1804 provides list input HDCP/auth and scalar output HDCP evidence
+- **THEN** the normalized snapshot retains each supported input and output value
+- **AND** the GUI consumes canonical state rather than legacy shapes

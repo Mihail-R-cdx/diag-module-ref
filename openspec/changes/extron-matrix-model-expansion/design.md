@@ -302,3 +302,10 @@ identity resolution; subsequent payload validation stays exact.
 - XTP II output-HDCP remains unavailable unless its exact command/decoder is proven before implementation.
 
 Unresolved optional diagnostics SHALL remain unavailable rather than blocking core routing/topology support or encouraging speculative commands.
+
+## Follow-up hardware compatibility
+
+Closed documented IN1808 `1I` aliases resolve to canonical `IN1808`; unknown
+suffixes fail closed. Legacy IN1804 list-shaped input HDCP/auth and scalar
+output HDCP are normalized by the Matrix parser into canonical per-ID state
+before either Matrix GUI surface consumes it.
