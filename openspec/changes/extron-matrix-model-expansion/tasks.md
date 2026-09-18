@@ -121,3 +121,10 @@
 - [ ] 11.3 Archive only after strict validation passes.
 - [ ] 11.4 Re-run strict validation after archive.
 - [ ] 11.5 Merge only after final post-archive review and tests pass.
+
+## 12. Inventory converter handoff remediation
+
+- [ ] 12.1 Extend the existing normalized component evidence rules with the approved Matrix canonical runtime models.
+- [ ] 12.2 Preserve complete-match-set and two-field ambiguity fail-closed semantics; add required/forbidden discriminators only where needed for DTP 84/84 4K and XTP/XTP II separation.
+- [ ] 12.3 Add real converter-path and exact-runtime-dispatch regression coverage for all approved Matrix inventory models.
+- [ ] 12.4 Run focused inventory, Matrix, full-suite, OpenSpec strict, and Git hygiene validation before independent review.

@@ -111,30 +111,60 @@ NETWORK_COLUMNS = {
 }
 REQUIRED_NETWORK_COLUMNS = tuple(NETWORK_COLUMNS.values())
 
+
+def _diagnostic_model_rule(
+    required_components: set[str], *, forbidden_components: set[str] | None = None
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Build a complete component rule without introducing match priority."""
+
+    return frozenset(required_components), frozenset(forbidden_components or ())
+
+
 DIAGNOSTIC_MODEL_RULES = (
-    ("Huawei TE20", (frozenset({"te", "20"}),)),
-    ("Huawei TE40", (frozenset({"te", "40"}),)),
-    ("Huawei TE50", (frozenset({"te", "50"}),)),
-    ("CloudLink Bar 310", (frozenset({"cloudlink", "bar", "310"}),)),
-    ("CloudLink Box 310", (frozenset({"cloudlink", "box", "310"}),)),
+    ("Huawei TE20", (_diagnostic_model_rule({"te", "20"}),)),
+    ("Huawei TE40", (_diagnostic_model_rule({"te", "40"}),)),
+    ("Huawei TE50", (_diagnostic_model_rule({"te", "50"}),)),
+    ("CloudLink Bar 310", (_diagnostic_model_rule({"cloudlink", "bar", "310"}),)),
+    ("CloudLink Box 310", (_diagnostic_model_rule({"cloudlink", "box", "310"}),)),
     (
         "Polycom RPG 310",
         (
-            frozenset({"rpg", "310"}),
-            frozenset({"realpresence", "group", "310"}),
+            _diagnostic_model_rule({"rpg", "310"}),
+            _diagnostic_model_rule({"realpresence", "group", "310"}),
         ),
     ),
-    ("Extron IN1804", (frozenset({"in", "1804"}),)),
-    ("Aten PE8208AV", (frozenset({"pe", "8208"}),)),
-    ("Extron IPL T PCS4i", (frozenset({"ipl", "pcs", "4i"}),)),
+    ("Extron IN1804", (_diagnostic_model_rule({"in", "1804"}),)),
+    ("Extron IN1808", (_diagnostic_model_rule({"in", "1808"}),)),
+    ("Extron IN1608 xi", (_diagnostic_model_rule({"in", "1608", "xi"}),)),
+    (
+        "Extron DTP CrossPoint 84",
+        (_diagnostic_model_rule({"dtp", "crosspoint", "84"}, forbidden_components={"4k"}),),
+    ),
+    ("Extron DTP CrossPoint 82 4K", (_diagnostic_model_rule({"dtp", "crosspoint", "82", "4k"}),)),
+    ("Extron DTP CrossPoint 84 4K", (_diagnostic_model_rule({"dtp", "crosspoint", "84", "4k"}),)),
+    ("Extron DTP CrossPoint 86 4K", (_diagnostic_model_rule({"dtp", "crosspoint", "86", "4k"}),)),
+    ("Extron DTP CrossPoint 108 4K", (_diagnostic_model_rule({"dtp", "crosspoint", "108", "4k"}),)),
+    (
+        "Extron XTP CrossPoint 1600",
+        (_diagnostic_model_rule({"xtp", "crosspoint", "1600"}, forbidden_components={"ii"}),),
+    ),
+    (
+        "Extron XTP CrossPoint 3200",
+        (_diagnostic_model_rule({"xtp", "crosspoint", "3200"}, forbidden_components={"ii"}),),
+    ),
+    ("Extron XTP II CrossPoint 1600", (_diagnostic_model_rule({"xtp", "ii", "crosspoint", "1600"}),)),
+    ("Extron XTP II CrossPoint 3200", (_diagnostic_model_rule({"xtp", "ii", "crosspoint", "3200"}),)),
+    ("Extron XTP II CrossPoint 6400", (_diagnostic_model_rule({"xtp", "ii", "crosspoint", "6400"}),)),
+    ("Aten PE8208AV", (_diagnostic_model_rule({"pe", "8208"}),)),
+    ("Extron IPL T PCS4i", (_diagnostic_model_rule({"ipl", "pcs", "4i"}),)),
     (
         "Biamp Tesira Forte CI",
         (
-            frozenset({"tesira", "forte"}),
-            frozenset({"tesira", "forté"}),
+            _diagnostic_model_rule({"tesira", "forte"}),
+            _diagnostic_model_rule({"tesira", "forté"}),
         ),
     ),
-    ("Extron DMP 64 Plus", (frozenset({"dmp", "64"}),)),
+    ("Extron DMP 64 Plus", (_diagnostic_model_rule({"dmp", "64"}),)),
 )
 EXPECTED_KIND_BY_DIAGNOSTIC_MODEL = {
     "Huawei TE20": "video_codec",
@@ -144,6 +174,18 @@ EXPECTED_KIND_BY_DIAGNOSTIC_MODEL = {
     "CloudLink Box 310": "video_codec",
     "Polycom RPG 310": "video_codec",
     "Extron IN1804": "other",
+    "Extron IN1808": "other",
+    "Extron IN1608 xi": "other",
+    "Extron DTP CrossPoint 84": "other",
+    "Extron DTP CrossPoint 82 4K": "other",
+    "Extron DTP CrossPoint 84 4K": "other",
+    "Extron DTP CrossPoint 86 4K": "other",
+    "Extron DTP CrossPoint 108 4K": "other",
+    "Extron XTP CrossPoint 1600": "other",
+    "Extron XTP CrossPoint 3200": "other",
+    "Extron XTP II CrossPoint 1600": "other",
+    "Extron XTP II CrossPoint 3200": "other",
+    "Extron XTP II CrossPoint 6400": "other",
     "Extron IPL T PCS4i": "other",
     "Extron DMP 64 Plus": "other",
     "Biamp Tesira Forte CI": "other",
@@ -1539,9 +1581,16 @@ def _split_alphanumeric_runs(chunk: str) -> tuple[tuple[str, str], ...]:
 def _evaluate_diagnostic_model_rules(components: frozenset[str]) -> tuple[str, ...]:
     matches: list[str] = []
     for diagnostic_model, alternatives in DIAGNOSTIC_MODEL_RULES:
-        if any(alternative.issubset(components) for alternative in alternatives):
+        if any(_diagnostic_model_rule_matches(rule, components) for rule in alternatives):
             matches.append(diagnostic_model)
     return tuple(matches)
+
+
+def _diagnostic_model_rule_matches(
+    rule: tuple[frozenset[str], frozenset[str]], components: frozenset[str]
+) -> bool:
+    required, forbidden = rule
+    return required.issubset(components) and not forbidden.intersection(components)
 
 
 def _atomic_write_json(

@@ -267,6 +267,21 @@ Stale, failed, unsupported, unproven or otherwise unauthorized state remains non
 - Do not regress existing Matrix route ambiguity/reconciliation protections.
 - Do not start production implementation until the pre-implementation OpenSpec gate in `tasks.md` is fully PASS and independently approved.
 
+## Inventory canonicalization
+
+The offline inventory converter SHALL normalize model and name evidence into
+components, evaluate the complete canonical match set for each field, and
+reconcile their distinct union before selecting `diagnostic_model`. It SHALL
+not use manufacturer text, substring matching, or registry order as model
+authority.
+
+Inventory rules may require components and forbid discriminating components.
+The latter distinguishes DTP CrossPoint 84 from DTP CrossPoint 84 4K and
+first-generation XTP CrossPoint from XTP II without priority. A bare IN1608
+remains unresolved because `xi` is required. Canonical inventory output uses
+the exact runtime dispatch names, while original source-model text remains
+source evidence.
+
 ## Deferred / Evidence-Dependent Items
 
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.
