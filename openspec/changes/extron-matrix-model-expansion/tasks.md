@@ -128,3 +128,10 @@
 - [x] 12.2 Preserve complete-match-set and two-field ambiguity fail-closed semantics; add required/forbidden discriminators only where needed for DTP 84/84 4K and XTP/XTP II separation.
 - [x] 12.3 Add real converter-path and exact-runtime-dispatch regression coverage for all approved Matrix inventory models.
 - [x] 12.4 Run focused inventory, Matrix, full-suite, OpenSpec strict, and Git hygiene validation before independent review.
+
+## 13. IN1804 hardware regression remediation
+
+- [ ] 13.1 Normalize only documented IN1804-series `1I` wire identities to the existing canonical IN1804 profile.
+- [ ] 13.2 Preserve canonical expected-model comparison, strict unknown-identity rejection, and DTP/XTP/XTP II identity rules.
+- [ ] 13.3 Add production-path full-refresh, framing, parser, and presentation regressions for the baseline IN1804 profile.
+- [ ] 13.4 Re-run read-only hardware validation when the observed IN1804 is reachable; do not perform route mutation.

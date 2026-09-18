@@ -22,7 +22,7 @@ invented. `Yes` is an expected capability to exercise during hardware QA.
 
 | Model | Inventory / identity | Topology | Signal / input HDCP | Output HDCP / auth | Input / output names / temp | Route read / mutation | Hardware status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Extron IN1804 | Canonical / `1I` | fixed 4x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `!` / `<I>*1!` | NOT RUN | Existing compatibility baseline; one logical output. |
+| Extron IN1804 | Canonical / `1I` | fixed 4x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `!` / `<I>*1!` | FAIL | Reported physical baseline regression after strict identity resolution; closed documented wire-alias remediation awaits read-only retest. |
 | Extron IN1808 | Canonical / `1I` | fixed 8x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1!` / `<I>*1!` | NOT RUN | Loop Out remains deferred; it is not a second logical route. |
 | Extron IN1608 xi | Canonical / `1I` | fixed 8x1 | Yes / modern mapping | Yes / Yes | Yes / unavailable / Yes | `!` / `<I>!` | NOT RUN | Output-name read remains unavailable. |
 | DTP CrossPoint 84 | Canonical / documented DTP identity | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>!` / `<I>*<O>!` | NOT RUN | Capture actual `0LS` framing. |

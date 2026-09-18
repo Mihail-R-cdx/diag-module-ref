@@ -282,6 +282,19 @@ remains unresolved because `xi` is required. Canonical inventory output uses
 the exact runtime dispatch names, while original source-model text remains
 source evidence.
 
+## IN1804 wire identity compatibility
+
+The inventory/application model `Extron IN1804` and protocol profile `IN1804`
+remain canonical. The documented `1I` wire identities `IN1804`, `IN1804 DI`,
+`IN1804 DO`, and `IN1804 DI/DO` resolve through one closed alias map to that
+profile. The map is not a family substring rule: any other spelling or suffix
+remains unsupported. Expected-model validation compares the resolved canonical
+profile, so an IN1804 alias is accepted for expected IN1804 while a proved
+IN1808 identity remains rejected.
+
+The existing transport removes only an exact leading command echo before
+identity resolution; subsequent payload validation stays exact.
+
 ## Deferred / Evidence-Dependent Items
 
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.

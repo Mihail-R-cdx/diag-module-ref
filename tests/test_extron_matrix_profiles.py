@@ -2,6 +2,7 @@ from dataclasses import replace
 import unittest
 
 from core.exceptions import ProtocolError
+from core.base_handler import BaseExtronMatrixHandler
 from core.parser import ExtronMatrixDataParser
 from handlers.extron.matrix import (
     HDCP_PRESENT_HDCP, HDCP_PRESENT_NO_HDCP, XTP_PART_NUMBER_TO_MODEL,
@@ -143,6 +144,45 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         wrong_xtp = RecordingMatrix("60-1981-01", expected_model="XTP II CrossPoint 1600")
         with self.assertRaises(ProtocolError):
             wrong_xtp.get_device_info()
+
+    def test_in1804_documented_wire_identities_resolve_to_one_canonical_profile(self):
+        for identity in ("IN1804", "IN1804 DI", "IN1804 DO", "IN1804 DI/DO"):
+            with self.subTest(identity=identity):
+                profile = resolve_matrix_capabilities(identity)
+                self.assertEqual("IN1804", profile.exact_model)
+                self.assertEqual((1, 2, 3, 4), profile.available_input_ids)
+                self.assertEqual((1,), profile.available_output_ids)
+                self.assertEqual("IN1804", RecordingMatrix(identity, expected_model="Extron IN1804").get_device_info()["model"])
+        for identity in ("IN1804 DIO", "IN1804 DI DO", "IN1804 DI/DO EXTRA", "IN1808"):
+            with self.subTest(unrelated_identity=identity):
+                if identity == "IN1808":
+                    with self.assertRaises(ProtocolError):
+                        RecordingMatrix(identity, expected_model="Extron IN1804").get_device_info()
+                else:
+                    self.assertIsNone(resolve_matrix_capabilities(identity))
+
+    def test_in1804_alias_full_refresh_normalizes_baseline_snapshot(self):
+        responses = {
+            "w20STAT": "25",
+            "wI1VNAM": "Laptop", "wI2VNAM": "Camera", "wI3VNAM": "PC", "wI4VNAM": "Doc Cam",
+            "wO1VNAM": "Projector", "w0LS": "In00 1*0*1*0", "!": "In3 All",
+            "wE1HDCP": "1", "wE2HDCP": "1", "wE3HDCP": "0", "wE4HDCP": "1",
+            "wI1HDCP": "2", "wI2HDCP": "1", "wI3HDCP": "0", "wI4HDCP": "bad", "wO1HDCP": "1",
+        }
+        handler = RecordingMatrix("IN1804 DI/DO", responses, expected_model="Extron IN1804")
+        status = handler.get_full_status()
+        parsed = ExtronMatrixDataParser.parse(status)
+        self.assertEqual("IN1804", status["device_info"]["model"])
+        self.assertEqual((1, 2, 3, 4), status["capabilities"].available_input_ids)
+        self.assertEqual({1: 3}, status["routes"])
+        self.assertEqual([1, 2, 3, 4], parsed["available_input_ids"])
+        self.assertEqual([1], parsed["available_output_ids"])
+        self.assertEqual({1: 3}, parsed["routes"])
+        self.assertEqual(3, parsed["current_connection"])
+
+    def test_transport_echo_removal_is_exact_before_identity_resolution(self):
+        self.assertEqual("IN1804 DI", BaseExtronMatrixHandler._strip_command_echo("1I", "1I\r\nIN1804 DI\r\n"))
+        self.assertEqual("other\n1I\nIN1804 DI", BaseExtronMatrixHandler._strip_command_echo("1I", "other\r\n1I\r\nIN1804 DI"))
 
     def test_hdcp_mapping_stays_profile_specific(self):
         self.assertEqual(HDCP_PRESENT_NO_HDCP, decode_hdcp("1", "legacy"))

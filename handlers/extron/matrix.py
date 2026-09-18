@@ -46,6 +46,18 @@ _PROFILES = {
 _XTP_FIRST_GEN = frozenset({"XTP CROSSPOINT 1600", "XTP CROSSPOINT 3200"})
 _XTP_II = frozenset({"XTP II CROSSPOINT 1600", "XTP II CROSSPOINT 3200", "XTP II CROSSPOINT 6400"})
 
+# IN1804 Series SIS Configuration and Control documents these exact ``1I``
+# model-name responses.  They share the proven four-input/single-logical-route
+# profile, so wire identity is normalized to the one canonical application
+# profile rather than becoming a separate dispatch model.  This is deliberately
+# closed: a suffix not listed here is not an IN1804 identity.
+IN1804_WIRE_IDENTITY_TO_CANONICAL = {
+    "IN1804": "IN1804",
+    "IN1804 DI": "IN1804",
+    "IN1804 DO": "IN1804",
+    "IN1804 DI/DO": "IN1804",
+}
+
 def _identity_key(identity):
     if not isinstance(identity, str): return None
     text = " ".join(identity.strip().split())
@@ -53,6 +65,8 @@ def _identity_key(identity):
 
 def resolve_matrix_capabilities(identity):
     key = _identity_key(identity)
+    canonical_in1804 = IN1804_WIRE_IDENTITY_TO_CANONICAL.get(key)
+    if canonical_in1804 is not None: return _PROFILES[canonical_in1804]
     if key in _PROFILES: return _PROFILES[key]
     if key in _XTP_FIRST_GEN: return _fixed("XTP", " ".join(identity.strip().split()), 0, 0, auth=False, input_names=False, output_names=False, temperature=False, route="crosspoint", input_profile="modern", output_profile="xtp")
     if key in _XTP_II: return _fixed("XTP II", " ".join(identity.strip().split()), 0, 0, auth=True, input_names=False, output_names=False, output_hdcp=False, temperature=False, route="crosspoint", input_profile="modern", output_profile="unproven")

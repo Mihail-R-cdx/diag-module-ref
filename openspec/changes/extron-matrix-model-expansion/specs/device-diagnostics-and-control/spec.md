@@ -331,3 +331,33 @@ Generalizing Matrix route mutation to explicit output IDs SHALL preserve the exi
 - **WHEN** a CrossPoint route command may have reached the device but its response is lost
 - **THEN** the command is not automatically replayed
 - **AND** UI does not claim confirmed routing until authoritative reconciliation succeeds
+
+## ADDED Requirements
+
+### Requirement: IN1804 documented wire identities preserve the canonical profile
+
+The Matrix identity resolver SHALL map only the documented IN1804-series `1I`
+responses `IN1804`, `IN1804 DI`, `IN1804 DO`, and `IN1804 DI/DO` to the
+canonical `IN1804` protocol profile and application model `Extron IN1804`.
+The resolver SHALL reject unlisted aliases, suffixes, and unrelated identities;
+it SHALL NOT use an IN1804 substring rule. Exact leading command echo removal
+already provided by the Matrix transport MAY precede this closed resolution.
+
+Expected-model validation SHALL compare canonical resolved profile identity.
+Thus an expected `Extron IN1804` accepts a documented IN1804 wire alias, while
+an actual `IN1808` identity remains a fail-closed mismatch. DTP, XTP, and XTP
+II exact identity/part-number resolution remains unchanged.
+
+#### Scenario: IN1804 DI/DO full refresh remains compatible
+
+- **GIVEN** inventory expects `Extron IN1804`
+- **AND** the device returns `IN1804 DI/DO` to `1I`
+- **WHEN** the normal Matrix full-refresh path runs
+- **THEN** it uses the canonical IN1804 profile
+- **AND** it produces a normalized four-input, one-logical-output snapshot
+- **AND** the accepted snapshot can be presented by the standalone and room Matrix surfaces
+
+#### Scenario: Near-looking identity remains unsupported
+
+- **WHEN** an IN-family wire identity is not one of the documented IN1804 aliases
+- **THEN** it is not promoted by substring similarity
