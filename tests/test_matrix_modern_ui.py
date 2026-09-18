@@ -215,6 +215,10 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual(4, screen.matrix_table.rowCount())
         screen.on_output_cell_clicked(0, 3)
         self.assertEqual([(1, 1)], intents)
+        screen.update_data({"inputs_num": None})
+        self.assertEqual(0, screen.matrix_table.rowCount())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
 
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
     def test_canonical_in1804_hdcp_state_reaches_standalone_matrix_table(self):
@@ -226,10 +230,6 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual("○", screen.matrix_table.item(1, 1).text())
         self.assertEqual("○", screen.matrix_table.item(2, 1).text())
         self.assertEqual("○", screen.matrix_table.item(3, 1).text())
-        screen.update_data({"inputs_num": None})
-        self.assertEqual(0, screen.matrix_table.rowCount())
-        screen.on_output_cell_clicked(0, 3)
-        self.assertEqual([(1, 1)], intents)
 
 
 class MatrixMutationOrderingTests(unittest.TestCase):
