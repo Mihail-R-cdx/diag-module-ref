@@ -374,3 +374,24 @@ per-input/per-output state before GUI presentation.
 - **WHEN** IN1804 provides list input HDCP/auth and scalar output HDCP evidence
 - **THEN** the normalized snapshot retains each supported input and output value
 - **AND** the GUI consumes canonical state rather than legacy shapes
+
+### Requirement: Matrix SIS identity framing is command-specific and closed
+
+The identity path SHALL apply exact transport command-echo removal, then only
+the documented grammar for the issued identity command, then closed canonical
+resolution, then canonical expected-model comparison. `1I` accepts only a bare
+model identity or `Inf01*<model identity>`; `N` accepts only a bare exact part
+number or `Pno<exact part number>`. `Pno` SHALL NOT be accepted as model
+evidence and `Inf01*` SHALL NOT be accepted as part-number evidence.
+
+#### Scenario: Tagged identity evidence remains command-specific
+
+- **WHEN** `1I` returns `Pno60-1381-01` or `N` returns `Inf01*IN1808`
+- **THEN** neither response resolves a Matrix profile
+- **AND** the diagnostic fails closed without profile guessing
+
+Unknown values, trailing garbage, multiple identity records, and expected-model
+mismatches SHALL fail closed. DTP CP84 retains its documented `I` token; DTP
+4K and XTP/XTP II retain exact `N` part-number authority, before downstream
+dimension and board-topology evidence. Additional IN1608 xi aliases SHALL NOT
+be added without authoritative documentation or hardware evidence.

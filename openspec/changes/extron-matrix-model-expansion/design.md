@@ -295,6 +295,19 @@ IN1808 identity remains rejected.
 The existing transport removes only an exact leading command echo before
 identity resolution; subsequent payload validation stays exact.
 
+## SIS identity framing
+
+Identity evidence is processed in four distinct layers: transport removes only
+an exact leading command echo; the protocol accepts only the documented grammar
+for that command; the domain resolves the extracted value through a closed
+canonical map; expected-model validation compares canonical profiles. `1I`
+accepts only a bare model or `Inf01*<model>`; `N` accepts only a bare exact
+part number or `Pno<part-number>`. These are not generic prefix stripping:
+`Pno` is not model evidence and `Inf01*` is not part-number evidence. Multiple
+records, trailing garbage, unknown values, and undocumented IN1608 xi aliases
+remain fail-closed. DTP/XTP part-number authority and downstream topology
+evidence remain unchanged.
+
 ## Deferred / Evidence-Dependent Items
 
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.

@@ -131,13 +131,19 @@
 
 ## 13. IN1804 hardware regression remediation
 
-- [ ] 13.1 Normalize only documented IN1804-series `1I` wire identities to the existing canonical IN1804 profile.
-- [ ] 13.2 Preserve canonical expected-model comparison, strict unknown-identity rejection, and DTP/XTP/XTP II identity rules.
-- [ ] 13.3 Add production-path full-refresh, framing, parser, and presentation regressions for the baseline IN1804 profile.
+- [x] 13.1 Normalize only documented IN1804-series `1I` wire identities to the existing canonical IN1804 profile.
+- [x] 13.2 Preserve canonical expected-model comparison, strict unknown-identity rejection, and DTP/XTP/XTP II identity rules.
+- [x] 13.3 Add production-path full-refresh, framing, parser, and presentation regressions for the baseline IN1804 profile.
 - [ ] 13.4 Re-run read-only hardware validation when the observed IN1804 is reachable; do not perform route mutation.
 
 ## 14. IN1808 identity and IN1804 HDCP remediation
 
-- [ ] 14.1 Add only documented IN1808 wire aliases and preserve expected-model fail-closed behavior.
-- [ ] 14.2 Normalize legacy IN1804 HDCP list/scalar evidence into canonical per-ID Matrix state.
+- [x] 14.1 Add only documented IN1808 wire aliases and preserve expected-model fail-closed behavior.
+- [x] 14.2 Normalize legacy IN1804 HDCP list/scalar evidence into canonical per-ID Matrix state.
 - [ ] 14.3 Re-run read-only IN1804 and IN1808 hardware validation when devices are reachable; do not route-switch.
+
+## 15. Identity hardening reconciliation
+
+- [x] 15.1 Normalize only documented command-specific `1I` and `N` identity response grammars before closed resolution.
+- [x] 15.2 Cover tagged framing, canonical mismatch, and DTP/XTP/XTP II fail-closed identity behavior.
+- [ ] 15.3 Re-run read-only tagged-response and IN1608 xi hardware validation when devices are reachable.
