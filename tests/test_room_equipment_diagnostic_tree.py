@@ -439,6 +439,13 @@ class OrchestratorTests(unittest.TestCase):
         assert_post_start_abort(_matrix_worker, "Extron IN1804", "core.workers.matrix.ExtronIN1804Handler")
         assert_post_start_abort(_codec_worker, "Huawei TE40", "core.workers.codec_polling.HuaweiTE40Handler")
 
+    def test_room_matrix_worker_preserves_exact_canonical_model(self):
+        from core.room_diagnostic_tree import OneShotAttemptContext
+        from gui.room_one_shot_adapters import _matrix_worker
+        for model in ("Extron DTP CrossPoint 86 4K", "Extron IN1608 xi", "Extron XTP II CrossPoint 3200"):
+            context = OneShotAttemptContext(self._session([record("a")]).identity, "a", model, "192.0.2.10", 1, {"username": "u", "password": "p"})
+            self.assertEqual(model, _matrix_worker(context).expected_model)
+
     def test_matrix_invalidation_after_handler_construction_skips_connect(self):
         from core.workers.matrix import ExtronIN1804Worker
 
