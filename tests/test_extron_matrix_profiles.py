@@ -188,6 +188,22 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertEqual({1: 1, 2: 1, 3: 0, 4: None}, parsed["input_hdcp_auth"])
         self.assertEqual({1: "1"}, parsed["output_hdcp"])
 
+    def test_recorded_in1804_and_in1808_hdcp_temperature_evidence_remains_canonical(self):
+        fixtures = (
+            ("IN1804", 59, ["0", "1", "0", "1"], {1: "ABSENT", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "PRESENT_NO_HDCP"}),
+            ("IN1808", 47, ["0", "1", "1", "1", "0", "0", "0", "0"], {1: "ABSENT", 2: "PRESENT_NO_HDCP", 3: "PRESENT_NO_HDCP", 4: "PRESENT_NO_HDCP", 5: "ABSENT", 6: "ABSENT", 7: "ABSENT", 8: "ABSENT"}),
+        )
+        for model, temperature, raw_hdcp, expected_hdcp in fixtures:
+            with self.subTest(model=model):
+                caps = resolve_matrix_capabilities(model)
+                parsed = ExtronMatrixDataParser.parse({
+                    "capabilities": caps,
+                    "device_info": {"model": model, "temperature": temperature},
+                    "input_hdcp_status": raw_hdcp,
+                })
+                self.assertEqual(temperature, parsed["temperature"])
+                self.assertEqual(expected_hdcp, parsed["input_hdcp"])
+
     def test_in1804_alias_full_refresh_normalizes_baseline_snapshot(self):
         responses = {
             "w20STAT": "25",

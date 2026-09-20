@@ -395,3 +395,43 @@ mismatches SHALL fail closed. DTP CP84 retains its documented `I` token; DTP
 4K and XTP/XTP II retain exact `N` part-number authority, before downstream
 dimension and board-topology evidence. Additional IN1608 xi aliases SHALL NOT
 be added without authoritative documentation or hardware evidence.
+
+### Requirement: Room Matrix identity selection preserves exact diagnostic-model authority
+
+The room one-shot Matrix path SHALL pass its exact canonical `diagnostic_model`
+to the Matrix worker and then to the handler as `expected_model`. The worker
+SHALL select the resulting exact profile before its first authoritative identity
+read. It SHALL use model-aware connection status text; callers without an
+expected model SHALL receive a neutral Matrix label rather than an IN1804 claim.
+
+#### Scenario: DTP CrossPoint 86 4K room path starts with N
+
+- **GIVEN** the room diagnostic model is `Extron DTP CrossPoint 86 4K`
+- **WHEN** the room worker begins its handler refresh
+- **THEN** the first authoritative identity command is `N`
+- **AND** it is not `1I`
+- **AND** the expected DTP profile is preserved through the worker/handler boundary
+
+#### Scenario: IN and XTP II retain separate identity generations
+
+- **WHEN** the room diagnostic model is `Extron IN1608 xi`
+- **THEN** its first authoritative identity command is `1I`
+- **WHEN** the room diagnostic model is `Extron XTP II CrossPoint 3200`
+- **THEN** its first authoritative identity command is `N`
+
+### Requirement: Hardware acquisition and GUI presentation are separate Matrix QA gates
+
+Read-only hardware acquisition evidence SHALL NOT by itself claim presentation
+success, and synthetic GUI coverage SHALL NOT claim hardware observation. The
+recorded IN1804 and IN1808 evidence proves temperature, input-HDCP, signal, and
+route reads only; neither device observed a positive `PRESENT_HDCP` input. The
+DTP CrossPoint 86 4K wrong fallback path observed `1I` and `DTPCP86`; the
+software propagation correction requires a post-fix hardware retest beginning
+with `N` after authentication.
+
+#### Scenario: Synthetic positive HDCP does not claim hardware observation
+
+- **GIVEN** GUI regression uses a synthetic `PRESENT_HDCP` state
+- **WHEN** software presentation validation passes
+- **THEN** active-HDCP hardware evidence remains recorded as not exercised
+- **AND** post-remediation hardware retest remains required

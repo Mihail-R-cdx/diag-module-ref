@@ -1930,7 +1930,10 @@ class RoomReadOnlyPresentation(QWidget):
             ("Время работы", source.get("uptime")),
         )
         for label, value in fields:
-            value_label = QLabel(str(value) if value not in (None, "") else no_data, info)
+            displayed_value = "%s°C" % value if label == "Температура" and value not in (None, "") else str(value) if value not in (None, "") else no_data
+            value_label = QLabel(displayed_value, info)
+            if label == "Температура":
+                value_label.setObjectName("roomMatrixTemperatureValue")
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             form.addRow(label, value_label)
         info.body_layout.addLayout(form)
@@ -2004,15 +2007,28 @@ class RoomReadOnlyPresentation(QWidget):
             table.insertRow(row_index)
             present = signals.get(input_id, (legacy_signals.get(input_id) or {}).get("has_signal"))
             signal_value = "есть" if present is True else "нет сигнала" if present is False else "Нет данных"
-            hdcp_value = "active" if hdcp.get(input_id) == "PRESENT_HDCP" or (input_id - 1 < len(legacy_hdcp) and str(legacy_hdcp[input_id - 1]) == "2") else "inactive"
+            hdcp_state = hdcp.get(input_id)
+            if hdcp_state is None and input_id - 1 < len(legacy_hdcp):
+                hdcp_state = {
+                    "0": "ABSENT", "1": "PRESENT_NO_HDCP", "2": "PRESENT_HDCP",
+                }.get(str(legacy_hdcp[input_id - 1]), "UNKNOWN")
+            hdcp_value = {
+                "PRESENT_HDCP": "есть",
+                "PRESENT_NO_HDCP": "нет",
+                "ABSENT": "нет",
+            }.get(hdcp_state, "Нет данных")
             name_value = names.get(input_id) or (legacy_names[input_id - 1] if input_id - 1 < len(legacy_names) else "Input %s" % input_id)
             values = [input_id, signal_value, hdcp_value, name_value] + ["активен" if routes.get(output_id) == input_id else "не выбран" for output_id in available_outputs]
             for column, value in enumerate(values):
                 if column == 1:
                     item = _matrix_indicator_item("есть" if value == "Нет данных" else value, positive="есть", inactive="нет сигнала")
                     if value == "Нет данных": item.setData(Qt.UserRole, value)
+                elif column == 2:
+                    item = QTableWidgetItem(str(value))
+                    item.setData(Qt.UserRole, hdcp_state if hdcp_state in {"PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT"} else "UNKNOWN")
+                    item.setToolTip("HDCP: %s" % value)
                 else:
-                    item = _matrix_indicator_item(value, positive="активен", inactive="не выбран") if column >= 4 else QTableWidgetItem("есть" if column == 2 and value == "active" else "Нет данных" if column == 2 else str(value))
+                    item = _matrix_indicator_item(value, positive="активен", inactive="не выбран") if column >= 4 else QTableWidgetItem(str(value))
                 table.setItem(row_index, column, item)
         table.cellClicked.disconnect(request_route)
         def request_multi_route(index, column):

@@ -446,6 +446,81 @@ class OrchestratorTests(unittest.TestCase):
             context = OneShotAttemptContext(self._session([record("a")]).identity, "a", model, "192.0.2.10", 1, {"username": "u", "password": "p"})
             self.assertEqual(model, _matrix_worker(context).expected_model)
 
+    def test_room_matrix_worker_uses_expected_profile_for_first_identity_query(self):
+        """Exercise room context -> worker -> real handler identity selection."""
+        from core.workers.matrix import ExtronIN1804Worker
+        from core.room_diagnostic_tree import OneShotAttemptContext
+        from gui.room_one_shot_adapters import _matrix_worker
+        from handlers.extron.matrix import ExtronMatrixHandler
+
+        fixtures = {
+            "Extron DTP CrossPoint 86 4K": ("N", "60-1382-01", {}),
+            "Extron IN1608 xi": ("1I", "IN1608 xi", {}),
+            "Extron XTP II CrossPoint 3200": (
+                "N", "60-1981-01",
+                {"I": "32x32", "*N": "60-1981-01.nnnnnnnnoooooooo"},
+            ),
+        }
+
+        class RecordingHandler(ExtronMatrixHandler):
+            instances = []
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.commands = []
+                self.identity = fixtures[self.expected_model][1]
+                self.responses = fixtures[self.expected_model][2]
+                type(self).instances.append(self)
+
+            def connect(self):
+                return None
+
+            def disconnect(self):
+                return None
+
+            def send_command(self, command, data=None, **kwargs):
+                self.commands.append(command)
+                response = self.identity if command in {"1I", "N"} else self.responses.get(command, "")
+                return {"success": True, "response": response}
+
+            def get_full_status(self):
+                return {"device_info": self.get_device_info(), "capabilities": self.capabilities}
+
+        with patch("core.workers.matrix.ExtronIN1804Handler", RecordingHandler):
+            for model, (identity_command, _identity, _responses) in fixtures.items():
+                with self.subTest(model=model):
+                    context = OneShotAttemptContext(self._session([record("a")]).identity, "a", model, "192.0.2.10", 1, {"username": "u", "password": "p"})
+                    worker = _matrix_worker(context)
+                    statuses = []
+                    worker.signals.status.connect(statuses.append)
+                    worker.run()
+                    handler = RecordingHandler.instances[-1]
+                    self.assertEqual(model, worker.expected_model)
+                    self.assertEqual(identity_command, handler.commands[0])
+                    if model == "Extron DTP CrossPoint 86 4K":
+                        self.assertNotIn("1I", handler.commands)
+                    self.assertEqual("Подключение к матрице %s..." % model, statuses[0])
+
+        class NeutralHandler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+
+            def connect(self):
+                return None
+
+            def get_full_status(self):
+                return {}
+
+            def disconnect(self):
+                return None
+
+        neutral = ExtronIN1804Worker("192.0.2.10")
+        neutral_statuses = []
+        neutral.signals.status.connect(neutral_statuses.append)
+        with patch("core.workers.matrix.ExtronIN1804Handler", NeutralHandler):
+            neutral.run()
+        self.assertEqual("Подключение к матрице Extron Matrix...", neutral_statuses[0])
+
     def test_matrix_invalidation_after_handler_construction_skips_connect(self):
         from core.workers.matrix import ExtronIN1804Worker
 

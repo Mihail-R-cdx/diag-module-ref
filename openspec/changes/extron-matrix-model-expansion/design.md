@@ -322,3 +322,25 @@ Closed documented IN1808 `1I` aliases resolve to canonical `IN1808`; unknown
 suffixes fail closed. Legacy IN1804 list-shaped input HDCP/auth and scalar
 output HDCP are normalized by the Matrix parser into canonical per-ID state
 before either Matrix GUI surface consumes it.
+
+## Hardware-QA GUI remediation
+
+Room one-shot context remains the authority for the exact canonical Matrix
+model: `diagnostic_model -> ExtronIN1804Worker.expected_model ->
+ExtronIN1804Handler(expected_model=...)`. This avoids the old fallback-IN path;
+the DTP CrossPoint 86 4K path must select DTP and issue `N`, never interpret the
+wrong-path `1I -> DTPCP86` observation as an alias.
+
+GUI consumes canonical `input_hdcp` only. `PRESENT_HDCP` is positive;
+`PRESENT_NO_HDCP` and `ABSENT` are confirmed negative; and missing/`UNKNOWN`
+is unavailable. HDCP authorization and output HDCP do not determine the input
+presentation. Temperature is displayed only from the current accepted snapshot,
+with unavailable data clearing the established empty field.
+
+Read-only hardware evidence remains a separate gate: IN1804 recorded
+`w20STAT=59`, input HDCP `0,1,0,1`, signal `0*1*0*1`, and route-read PASS;
+IN1808 recorded `w20STAT=47`, input HDCP `0,1,1,1,0,0,0,0`, signal
+`0*1*1*1*0*0*0*0`, and route-read PASS. Both acquired HDCP successfully, but
+neither observed a positive active-HDCP (`2`) case. DTP CrossPoint 86 4K
+transport/auth passed on the old wrong fallback path; post-fix hardware retest
+is still required and its first identity assertion is `N` after authentication.

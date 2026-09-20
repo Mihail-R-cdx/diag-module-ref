@@ -48,6 +48,19 @@ class MatrixScreen(BaseScreen):
     @staticmethod
     def _status_item(active, active_color, active_tooltip, inactive_tooltip):
         item = QTableWidgetItem("●" if active else "○"); item.setTextAlignment(Qt.AlignCenter); item.setForeground(QColor(active_color if active else COLORS["text_muted"])); item.setToolTip(active_tooltip if active else inactive_tooltip); font = QFont(); font.setPointSize(16); item.setFont(font); return item
+    @classmethod
+    def _hdcp_item(cls, state):
+        """Keep confirmed HDCP absence distinct from unavailable evidence."""
+        if state == "PRESENT_HDCP":
+            semantic, tooltip, active = "HDCP есть", "HDCP есть", True
+        elif state in {"PRESENT_NO_HDCP", "ABSENT"}:
+            semantic, tooltip, active = "HDCP нет", "HDCP нет", False
+        else:
+            semantic, tooltip, active = "Нет данных", "HDCP: Нет данных", False
+        item = cls._status_item(active, COLORS["success"], tooltip, tooltip)
+        item.setData(Qt.UserRole, semantic)
+        item.setData(Qt.UserRole + 1, state if state in {"PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT"} else "UNKNOWN")
+        return item
     def _name(self, names, item, fallback):
         if isinstance(names, dict): return names.get(item) or fallback
         return names[item - 1] if isinstance(names, (list, tuple)) and item - 1 < len(names) and names[item - 1] else fallback
@@ -60,7 +73,7 @@ class MatrixScreen(BaseScreen):
             legacy = legacy_signal.get(input_id, {}) if isinstance(legacy_signal, dict) else {}; present = signal.get(input_id, legacy.get("has_signal") if isinstance(legacy, dict) else None) if isinstance(signal, dict) else None
             self.matrix_table.setItem(row, 0, self._status_item(present is True, COLORS["success"], "Сигнал присутствует", "Нет сигнала" if data else "Нет данных"))
             state = hdcp.get(input_id) if isinstance(hdcp, dict) else None
-            self.matrix_table.setItem(row, 1, self._status_item(state in {"PRESENT_HDCP", "2"}, COLORS["success"], "HDCP включён", "HDCP не активен" if data else "Нет данных"))
+            self.matrix_table.setItem(row, 1, self._hdcp_item(state))
             name = QTableWidgetItem(self._name(self.input_names, input_id, "Input %s" % input_id)); name.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter); self.matrix_table.setItem(row, 2, name)
             for column, output_id in enumerate(self.available_output_ids, 3): self.matrix_table.setItem(row, column, self._status_item(routes.get(output_id) == input_id, COLORS["primary"], "Активное подключение", "Нет подключения"))
     def update_data(self, data=None):

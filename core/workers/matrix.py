@@ -29,7 +29,8 @@ class ExtronIN1804Worker(QRunnable):
         try:
             if not self.is_current():
                 return
-            self.signals.status.emit("Подключение к матрице Extron IN1804...")
+            matrix_label = self.expected_model or "Extron Matrix"
+            self.signals.status.emit("Подключение к матрице %s..." % matrix_label)
             self.signals.progress.emit(10)
 
             # Создаем и подключаем обработчик

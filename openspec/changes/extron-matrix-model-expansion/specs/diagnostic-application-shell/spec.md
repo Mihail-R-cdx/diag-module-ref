@@ -74,3 +74,30 @@ Exact model/frame identity, topology and profile selection used for validation/r
 - **WHEN** current exact frame identity has not yet resolved the generation
 - **THEN** the application does not choose XTP or XTP II profile from dimensions alone
 - **AND** profile-specific board/HDCP decoding remains unavailable until exact identity is resolved
+
+### Requirement: Matrix GUI preserves canonical HDCP and temperature evidence
+
+Both standalone and room Matrix presentations SHALL consume canonical
+`input_hdcp[input_id]` as their input-HDCP authority. They SHALL present
+`PRESENT_HDCP` as confirmed positive, `PRESENT_NO_HDCP` and `ABSENT` as
+confirmed negative, and `UNKNOWN` or missing evidence as unavailable. Input
+HDCP authorization and output HDCP SHALL NOT substitute for this state.
+Successful current temperature evidence SHALL reach the existing Matrix
+temperature field; unavailable current evidence SHALL render its established
+empty state and SHALL NOT retain an earlier value or invent `0°C`.
+
+#### Scenario: Canonical false HDCP is not displayed as unknown
+
+- **GIVEN** canonical input states `PRESENT_HDCP`, `PRESENT_NO_HDCP`, `ABSENT`, and `UNKNOWN`
+- **WHEN** each Matrix GUI table renders them
+- **THEN** the visible room cells are respectively `есть`, `нет`, `нет`, and `Нет данных`
+- **AND** standalone semantic data/tooltips distinguish confirmed `HDCP нет` from unavailable data
+- **AND** signal presence remains an independent column
+
+#### Scenario: Current temperature reaches both Matrix surfaces
+
+- **GIVEN** an accepted Matrix snapshot with `temperature=59`
+- **WHEN** standalone and room Matrix presentation render it
+- **THEN** each existing temperature field displays `59°C`
+- **WHEN** a later current snapshot has unavailable temperature
+- **THEN** the standalone field displays its empty state

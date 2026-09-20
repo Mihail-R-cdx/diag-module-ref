@@ -147,3 +147,14 @@
 - [x] 15.1 Normalize only documented command-specific `1I` and `N` identity response grammars before closed resolution.
 - [x] 15.2 Cover tagged framing, canonical mismatch, and DTP/XTP/XTP II fail-closed identity behavior.
 - [ ] 15.3 Re-run read-only tagged-response and IN1608 xi hardware validation when devices are reachable.
+
+## 16. Matrix hardware-QA GUI remediation
+
+- [x] 16.1 Preserve room one-shot exact `diagnostic_model` propagation through Matrix worker and handler as completed in the preceding remediation.
+- [x] 16.2 Add worker/handler production-path regression: DTP CrossPoint 86 4K begins identity with `N`; IN1608 xi with `1I`; XTP II CrossPoint 3200 with `N`.
+- [x] 16.3 Make Matrix worker connection status model-aware, with a neutral backward-compatible label when no expected model is supplied.
+- [x] 16.4 Preserve canonical input-HDCP true, confirmed false, and unknown semantics in standalone Matrix presentation.
+- [x] 16.5 Preserve canonical input-HDCP true, confirmed false, and unknown semantics in room Matrix presentation, including Qt semantic data/tooltips.
+- [x] 16.6 Prove current temperature reaches the existing standalone and room Matrix fields and unavailable current data clears the standalone field.
+- [x] 16.7 Reconcile GUI requirements and preserve the separate hardware-acquisition/GUI-presentation QA gates.
+- [ ] 16.8 Re-run read-only hardware QA for IN1804, IN1808, DTP CrossPoint 86 4K, and IN1608 xi when devices are reachable; begin DTP verification with `N` after authentication and do not mutate routes.

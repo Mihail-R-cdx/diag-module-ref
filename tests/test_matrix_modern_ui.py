@@ -136,9 +136,13 @@ class MatrixPresentationTests(unittest.TestCase):
         row.status = DeviceRowStatus.CONNECTED
         row.network_actions_enabled = True
         row.accepted_snapshot = {
-            "model": "IN1804", "inputs_num": 2, "input_names": ["Laptop", "Camera"],
-            "output_names": ["Projector"], "signal_status": {1: {"has_signal": True}},
-            "hdcp_present": [True, False], "current_connection": 1,
+            "model": "IN1804", "temperature": 59, "inputs_num": 4,
+            "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1],
+            "input_names": {1: "Laptop", 2: "Camera", 3: "PC", 4: "Doc Cam"},
+            "output_names": {1: "Projector"},
+            "signal_presence": {1: True, 2: True, 3: False, 4: None},
+            "input_hdcp": {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "UNKNOWN"},
+            "routes": {1: 1},
         }
         session.expanded_record_id = row.record_id
         widget = RoomDiagnosticTreeWidget()
@@ -149,10 +153,15 @@ class MatrixPresentationTests(unittest.TestCase):
         projection = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
         self.assertIsNotNone(projection.findChild(QTableWidget, "roomMatrixRouting"))
         table = projection.findChild(QTableWidget, "roomMatrixRouting")
-        self.assertEqual(["№", "Сигнал", "HDCP", "Входы", "Projector"], [table.horizontalHeaderItem(i).text() for i in range(5)])
+        self.assertEqual(["#", "Signal", "HDCP", "Inputs", "Projector"], [table.horizontalHeaderItem(i).text() for i in range(5)])
         self.assertEqual("есть", table.item(0, 2).text())
         self.assertEqual("нет", table.item(1, 2).text())
+        self.assertEqual("нет", table.item(2, 2).text())
+        self.assertEqual("Нет данных", table.item(3, 2).text())
+        self.assertEqual(["PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT", "UNKNOWN"], [table.item(index, 2).data(Qt.UserRole) for index in range(4)])
+        self.assertEqual(["HDCP: есть", "HDCP: нет", "HDCP: нет", "HDCP: Нет данных"], [table.item(index, 2).toolTip() for index in range(4)])
         self.assertIsNotNone(projection.findChild(QWidget, "roomMatrixDashboard"))
+        self.assertEqual("59°C", projection.findChild(QWidget, "roomMatrixTemperatureValue").text())
         reboot = projection.findChild(QPushButton, "roomMatrixRebootButton")
         self.assertIsNotNone(reboot)
         self.assertFalse(reboot.isEnabled())
@@ -224,12 +233,18 @@ class MatrixPresentationTests(unittest.TestCase):
     def test_canonical_in1804_hdcp_state_reaches_standalone_matrix_table(self):
         from gui.screens.matrix_screen import MatrixScreen
         screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
-        screen.update_data({"model": "IN1804", "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1], "input_names": {1: "A", 2: "B", 3: "C", 4: "D"}, "input_hdcp": {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "UNKNOWN"}, "routes": {1: 1}})
+        screen.update_data({"model": "IN1804", "temperature": 59, "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1], "input_names": {1: "A", 2: "B", 3: "C", 4: "D"}, "input_hdcp": {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "UNKNOWN"}, "routes": {1: 1}})
         self.assertEqual(4, screen.matrix_table.rowCount())
         self.assertEqual("●", screen.matrix_table.item(0, 1).text())
         self.assertEqual("○", screen.matrix_table.item(1, 1).text())
         self.assertEqual("○", screen.matrix_table.item(2, 1).text())
         self.assertEqual("○", screen.matrix_table.item(3, 1).text())
+        self.assertEqual(["HDCP есть", "HDCP нет", "HDCP нет", "Нет данных"], [screen.matrix_table.item(row, 1).data(Qt.UserRole) for row in range(4)])
+        self.assertEqual(["PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT", "UNKNOWN"], [screen.matrix_table.item(row, 1).data(Qt.UserRole + 1) for row in range(4)])
+        self.assertEqual(["HDCP есть", "HDCP нет", "HDCP нет", "HDCP: Нет данных"], [screen.matrix_table.item(row, 1).toolTip() for row in range(4)])
+        self.assertEqual("59°C", screen.temp_value.text())
+        screen.update_data({"temperature": None})
+        self.assertEqual("—", screen.temp_value.text())
 
 
 class MatrixMutationOrderingTests(unittest.TestCase):
