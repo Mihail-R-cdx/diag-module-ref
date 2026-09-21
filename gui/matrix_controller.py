@@ -308,7 +308,11 @@ class MatrixController(QObject):
         try:
             self._execute_serialized(context, secrets)
         except MatrixOperationFailure as failure:
-            self._disconnect_detached_handler(failure.detached_handler)
+            # Logical retirement already happened under the operation/session
+            # locks.  Physical close may block indefinitely in a transport, so
+            # it must never delay the terminal result or make the failed
+            # handler reusable by a later operation.
+            self._schedule_detached_cleanup(failure.detached_handler)
             self._signals.error.emit(
                 context,
                 (failure.category, failure.message, failure.details),
@@ -516,7 +520,7 @@ class MatrixController(QObject):
     def _invalidate_failed_session(self, context: MatrixOperationContext):
         with self._operation_lock:
             handler = self._detach_failed_session_locked(context)
-        self._disconnect_detached_handler(handler)
+        self._schedule_detached_cleanup(handler)
 
     def _detach_failed_session_locked(self, context: MatrixOperationContext):
         identity = self._session_identity_for_context(context)
@@ -531,12 +535,11 @@ class MatrixController(QObject):
         self._request_keepalive_stop()
         return handler
 
-    def _disconnect_detached_handler(self, handler):
+    def _schedule_detached_cleanup(self, handler):
         if handler is not None:
-            try:
-                handler.disconnect()
-            except Exception:
-                pass
+            self._thread_pool.start(
+                _MatrixCleanupOperation(self, self._make_cleanup_context(), handler)
+            )
 
     def _is_current(self, context: MatrixOperationContext) -> bool:
         current = self._active_context
@@ -663,11 +666,13 @@ class _MatrixCleanupOperation(QRunnable):
 
     @pyqtSlot()
     def run(self):
-        with self.controller._operation_lock:
-            try:
-                self.handler.disconnect()
-            finally:
-                self.controller._signals.finished.emit(self.context)
+        # The handler has been detached before this runnable is scheduled.
+        # Do not serialize a potentially blocked transport close with a new
+        # logical operation: it owns no session authority any longer.
+        try:
+            self.handler.disconnect()
+        finally:
+            self.controller._signals.finished.emit(self.context)
 
 
 class _MatrixRetirementOperation(QRunnable):

@@ -168,3 +168,13 @@
 - [x] 17.5 Prove an unknown `60-1381-23` identity fails closed and a terminal protocol failure with blocked physical retirement releases the next room row without credential fallback.
 - [x] 17.6 Run focused Matrix/room regressions and strict OpenSpec validation.
 - [ ] 17.7 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.
+
+## 18. Review-remediation follow-up
+
+- [x] 18.1 Map only exact documented legacy identity `60-1381-23` to `DTP CrossPoint 108 4K`; retain mismatch and adjacent-token fail-closed behavior.
+- [x] 18.2 Split the retired Matrix Quick Actions root contract into a REMOVED requirement and the compact dashboard contract into an ADDED requirement.
+- [x] 18.3 Preserve immediate logical terminal handling for Matrix protocol failures while retiring detached handlers asynchronously without restoring authority.
+- [x] 18.4 Distinguish active, known-other, explicitly untied, and UNKNOWN route evidence in room Matrix cells and intent gating.
+- [x] 18.5 Restore approved Russian dynamic table headings and stable Matrix information-value object identities; prove snapshot clearing and hidden routing header.
+- [x] 18.6 Add focused Matrix controller, Matrix UI, identity, and room-orchestration regression coverage; run full offline validation.
+- [ ] 18.7 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.

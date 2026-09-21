@@ -200,39 +200,66 @@ class OrchestratorTests(unittest.TestCase):
 
     def test_protocol_failure_with_blocked_retirement_releases_next_row_without_credential_fallback(self):
         from core.room_diagnostic_tree import RoomCleanupPolicy
-        from core.workers.common import WorkerSignals
-        from gui.room_one_shot_adapters import WorkerOneShotAdapter
+        from gui.room_one_shot_adapters import build_room_one_shot_adapters
 
-        class ProtocolThenBlocksWorker:
-            def __init__(self, record_id):
-                self.record_id = record_id
-                self.signals = WorkerSignals()
-
-            def run(self):
-                if self.record_id == "a":
-                    self.signals.error.emit(("protocol_error", "unsupported identity", ""))
-                    time.sleep(0.05)
-                else:
-                    self.signals.result.emit({"serial": "B"})
-
-        session = self._session([record("a"), record("b", ip="192.0.2.11")])
-        attempts = []
-        def factory(context):
-            attempts.append((context.record_id, context.credential["id"]))
-            return ProtocolThenBlocksWorker(context.record_id)
-        adapter = WorkerOneShotAdapter(
-            factory,
-            cleanup_policy=RoomCleanupPolicy(0.001),
+        matrix_model = "DTP CrossPoint 108 4K"
+        capabilities = CAPS | {
+            matrix_model: RoomModelCapability(matrix_model, "matrix", "matrix_controller", "matrix_one_shot"),
+        }
+        rows = [
+            record("a", model=matrix_model),
+            record("b", ip="192.0.2.11", model="Huawei TE40"),
+        ]
+        inv = inventory(*rows)
+        session = build_room_session(
+            inventory=inv, source=resolve_room_source(inv, rows[0].ip_address, capabilities),
+            generation=3, capabilities=capabilities,
         )
-        RoomDiagnosticOrchestrator(
-            adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0}, {"id": 1}),
-            ping=lambda _ip: True,
-        ).run(session)
+        cleanup_entered, release_cleanup = threading.Event(), threading.Event()
+        commands, connected_users = [], []
+
+        def connect(handler):
+            connected_users.append(handler.username)
+            handler._connected = True
+
+        def send_command(_handler, command, **_kwargs):
+            commands.append(command)
+            return {"success": True, "response": "Pno60-9999-01"}
+
+        def disconnect(handler):
+            cleanup_entered.set()
+            release_cleanup.wait(1)
+            handler._connected = False
+
+        next_row = _Adapter([[OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"serial": "B"})]])
+        adapters = build_room_one_shot_adapters(RoomCleanupPolicy(0.001))
+        adapters["codec"] = next_row
+        candidate_requests = []
+        def candidates(model, _ip):
+            candidate_requests.append(model)
+            return ({"username": "matrix-user", "password": "p0"}, {"username": "matrix-user-2", "password": "p1"})
+
+        with patch("core.workers.matrix.ExtronIN1804Handler.connect", connect), \
+             patch("core.workers.matrix.ExtronIN1804Handler.send_command", send_command), \
+             patch("core.workers.matrix.ExtronIN1804Handler.disconnect", disconnect):
+            RoomDiagnosticOrchestrator(
+                adapters=adapters, credential_candidates=candidates, ping=lambda _ip: True,
+            ).run(session)
+            self.assertTrue(cleanup_entered.wait(0.2))
+
         self.assertEqual(DeviceRowStatus.FAILED, session.row_for("a").status)
         self.assertIsNotNone(session.row_for("a").failure_reason)
         self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("b").status)
         self.assertEqual(RoomCycleStatus.COMPLETE_WITH_PROBLEMS, session.status)
-        self.assertEqual([("a", 0), ("b", 0)], attempts)
+        self.assertEqual(["N"], commands)
+        self.assertEqual(["matrix-user"], connected_users)
+        self.assertEqual(["b"], [context.record_id for context in next_row.calls])
+        self.assertEqual(1, candidate_requests.count(matrix_model))
+        accepted_b = session.row_for("b").accepted_snapshot
+        release_cleanup.set()
+        time.sleep(0.03)
+        self.assertEqual(DeviceRowStatus.FAILED, session.row_for("a").status)
+        self.assertEqual(accepted_b, session.row_for("b").accepted_snapshot)
 
     def test_ping_failure_prevents_adapter_acquisition_and_queue_continues(self):
         session = self._session([record("a"), record("b", ip="192.0.2.11")])

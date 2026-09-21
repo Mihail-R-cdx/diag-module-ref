@@ -105,6 +105,71 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertFalse(hasattr(accepted[0], "username"))
         self.assertFalse(hasattr(accepted[0], "password"))
 
+    def test_protocol_failure_retires_session_before_blocked_cleanup_and_never_retries_credentials(self):
+        """A detached failed handler cannot delay or regain controller authority."""
+        from core.exceptions import ProtocolError
+
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        errors, finished, instances = [], [], []
+        disconnect_entered, release_disconnect = threading.Event(), threading.Event()
+        controller.errorAccepted.connect(lambda error, _handle: errors.append(error))
+        controller.finishedAccepted.connect(lambda _handle: finished.append(True))
+
+        class BlockingProtocolHandler:
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.connected = False
+                self.username = kwargs["username"]
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_full_status(self):
+                raise ProtocolError("malformed exact identity")
+
+            def disconnect(self):
+                disconnect_entered.set()
+                release_disconnect.wait(1)
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", BlockingProtocolHandler):
+            failed = controller._make_context(
+                operation_kind="full_refresh", ip_address="192.0.2.10",
+                candidate_index=0, state_changing=False,
+            )
+            controller._run_background_operation(failed)
+
+            self.assertEqual(["protocol_error"], [error[0] for error in errors])
+            self.assertEqual([True], finished)
+            self.assertIsNone(controller._session_handler)
+            self.assertEqual(1, len(instances))
+            self.assertEqual(1, len(pool.runnables))
+
+            cleanup_thread = threading.Thread(target=pool.runnables.pop().run)
+            cleanup_thread.start()
+            self.assertTrue(disconnect_entered.wait(0.2))
+
+            next_context = controller._make_context(
+                operation_kind="quick_refresh", ip_address="192.0.2.10",
+                candidate_index=0, state_changing=False,
+            )
+            next_handler = controller._acquire_session(next_context, ())
+            self.assertIsNot(instances[0], next_handler)
+            self.assertIs(next_handler, controller._session_handler)
+            self.assertEqual(2, len(instances))
+            self.assertEqual(0, state["index"])
+
+            release_disconnect.set()
+            cleanup_thread.join(1)
+            self.assertFalse(cleanup_thread.is_alive())
+            self.assertIs(next_handler, controller._session_handler)
+
     def test_stale_callbacks_are_suppressed_for_all_public_channels(self):
         controller, _state, pool = self.make_controller()
         accepted = {
@@ -428,6 +493,10 @@ class MatrixControllerTests(unittest.TestCase):
             controller._submit(second, state["candidates"])
             controller._run_background_operation(second)
 
+            for runnable in pool.runnables:
+                if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup":
+                    runnable.run()
+
         self.assertEqual(2, len(instances))
         self.assertFalse(instances[0].connected)
         self.assertTrue(instances[1].connected)
@@ -435,7 +504,7 @@ class MatrixControllerTests(unittest.TestCase):
     def test_failed_session_invalidation_is_serialized_for_same_identity_race(self):
         from core.exceptions import ConnectionError
 
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
         entered_first = threading.Event()
@@ -504,15 +573,25 @@ class MatrixControllerTests(unittest.TestCase):
             second_thread.start()
 
             release_first.set()
+            first_thread.join(1)
+            cleanup = next(
+                runnable for runnable in pool.runnables
+                if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup"
+            )
+            cleanup_thread = threading.Thread(target=cleanup.run)
+            cleanup_thread.start()
             self.assertTrue(disconnect_started.wait(1))
             self.assertTrue(second_used_new_handler.wait(1))
             release_disconnect.set()
+            cleanup_thread.join(2)
             second_thread.join(2)
             first_thread.join(2)
 
         self.assertFalse(first_thread.is_alive())
         self.assertEqual(2, len(instances))
-        self.assertEqual([("get", 0), ("disconnect", 0), ("get", 1)], calls)
+        self.assertEqual(("get", 0), calls[0])
+        self.assertIn(("disconnect", 0), calls)
+        self.assertIn(("get", 1), calls)
         self.assertFalse(instances[0].connected)
         self.assertTrue(instances[1].connected)
         self.assertIs(controller._session_handler, instances[1])

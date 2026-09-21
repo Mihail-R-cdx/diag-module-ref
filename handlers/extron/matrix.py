@@ -108,7 +108,9 @@ DTP_IDENTITY_TOKENS = {
     "60-1583-01": "DTP CrossPoint 82 4K", "60-1583-92": "DTP CrossPoint 82 4K", "60-1583-92A": "DTP CrossPoint 82 4K", "60-1583-93": "DTP CrossPoint 82 4K", "60-1583-93A": "DTP CrossPoint 82 4K",
     "60-1515-01": "DTP CrossPoint 84 4K", "60-1515-92": "DTP CrossPoint 84 4K", "60-1515-92A": "DTP CrossPoint 84 4K", "60-1515-93": "DTP CrossPoint 84 4K", "60-1515-93A": "DTP CrossPoint 84 4K",
     "60-1382-01": "DTP CrossPoint 86 4K", "60-1382-92": "DTP CrossPoint 86 4K", "60-1382-92A": "DTP CrossPoint 86 4K", "60-1382-93": "DTP CrossPoint 86 4K", "60-1382-93A": "DTP CrossPoint 86 4K",
-    "60-1381-01": "DTP CrossPoint 108 4K", "60-1381-92": "DTP CrossPoint 108 4K", "60-1381-92A": "DTP CrossPoint 108 4K", "60-1381-93": "DTP CrossPoint 108 4K", "60-1381-93A": "DTP CrossPoint 108 4K",
+    # Exact legacy DTP CrossPoint 108 4K IPCP MA 70 SKU.  This is deliberately
+    # an individual identity, not an inferred suffix range.
+    "60-1381-01": "DTP CrossPoint 108 4K", "60-1381-23": "DTP CrossPoint 108 4K", "60-1381-92": "DTP CrossPoint 108 4K", "60-1381-92A": "DTP CrossPoint 108 4K", "60-1381-93": "DTP CrossPoint 108 4K", "60-1381-93A": "DTP CrossPoint 108 4K",
 }
 XTP_PART_NUMBER_TO_MODEL = {
     "60-1250-01": "XTP CrossPoint 1600", "60-1250-11": "XTP CrossPoint 1600",

@@ -138,20 +138,54 @@ Presentation SHALL NOT call `ExtronIN1804Handler`, any CrossPoint handler, `Matr
 - **WHEN** the table renders
 - **THEN** presentation exposes no actionable route cell for output `13`
 
+## REMOVED Requirements
+
+### Requirement: Matrix Quick actions remain truthful to approved capabilities
+
+The Matrix `Быстрые действия` card SHALL contain only `Обновить статус` and
+`Перезагрузить устройство` for MIH-11. `Обновить статус` SHALL map only to
+the existing exact-row Local Refresh intent and SHALL be enabled only under
+existing room interaction authorization. It SHALL NOT create a second Matrix
+refresh/polling path.
+
+`Перезагрузить устройство` SHALL be visible but disabled/non-actionable
+because no approved Extron IN1804 reboot mutation capability exists. It SHALL
+emit no application intent, worker start, handler/session acquisition,
+protocol command, or device request. `Открыть расширенный экран` SHALL NOT be
+rendered in MIH-11.
+
+#### Scenario: Quick Refresh uses the existing room lifecycle
+- **GIVEN** the exact connected Matrix row currently permits Local Refresh
+- **WHEN** the operator selects `Обновить статус`
+- **THEN** existing exact-row Local Refresh intent is requested
+- **AND** no parallel Matrix refresh controller/lane is created
+
+#### Scenario: Reboot remains a disabled placeholder
+- **GIVEN** the Matrix Quick actions card is visible
+- **WHEN** `Перезагрузить устройство` is rendered
+- **THEN** it is clearly disabled/non-actionable
+- **AND** interacting with it performs no Matrix device I/O
+
+#### Scenario: Expanded-screen affordance is absent
+- **WHEN** the MIH-11 Matrix room dashboard renders
+- **THEN** `Открыть расширенный экран` is not present
+- **AND** no navigation intent to standalone `MatrixScreen` is exposed
+
+## ADDED Requirements
+
 ### Requirement: Matrix dashboard uses compact information and routing surfaces
 
 The room Matrix dashboard SHALL contain no separate `Быстрые действия` card,
-large refresh button, reboot placeholder, or replacement action card.  The
+large refresh button, reboot placeholder, or replacement action card. The
 routing-table card SHALL occupy the released horizontal dashboard area while
 the information card remains compact.
 
 Local Refresh SHALL be a compact circular-arrow control in the information
-card's `IP-адрес` row, beside the exact canonical row IP address.  Its stable
+card's `IP-адрес` row, beside the exact canonical row IP address. Its stable
 Qt object name, tooltip, and accessible name SHALL be `roomMatrixRefreshButton`
-and `Обновить статус`, respectively.  It SHALL emit only the existing
-exact-row Local Refresh intent and use exactly the same lifecycle/currentness/
-interaction gating as the prior room Matrix refresh control; it SHALL NOT
-create a Matrix-specific polling lane.
+and `Обновить статус`, respectively. It SHALL emit only the existing exact-row
+Local Refresh intent and use the same lifecycle/currentness/interaction gating;
+it SHALL NOT create a Matrix-specific polling lane.
 
 The routing-table card retains its border/background framework but SHALL hide
 its SectionCard title/header completely, so its first visible content is the
@@ -173,8 +207,6 @@ horizontal table header.
 - **WHEN** the room Matrix routing card renders
 - **THEN** its first visible content is the horizontal table header
 - **AND** no title, icon, or former header spacing appears above that header
-
-## ADDED Requirements
 
 ### Requirement: Matrix route-column headings are capability-driven
 

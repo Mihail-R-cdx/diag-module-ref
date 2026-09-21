@@ -90,8 +90,8 @@ empty state and SHALL NOT retain an earlier value or invent `0°C`.
 
 - **GIVEN** canonical input states `PRESENT_HDCP`, `PRESENT_NO_HDCP`, `ABSENT`, and `UNKNOWN`
 - **WHEN** each Matrix GUI table renders them
-- **THEN** the visible room cells are respectively `есть`, `нет`, `нет`, and `Нет данных`
-- **AND** standalone semantic data/tooltips distinguish confirmed `HDCP нет` from unavailable data
+- **THEN** the visible room cells are respectively a filled green indicator, a neutral empty indicator, a neutral empty indicator, and a neutral non-positive indicator
+- **AND** Qt semantic data/tooltips distinguish confirmed `PRESENT_NO_HDCP` and `ABSENT` from unavailable `UNKNOWN` data
 - **AND** signal presence remains an independent column
 
 #### Scenario: Current temperature reaches both Matrix surfaces
