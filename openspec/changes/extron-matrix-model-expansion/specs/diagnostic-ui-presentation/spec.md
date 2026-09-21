@@ -60,6 +60,14 @@ For each accepted input row, signal state SHALL distinguish confirmed presence, 
 
 The `HDCP` column SHALL represent only normalized **current input HDCP presence/state** produced by the active approved profile. Presentation SHALL NOT decode raw SIS `1/2` values itself. It SHALL NOT display HDCP version, input authorization/configuration, or output HDCP state in the input HDCP column. Failed/malformed/unrecognized/missing input-HDCP evidence remains UNKNOWN rather than fabricated `нет`.
 
+HDCP cells SHALL use compact centered indicators rather than `есть`, `нет`,
+`да`, or `Нет данных` as their primary visible text: `PRESENT_HDCP` is a
+filled green indicator; `PRESENT_NO_HDCP` and `ABSENT` are neutral empty
+indicators; `UNKNOWN` is neutral and non-positive. Qt semantic data, tooltips,
+and accessibility SHALL retain the four distinct canonical states. Signal
+UNKNOWN SHALL likewise never render as a green positive indicator. Input-name
+and HDCP cell contents SHALL be horizontally centered.
+
 For every authoritative available logical output, route state SHALL derive only from fail-closed accepted `routes[output_id]` evidence:
 
 ```text
@@ -130,32 +138,41 @@ Presentation SHALL NOT call `ExtronIN1804Handler`, any CrossPoint handler, `Matr
 - **WHEN** the table renders
 - **THEN** presentation exposes no actionable route cell for output `13`
 
-### Requirement: Matrix Quick actions remain truthful to approved capabilities
+### Requirement: Matrix dashboard uses compact information and routing surfaces
 
-The Matrix `Быстрые действия` card SHALL continue to contain `Обновить статус` and `Перезагрузить устройство` under the existing presentation design.
+The room Matrix dashboard SHALL contain no separate `Быстрые действия` card,
+large refresh button, reboot placeholder, or replacement action card.  The
+routing-table card SHALL occupy the released horizontal dashboard area while
+the information card remains compact.
 
-`Обновить статус` maps only to the existing exact-row Local Refresh intent and remains lifecycle-gated. It SHALL NOT create a second Matrix refresh/polling path.
+Local Refresh SHALL be a compact circular-arrow control in the information
+card's `IP-адрес` row, beside the exact canonical row IP address.  Its stable
+Qt object name, tooltip, and accessible name SHALL be `roomMatrixRefreshButton`
+and `Обновить статус`, respectively.  It SHALL emit only the existing
+exact-row Local Refresh intent and use exactly the same lifecycle/currentness/
+interaction gating as the prior room Matrix refresh control; it SHALL NOT
+create a Matrix-specific polling lane.
 
-`Перезагрузить устройство` remains disabled/non-actionable unless a later approved exact Matrix profile and mutation/reconciliation contract explicitly adds reboot. This model-expansion change adds no Matrix reboot capability for IN1804, IN1808, IN1608 xi, approved DTP CrossPoint, XTP CrossPoint, or XTP II CrossPoint.
+The routing-table card retains its border/background framework but SHALL hide
+its SectionCard title/header completely, so its first visible content is the
+horizontal table header.
 
-`Открыть расширенный экран` remains absent from the room Matrix dashboard; standalone `MatrixScreen` stays separate.
-
-#### Scenario: Quick Refresh uses the existing room lifecycle
+#### Scenario: Local Refresh remains an exact-row intent
 - **GIVEN** the exact connected Matrix row currently permits Local Refresh
-- **WHEN** the operator selects `Обновить статус`
-- **THEN** existing exact-row Local Refresh intent is requested
+- **WHEN** the operator activates the compact IP-row refresh control
+- **THEN** exactly one existing exact-row Local Refresh intent is requested
 - **AND** no parallel Matrix refresh controller/lane is created
 
-#### Scenario: Reboot remains a disabled placeholder
-- **GIVEN** the Matrix Quick actions card is visible
-- **WHEN** `Перезагрузить устройство` is rendered
-- **THEN** it is clearly disabled/non-actionable
-- **AND** interacting with it performs no Matrix device I/O
-
-#### Scenario: Expanded-screen affordance is absent
+#### Scenario: Matrix action card is absent
 - **WHEN** the room Matrix dashboard renders
-- **THEN** `Открыть расширенный экран` is not present
-- **AND** no navigation intent to standalone `MatrixScreen` is exposed
+- **THEN** `Быстрые действия`, `Обновить статус` as a large action, and
+  `Перезагрузить устройство` are absent
+- **AND** no replacement action card or standalone-screen affordance is exposed
+
+#### Scenario: Table begins without a card title gap
+- **WHEN** the room Matrix routing card renders
+- **THEN** its first visible content is the horizontal table header
+- **AND** no title, icon, or former header spacing appears above that header
 
 ## ADDED Requirements
 
@@ -168,3 +185,36 @@ Route-column headings SHALL use authoritative output-name evidence only when the
 - **WHEN** the Matrix table renders output `5`
 - **THEN** the heading uses deterministic fallback `Output 5`
 - **AND** presentation does not imply that an empty configured name was returned
+
+### Requirement: Matrix route columns are equal-width and compact
+
+The route-column count SHALL be determined only by authoritative
+`available_output_ids`. Every visible route column SHALL receive the same
+fixed layout width (within one pixel of rounding); no output number, first
+output, or physical duplicate connector may receive individual stretch or a
+legacy special width. The columns SHALL be materially narrower than the former
+single-output 29% route allocation while leaving static input-information
+columns readable.
+
+#### Scenario: Multi-output columns share one width
+- **GIVEN** authoritative available outputs `[1, 2, 5]`
+- **WHEN** the Matrix table is laid out
+- **THEN** its three route columns have equal widths within one pixel
+- **AND** output `1` has no privileged 29%/stretch allocation
+
+### Requirement: Matrix information card projects canonical row facts
+
+The Matrix information card SHALL display the exact room row's canonical
+`ip_address`, `mac_address`, and `serial_number` directly from row/inventory
+projection. Firmware, temperature, and uptime SHALL be shown only from current
+accepted device evidence; unsupported or unproven diagnostics remain
+unavailable and SHALL NOT trigger guessed SIS commands. A missing current
+field SHALL clear to the established unavailable display rather than retaining
+old evidence.
+
+#### Scenario: Canonical inventory facts survive a device snapshot without them
+- **GIVEN** an exact Matrix room row has canonical MAC, serial, and IP values
+- **AND** its accepted device snapshot contains no MAC or serial
+- **WHEN** the information card renders
+- **THEN** it displays those canonical row values and the exact row IP
+- **AND** it does not issue an additional device query

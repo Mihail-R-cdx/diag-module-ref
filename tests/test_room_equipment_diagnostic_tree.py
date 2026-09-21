@@ -198,6 +198,42 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(1, len(adapter.calls))
         self.assertEqual("Безопасная ошибка", session.row_for("a").failure_reason)
 
+    def test_protocol_failure_with_blocked_retirement_releases_next_row_without_credential_fallback(self):
+        from core.room_diagnostic_tree import RoomCleanupPolicy
+        from core.workers.common import WorkerSignals
+        from gui.room_one_shot_adapters import WorkerOneShotAdapter
+
+        class ProtocolThenBlocksWorker:
+            def __init__(self, record_id):
+                self.record_id = record_id
+                self.signals = WorkerSignals()
+
+            def run(self):
+                if self.record_id == "a":
+                    self.signals.error.emit(("protocol_error", "unsupported identity", ""))
+                    time.sleep(0.05)
+                else:
+                    self.signals.result.emit({"serial": "B"})
+
+        session = self._session([record("a"), record("b", ip="192.0.2.11")])
+        attempts = []
+        def factory(context):
+            attempts.append((context.record_id, context.credential["id"]))
+            return ProtocolThenBlocksWorker(context.record_id)
+        adapter = WorkerOneShotAdapter(
+            factory,
+            cleanup_policy=RoomCleanupPolicy(0.001),
+        )
+        RoomDiagnosticOrchestrator(
+            adapters={"codec": adapter}, credential_candidates=lambda *_: ({"id": 0}, {"id": 1}),
+            ping=lambda _ip: True,
+        ).run(session)
+        self.assertEqual(DeviceRowStatus.FAILED, session.row_for("a").status)
+        self.assertIsNotNone(session.row_for("a").failure_reason)
+        self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("b").status)
+        self.assertEqual(RoomCycleStatus.COMPLETE_WITH_PROBLEMS, session.status)
+        self.assertEqual([("a", 0), ("b", 0)], attempts)
+
     def test_ping_failure_prevents_adapter_acquisition_and_queue_continues(self):
         session = self._session([record("a"), record("b", ip="192.0.2.11")])
         adapter = _Adapter([[OneShotEvent(OneShotEventKind.USABLE_SUCCESS, {"serial": "B"})]])
@@ -1213,7 +1249,7 @@ class RoomGuiCompositionTests(unittest.TestCase):
             if screen_key == "matrix":
                 self.assertEqual("●", view.item(0, 1).text())
                 self.assertEqual("есть", view.item(0, 1).data(Qt.UserRole))
-                self.assertEqual("есть", view.item(0, 2).text())
+                self.assertEqual("●", view.item(0, 2).text())
                 self.assertEqual("Laptop", view.item(0, 3).text())
                 self.assertEqual("●", view.item(0, 4).text())
                 self.assertEqual("активен", view.item(0, 4).data(Qt.UserRole))
@@ -1271,9 +1307,9 @@ class RoomGuiCompositionTests(unittest.TestCase):
         table = presentation.findChild(QTableWidget, "roomMatrixRouting")
         self.assertIsNotNone(table)
         self.assertEqual(4, table.rowCount())
-        self.assertEqual("●", table.item(1, 1).text())
+        self.assertEqual("○", table.item(1, 1).text())
         self.assertEqual("Нет данных", table.item(1, 1).data(Qt.UserRole))
-        self.assertEqual("Нет данных", table.item(0, 2).text())
+        self.assertEqual("○", table.item(0, 2).text())
         self.assertEqual("Input 1", table.item(0, 3).text())
 
 

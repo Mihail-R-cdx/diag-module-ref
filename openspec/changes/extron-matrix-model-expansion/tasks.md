@@ -158,3 +158,13 @@
 - [x] 16.6 Prove current temperature reaches the existing standalone and room Matrix fields and unavailable current data clears the standalone field.
 - [x] 16.7 Reconcile GUI requirements and preserve the separate hardware-acquisition/GUI-presentation QA gates.
 - [ ] 16.8 Re-run read-only hardware QA for IN1804, IN1808, DTP CrossPoint 86 4K, and IN1608 xi when devices are reachable; begin DTP verification with `N` after authentication and do not mutate routes.
+
+## 17. Matrix remediation follow-up
+
+- [x] 17.1 Remove the room Matrix Quick Actions/reboot placeholders; place the lifecycle-gated Local Refresh intent in the exact-row IP field with stable accessible identity.
+- [x] 17.2 Hide the Matrix card title, expand the routing surface, and use equal-width dynamic route columns derived only from `available_output_ids`.
+- [x] 17.3 Render centered canonical HDCP indicators, retain distinct Qt semantics for positive/negative/absent/unknown, and keep Signal UNKNOWN non-positive.
+- [x] 17.4 Project canonical row MAC/serial/IP into the Matrix information card without adding unproven device reads; clear unavailable device-polled fields.
+- [x] 17.5 Prove an unknown `60-1381-23` identity fails closed and a terminal protocol failure with blocked physical retirement releases the next room row without credential fallback.
+- [x] 17.6 Run focused Matrix/room regressions and strict OpenSpec validation.
+- [ ] 17.7 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.

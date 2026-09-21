@@ -87,6 +87,9 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertEqual("DTP CrossPoint 84 4K", resolve_identity_token("60-1515-01", "DTP").exact_model)
         self.assertEqual("DTP CrossPoint 86 4K", resolve_identity_token("60-1382-01", "DTP").exact_model)
         self.assertEqual("DTP CrossPoint 108 4K", resolve_identity_token("60-1381-01", "DTP").exact_model)
+        # A field-observed but undocumented suffix is not sufficient mapping
+        # authority and must remain fail-closed.
+        self.assertIsNone(resolve_identity_token("60-1381-23", "DTP"))
         # Extron XTP Systems brochure: 60-1250-01/-11 identify XTP CP 1600.
         self.assertEqual("XTP CrossPoint 1600", resolve_identity_token("60-1250-01", "XTP").exact_model)
         self.assertIsNone(resolve_identity_token("60-1167-01", "XTP II"))

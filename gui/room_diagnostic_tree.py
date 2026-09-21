@@ -590,12 +590,13 @@ def normalize_matrix_presentation(snapshot: Any) -> list[tuple[Any, Any, Any, An
 
 
 class MatrixRoutingTable(QTableWidget):
-    """Room-only Matrix table with stable approved semantic proportions."""
+    """Room Matrix table with equal, compact dynamic route columns."""
 
-    column_ratios = (8, 19, 17, 27, 29)
+    fixed_column_weights = (8, 19, 17, 27)
+    route_column_weight = 10
 
     def __init__(self, parent=None):
-        super().__init__(0, len(self.column_ratios), parent)
+        super().__init__(0, len(self.fixed_column_weights) + 1, parent)
         header = self.horizontalHeader()
         for column in range(self.columnCount()):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
@@ -606,11 +607,16 @@ class MatrixRoutingTable(QTableWidget):
 
     def apply_column_widths(self) -> None:
         width = max(1, self.viewport().width())
-        remaining = width
-        for column, ratio in enumerate(self.column_ratios):
-            column_width = width * ratio // 100 if column < self.columnCount() - 1 else remaining
+        route_columns = max(0, self.columnCount() - len(self.fixed_column_weights))
+        weights = (*self.fixed_column_weights, *(self.route_column_weight,) * route_columns)
+        total_weight = sum(weights) or 1
+        route_width = width * self.route_column_weight // total_weight
+        static_widths = [width * weight // total_weight for weight in self.fixed_column_weights]
+        if static_widths:
+            static_widths[-1] += width - sum(static_widths) - route_columns * route_width
+        for column, column_width in enumerate((*static_widths, *(route_width,) * route_columns)):
+            self.horizontalHeader().setSectionResizeMode(column, QHeaderView.Fixed)
             self.setColumnWidth(column, column_width)
-            remaining -= column_width
 
 
 class RoomPduOutletTable(QTableWidget):
@@ -679,7 +685,8 @@ def _matrix_indicator_item(value: Any, *, positive: str, inactive: str) -> QTabl
         item.setText("○")
         item.setForeground(QBrush(QColor("#6F7B8A")))
     else:
-        item.setText("●")
+        # Unknown is neither a confirmed positive nor a confirmed negative.
+        item.setText("○")
         item.setForeground(QBrush(QColor("#6F7B8A")))
     return item
 
@@ -1922,9 +1929,9 @@ class RoomReadOnlyPresentation(QWidget):
         form.setVerticalSpacing(8)
         no_data = "Нет данных"
         fields = (
-            ("Модель", source.get("model")),
-            ("MAC-адрес", source.get("mac_address")),
-            ("Серийный номер", source.get("serial_number")),
+            ("Модель", source.get("model") or row.diagnostic_model),
+            ("MAC-адрес", row.mac_address),
+            ("Серийный номер", row.serial_number),
             ("Версия прошивки", source.get("firmware")),
             ("Температура", source.get("temperature")),
             ("Время работы", source.get("uptime")),
@@ -1936,11 +1943,37 @@ class RoomReadOnlyPresentation(QWidget):
                 value_label.setObjectName("roomMatrixTemperatureValue")
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             form.addRow(label, value_label)
+        refresh_allowed = (
+            bool(request_local_refresh)
+            and local_refresh_allowed
+            and row.status is DeviceRowStatus.CONNECTED
+            and (row.network_actions_enabled or live_here)
+            and not row.interaction_blocked
+        )
+        ip_cell = QWidget(info)
+        ip_layout = QHBoxLayout(ip_cell)
+        ip_layout.setContentsMargins(0, 0, 0, 0)
+        ip_layout.setSpacing(6)
+        ip_value = QLabel(row.ip_address or no_data, ip_cell)
+        ip_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        refresh = QPushButton("↻", ip_cell)
+        refresh.setObjectName("roomMatrixRefreshButton")
+        refresh.setToolTip("Обновить статус")
+        refresh.setAccessibleName("Обновить статус")
+        refresh.setFixedSize(28, 24)
+        refresh.setEnabled(refresh_allowed)
+        if request_local_refresh is not None:
+            refresh.clicked.connect(request_local_refresh)
+        ip_layout.addWidget(ip_value, 1)
+        ip_layout.addWidget(refresh)
+        form.addRow("IP-адрес", ip_cell)
         info.body_layout.addLayout(form)
         # Keep the compact facts directly below the heading.  The additional
         # room-dashboard height belongs beneath the data, not between rows.
         info.body_layout.addStretch(1)
         card = SectionCard("Матрица (входы и коммутация)", "⇄", dashboard)
+        card.header_widget.setVisible(False)
+        card.layout().setSpacing(0)
         table = MatrixRoutingTable(card)
         table.setObjectName("roomMatrixRouting")
         output_names = source.get("output_names")
@@ -1980,14 +2013,6 @@ class RoomReadOnlyPresentation(QWidget):
             if route_allowed and values[4] == "не выбран":
                 route_item = table.item(index, 4)
                 route_item.setToolTip("Выбрать вход для Main Output")
-        def request_route(index, column):
-            if column != 4 or not route_allowed:
-                return
-            values = normalize_matrix_presentation(source)
-            if not (0 <= index < len(values)) or values[index][4] != "не выбран":
-                return
-            request_matrix_route(1, values[index][0])
-        table.cellClicked.connect(request_route)
         # The normalised Matrix domain owns available IDs and route map.  Do
         # not derive room columns from connector count or outputs_num.
         available_inputs = tuple(source.get("available_input_ids") or range(1, int(source.get("inputs_num") or 0) + 1))
@@ -2012,25 +2037,22 @@ class RoomReadOnlyPresentation(QWidget):
                 hdcp_state = {
                     "0": "ABSENT", "1": "PRESENT_NO_HDCP", "2": "PRESENT_HDCP",
                 }.get(str(legacy_hdcp[input_id - 1]), "UNKNOWN")
-            hdcp_value = {
-                "PRESENT_HDCP": "есть",
-                "PRESENT_NO_HDCP": "нет",
-                "ABSENT": "нет",
-            }.get(hdcp_state, "Нет данных")
             name_value = names.get(input_id) or (legacy_names[input_id - 1] if input_id - 1 < len(legacy_names) else "Input %s" % input_id)
-            values = [input_id, signal_value, hdcp_value, name_value] + ["активен" if routes.get(output_id) == input_id else "не выбран" for output_id in available_outputs]
+            values = [input_id, signal_value, hdcp_state, name_value] + ["активен" if routes.get(output_id) == input_id else "не выбран" for output_id in available_outputs]
             for column, value in enumerate(values):
                 if column == 1:
-                    item = _matrix_indicator_item("есть" if value == "Нет данных" else value, positive="есть", inactive="нет сигнала")
-                    if value == "Нет данных": item.setData(Qt.UserRole, value)
+                    item = _matrix_indicator_item(value, positive="есть", inactive="нет сигнала")
                 elif column == 2:
-                    item = QTableWidgetItem(str(value))
-                    item.setData(Qt.UserRole, hdcp_state if hdcp_state in {"PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT"} else "UNKNOWN")
-                    item.setToolTip("HDCP: %s" % value)
+                    item = _matrix_indicator_item(
+                        hdcp_state if hdcp_state in {"PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT"} else "UNKNOWN",
+                        positive="PRESENT_HDCP", inactive="PRESENT_NO_HDCP",
+                    )
+                    item.setToolTip("HDCP: %s" % item.data(Qt.UserRole))
                 else:
                     item = _matrix_indicator_item(value, positive="активен", inactive="не выбран") if column >= 4 else QTableWidgetItem(str(value))
+                    if column == 3:
+                        item.setTextAlignment(Qt.AlignCenter)
                 table.setItem(row_index, column, item)
-        table.cellClicked.disconnect(request_route)
         def request_multi_route(index, column):
             if not route_allowed or column < 4 or index < 0 or index >= len(available_inputs) or column - 4 >= len(available_outputs): return
             output_id, input_id = available_outputs[column - 4], available_inputs[index]
@@ -2048,32 +2070,28 @@ class RoomReadOnlyPresentation(QWidget):
             for index, values in enumerate(normalize_matrix_presentation(source)):
                 table.insertRow(index)
                 for column, value in enumerate(values):
-                    if column in {1, 4}:
-                        item = QTableWidgetItem("●" if value not in {"не выбран", "нет сигнала"} else "○")
-                        item.setData(Qt.UserRole, value); item.setTextAlignment(Qt.AlignCenter)
+                    if column == 1:
+                        item = _matrix_indicator_item(value, positive="есть", inactive="нет сигнала")
+                    elif column == 4:
+                        item = _matrix_indicator_item(value, positive="активен", inactive="не выбран")
+                    elif column == 2:
+                        state = {"есть": "PRESENT_HDCP", "нет": "PRESENT_NO_HDCP"}.get(str(value), "UNKNOWN")
+                        item = _matrix_indicator_item(state, positive="PRESENT_HDCP", inactive="PRESENT_NO_HDCP")
                     else:
                         item = QTableWidgetItem(str(value))
+                        if column == 3:
+                            item.setTextAlignment(Qt.AlignCenter)
                     table.setItem(index, column, item)
             table.cellClicked.disconnect(request_multi_route)
-            table.cellClicked.connect(request_route)
+            def request_legacy_route(index, column):
+                values = normalize_matrix_presentation(source)
+                if route_allowed and column == 4 and 0 <= index < len(values) and values[index][4] != "активен":
+                    request_matrix_route(1, values[index][0])
+            table.cellClicked.connect(request_legacy_route)
         table.apply_column_widths()
         card.add_widget(table)
-        actions = SectionCard("Быстрые действия", "⚡", dashboard)
-        refresh = QPushButton("Обновить статус", actions)
-        refresh.setObjectName("roomMatrixRefreshButton")
-        refresh.setEnabled(bool(request_local_refresh) and local_refresh_allowed and row.status is DeviceRowStatus.CONNECTED and (row.network_actions_enabled or live_here) and not row.interaction_blocked)
-        if request_local_refresh is not None:
-            refresh.clicked.connect(request_local_refresh)
-        reboot = QPushButton("Перезагрузить устройство", actions)
-        reboot.setObjectName("roomMatrixRebootButton")
-        reboot.setEnabled(False)
-        actions.add_widget(refresh)
-        actions.add_widget(reboot)
-        # Likewise, the action buttons stay adjacent to the heading.
-        actions.body_layout.addStretch(1)
         dashboard_layout.addWidget(info, 25)
-        dashboard_layout.addWidget(card, 53)
-        dashboard_layout.addWidget(actions, 22)
+        dashboard_layout.addWidget(card, 75)
         layout.addWidget(dashboard)
 
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_popup=None, record_id=None, audio_actions=(), **_unused) -> None:
