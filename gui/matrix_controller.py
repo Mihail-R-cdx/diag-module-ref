@@ -24,6 +24,11 @@ _SESSION_INVALIDATING_CATEGORIES = {
     "protocol_error",
     "unknown_command_outcome",
 }
+DEFAULT_RETIREMENT_TIMEOUT_SECONDS = 5.0
+
+
+class MatrixRetirementBoundaryError(RuntimeError):
+    """A prior Matrix transport did not release its conflicting owner slot."""
 
 
 @dataclass(frozen=True)
@@ -124,6 +129,7 @@ class MatrixController(QObject):
         ],
         credential_revision_provider: Callable[[], int],
         thread_pool: Optional[QThreadPool] = None,
+        retirement_timeout_seconds: float = DEFAULT_RETIREMENT_TIMEOUT_SECONDS,
         parent: Optional[QObject] = None,
     ):
         super().__init__(parent)
@@ -133,6 +139,9 @@ class MatrixController(QObject):
         self._credential_advance_provider = credential_advance_provider
         self._credential_revision_provider = credential_revision_provider
         self._thread_pool = thread_pool or QThreadPool.globalInstance()
+        if retirement_timeout_seconds <= 0:
+            raise ValueError("Matrix retirement timeout must be positive.")
+        self._retirement_timeout_seconds = retirement_timeout_seconds
         self._operation_serial = itertools.count(1)
         self._generation = 0
         self._active_context: Optional[MatrixOperationContext] = None
@@ -141,6 +150,8 @@ class MatrixController(QObject):
         self._last_credential_revision = self._credential_revision()
         self._session_lock = threading.RLock()
         self._operation_lock = threading.RLock()
+        self._retirement_lock = threading.RLock()
+        self._retirement_events: dict[tuple[str, int], threading.Event] = {}
         self._session_identity: Optional[MatrixSessionIdentity] = None
         self._session_handler = None
         self._candidate_snapshots = {}
@@ -312,7 +323,7 @@ class MatrixController(QObject):
             # locks.  Physical close may block indefinitely in a transport, so
             # it must never delay the terminal result or make the failed
             # handler reusable by a later operation.
-            self._schedule_detached_cleanup(failure.detached_handler)
+            self._schedule_detached_cleanup(context, failure.detached_handler)
             self._signals.error.emit(
                 context,
                 (failure.category, failure.message, failure.details),
@@ -434,6 +445,7 @@ class MatrixController(QObject):
         )
 
     def _acquire_session(self, context: MatrixOperationContext, secrets):
+        self._await_retirement_boundary(context)
         candidate = self._candidate_for_context(context)
         if not self._is_credential_mapping(candidate):
             raise RuntimeError("No credentials for Extron IN1804")
@@ -458,7 +470,14 @@ class MatrixController(QObject):
                 lambda message: self._signals.terminal_log.emit(context, message),
                 secrets,
             )
-            handler.connect()
+            try:
+                handler.connect()
+            except Exception:
+                # A connect/authentication failure can still leave a transport
+                # allocated.  It never becomes reusable session authority, but
+                # its physical retirement must gate a conflicting candidate.
+                self._schedule_detached_cleanup(context, handler)
+                raise
             self._session_identity = identity
             self._session_handler = handler
             self._request_keepalive_start()
@@ -471,7 +490,7 @@ class MatrixController(QObject):
             self._session_identity = None
         if handler is not None:
             context = self._make_cleanup_context()
-            self._thread_pool.start(_MatrixCleanupOperation(self, context, handler))
+            self._schedule_detached_cleanup(context, handler)
 
     def _make_cleanup_context(self):
         operation_id = next(self._operation_serial)
@@ -520,7 +539,7 @@ class MatrixController(QObject):
     def _invalidate_failed_session(self, context: MatrixOperationContext):
         with self._operation_lock:
             handler = self._detach_failed_session_locked(context)
-        self._schedule_detached_cleanup(handler)
+        self._schedule_detached_cleanup(context, handler)
 
     def _detach_failed_session_locked(self, context: MatrixOperationContext):
         identity = self._session_identity_for_context(context)
@@ -535,11 +554,43 @@ class MatrixController(QObject):
         self._request_keepalive_stop()
         return handler
 
-    def _schedule_detached_cleanup(self, handler):
-        if handler is not None:
-            self._thread_pool.start(
-                _MatrixCleanupOperation(self, self._make_cleanup_context(), handler)
+    @staticmethod
+    def _retirement_key(context: MatrixOperationContext) -> tuple[str, int]:
+        return (context.ip_address, 22023)
+
+    def _await_retirement_boundary(self, context: MatrixOperationContext):
+        key = self._retirement_key(context)
+        with self._retirement_lock:
+            event = self._retirement_events.get(key)
+        if event is not None and not event.wait(self._retirement_timeout_seconds):
+            # The operation lane is background-owned, but a timeout never
+            # authorizes a second conflicting Matrix transport owner.  This is
+            # especially important for a route whose prior delivery may be
+            # ambiguous.
+            raise MatrixRetirementBoundaryError(
+                "Previous Matrix session did not reach its retirement boundary"
             )
+
+    def _schedule_detached_cleanup(self, context: MatrixOperationContext, handler):
+        if handler is not None:
+            key = self._retirement_key(context)
+            with self._retirement_lock:
+                event = self._retirement_events.get(key)
+                if event is None or event.is_set():
+                    event = threading.Event()
+                    self._retirement_events[key] = event
+            cleanup_context = (
+                context if context.operation_kind == "cleanup" else self._make_cleanup_context()
+            )
+            self._thread_pool.start(
+                _MatrixCleanupOperation(self, cleanup_context, handler, key, event)
+            )
+
+    def _complete_retirement(self, key, event):
+        with self._retirement_lock:
+            if self._retirement_events.get(key) is event:
+                self._retirement_events.pop(key, None)
+            event.set()
 
     def _is_current(self, context: MatrixOperationContext) -> bool:
         current = self._active_context
@@ -658,11 +709,13 @@ class MatrixController(QObject):
 
 
 class _MatrixCleanupOperation(QRunnable):
-    def __init__(self, controller: MatrixController, context, handler):
+    def __init__(self, controller: MatrixController, context, handler, retirement_key, retirement_event):
         super().__init__()
         self.controller = controller
         self.context = context
         self.handler = handler
+        self.retirement_key = retirement_key
+        self.retirement_event = retirement_event
 
     @pyqtSlot()
     def run(self):
@@ -672,6 +725,9 @@ class _MatrixCleanupOperation(QRunnable):
         try:
             self.handler.disconnect()
         finally:
+            self.controller._complete_retirement(
+                self.retirement_key, self.retirement_event
+            )
             self.controller._signals.finished.emit(self.context)
 
 

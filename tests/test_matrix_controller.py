@@ -27,7 +27,7 @@ class MatrixControllerTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def make_controller(self, *, ip="192.0.2.10", revision=1, candidates=None):
+    def make_controller(self, *, ip="192.0.2.10", revision=1, candidates=None, retirement_timeout_seconds=5.0):
         from gui.matrix_controller import MatrixController
 
         pool = CapturingThreadPool()
@@ -52,6 +52,7 @@ class MatrixControllerTests(unittest.TestCase):
             ),
             credential_revision_provider=lambda: state["revision"],
             thread_pool=pool,
+            retirement_timeout_seconds=retirement_timeout_seconds,
         )
         return controller, state, pool
 
@@ -105,8 +106,8 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertFalse(hasattr(accepted[0], "username"))
         self.assertFalse(hasattr(accepted[0], "password"))
 
-    def test_protocol_failure_retires_session_before_blocked_cleanup_and_never_retries_credentials(self):
-        """A detached failed handler cannot delay or regain controller authority."""
+    def test_protocol_failure_publishes_terminal_state_before_retirement_and_gates_next_acquisition(self):
+        """Logical completion is immediate, but conflicting I/O waits for retirement."""
         from core.exceptions import ProtocolError
 
         controller, state, pool = self.make_controller()
@@ -159,16 +160,70 @@ class MatrixControllerTests(unittest.TestCase):
                 operation_kind="quick_refresh", ip_address="192.0.2.10",
                 candidate_index=0, state_changing=False,
             )
-            next_handler = controller._acquire_session(next_context, ())
-            self.assertIsNot(instances[0], next_handler)
-            self.assertIs(next_handler, controller._session_handler)
-            self.assertEqual(2, len(instances))
+            acquired = []
+            acquire_thread = threading.Thread(
+                target=lambda: acquired.append(controller._acquire_session(next_context, ()))
+            )
+            acquire_thread.start()
+            acquire_thread.join(0.05)
+            self.assertTrue(acquire_thread.is_alive())
+            self.assertEqual(1, len(instances))
             self.assertEqual(0, state["index"])
 
             release_disconnect.set()
             cleanup_thread.join(1)
+            acquire_thread.join(1)
             self.assertFalse(cleanup_thread.is_alive())
+            self.assertFalse(acquire_thread.is_alive())
+            next_handler = acquired[0]
+            self.assertIsNot(instances[0], next_handler)
             self.assertIs(next_handler, controller._session_handler)
+            self.assertEqual(2, len(instances))
+
+    def test_read_only_acquisition_fails_closed_after_retirement_timeout(self):
+        from core.exceptions import ProtocolError
+
+        controller, state, pool = self.make_controller(retirement_timeout_seconds=0.001)
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        errors, instances = [], []
+        controller.errorAccepted.connect(lambda error, _handle: errors.append(error))
+
+        class HangingCleanupHandler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = False
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_full_status(self):
+                raise ProtocolError("bad identity")
+
+            def disconnect(self):
+                pass
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", HangingCleanupHandler):
+            failed = controller._make_context(
+                operation_kind="full_refresh", ip_address="192.0.2.10",
+                candidate_index=0, state_changing=False,
+            )
+            controller._run_background_operation(failed)
+            self.assertEqual(1, len(pool.runnables))
+
+            next_context = controller._make_context(
+                operation_kind="full_refresh", ip_address="192.0.2.10",
+                candidate_index=0, state_changing=False,
+            )
+            controller._run_background_operation(next_context)
+
+        self.assertEqual(1, len(instances))
+        self.assertEqual(["protocol_error", "connection_error"], [error[0] for error in errors])
+        self.assertIsNone(controller._session_handler)
 
     def test_stale_callbacks_are_suppressed_for_all_public_channels(self):
         controller, _state, pool = self.make_controller()
@@ -263,6 +318,7 @@ class MatrixControllerTests(unittest.TestCase):
                 candidate_index=0,
                 state_changing=False,
             )
+            pool.runnables.pop().run()
             revised_handler = controller._acquire_session(revised, ())
 
             different_ip = controller._make_context(
@@ -271,11 +327,8 @@ class MatrixControllerTests(unittest.TestCase):
                 candidate_index=0,
                 state_changing=False,
             )
+            pool.runnables.pop().run()
             different_handler = controller._acquire_session(different_ip, ())
-
-        for runnable in pool.runnables:
-            if not hasattr(runnable, "context") or runnable.context.operation_kind == "cleanup":
-                runnable.run()
 
         self.assertIsNot(first_handler, revised_handler)
         self.assertIsNot(revised_handler, different_handler)
@@ -284,10 +337,10 @@ class MatrixControllerTests(unittest.TestCase):
             len([event for event in events if event[0] == "disconnect"]),
             2,
         )
-        self.assertTrue(pool.runnables)
+        self.assertEqual([], pool.runnables)
 
     def test_persistent_handler_access_is_serialized_for_overlapping_operations(self):
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
         entered_first = threading.Event()
@@ -398,7 +451,7 @@ class MatrixControllerTests(unittest.TestCase):
             handler_factory.assert_not_called()
 
     def test_background_operation_does_not_start_keepalive_timer_directly(self):
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         start_called = threading.Event()
 
         class Timer:
@@ -483,6 +536,7 @@ class MatrixControllerTests(unittest.TestCase):
             )
             controller._submit(first, state["candidates"])
             controller._run_background_operation(first)
+            next(runnable for runnable in pool.runnables if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup").run()
 
             second = controller._make_context(
                 operation_kind="quick_refresh",
@@ -492,10 +546,6 @@ class MatrixControllerTests(unittest.TestCase):
             )
             controller._submit(second, state["candidates"])
             controller._run_background_operation(second)
-
-            for runnable in pool.runnables:
-                if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup":
-                    runnable.run()
 
         self.assertEqual(2, len(instances))
         self.assertFalse(instances[0].connected)
@@ -581,9 +631,10 @@ class MatrixControllerTests(unittest.TestCase):
             cleanup_thread = threading.Thread(target=cleanup.run)
             cleanup_thread.start()
             self.assertTrue(disconnect_started.wait(1))
-            self.assertTrue(second_used_new_handler.wait(1))
+            self.assertFalse(second_used_new_handler.wait(0.05))
             release_disconnect.set()
             cleanup_thread.join(2)
+            self.assertTrue(second_used_new_handler.wait(1))
             second_thread.join(2)
             first_thread.join(2)
 
@@ -599,7 +650,7 @@ class MatrixControllerTests(unittest.TestCase):
     def test_production_quick_refresh_transport_failure_does_not_emit_route_one(self):
         from core.exceptions import ConnectionError
 
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
         routes = []
@@ -640,7 +691,7 @@ class MatrixControllerTests(unittest.TestCase):
     def test_production_full_refresh_transport_failure_is_not_accepted_or_cached(self):
         from handlers.extron.in1804 import ExtronIN1804Handler
 
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
         accepted = []
@@ -681,6 +732,7 @@ class MatrixControllerTests(unittest.TestCase):
             )
             controller._submit(first, state["candidates"])
             controller._run_background_operation(first)
+            next(runnable for runnable in pool.runnables if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup").run()
 
             second = controller._make_context(
                 operation_kind="quick_refresh",
@@ -746,7 +798,7 @@ class MatrixControllerTests(unittest.TestCase):
     def test_full_refresh_empty_response_is_not_accepted_and_reconnects_next(self):
         from handlers.extron.in1804 import ExtronIN1804Handler
 
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
         accepted = []
@@ -788,6 +840,7 @@ class MatrixControllerTests(unittest.TestCase):
                 )
                 controller._submit(first, state["candidates"])
                 controller._run_background_operation(first)
+                next(runnable for runnable in pool.runnables if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup").run()
 
                 second = controller._make_context(
                     operation_kind="quick_refresh",
@@ -853,7 +906,7 @@ class MatrixControllerTests(unittest.TestCase):
     def test_full_refresh_echo_only_response_is_not_accepted(self):
         from handlers.extron.in1804 import ExtronIN1804Handler
 
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
         accepted = []
@@ -893,6 +946,7 @@ class MatrixControllerTests(unittest.TestCase):
                 )
                 controller._submit(first, state["candidates"])
                 controller._run_background_operation(first)
+                next(runnable for runnable in pool.runnables if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup").run()
 
                 second = controller._make_context(
                     operation_kind="quick_refresh",
@@ -910,7 +964,7 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertIsNot(instances[0], instances[1])
 
     def test_old_failure_does_not_invalidate_new_matching_context_session(self):
-        controller, state, _pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller._request_keepalive_start = lambda: None
         controller._request_keepalive_stop = lambda: None
 
@@ -946,6 +1000,7 @@ class MatrixControllerTests(unittest.TestCase):
                 state_changing=False,
             )
             controller._submit(new, state["candidates"])
+            next(runnable for runnable in pool.runnables if getattr(getattr(runnable, "context", None), "operation_kind", None) == "cleanup").run()
             new_handler = controller._acquire_session(new, ())
             controller._invalidate_failed_session(old)
 
@@ -958,6 +1013,7 @@ class MatrixControllerTests(unittest.TestCase):
         controller, _state, pool = self.make_controller()
         route_errors = []
         controller.routeError.connect(route_errors.append)
+        disconnect_entered, release_disconnect = threading.Event(), threading.Event()
 
         class Handler:
             attempts = []
@@ -985,12 +1041,28 @@ class MatrixControllerTests(unittest.TestCase):
                 return [3]
 
             def disconnect(self):
-                pass
+                if self.username == "synthetic-user":
+                    disconnect_entered.set()
+                    release_disconnect.wait(1)
 
         with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
             controller.request_route(1, 3)
             pool.runnables.pop(0).run()
-            pool.runnables.pop(0).run()
+            cleanup, retry = pool.runnables
+            retry_thread = threading.Thread(target=retry.run)
+            retry_thread.start()
+            retry_thread.join(0.05)
+            self.assertTrue(retry_thread.is_alive())
+            self.assertEqual(["synthetic-user"], Handler.attempts)
+            cleanup_thread = threading.Thread(target=cleanup.run)
+            cleanup_thread.start()
+            self.assertTrue(disconnect_entered.wait(0.2))
+            self.assertEqual(["synthetic-user"], Handler.attempts)
+            release_disconnect.set()
+            cleanup_thread.join(1)
+            retry_thread.join(1)
+            self.assertFalse(cleanup_thread.is_alive())
+            self.assertFalse(retry_thread.is_alive())
 
         self.assertEqual(
             ["synthetic-user", "synthetic-user-2", ("set", 1, 3, "synthetic-user-2")],
@@ -1036,6 +1108,56 @@ class MatrixControllerTests(unittest.TestCase):
 
         self.assertEqual(["synthetic-user", ("set", 1, 3, "synthetic-user")], Handler.attempts)
         self.assertEqual(1, len(route_errors))
+
+    def test_ambiguous_route_failure_never_replays_across_blocked_retirement(self):
+        from core.exceptions import CommandOutcomeUnknownError
+
+        controller, _state, pool = self.make_controller(retirement_timeout_seconds=0.001)
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        route_errors = []
+        controller.routeError.connect(route_errors.append)
+        disconnect_entered, release_disconnect = threading.Event(), threading.Event()
+
+        class Handler:
+            attempts = []
+
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.username = kwargs["username"]
+                Handler.attempts.append(self.username)
+
+            def connect(self):
+                pass
+
+            def is_connected(self):
+                return True
+
+            def set_connection(self, output_num, input_num):
+                Handler.attempts.append(("set", output_num, input_num, self.username))
+                raise CommandOutcomeUnknownError("route may have been delivered")
+
+            def disconnect(self):
+                disconnect_entered.set()
+                release_disconnect.wait(1)
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            controller.request_route(1, 3)
+            pool.runnables.pop(0).run()
+            cleanup = pool.runnables.pop(0)
+            cleanup_thread = threading.Thread(target=cleanup.run)
+            cleanup_thread.start()
+            self.assertTrue(disconnect_entered.wait(0.2))
+
+            controller.request_route(1, 2)
+            pool.runnables.pop(0).run()
+            self.assertEqual(["synthetic-user", ("set", 1, 3, "synthetic-user")], Handler.attempts)
+            self.assertEqual(2, len(route_errors))
+
+            release_disconnect.set()
+            cleanup_thread.join(1)
+            self.assertFalse(cleanup_thread.is_alive())
+        self.assertIsNone(controller._session_handler)
 
     def test_immutable_candidate_for_context_returns_assigned_mapping_unchanged(self):
         controller, state, pool = self.make_controller(

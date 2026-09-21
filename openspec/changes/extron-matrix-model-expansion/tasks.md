@@ -165,7 +165,7 @@
 - [x] 17.2 Hide the Matrix card title, expand the routing surface, and use equal-width dynamic route columns derived only from `available_output_ids`.
 - [x] 17.3 Render centered canonical HDCP indicators, retain distinct Qt semantics for positive/negative/absent/unknown, and keep Signal UNKNOWN non-positive.
 - [x] 17.4 Project canonical row MAC/serial/IP into the Matrix information card without adding unproven device reads; clear unavailable device-polled fields.
-- [x] 17.5 Prove an unknown `60-1381-23` identity fails closed and a terminal protocol failure with blocked physical retirement releases the next room row without credential fallback.
+- [x] 17.5 Prove an unresolved/unsupported exact Matrix identity fails closed and a terminal protocol failure with blocked physical retirement releases the next room row without credential fallback.
 - [x] 17.6 Run focused Matrix/room regressions and strict OpenSpec validation.
 - [ ] 17.7 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.
 
@@ -178,3 +178,11 @@
 - [x] 18.5 Restore approved Russian dynamic table headings and stable Matrix information-value object identities; prove snapshot clearing and hidden routing header.
 - [x] 18.6 Add focused Matrix controller, Matrix UI, identity, and room-orchestration regression coverage; run full offline validation.
 - [ ] 18.7 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.
+
+## 19. Retirement-serialization follow-up
+
+- [x] 19.1 Preserve immediate Matrix logical terminal notification while recording a conflicting-device retirement barrier before detached physical cleanup.
+- [x] 19.2 Gate new Matrix acquisition, credential fallback, route, and reconciliation transport authority on prior retirement completion; fail closed after the bounded barrier timeout.
+- [x] 19.3 Keep legacy IN1804 missing route evidence semantically UNKNOWN and non-actionable.
+- [x] 19.4 Reconcile historical `60-1381-23` wording with the documented exact alias and add focused retirement/legacy-route regressions.
+- [ ] 19.5 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.

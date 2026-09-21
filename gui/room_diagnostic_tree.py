@@ -2031,7 +2031,15 @@ class RoomReadOnlyPresentation(QWidget):
         headers = ["№", "Сигнал", "HDCP", "Входы"] + [str(output_names.get(item) or "Output %s" % item) for item in available_outputs]
         table.setColumnCount(len(headers)); table.setHorizontalHeaderLabels(headers); table.setRowCount(0)
         routes = source.get("routes") if isinstance(source.get("routes"), Mapping) else {}
-        if "routes" not in source and available_outputs == (1,): routes = {1: source.get("current_connection")}
+        # Legacy IN1804 scalar evidence projects only an authoritative routed
+        # input.  A missing/None scalar is UNKNOWN, not an invented untied
+        # route, and must stay non-actionable.
+        if (
+            "routes" not in source
+            and available_outputs == (1,)
+            and isinstance(source.get("current_connection"), int)
+        ):
+            routes = {1: source["current_connection"]}
         signals = source.get("signal_presence") if isinstance(source.get("signal_presence"), Mapping) else {}
         legacy_signals = source.get("signal_status") if isinstance(source.get("signal_status"), Mapping) else {}
         hdcp = source.get("input_hdcp") if isinstance(source.get("input_hdcp"), Mapping) else {}
@@ -2103,7 +2111,17 @@ class RoomReadOnlyPresentation(QWidget):
                     if column == 1:
                         item = _matrix_indicator_item(value, positive="есть", inactive="нет сигнала")
                     elif column == 4:
-                        item = _matrix_indicator_item(value, positive="активен", inactive="не выбран")
+                        route_state = (
+                            "активен" if value == "активен" else
+                            "не выбран" if value == "не выбран" else
+                            "UNKNOWN"
+                        )
+                        item = _matrix_indicator_item(route_state, positive="активен", inactive="не выбран")
+                        item.setToolTip(
+                            "Маршрут активен" if route_state == "активен" else
+                            "Выбрать вход для Main Output" if route_state == "не выбран" else
+                            "Маршрут: нет данных"
+                        )
                     elif column == 2:
                         state = {"есть": "PRESENT_HDCP", "нет": "PRESENT_NO_HDCP"}.get(str(value), "UNKNOWN")
                         item = _matrix_indicator_item(state, positive="PRESENT_HDCP", inactive="PRESENT_NO_HDCP")
@@ -2115,7 +2133,14 @@ class RoomReadOnlyPresentation(QWidget):
             table.cellClicked.disconnect(request_multi_route)
             def request_legacy_route(index, column):
                 values = normalize_matrix_presentation(source)
-                if route_allowed and column == 4 and 0 <= index < len(values) and values[index][4] != "активен":
+                current = source.get("current_connection")
+                if (
+                    route_allowed
+                    and isinstance(current, int)
+                    and column == 4
+                    and 0 <= index < len(values)
+                    and values[index][4] == "не выбран"
+                ):
                     request_matrix_route(1, values[index][0])
             table.cellClicked.connect(request_legacy_route)
         table.apply_column_widths()

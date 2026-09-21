@@ -270,6 +270,38 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual([(1, 1), (2, 1)], routes)
 
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_legacy_in1804_unknown_route_is_not_projected_as_untied_or_actionable(self):
+        from core.room_diagnostic_tree import DeviceRowStatus, DeviceRowState, RoomModelCapability
+        from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+
+        capability = RoomModelCapability("Extron IN1804", "matrix", "matrix", "matrix_one_shot")
+        row = DeviceRowState("matrix", "Extron IN1804", "192.0.2.4", "IN1804", DeviceRowStatus.CONNECTED, capability)
+        row.network_actions_enabled = True
+        row.accepted_snapshot = {"inputs_num": 2, "input_names": ["Laptop", "Camera"]}
+        intents = []
+        unknown = RoomReadOnlyPresentation(
+            row, request_matrix_route=lambda output, input_id: intents.append((output, input_id)),
+        )
+        self.addCleanup(unknown.deleteLater)
+        unknown_table = unknown.findChild(QTableWidget, "roomMatrixRouting")
+        self.assertEqual(["UNKNOWN", "UNKNOWN"], [unknown_table.item(index, 4).data(Qt.UserRole) for index in range(2)])
+        self.assertEqual(["Маршрут: нет данных", "Маршрут: нет данных"], [unknown_table.item(index, 4).toolTip() for index in range(2)])
+        unknown_table.cellClicked.emit(0, 4)
+        unknown_table.cellClicked.emit(1, 4)
+        self.assertEqual([], intents)
+
+        row.accepted_snapshot = {"inputs_num": 2, "input_names": ["Laptop", "Camera"], "current_connection": 2}
+        known = RoomReadOnlyPresentation(
+            row, request_matrix_route=lambda output, input_id: intents.append((output, input_id)),
+        )
+        self.addCleanup(known.deleteLater)
+        known_table = known.findChild(QTableWidget, "roomMatrixRouting")
+        self.assertEqual(["не выбран", "активен"], [known_table.item(index, 4).data(Qt.UserRole) for index in range(2)])
+        known_table.cellClicked.emit(1, 4)
+        known_table.cellClicked.emit(0, 4)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
     def test_standalone_unknown_input_count_has_no_rows_or_route_intent(self):
         from gui.screens.matrix_screen import MatrixScreen
 
