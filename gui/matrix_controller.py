@@ -70,6 +70,15 @@ class MatrixRetirement:
     event: threading.Event
 
 
+@dataclass(frozen=True)
+class MatrixRetirementRequest:
+    """A GUI-published request for background session retirement."""
+
+    context: MatrixOperationContext
+    key: tuple[str, int]
+    event: threading.Event
+
+
 class MatrixOperationHandle:
     """Public, secret-free object used by existing MainWindow callbacks."""
 
@@ -166,6 +175,8 @@ class MatrixController(QObject):
         self._operation_lock = threading.RLock()
         self._retirement_lock = threading.RLock()
         self._retirement_events: dict[tuple[str, int], threading.Event] = {}
+        self._retirement_cleanup_events: set[tuple[tuple[str, int], threading.Event]] = set()
+        self._published_session_ip: Optional[str] = None
         self._session_identity: Optional[MatrixSessionIdentity] = None
         self._session_handler = None
         self._candidate_snapshots = {}
@@ -186,18 +197,19 @@ class MatrixController(QObject):
         self._stopKeepaliveRequested.connect(self._stop_keepalive_timer)
 
     def invalidate_context(self):
+        retiring_ip = self._last_ip
         self._generation += 1
         self._active_context = None
         self._request_keepalive_stop()
-        self._release_session_background()
+        self._release_session_background(retiring_ip=retiring_ip)
 
     def shutdown(self):
         """Retire active work/session asynchronously on the Matrix owner lane."""
+        retiring_ip = self._last_ip
         self._generation += 1
         self._active_context = None
         self._request_keepalive_stop()
-        context = self._make_cleanup_context()
-        self._thread_pool.start(_MatrixRetirementOperation(self, context))
+        self._release_session_background(retiring_ip=retiring_ip)
 
     def request_full_refresh(self, ip_address: str, candidates, candidate_index: int):
         self._last_model = MATRIX_DEVICE_NAME
@@ -314,7 +326,9 @@ class MatrixController(QObject):
                 or self._last_credential_revision != revision
             )
         ):
-            self._release_session_background()
+            # Snapshot the old endpoint before publishing the replacement
+            # context.  The GUI must not acquire either transport lock here.
+            self._release_session_background(retiring_ip=self._last_ip)
         self._last_ip = ip_address
         self._last_credential_revision = revision
         self._active_context = context
@@ -346,48 +360,74 @@ class MatrixController(QObject):
             self._signals.finished.emit(context)
 
     def _execute_serialized(self, context: MatrixOperationContext, secrets):
-        with self._operation_lock:
-            if not self._is_current(context):
-                return
+        while True:
+            # Retirement completion can need the serialized transport owner
+            # lane.  Never wait for it while holding that lane's lock.
             try:
-                self._execute_operation_body(context, secrets)
-            except MatrixOperationSuperseded:
-                # Supersession is a normal silent terminal outcome.  In
-                # particular, a waiter which became stale while a previous
-                # transport retired must not construct or use a new handler.
-                return
+                self._await_retirement_boundary(context)
             except Exception as error:
                 message, details = _safe_error(error, secrets)
-                category = classify_matrix_failure(error).value
-                if (
-                    context.operation_kind == "route"
-                    and getattr(error, "_matrix_route_command_invoked", False)
-                    and category == "authentication_error"
-                ):
-                    category = "unknown_command_outcome"
-                retirement = getattr(error, "_matrix_retirement", None)
-                if category in _SESSION_INVALIDATING_CATEGORIES:
-                    detached_handler = self._detach_failed_session_locked(context)
-                    if retirement is None:
-                        retirement = self._reserve_retirement_locked(
-                            context, detached_handler
-                        )
                 raise MatrixOperationFailure(
-                    category,
+                    classify_matrix_failure(error).value,
                     message,
                     details,
-                    retirement=retirement,
                 ) from error
+            if not self._is_current(context):
+                return
+            retry_after_retirement = False
+            with self._operation_lock:
+                if not self._is_current(context):
+                    return
+                # A GUI invalidation can publish a boundary between the wait
+                # above and acquisition of this lock.  Release the owner lane
+                # before waiting again so retirement can make progress.
+                if self._has_pending_retirement():
+                    retry_after_retirement = True
+                else:
+                    try:
+                        self._execute_operation_body(context, secrets)
+                    except MatrixOperationSuperseded:
+                        # Supersession is a normal silent terminal outcome. In
+                        # particular, a waiter which became stale while a
+                        # previous transport retired must not construct or use
+                        # a new handler.
+                        return
+                    except Exception as error:
+                        message, details = _safe_error(error, secrets)
+                        category = classify_matrix_failure(error).value
+                        if (
+                            context.operation_kind == "route"
+                            and getattr(error, "_matrix_route_command_invoked", False)
+                            and category == "authentication_error"
+                        ):
+                            category = "unknown_command_outcome"
+                        retirement = getattr(error, "_matrix_retirement", None)
+                        if category in _SESSION_INVALIDATING_CATEGORIES:
+                            detached_handler = self._detach_failed_session_locked(context)
+                            if retirement is None:
+                                retirement = self._reserve_retirement_locked(
+                                    context, detached_handler
+                                )
+                        raise MatrixOperationFailure(
+                            category,
+                            message,
+                            details,
+                            retirement=retirement,
+                        ) from error
+            if not retry_after_retirement:
+                return
 
     def _execute_operation_body(self, context: MatrixOperationContext, secrets):
         if context.operation_kind == "full_refresh":
             self._signals.status.emit(context, "Connecting to Extron IN1804 matrix...")
             self._signals.progress.emit(context, 10)
-            handler = self._acquire_session(context, secrets)
+            handler = self._acquire_session(context, secrets, retirement_checked=True)
             if not self._is_current(context):
                 return
             self._signals.status.emit(context, "Reading Matrix device status...")
             self._signals.progress.emit(context, 30)
+            if not self._is_current(context):
+                return
             status = handler.get_full_status()
             parser = ExtronIN1804DataParser()
             data = parser.parse(status)
@@ -397,10 +437,12 @@ class MatrixController(QObject):
             self._signals.status.emit(context, "Ready")
             self._signals.result.emit(context, redact_data(data, secrets))
         elif context.operation_kind == "route":
-            handler = self._acquire_session(context, secrets)
+            handler = self._acquire_session(context, secrets, retirement_checked=True)
             if not self._is_current(context):
                 return
             try:
+                if not self._is_current(context):
+                    return
                 handler.set_connection(context.output_num, context.input_num)
             except Exception as error:
                 setattr(error, "_matrix_route_command_invoked", True)
@@ -409,10 +451,12 @@ class MatrixController(QObject):
             # below reads the exact target output before acceptance.
             self._signals.result.emit(context, {"route_input": context.input_num, "route_output": context.output_num})
         elif context.operation_kind == "quick_refresh":
-            handler = self._acquire_session(context, secrets)
+            handler = self._acquire_session(context, secrets, retirement_checked=True)
             if not self._is_current(context):
                 return
             if hasattr(handler, "get_routes"):
+                if not self._is_current(context):
+                    return
                 routes = handler.get_routes((context.output_num,)) if context.output_num else handler.get_routes()
                 self._signals.result.emit(context, {"routes": routes})
             else:
@@ -467,8 +511,9 @@ class MatrixController(QObject):
             candidate_index=context.candidate_index,
         )
 
-    def _acquire_session(self, context: MatrixOperationContext, secrets):
-        self._await_retirement_boundary(context)
+    def _acquire_session(self, context: MatrixOperationContext, secrets, *, retirement_checked=False):
+        if not retirement_checked:
+            self._await_retirement_boundary(context)
         # Waiting does not retain current authority.  A replacement context
         # may have been admitted on the GUI thread while this worker waited.
         # Reject it before credentials, handler allocation, or any Matrix I/O.
@@ -520,21 +565,35 @@ class MatrixController(QObject):
                 raise
             self._session_identity = identity
             self._session_handler = handler
+            with self._retirement_lock:
+                self._published_session_ip = identity.ip_address
             self._request_keepalive_start()
             return handler
 
-    def _release_session_background(self):
-        # Publish the retirement boundary before another serialized Matrix
-        # owner can acquire the detached endpoint.  Physical disconnect stays
-        # outside this lock and may block indefinitely.
-        with self._operation_lock:
-            with self._session_lock:
-                handler = self._session_handler
-                self._session_handler = None
-                self._session_identity = None
-            context = self._make_cleanup_context()
-            retirement = self._reserve_retirement_locked(context, handler)
-        self._schedule_retirement(retirement)
+    def _release_session_background(self, *, retiring_ip=None):
+        """Publish a non-blocking retirement request and enqueue its owner work.
+
+        This method is called by GUI-facing invalidation paths.  It touches
+        only retirement metadata; session detach and physical disconnect are
+        performed later by ``_MatrixRetirementOperation``.
+        """
+        retiring_ip = retiring_ip if retiring_ip is not None else self._last_ip
+        if not retiring_ip:
+            return
+        with self._retirement_lock:
+            if self._published_session_ip != retiring_ip:
+                return
+        context = self._make_retirement_context(retiring_ip)
+        key = self._retirement_key(context)
+        with self._retirement_lock:
+            event = self._retirement_events.get(key)
+            if event is not None and not event.is_set():
+                return
+            event = threading.Event()
+            self._retirement_events[key] = event
+        self._thread_pool.start(
+            _MatrixRetirementOperation(self, MatrixRetirementRequest(context, key, event))
+        )
 
     def _make_cleanup_context(self):
         operation_id = next(self._operation_serial)
@@ -542,6 +601,18 @@ class MatrixController(QObject):
             model=MATRIX_DEVICE_NAME,
             ip_address=self._last_ip,
             operation_kind="cleanup",
+            generation=self._generation,
+            operation_id=operation_id,
+            expected_operation_id=operation_id,
+            credential_context_revision=self._last_credential_revision,
+        )
+
+    def _make_retirement_context(self, ip_address):
+        operation_id = next(self._operation_serial)
+        return MatrixOperationContext(
+            model=MATRIX_DEVICE_NAME,
+            ip_address=ip_address,
+            operation_kind="retirement",
             generation=self._generation,
             operation_id=operation_id,
             expected_operation_id=operation_id,
@@ -556,6 +627,8 @@ class MatrixController(QObject):
                 pass
         self._session_handler = None
         self._session_identity = None
+        with self._retirement_lock:
+            self._published_session_ip = None
         self._request_keepalive_stop()
 
     def _request_keepalive_start(self):
@@ -596,6 +669,8 @@ class MatrixController(QObject):
             handler = self._session_handler
             self._session_handler = None
             self._session_identity = None
+            with self._retirement_lock:
+                self._published_session_ip = None
         self._request_keepalive_stop()
         return handler
 
@@ -604,17 +679,24 @@ class MatrixController(QObject):
         return (context.ip_address, 22023)
 
     def _await_retirement_boundary(self, context: MatrixOperationContext):
-        key = self._retirement_key(context)
+        # A controller owns one persistent Matrix session.  Await every
+        # pending boundary before replacing that session so a different target
+        # cannot inherit or disconnect an old target's authority.
         with self._retirement_lock:
-            event = self._retirement_events.get(key)
-        if event is not None and not event.wait(self._retirement_timeout_seconds):
-            # The operation lane is background-owned, but a timeout never
-            # authorizes a second conflicting Matrix transport owner.  This is
-            # especially important for a route whose prior delivery may be
-            # ambiguous.
-            raise MatrixRetirementBoundaryError(
-                "Previous Matrix session did not reach its retirement boundary"
+            events = tuple(
+                event for event in self._retirement_events.values() if not event.is_set()
             )
+        for event in events:
+            if not event.wait(self._retirement_timeout_seconds):
+                # The operation lane is background-owned, but a timeout never
+                # authorizes a second conflicting Matrix transport owner.
+                raise MatrixRetirementBoundaryError(
+                    "Previous Matrix session did not reach its retirement boundary"
+                )
+
+    def _has_pending_retirement(self):
+        with self._retirement_lock:
+            return any(not event.is_set() for event in self._retirement_events.values())
 
     def _reserve_retirement_locked(self, context: MatrixOperationContext, handler):
         """Detach authority and publish its conflict boundary under owner serialization."""
@@ -626,6 +708,7 @@ class MatrixController(QObject):
             if event is None or event.is_set():
                 event = threading.Event()
                 self._retirement_events[key] = event
+            self._retirement_cleanup_events.add((key, event))
         cleanup_context = (
             context if context.operation_kind == "cleanup" else self._make_cleanup_context()
         )
@@ -637,6 +720,7 @@ class MatrixController(QObject):
 
     def _complete_retirement(self, key, event):
         with self._retirement_lock:
+            self._retirement_cleanup_events.discard((key, event))
             if self._retirement_events.get(key) is event:
                 self._retirement_events.pop(key, None)
             event.set()
@@ -781,32 +865,45 @@ class _MatrixCleanupOperation(QRunnable):
 
 
 class _MatrixRetirementOperation(QRunnable):
-    """Wait behind active Matrix work, then release its session physically."""
+    """Detach on the owner lane, then close transport without its locks."""
 
-    def __init__(self, controller: MatrixController, context):
+    def __init__(self, controller: MatrixController, request: MatrixRetirementRequest):
         super().__init__()
         self.controller = controller
-        self.context = MatrixOperationContext(
-            model=context.model,
-            ip_address=context.ip_address,
-            operation_kind="retirement",
-            generation=context.generation,
-            operation_id=context.operation_id,
-            expected_operation_id=context.expected_operation_id,
-            credential_context_revision=context.credential_context_revision,
-        )
+        self.context = request.context
+        self.retirement_key = request.key
+        self.retirement_event = request.event
 
     @pyqtSlot()
     def run(self):
         handler = None
         with self.controller._operation_lock:
             with self.controller._session_lock:
-                handler = self.controller._session_handler
-                self.controller._session_handler = None
-                self.controller._session_identity = None
+                identity = self.controller._session_identity
+                if identity is not None and identity.ip_address == self.context.ip_address:
+                    handler = self.controller._session_handler
+                    self.controller._session_handler = None
+                    self.controller._session_identity = None
+                    with self.controller._retirement_lock:
+                        self.controller._published_session_ip = None
             if handler is not None:
-                try:
-                    handler.disconnect()
-                except Exception:
-                    pass
+                self.controller._request_keepalive_stop()
+
+        # No waiter holds _operation_lock here: physical transport cleanup may
+        # block, but it cannot stall GUI invalidation or owner-lane progress.
+        if handler is not None:
+            try:
+                handler.disconnect()
+            except Exception:
+                pass
+
+        with self.controller._retirement_lock:
+            cleanup_owns_boundary = (
+                (self.retirement_key, self.retirement_event)
+                in self.controller._retirement_cleanup_events
+            )
+        if not cleanup_owns_boundary:
+            self.controller._complete_retirement(
+                self.retirement_key, self.retirement_event
+            )
         self.controller._signals.finished.emit(self.context)

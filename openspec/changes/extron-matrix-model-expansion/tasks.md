@@ -194,3 +194,10 @@
 - [x] 20.3 Add deterministic regressions for the detach-to-background publication gap and stale-after-wait acquisition rejection.
 - [x] 20.4 Run focused controller, Matrix UI, room-equipment and profile regressions; then run the full offline suite and strict OpenSpec validation.
 - [ ] 20.5 Re-run read-only hardware validation when representative Matrix hardware is available; do not mutate routes.
+
+## 21. Non-blocking Matrix invalidation remediation
+
+- [x] 21.1 Make GUI-facing invalidation publish only short-lived retirement metadata and enqueue background retirement work.
+- [x] 21.2 Keep retirement acquisition-gating and ensure no waiter holds the serialized owner lock while waiting for retirement completion.
+- [x] 21.3 Add deterministic blocked-I/O invalidation and target/revision replacement regressions; preserve stale waiter and no-replay coverage.
+- [x] 21.4 Run focused/full software and strict OpenSpec validation; hardware remains unchecked.
