@@ -1132,6 +1132,14 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
             {"username": "matrix-user-2", "password": "matrix-pass-2"},
         ]
         window.current_device_name = lambda: device_name
+        matrix_screen = object()
+        window.screens = {"matrix": matrix_screen}
+        window._active_request.update(
+            {"device": device_name, "ip": ip_address, "screen": matrix_screen}
+        )
+        window._active_diagnostic_model_context = {
+            "model": device_name, "ip": ip_address, "screen_key": "matrix"
+        }
         window.device_credentials = {device_name: creds}
         window._active_request_credentials = creds
         window.validate_ip_address = Mock(return_value=True)
@@ -1246,6 +1254,14 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         window = self.make_window()
         window.validate_ip_address = Mock(return_value=True)
         window.current_device_name = lambda: "Extron IN1804"
+        matrix_screen = object()
+        window.screens = {"matrix": matrix_screen}
+        window._active_request.update(
+            {"device": "Extron IN1804", "ip": ip_address, "screen": matrix_screen}
+        )
+        window._active_diagnostic_model_context = {
+            "model": "Extron IN1804", "ip": ip_address, "screen_key": "matrix"
+        }
         window.show_progress_dialog = Mock()
         window.show_matrix_terminal = Mock()
         window.matrix_controller = controller

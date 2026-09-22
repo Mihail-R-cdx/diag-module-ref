@@ -35,7 +35,7 @@ from .room_diagnostic_tree import RoomDiagnosticTreeWidget
 from .dialogs import CallLogWindow
 from .room_one_shot_adapters import room_adapter_keys
 from .device_model_fallback_dialog import DeviceModelFallbackDialog
-from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
+from .matrix_controller import MatrixController
 from .pdu_controller import PDUController
 from .equipment_pages import (
     EQUIPMENT_PAGE_REGISTRY,
@@ -3129,12 +3129,32 @@ class VCSDiagnosticApp(QMainWindow):
         self._dmp_controller().invalidate_context()
 
     def _matrix_public_context(self):
-        selected = self.device_combo.currentText() if hasattr(self, "device_combo") else MATRIX_DEVICE_NAME
-        model = selected if screen_key_for_model(selected) == "matrix" else MATRIX_DEVICE_NAME
-        return (
-            model,
-            self.ip_entry.text().strip() if hasattr(self, "ip_entry") else "",
-        )
+        """Return only the current accepted Matrix diagnostic authority.
+
+        Matrix actions outlive the old device selector. Their model and IP
+        must therefore come from the accepted application request/context,
+        never from a QWidget or a historical IN1804 default.
+        """
+        request = self.__dict__.get("_active_request") or {}
+        accepted = self.__dict__.get("_active_diagnostic_model_context") or {}
+        model = request.get("device")
+        ip_address = request.get("ip")
+        if (
+            not self._is_matrix_device(model)
+            or normalize_ip_address(ip_address) != ip_address
+            or request.get("screen") is not getattr(self, "screens", {}).get("matrix")
+        ):
+            return (None, None)
+
+        # When present, the accepted diagnostic context is the current model
+        # authority and must agree with the live request.
+        if accepted and (
+            accepted.get("screen_key") != "matrix"
+            or accepted.get("model") != model
+            or accepted.get("ip") != ip_address
+        ):
+            return (None, None)
+        return (model, ip_address)
 
     @staticmethod
     def _is_matrix_device(device_name):
@@ -4840,7 +4860,10 @@ class VCSDiagnosticApp(QMainWindow):
             QMessageBox.warning(self, "Неверный IP адрес", "Введите корректный IP адрес.")
             return
         
-        device_name = self.current_device_name()
+        device_name, accepted_ip = self._matrix_public_context()
+        if device_name is None or accepted_ip != ip_address:
+            self._fail_request_start("No current Matrix diagnostic context")
+            return
         creds_list = (
             tuple(creds_list or ())
             or self._snapshot_credential_candidates(

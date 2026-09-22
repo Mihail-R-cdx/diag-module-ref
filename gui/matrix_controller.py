@@ -17,7 +17,6 @@ from core.workers.common import _safe_error
 from handlers.extron.in1804 import ExtronIN1804Handler
 
 
-MATRIX_DEVICE_NAME = "Extron IN1804"
 _SESSION_INVALIDATING_CATEGORIES = {
     "authentication_error",
     "connection_error",
@@ -168,7 +167,7 @@ class MatrixController(QObject):
         self._operation_serial = itertools.count(1)
         self._generation = 0
         self._active_context: Optional[MatrixOperationContext] = None
-        self._last_model = MATRIX_DEVICE_NAME
+        self._last_model: Optional[str] = None
         self._last_ip = ""
         self._last_credential_revision = self._credential_revision()
         # Metadata authority is deliberately distinct from transport locks.
@@ -187,6 +186,7 @@ class MatrixController(QObject):
         self._retirement_events: dict[tuple[str, int], threading.Event] = {}
         self._retirement_cleanup_events: set[tuple[tuple[str, int], threading.Event]] = set()
         self._published_session_ip: Optional[str] = None
+        self._published_session_model: Optional[str] = None
         self._session_identity: Optional[MatrixSessionIdentity] = None
         self._session_handler = None
         self._keepalive_authority: Optional[MatrixOperationContext] = None
@@ -219,13 +219,17 @@ class MatrixController(QObject):
         self._release_session_background(retiring_ip=retiring_ip)
 
     def request_full_refresh(self, ip_address: str, candidates, candidate_index: int):
-        context = self._make_context(
-            operation_kind="full_refresh",
-            ip_address=ip_address,
-            candidate_index=candidate_index,
-            state_changing=False,
-        )
+        try:
+            context = self._make_context(
+                operation_kind="full_refresh",
+                ip_address=ip_address,
+                candidate_index=candidate_index,
+                state_changing=False,
+            )
+        except ValueError:
+            return False
         self._submit(context, candidates)
+        return True
 
     def request_route(self, output_num: int, input_num: int):
         if self._authoritative_input_ids and input_num not in self._authoritative_input_ids:
@@ -234,38 +238,52 @@ class MatrixController(QObject):
         if self._authoritative_output_ids and output_num not in self._authoritative_output_ids:
             self.routeError.emit("Output is unavailable on the current Matrix topology")
             return
-        model, ip_address = self._context_provider()
+        provided = self._provided_context()
+        if provided is None:
+            self.routeError.emit("No current Matrix diagnostic context")
+            return
+        model, ip_address = provided
         candidates = tuple(self._credential_candidates_provider(model, ip_address) or ())
         if not candidates:
-            self.routeError.emit("No credentials for Extron IN1804")
+            self.routeError.emit("No credentials for current Matrix context")
             return
         candidate_index = self._credential_index_provider(model, ip_address, candidates)
         if candidate_index < 0 or candidate_index >= len(candidates):
             candidate_index = 0
-        context = self._make_context(
-            operation_kind="route",
-            ip_address=ip_address,
-            candidate_index=candidate_index,
-            output_num=output_num,
-            input_num=input_num,
-            state_changing=True,
-        )
+        try:
+            context = self._make_context(
+                operation_kind="route",
+                ip_address=ip_address,
+                candidate_index=candidate_index,
+                output_num=output_num,
+                input_num=input_num,
+                state_changing=True,
+            )
+        except ValueError:
+            self.routeError.emit("No current Matrix diagnostic context")
+            return
         self._submit(context, candidates)
 
     def request_status_refresh(self):
-        model, ip_address = self._context_provider()
+        provided = self._provided_context()
+        if provided is None:
+            return
+        model, ip_address = provided
         candidates = tuple(self._credential_candidates_provider(model, ip_address) or ())
         if not candidates:
             return
         candidate_index = self._credential_index_provider(model, ip_address, candidates)
         if candidate_index < 0 or candidate_index >= len(candidates):
             candidate_index = 0
-        context = self._make_context(
-            operation_kind="quick_refresh",
-            ip_address=ip_address,
-            candidate_index=candidate_index,
-            state_changing=False,
-        )
+        try:
+            context = self._make_context(
+                operation_kind="quick_refresh",
+                ip_address=ip_address,
+                candidate_index=candidate_index,
+                state_changing=False,
+            )
+        except ValueError:
+            return
         self._submit(context, candidates)
 
     @pyqtSlot()
@@ -283,18 +301,34 @@ class MatrixController(QObject):
         if identity is None or handler is None:
             self._request_keepalive_stop()
             return
-        context = self._make_context(
-            operation_kind="keepalive",
-            ip_address=identity.ip_address,
-            candidate_index=identity.candidate_index,
-            state_changing=False,
-            reuse_generation=generation,
-        )
+        try:
+            context = self._make_context(
+                operation_kind="keepalive",
+                ip_address=identity.ip_address,
+                candidate_index=identity.candidate_index,
+                state_changing=False,
+                reuse_generation=generation,
+            )
+        except ValueError:
+            self._request_keepalive_stop()
+            return
         self._submit(context)
 
     def _credential_revision(self) -> int:
         revision = self._credential_revision_provider()
         return int(revision or 0)
+
+    def _provided_context(self):
+        """Read application-owned authority without inventing a Matrix target."""
+        try:
+            model, ip_address = self._context_provider()
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(model, str) or not model.strip():
+            return None
+        if not isinstance(ip_address, str) or not ip_address.strip():
+            return None
+        return (model, ip_address)
 
     def _make_context(
         self,
@@ -307,8 +341,12 @@ class MatrixController(QObject):
         state_changing: bool,
         reuse_generation: Optional[int] = None,
     ) -> MatrixOperationContext:
-        model, _ignored_ip = self._context_provider()
-        model = model or MATRIX_DEVICE_NAME
+        provided = self._provided_context()
+        if provided is None:
+            raise ValueError("No current Matrix diagnostic context")
+        model, accepted_ip = provided
+        if ip_address != accepted_ip:
+            raise ValueError("Matrix operation IP does not match current diagnostic context")
         revision = self._credential_revision()
         with self._authority_lock:
             if reuse_generation is None:
@@ -334,6 +372,7 @@ class MatrixController(QObject):
                 self._last_ip
                 and (
                     self._last_ip != ip_address
+                    or self._last_model != model
                     or self._last_credential_revision != revision
                 )
             )
@@ -439,7 +478,7 @@ class MatrixController(QObject):
 
     def _execute_operation_body(self, context: MatrixOperationContext, secrets):
         if context.operation_kind == "full_refresh":
-            self._signals.status.emit(context, "Connecting to Extron IN1804 matrix...")
+            self._signals.status.emit(context, "Connecting to Matrix device...")
             self._signals.progress.emit(context, 10)
             handler = self._acquire_session(context, secrets, retirement_checked=True)
             if not self._is_current(context):
@@ -544,7 +583,7 @@ class MatrixController(QObject):
             raise MatrixOperationSuperseded()
         candidate = self._candidate_for_context(context)
         if not self._is_credential_mapping(candidate):
-            raise RuntimeError("No credentials for Extron IN1804")
+            raise RuntimeError("No credentials for current Matrix context")
         identity = self._session_identity_for_context(context)
         with self._session_lock:
             if not self._is_current(context):
@@ -620,6 +659,7 @@ class MatrixController(QObject):
             self._session_identity = identity
             self._session_handler = handler
             self._published_session_ip = identity.ip_address
+            self._published_session_model = identity.model
             self._keepalive_authority = context
             return True
 
@@ -661,11 +701,11 @@ class MatrixController(QObject):
         with self._authority_lock:
             return self._published_session_ip or fallback_ip
 
-    def _make_cleanup_context(self, *, ip_address=None, credential_revision=None):
+    def _make_cleanup_context(self, *, model=None, ip_address=None, credential_revision=None):
         with self._authority_lock:
             operation_id = next(self._operation_serial)
             return MatrixOperationContext(
-                model=MATRIX_DEVICE_NAME,
+                model=model or self._last_model or "",
                 ip_address=ip_address if ip_address is not None else self._last_ip,
                 operation_kind="cleanup",
                 generation=self._generation,
@@ -682,7 +722,7 @@ class MatrixController(QObject):
         with self._authority_lock:
             operation_id = next(self._operation_serial)
             return MatrixOperationContext(
-                model=MATRIX_DEVICE_NAME,
+                model=self._published_session_model or self._last_model or "",
                 ip_address=ip_address,
                 operation_kind="retirement",
                 generation=self._generation,
@@ -701,6 +741,7 @@ class MatrixController(QObject):
         self._session_identity = None
         with self._authority_lock:
             self._published_session_ip = None
+            self._published_session_model = None
             self._keepalive_authority = None
         self._request_keepalive_stop()
 
@@ -755,6 +796,7 @@ class MatrixController(QObject):
             self._session_identity = None
             with self._authority_lock:
                 self._published_session_ip = None
+                self._published_session_model = None
                 self._keepalive_authority = None
         self._request_keepalive_stop()
         return handler
@@ -798,6 +840,7 @@ class MatrixController(QObject):
             context
             if context.operation_kind == "cleanup"
             else self._make_cleanup_context(
+                model=context.model,
                 ip_address=context.ip_address,
                 credential_revision=context.credential_context_revision,
             )
@@ -984,6 +1027,7 @@ class _MatrixRetirementOperation(QRunnable):
                     self.controller._session_identity = None
                     with self.controller._authority_lock:
                         self.controller._published_session_ip = None
+                        self.controller._published_session_model = None
                         self.controller._keepalive_authority = None
             if handler is not None:
                 self.controller._request_keepalive_stop()

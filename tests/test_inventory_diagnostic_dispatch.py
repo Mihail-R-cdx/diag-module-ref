@@ -1,5 +1,6 @@
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import ANY, Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -983,6 +984,198 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
         self._finish_reachability(window, worker, reachable=True)
         window.refresh_huawei_te40.assert_not_called()
         self.assertIsNone(window._active_request)
+
+    def _start_accepted_matrix_refresh(self, model):
+        """Drive the production accepted-context path without a device selector."""
+        window, reachability_pool = self._window_for_model(model)
+        device_pool = CapturingReachabilityPool()
+        window.matrix_controller._thread_pool = device_pool
+        window.refresh_data()
+        self._finish_reachability(window, reachability_pool.runnables[0], reachable=True)
+        self.assertFalse(hasattr(window, "device_combo"))
+        self.assertEqual((model, "192.0.2.10"), window._matrix_public_context())
+        refresh = next(
+            runnable for runnable in device_pool.runnables
+            if runnable.context.operation_kind == "full_refresh"
+        )
+        return window, device_pool, refresh
+
+    def test_matrix_application_context_reaches_handler_with_exact_dtp_and_xtp_models(self):
+        expected_models = []
+
+        class Handler:
+            def __init__(self, **kwargs):
+                expected_models.append(kwargs["expected_model"])
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_full_status(self):
+                return "synthetic"
+
+            def disconnect(self):
+                self.connected = False
+
+        for model in ("Extron DTP CrossPoint 108 4K", "Extron XTP II CrossPoint 1600"):
+            with self.subTest(model=model), patch(
+                "gui.matrix_controller.ExtronIN1804Handler", Handler
+            ), patch("gui.matrix_controller.ExtronIN1804DataParser") as parser, patch(
+                "gui.main_window.QMessageBox.information"
+            ):
+                parser.return_value.parse.return_value = {
+                    "available_input_ids": (), "available_output_ids": ()
+                }
+                _window, _pool, refresh = self._start_accepted_matrix_refresh(model)
+                self.assertEqual(model, refresh.context.model)
+                refresh.run()
+
+        self.assertEqual(
+            ["Extron DTP CrossPoint 108 4K", "Extron XTP II CrossPoint 1600"],
+            expected_models,
+        )
+
+    def test_matrix_actions_fail_closed_without_accepted_context(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        device_pool = CapturingReachabilityPool()
+        window.matrix_controller._thread_pool = device_pool
+        route_errors = []
+        window.matrix_controller.routeError.connect(route_errors.append)
+
+        self.assertEqual((None, None), window._matrix_public_context())
+        with patch("gui.main_window.QMessageBox.warning"):
+            window.matrix_controller.request_status_refresh()
+            window.matrix_controller.request_route(1, 1)
+
+        self.assertEqual([], device_pool.runnables)
+        self.assertEqual(["No current Matrix diagnostic context"], route_errors)
+
+    def test_matrix_structured_auth_fallback_retains_exact_accepted_model(self):
+        from core.exceptions import AuthenticationError
+        from gui.main_window import VCSDiagnosticApp
+        from gui.matrix_controller import MatrixController
+
+        model = "Extron DTP CrossPoint 108 4K"
+        ip_address = "192.0.2.10"
+        candidates = [
+            {"username": "operator-0", "password": "secret-0"},
+            {"username": "operator-1", "password": "secret-1"},
+        ]
+        window = SimpleNamespace()
+        matrix_screen = object()
+        window.screens = {"matrix": matrix_screen}
+        window._active_request = {
+            "id": 1, "device": model, "ip": ip_address, "screen": matrix_screen
+        }
+        window._active_diagnostic_model_context = {
+            "model": model, "ip": ip_address, "screen_key": "matrix"
+        }
+        window.device_credentials = {model: candidates}
+        window.current_credential_index = {}
+        window.get_credential_key = lambda device, ip=None: f"{device}|{ip}" if ip else device
+        window.get_current_credential_index = lambda device, ip=None: (
+            window.current_credential_index.get(window.get_credential_key(device, ip), 0)
+        )
+        window.get_valid_current_credential_index = lambda device, chain, ip=None: (
+            window.get_current_credential_index(device, ip)
+            if 0 <= window.get_current_credential_index(device, ip) < len(chain)
+            else 0
+        )
+        window.current_worker = None
+        window.hide_progress_dialog = Mock()
+        window.set_ui_state = Mock()
+        window.set_current_credential_index = Mock()
+        window.finish_matrix_terminal = Mock()
+        window.refresh_btn = Mock()
+        window.is_vcs_codec_device = lambda _device: False
+        window._is_matrix_device = VCSDiagnosticApp._is_matrix_device
+        window._matrix_public_context = lambda: VCSDiagnosticApp._matrix_public_context(window)
+        window._matrix_credential_candidates = (
+            lambda device, ip: VCSDiagnosticApp._matrix_credential_candidates(window, device, ip)
+        )
+        window._matrix_credential_index = (
+            lambda device, ip, chain: VCSDiagnosticApp._matrix_credential_index(
+                window, device, ip, chain
+            )
+        )
+        window._matrix_advance_credential_attempt = (
+            lambda device, ip, chain, index, operation: VCSDiagnosticApp._matrix_advance_credential_attempt(
+                window, device, ip, chain, index, operation
+            )
+        )
+        window._matrix_credential_revision = lambda: 0
+        window._request_is_current = lambda request_id, worker=None: (
+            request_id == window._active_request["id"]
+            and (worker is None or worker is window.current_worker)
+        )
+        window._advance_request_credential_attempt = (
+            lambda device, chain, ip, index, operation_id=None:
+            VCSDiagnosticApp._advance_request_credential_attempt(
+                window, device, chain, ip, index, operation_id=operation_id
+            )
+        )
+        device_pool = CapturingReachabilityPool()
+        controller = MatrixController(
+            context_provider=window._matrix_public_context,
+            credential_candidates_provider=window._matrix_credential_candidates,
+            credential_index_provider=window._matrix_credential_index,
+            credential_advance_provider=window._matrix_advance_credential_attempt,
+            credential_revision_provider=window._matrix_credential_revision,
+            thread_pool=device_pool,
+        )
+        window.matrix_controller = controller
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        expected_models = []
+
+        def submit_retry(ip, *, creds_list, current_idx):
+            controller.request_full_refresh(ip, creds_list, current_idx)
+
+        window.refresh_matrix_data = Mock(side_effect=submit_retry)
+        class RejectingHandler:
+            def __init__(self, **kwargs):
+                expected_models.append(kwargs["expected_model"])
+                self.log_callback = None
+
+            def connect(self):
+                raise AuthenticationError("synthetic rejection")
+
+            def disconnect(self):
+                pass
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", RejectingHandler):
+            first = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address=ip_address,
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, candidates)
+            with self.assertRaises(AuthenticationError):
+                controller._acquire_session(first, ())
+            handle = controller._handle(first)
+            window.current_worker = handle
+            VCSDiagnosticApp.on_device_error(
+                window, ("authentication_error", "synthetic rejection", ""), handle, 1
+            )
+            retry = next(
+                runnable for runnable in device_pool.runnables
+                if runnable.context.operation_kind == "full_refresh"
+                and runnable.context.candidate_index == 1
+            )
+
+        self.assertEqual([model], expected_models)
+        self.assertEqual(model, handle.device_name)
+        self.assertEqual(1, retry.context.candidate_index)
+        self.assertEqual(model, retry.context.model)
+        self.assertEqual((model, ip_address), window._matrix_public_context())
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is unavailable")

@@ -226,3 +226,14 @@
 - [x] 24.4 Add DTP/XTP/IN-family structured-auth retry regressions and misleading-error negative coverage.
 - [x] 24.5 Run focused/full software, strict OpenSpec, and Git validation.
 - [ ] 24.6 Hardware remains not run unless representative hardware is intentionally tested read-only.
+
+## 25. Exact Matrix application-context remediation
+
+- [x] 25.1 Remove removed-device-selector / IN1804 fallback from Matrix context authority.
+- [x] 25.2 Carry accepted exact Matrix model into MatrixOperationContext and handler expected_model.
+- [x] 25.3 Fail closed when no exact active Matrix application context exists.
+- [x] 25.4 Cover DTP plus XTP/IN production application→controller→handler propagation.
+- [x] 25.5 Cover exact-model preservation through structured credential fallback.
+- [x] 25.6 Cover same-IP Matrix model replacement without session reuse.
+- [x] 25.7 Run focused/full software, strict OpenSpec and Git validation.
+- [ ] 25.8 Hardware remains not run unless actually performed.

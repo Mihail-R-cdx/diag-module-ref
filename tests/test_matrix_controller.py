@@ -32,6 +32,7 @@ class MatrixControllerTests(unittest.TestCase):
 
         pool = CapturingThreadPool()
         state = {
+            "model": "Extron IN1804",
             "ip": ip,
             "revision": revision,
             "candidates": tuple(
@@ -44,7 +45,7 @@ class MatrixControllerTests(unittest.TestCase):
             "index": 0,
         }
         controller = MatrixController(
-            context_provider=lambda: ("Extron IN1804", state["ip"]),
+            context_provider=lambda: (state["model"], state["ip"]),
             credential_candidates_provider=lambda _model, _ip: state["candidates"],
             credential_index_provider=lambda _model, _ip, _candidates: state["index"],
             credential_advance_provider=lambda _model, _ip, candidates, current, _op: (
@@ -57,7 +58,7 @@ class MatrixControllerTests(unittest.TestCase):
         return controller, state, pool
 
     def test_route_intent_submits_background_operation_without_direct_send(self):
-        controller, _state, pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         controller.request_route(1, 4)
 
         self.assertEqual(1, len(pool.runnables))
@@ -68,7 +69,7 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertEqual(4, context.input_num)
 
     def test_stale_result_is_suppressed(self):
-        controller, _state, _pool = self.make_controller()
+        controller, state, _pool = self.make_controller()
         accepted = []
         controller.resultAccepted.connect(lambda data, handle: accepted.append((data, handle)))
 
@@ -78,6 +79,7 @@ class MatrixControllerTests(unittest.TestCase):
             candidate_index=0,
             state_changing=False,
         )
+        state["ip"] = "192.0.2.11"
         controller._make_context(
             operation_kind="full_refresh",
             ip_address="192.0.2.11",
@@ -281,7 +283,7 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertIsNone(controller._session_handler)
 
     def test_stale_callbacks_are_suppressed_for_all_public_channels(self):
-        controller, _state, pool = self.make_controller()
+        controller, state, pool = self.make_controller()
         accepted = {
             "result": [],
             "error": [],
@@ -309,6 +311,7 @@ class MatrixControllerTests(unittest.TestCase):
             input_num=2,
             state_changing=True,
         )
+        state["ip"] = "192.0.2.11"
         current = controller._make_context(
             operation_kind="full_refresh",
             ip_address="192.0.2.11",
@@ -376,6 +379,7 @@ class MatrixControllerTests(unittest.TestCase):
             pool.runnables.pop().run()
             revised_handler = controller._acquire_session(revised, ())
 
+            state["ip"] = "192.0.2.11"
             different_ip = controller._make_context(
                 operation_kind="quick_refresh",
                 ip_address="192.0.2.11",
@@ -393,6 +397,62 @@ class MatrixControllerTests(unittest.TestCase):
             2,
         )
         self.assertEqual([], pool.runnables)
+
+    def test_same_ip_model_replacement_retires_old_session_and_constructs_exact_new_model(self):
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        expected_models, instances = [], []
+
+        class Handler:
+            def __init__(self, **kwargs):
+                expected_models.append(kwargs["expected_model"])
+                self.connected = False
+                self.log_callback = None
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            first_handler = controller._acquire_session(first, ())
+            self.assertEqual("Extron IN1804", controller._session_identity.model)
+
+            state["model"] = "Extron DTP CrossPoint 108 4K"
+            replacement = controller._make_context(
+                operation_kind="full_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            self.assertEqual("Extron DTP CrossPoint 108 4K", replacement.model)
+            self.assertIs(first_handler, controller._session_handler)
+            retirement = next(
+                runnable for runnable in pool.runnables
+                if runnable.context.operation_kind == "retirement"
+            )
+            self.assertEqual("Extron IN1804", retirement.context.model)
+            retirement.run()
+
+            replacement_handler = controller._acquire_session(replacement, ())
+
+        self.assertIsNot(first_handler, replacement_handler)
+        self.assertEqual(
+            ["Extron IN1804", "Extron DTP CrossPoint 108 4K"], expected_models
+        )
+        self.assertEqual("Extron DTP CrossPoint 108 4K", controller._session_identity.model)
 
     def test_persistent_handler_access_is_serialized_for_overlapping_operations(self):
         controller, state, pool = self.make_controller()
@@ -868,6 +928,7 @@ class MatrixControllerTests(unittest.TestCase):
             self.assertEqual("192.0.2.10", controller._session_identity.ip_address)
             self.assertEqual("192.0.2.10", controller._published_session_ip)
 
+            state["ip"] = "192.0.2.11"
             controller.request_full_refresh("192.0.2.11", state["candidates"], 0)
             current = controller._active_context
             self.assertEqual("192.0.2.11", current.ip_address)
@@ -1909,7 +1970,7 @@ class MatrixControllerTests(unittest.TestCase):
                 controller._acquire_session(context, ())
 
         handler_factory.assert_not_called()
-        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertIn("No credentials for current Matrix context", str(captured.exception))
         self.assertEqual([], advance_calls)
 
     def test_absent_candidate_index_is_rejected_before_handler_and_io(self):
@@ -1933,7 +1994,7 @@ class MatrixControllerTests(unittest.TestCase):
                 controller._acquire_session(context, ())
 
         handler_factory.assert_not_called()
-        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertIn("No credentials for current Matrix context", str(captured.exception))
         self.assertEqual([], advance_calls)
 
     def test_none_candidate_index_is_rejected_before_handler_and_io(self):
@@ -1954,7 +2015,7 @@ class MatrixControllerTests(unittest.TestCase):
                 controller._acquire_session(context, ())
 
         handler_factory.assert_not_called()
-        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertIn("No credentials for current Matrix context", str(captured.exception))
         self.assertEqual([], advance_calls)
 
     def test_out_of_range_candidate_index_is_rejected_before_handler_and_io(self):
@@ -1980,7 +2041,7 @@ class MatrixControllerTests(unittest.TestCase):
                 controller._acquire_session(context, ())
 
         handler_factory.assert_not_called()
-        self.assertIn("No credentials for Extron IN1804", str(captured.exception))
+        self.assertIn("No credentials for current Matrix context", str(captured.exception))
         self.assertEqual([], advance_calls)
 
     def test_immutable_and_mutable_candidates_produce_equivalent_redaction_secrets(self):
