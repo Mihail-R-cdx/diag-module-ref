@@ -1,0 +1,158 @@
+@startuml
+title Схема переговорной — V2 нормализованный port-to-port граф (разбит на страницы)
+left to right direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam defaultTextAlignment center
+skinparam wrapWidth 240
+skinparam maxMessageSize 110
+skinparam nodesep 80
+skinparam ranksep 80
+
+legend right
+  |= Цвет |= Тип связи |
+  |<#d62728> | видео / HDMI |
+  |<#1f77b4> | аудио |
+  |<#2ca02c> | Ethernet / PoE |
+  |<#9467bd> | RS‑232 / control |
+  |<#bc9b00> | оптика |
+endlegend
+
+title Схема переговорной — Страница 1 — видео и презентационный тракт
+
+together {
+  rectangle "Лючок Extron
+Cable Cubby 500" as CUBBY_0
+  rectangle "Коммутатор Extron
+DTP T USW 233" as DTP_0
+  rectangle "ТВ-приставка" as TVBOX_0
+  rectangle "Беспроводной презентер
+Kramer VIA GO2" as VIA_0
+  rectangle "Коммутатор презентации Extron
+IN 1608 IPCP SA" as SW_0
+  rectangle "Камера ВКС
+VC620 HD" as VC_CAM_0
+  rectangle "Кодек ВКС
+Huawei TE50" as CODEC_0
+  rectangle "Преобразователь Cypress
+CDT-4A" as CY_0
+  rectangle "Фронтальная АС
+Bose SoundBar 300" as FRONT_SPK_0
+  rectangle "Широкоформатный дисплей №1" as DISP1_0
+  rectangle "Широкоформатный дисплей №2" as DISP2_0
+}
+
+CUBBY_0 -[#d62728]--> DTP_0 : HDMI -> HDMI\n[NK-H6] HDMI
+CUBBY_0 -[#d62728]..> DTP_0 : USB C -> USB\n[NK-H7] USB / ext\n(best-effort from raster)\nНа растровом исходнике кабель читается как USB/USB-C
+DTP_0 -[#d62728]--> SW_0 : DTP OUT -> INPUT 7 DTP\n[NK-DT] DTP / HDMI + control
+TVBOX_0 -[#d62728]..> SW_0 : HDMI -> INPUT 5\n[NK-H2] HDMI\n(best-effort from raster)
+VIA_0 -[#d62728]..> SW_0 : HDMI -> INPUT 6\n[NK-H1] HDMI\n(best-effort from raster)
+SW_0 -[#d62728]--> CODEC_0 : LOOP OUT -> HDMI IN 2\n[NK-H8] HDMI
+SW_0 -[#d62728]--> CY_0 : OUTPUT A -> HDMI IN\n[NK-H3] HDMI
+CY_0 -[#bc9b00]--> FRONT_SPK_0 : OPTICAL -> OPTICAL\n[NK-A6] S/PDIF optical
+VC_CAM_0 -[#d62728]..> CODEC_0 : HD-VI -> HDMI IN 1\n[NK-CAM] camera video\n(best-effort from raster)\nНа схеме линия подписана NK-CAM
+CODEC_0 -[#d62728]--> DISP1_0 : HDMI 1 -> HDMI IN 1\n[NK-H4] HDMI
+CODEC_0 -[#d62728]--> DISP2_0 : HDMI 2 -> HDMI IN 1\n[NK-H5] HDMI
+
+note bottom
+  Видео-страница показывает основной путь сигнала:
+  Cable Cubby / DTP / TV box / VIA -> IN1608 -> Huawei TE50 -> дисплеи.
+  OUTPUT A матрицы подан на Cypress, затем по оптике на Bose SoundBar 300.
+end note
+
+newpage
+title Схема переговорной — Страница 2 — аудиотракт
+
+together {
+  rectangle "Микрофон Shure MXA310 №1" as MIC1_1
+  rectangle "Микрофон Shure MXA310 №2" as MIC2_1
+  rectangle "Коммутатор презентации Extron
+IN 1608 IPCP SA" as SW_1
+  rectangle "Кодек ВКС
+Huawei TE50" as CODEC_1
+  rectangle "Аудиопроцессор Extron
+DMP 64 Plus C AT" as AUDIO_1
+  rectangle "Потолочная АС №1
+Extron SF 3C LP 4" as CEIL1_1
+  rectangle "Потолочная АС №2
+Extron SF 3C LP 4" as CEIL2_1
+  rectangle "Потолочная АС №3
+Extron SF 3C LP 4" as CEIL3_1
+  rectangle "Потолочная АС №4
+Extron SF 3C LP 4" as CEIL4_1
+  rectangle "Фронтальная АС
+Bose SoundBar 300" as FRONT_SPK_1
+  rectangle "Преобразователь Cypress
+CDT-4A" as CY_1
+}
+
+SW_1 -[#1f77b4]--> AUDIO_1 : Audio OUT 1 -> INPUT 1\n[NK-A4.1] Analog audio
+SW_1 -[#1f77b4]--> AUDIO_1 : Audio OUT 2 -> INPUT 2\n[NK-A4.2] Analog audio
+CODEC_1 -[#1f77b4]--> AUDIO_1 : Audio OUT L -> INPUT 3\n[NK-A5] Analog audio
+CODEC_1 -[#1f77b4]..> AUDIO_1 : Audio OUT R -> INPUT 4\n[NK-A5] Analog audio\n(best-effort from raster)\nЛевый и правый каналы сведены в одну группу A5
+SW_1 -[#1f77b4]..> CEIL1_1 : AMP OUT L -> Audio in\n[NK-AC1] Speaker / amplified\n(best-effort from raster)
+SW_1 -[#1f77b4]..> CEIL2_1 : AMP OUT L -> Audio in\n[NK-AC2] Speaker / amplified\n(best-effort from raster)
+SW_1 -[#1f77b4]..> CEIL3_1 : AMP OUT R -> Audio in\n[NK-AC3] Speaker / amplified\n(best-effort from raster)
+SW_1 -[#1f77b4]..> CEIL4_1 : AMP OUT R -> Audio in\n[NK-AC4] Speaker / amplified\n(best-effort from raster)
+MIC1_1 -[#2ca02c]..> AUDIO_1 : PoE / Audio -> DANTE / network audio\n[NK-L31] Dante / Ethernet\n(best-effort from raster)\nМикрофон MXA310, по схеме уходит в сетевой тракт
+MIC2_1 -[#2ca02c]..> AUDIO_1 : PoE / Audio -> DANTE / network audio\n[NK-L32] Dante / Ethernet\n(best-effort from raster)\nМикрофон MXA310, по схеме уходит в сетевой тракт
+
+note bottom
+  Аудиостраница вынесена отдельно, чтобы подписи не наезжали друг на друга.
+  Пунктиром помечены связи, которые удалось восстановить только по растровому изображению.
+end note
+
+newpage
+title Схема переговорной — Страница 3 — LAN, Wi‑Fi и управление
+
+together {
+  rectangle "Панель управления Extron
+TLP Pro 725T" as TP_2
+  rectangle "Контроллер управления Extron
+IPL Pro S1" as CTRL_2
+  rectangle "Датчик присутствия
+ROOMZ SENSOR" as ROOMZ_SENSOR_2
+  rectangle "Панель бронирования
+ROOMZ DISPLAY" as ROOMZ_DISPLAY_2
+  rectangle "IP-камера
+Bosch FLEXIDOME IP micro 5000" as CAM_BOSCH_2
+  rectangle "Коммутатор презентации Extron
+IN 1608 IPCP SA" as SW_2
+  rectangle "Кодек ВКС
+Huawei TE50" as CODEC_2
+  rectangle "Аудиопроцессор Extron
+DMP 64 Plus C AT" as AUDIO_2
+  rectangle "OMT терминал" as OMT_2
+  rectangle "Коммутатор HPE
+2530-8G-PoE+" as HPE_2
+  rectangle "Сеть Wi‑Fi заказчика" as WIFI_2
+  rectangle "Широкоформатный дисплей №1" as DISP1_2
+  rectangle "Широкоформатный дисплей №2" as DISP2_2
+  rectangle "Фронтальная АС
+Bose SoundBar 300" as FRONT_SPK_2
+}
+
+TP_2 -[#2ca02c]..> HPE_2 : LAN/PoE -> Port 3\n[NK-L2.1] Ethernet / PoE\n(best-effort from raster)
+CTRL_2 -[#2ca02c]..> HPE_2 : LAN/PoE -> Port 4\n[NK-L13] Ethernet / PoE\n(best-effort from raster)
+SW_2 -[#2ca02c]--> HPE_2 : AV LAN -> Port 8\n[NK-L8] Ethernet
+SW_2 -[#9467bd]--> DISP1_2 : COM 1 -> RS-232\n[NK-T1] RS-232
+SW_2 -[#9467bd]--> DISP2_2 : COM 2 -> RS-232\n[NK-T2] RS-232
+SW_2 -[#9467bd]..> FRONT_SPK_2 : COM 3 -> RS-232\n[NK-T3] RS-232\n(best-effort from raster)
+CTRL_2 -[#9467bd]..> AUDIO_2 : COM -> control / serial\n[NK-T7] RS-232\n(best-effort from raster)
+CODEC_2 -[#2ca02c]--> HPE_2 : LAN -> Port 1\n[NK-L5] Ethernet
+AUDIO_2 -[#2ca02c]..> HPE_2 : LAN / PoE -> Port 6\n[NK-L9] Ethernet / PoE\n(best-effort from raster)
+AUDIO_2 -[#2ca02c]..> HPE_2 : DANTE AT -> Port 7\n[NK-L8] Dante / Ethernet\n(best-effort from raster)\nНа схеме два RJ-45 у аудиопроцессора, один подписан DANTE AT
+OMT_2 -[#2ca02c]..> DISP1_2 : Port 1 -> service / LAN\n[NK-L11] Ethernet\n(best-effort from raster)
+OMT_2 -[#2ca02c]..> DISP2_2 : Port 2 -> service / LAN\n[NK-L4] Ethernet\n(best-effort from raster)
+OMT_2 -[#555555]..> ROOMZ_SENSOR_2 : Port 3 -> Wi-Fi uplink\n[NK-L3] Ethernet / uplink\n(best-effort from raster)
+OMT_2 -[#555555]..> ROOMZ_DISPLAY_2 : Port 4 -> Wi-Fi uplink\n[NK-L7] Ethernet / uplink\n(best-effort from raster)
+OMT_2 -[#bc9b00]..> WIFI_2 : OPTICAL -> uplink\n[OPTICAL] Optical uplink\n(best-effort from raster)\nПодпись: в волок. эксцухожо / в волоконную сборку читается не полностью
+
+note bottom
+  Сетевая страница агрегирует проводной Ethernet и Wi‑Fi.
+  ROOMZ SENSOR и ROOMZ DISPLAY показаны как Wi‑Fi клиенты сети заказчика.
+end note
+
+@enduml
