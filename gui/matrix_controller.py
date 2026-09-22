@@ -123,7 +123,7 @@ class MatrixBackgroundOperation(QRunnable):
 class MatrixController(QObject):
     """Owns Matrix refresh, route, persistent session, and stale suppression."""
 
-    _startKeepaliveRequested = pyqtSignal()
+    _startKeepaliveRequested = pyqtSignal(object)
     _stopKeepaliveRequested = pyqtSignal()
 
     resultAccepted = pyqtSignal(dict, object)
@@ -171,6 +171,16 @@ class MatrixController(QObject):
         self._last_model = MATRIX_DEVICE_NAME
         self._last_ip = ""
         self._last_credential_revision = self._credential_revision()
+        # Metadata authority is deliberately distinct from transport locks.
+        # GUI paths take only this lock briefly.  Background ownership paths
+        # acquire it only while already holding ``_session_lock`` (and, where
+        # applicable, ``_operation_lock``); it never encloses I/O, disconnect,
+        # or a retirement wait.  This yields the one-way order
+        # operation -> session -> authority, while GUI code never takes the
+        # operation or session locks.  Retirement-event metadata has its own
+        # lock and is never acquired while authority is held; owner paths may
+        # release retirement metadata before taking authority, never inversely.
+        self._authority_lock = threading.RLock()
         self._session_lock = threading.RLock()
         self._operation_lock = threading.RLock()
         self._retirement_lock = threading.RLock()
@@ -179,6 +189,7 @@ class MatrixController(QObject):
         self._published_session_ip: Optional[str] = None
         self._session_identity: Optional[MatrixSessionIdentity] = None
         self._session_handler = None
+        self._keepalive_authority: Optional[MatrixOperationContext] = None
         self._candidate_snapshots = {}
         self._authoritative_input_ids = ()
         self._authoritative_output_ids = ()
@@ -197,22 +208,17 @@ class MatrixController(QObject):
         self._stopKeepaliveRequested.connect(self._stop_keepalive_timer)
 
     def invalidate_context(self):
-        retiring_ip = self._retirement_owner_ip(self._last_ip)
-        self._generation += 1
-        self._active_context = None
+        retiring_ip = self._invalidate_authority()
         self._request_keepalive_stop()
         self._release_session_background(retiring_ip=retiring_ip)
 
     def shutdown(self):
         """Retire active work/session asynchronously on the Matrix owner lane."""
-        retiring_ip = self._retirement_owner_ip(self._last_ip)
-        self._generation += 1
-        self._active_context = None
+        retiring_ip = self._invalidate_authority()
         self._request_keepalive_stop()
         self._release_session_background(retiring_ip=retiring_ip)
 
     def request_full_refresh(self, ip_address: str, candidates, candidate_index: int):
-        self._last_model = MATRIX_DEVICE_NAME
         context = self._make_context(
             operation_kind="full_refresh",
             ip_address=ip_address,
@@ -264,7 +270,12 @@ class MatrixController(QObject):
 
     @pyqtSlot()
     def request_keepalive(self):
-        if self._active_context is not None:
+        with self._authority_lock:
+            if self._active_context is not None:
+                return
+            generation = self._generation
+            keepalive_authority = self._keepalive_authority
+        if keepalive_authority is None:
             return
         with self._session_lock:
             identity = self._session_identity
@@ -277,7 +288,7 @@ class MatrixController(QObject):
             ip_address=identity.ip_address,
             candidate_index=identity.candidate_index,
             state_changing=False,
-            reuse_generation=self._generation,
+            reuse_generation=generation,
         )
         self._submit(context)
 
@@ -299,40 +310,48 @@ class MatrixController(QObject):
         model, _ignored_ip = self._context_provider()
         model = model or MATRIX_DEVICE_NAME
         revision = self._credential_revision()
-        if reuse_generation is None:
-            self._generation += 1
-            generation = self._generation
-        else:
-            generation = reuse_generation
-        operation_id = next(self._operation_serial)
-        context = MatrixOperationContext(
-            model=model,
-            ip_address=ip_address,
-            operation_kind=operation_kind,
-            generation=generation,
-            operation_id=operation_id,
-            expected_operation_id=operation_id,
-            credential_context_revision=revision,
-            candidate_index=candidate_index,
-            output_num=output_num,
-            input_num=input_num,
-            state_changing=state_changing,
-        )
-        if (
-            self._last_ip
-            and (
-                self._last_ip != ip_address
-                or self._last_credential_revision != revision
+        with self._authority_lock:
+            if reuse_generation is None:
+                self._generation += 1
+                generation = self._generation
+            else:
+                generation = reuse_generation
+            operation_id = next(self._operation_serial)
+            context = MatrixOperationContext(
+                model=model,
+                ip_address=ip_address,
+                operation_kind=operation_kind,
+                generation=generation,
+                operation_id=operation_id,
+                expected_operation_id=operation_id,
+                credential_context_revision=revision,
+                candidate_index=candidate_index,
+                output_num=output_num,
+                input_num=input_num,
+                state_changing=state_changing,
             )
-        ):
-            # Snapshot the old endpoint before publishing the replacement
-            # context.  The GUI must not acquire either transport lock here.
-            self._release_session_background(
-                retiring_ip=self._retirement_owner_ip(self._last_ip)
+            replacement = (
+                self._last_ip
+                and (
+                    self._last_ip != ip_address
+                    or self._last_credential_revision != revision
+                )
             )
-        self._last_ip = ip_address
-        self._last_credential_revision = revision
-        self._active_context = context
+            # A queued start may only use the exact context which committed
+            # the persistent session.  A new interactive request revokes that
+            # token before the worker can later reuse or replace the session.
+            if operation_kind != "keepalive":
+                self._keepalive_authority = None
+            retiring_ip = self._published_session_ip if replacement else None
+            self._last_model = model
+            self._last_ip = ip_address
+            self._last_credential_revision = revision
+            self._active_context = context
+        if replacement:
+            # Do not take session/operation locks on the GUI path.  The exact
+            # persistent owner was snapshotted while metadata authority held.
+            self._request_keepalive_stop()
+            self._release_session_background(retiring_ip=retiring_ip)
         return context
 
     def _submit(self, context: MatrixOperationContext, candidates=None):
@@ -466,6 +485,9 @@ class MatrixController(QObject):
         elif context.operation_kind == "keepalive":
             with self._session_lock:
                 handler = self._session_handler
+                with self._authority_lock:
+                    if not self._is_current_locked(context):
+                        raise MatrixOperationSuperseded()
             if handler is None or not handler.is_connected():
                 raise RuntimeError("keepalive failed")
             original_log_callback = handler.log_callback
@@ -532,6 +554,11 @@ class MatrixController(QObject):
                 and self._session_handler is not None
                 and self._session_handler.is_connected()
             ):
+                if not self._commit_session_authority_locked(
+                    context, identity, self._session_handler
+                ):
+                    raise MatrixOperationSuperseded()
+                self._request_keepalive_start()
                 return self._session_handler
 
             self._disconnect_locked()
@@ -564,20 +591,46 @@ class MatrixController(QObject):
                     self._reserve_retirement_locked(context, handler),
                 )
                 raise
-            if not self._is_current(context):
-                # connect() can return after GUI invalidation.  The connected
-                # transport is real but stale, so publish its cleanup boundary
-                # before releasing serialized ownership.  It must never become
-                # reusable persistent session authority or start keepalive.
+            if not self._commit_session_authority_locked(context, identity, handler):
+                # ``connect`` can return after GUI invalidation.  Currentness
+                # and publication are one authority-locked transaction, so a
+                # stale handler can never become reusable persistent authority
+                # or enqueue a valid keepalive start.
                 retirement = self._reserve_retirement_locked(context, handler)
                 self._schedule_retirement(retirement)
                 raise MatrixOperationSuperseded()
-            self._session_identity = identity
-            self._session_handler = handler
-            with self._retirement_lock:
-                self._published_session_ip = identity.ip_address
             self._request_keepalive_start()
             return handler
+
+    def _commit_session_authority_locked(
+        self,
+        context: MatrixOperationContext,
+        identity: MatrixSessionIdentity,
+        handler,
+    ) -> bool:
+        """Atomically verify currentness and publish persistent ownership.
+
+        Callers hold ``_session_lock``.  The metadata lock is intentionally
+        held only for the test-and-publish transaction, never for transport
+        I/O or retirement waiting.
+        """
+        with self._authority_lock:
+            if not self._is_current_locked(context):
+                return False
+            self._session_identity = identity
+            self._session_handler = handler
+            self._published_session_ip = identity.ip_address
+            self._keepalive_authority = context
+            return True
+
+    def _invalidate_authority(self):
+        """Revoke GUI-visible authority and snapshot its persistent owner."""
+        with self._authority_lock:
+            retiring_ip = self._published_session_ip
+            self._generation += 1
+            self._active_context = None
+            self._keepalive_authority = None
+            return retiring_ip
 
     def _release_session_background(self, *, retiring_ip=None):
         """Publish a non-blocking retirement request and enqueue its owner work.
@@ -586,12 +639,11 @@ class MatrixController(QObject):
         only retirement metadata; session detach and physical disconnect are
         performed later by ``_MatrixRetirementOperation``.
         """
-        retiring_ip = retiring_ip if retiring_ip is not None else self._last_ip
+        if retiring_ip is None:
+            with self._authority_lock:
+                retiring_ip = self._published_session_ip
         if not retiring_ip:
             return
-        with self._retirement_lock:
-            if self._published_session_ip != retiring_ip:
-                return
         context = self._make_retirement_context(retiring_ip)
         key = self._retirement_key(context)
         with self._retirement_lock:
@@ -606,36 +658,38 @@ class MatrixController(QObject):
 
     def _retirement_owner_ip(self, fallback_ip):
         """Return actual persistent transport ownership, not mutable UI state."""
-        with self._retirement_lock:
+        with self._authority_lock:
             return self._published_session_ip or fallback_ip
 
     def _make_cleanup_context(self, *, ip_address=None, credential_revision=None):
-        operation_id = next(self._operation_serial)
-        return MatrixOperationContext(
-            model=MATRIX_DEVICE_NAME,
-            ip_address=ip_address if ip_address is not None else self._last_ip,
-            operation_kind="cleanup",
-            generation=self._generation,
-            operation_id=operation_id,
-            expected_operation_id=operation_id,
-            credential_context_revision=(
-                self._last_credential_revision
-                if credential_revision is None
-                else credential_revision
-            ),
-        )
+        with self._authority_lock:
+            operation_id = next(self._operation_serial)
+            return MatrixOperationContext(
+                model=MATRIX_DEVICE_NAME,
+                ip_address=ip_address if ip_address is not None else self._last_ip,
+                operation_kind="cleanup",
+                generation=self._generation,
+                operation_id=operation_id,
+                expected_operation_id=operation_id,
+                credential_context_revision=(
+                    self._last_credential_revision
+                    if credential_revision is None
+                    else credential_revision
+                ),
+            )
 
     def _make_retirement_context(self, ip_address):
-        operation_id = next(self._operation_serial)
-        return MatrixOperationContext(
-            model=MATRIX_DEVICE_NAME,
-            ip_address=ip_address,
-            operation_kind="retirement",
-            generation=self._generation,
-            operation_id=operation_id,
-            expected_operation_id=operation_id,
-            credential_context_revision=self._last_credential_revision,
-        )
+        with self._authority_lock:
+            operation_id = next(self._operation_serial)
+            return MatrixOperationContext(
+                model=MATRIX_DEVICE_NAME,
+                ip_address=ip_address,
+                operation_kind="retirement",
+                generation=self._generation,
+                operation_id=operation_id,
+                expected_operation_id=operation_id,
+                credential_context_revision=self._last_credential_revision,
+            )
 
     def _disconnect_locked(self):
         if self._session_handler is not None:
@@ -645,15 +699,20 @@ class MatrixController(QObject):
                 pass
         self._session_handler = None
         self._session_identity = None
-        with self._retirement_lock:
+        with self._authority_lock:
             self._published_session_ip = None
+            self._keepalive_authority = None
         self._request_keepalive_stop()
 
     def _request_keepalive_start(self):
+        with self._authority_lock:
+            context = self._keepalive_authority
+        if context is None:
+            return
         if QThread.currentThread() == self.thread():
-            self._start_keepalive_timer()
+            self._start_keepalive_timer(context)
         else:
-            self._startKeepaliveRequested.emit()
+            self._startKeepaliveRequested.emit(context)
 
     def _request_keepalive_stop(self):
         if QThread.currentThread() == self.thread():
@@ -661,8 +720,15 @@ class MatrixController(QObject):
         else:
             self._stopKeepaliveRequested.emit()
 
-    @pyqtSlot()
-    def _start_keepalive_timer(self):
+    @pyqtSlot(object)
+    def _start_keepalive_timer(self, context=None):
+        with self._authority_lock:
+            if (
+                context is None
+                or context != self._keepalive_authority
+                or not self._is_current_locked(context)
+            ):
+                return
         if not self._keepalive_timer.isActive():
             self._keepalive_timer.start()
 
@@ -687,8 +753,9 @@ class MatrixController(QObject):
             handler = self._session_handler
             self._session_handler = None
             self._session_identity = None
-            with self._retirement_lock:
+            with self._authority_lock:
                 self._published_session_ip = None
+                self._keepalive_authority = None
         self._request_keepalive_stop()
         return handler
 
@@ -749,6 +816,11 @@ class MatrixController(QObject):
             event.set()
 
     def _is_current(self, context: MatrixOperationContext) -> bool:
+        with self._authority_lock:
+            return self._is_current_locked(context)
+
+    def _is_current_locked(self, context: MatrixOperationContext) -> bool:
+        """Check context freshness while ``_authority_lock`` is held."""
         current = self._active_context
         if current is None and context.operation_kind in {"keepalive", "cleanup"}:
             return context.generation == self._generation
@@ -790,7 +862,9 @@ class MatrixController(QObject):
                 self.routeAcceptedForOutput.emit(output_num, current)
             return
         if context.operation_kind == "keepalive":
-            self._active_context = None
+            with self._authority_lock:
+                if self._is_current_locked(context) and self._active_context == context:
+                    self._active_context = None
             return
         self._authoritative_input_ids = tuple(data.get("available_input_ids", ()) or ())
         self._authoritative_output_ids = tuple(data.get("available_output_ids", ()) or ())
@@ -853,14 +927,15 @@ class MatrixController(QObject):
         if context.operation_kind == "retirement":
             self.cleanupFinished.emit(context)
             return
-        if not self._is_current(context):
-            return
-        if context.operation_kind in {"route", "quick_refresh", "keepalive", "cleanup"}:
-            if self._active_context == context:
-                self._active_context = None
-            return
-        handle = self._handle(context)
-        self._active_context = None
+        with self._authority_lock:
+            if not self._is_current_locked(context):
+                return
+            if context.operation_kind in {"route", "quick_refresh", "keepalive", "cleanup"}:
+                if self._active_context == context:
+                    self._active_context = None
+                return
+            handle = self._handle(context)
+            self._active_context = None
         self.finishedAccepted.emit(handle)
 
 
@@ -907,8 +982,9 @@ class _MatrixRetirementOperation(QRunnable):
                     handler = self.controller._session_handler
                     self.controller._session_handler = None
                     self.controller._session_identity = None
-                    with self.controller._retirement_lock:
+                    with self.controller._authority_lock:
                         self.controller._published_session_ip = None
+                        self.controller._keepalive_authority = None
             if handler is not None:
                 self.controller._request_keepalive_stop()
 

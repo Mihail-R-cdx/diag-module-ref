@@ -662,6 +662,178 @@ class MatrixControllerTests(unittest.TestCase):
         self.assertFalse(replacement_thread.is_alive())
         self.assertEqual([], errors)
 
+    def test_post_connect_authority_commit_is_atomic_against_gui_replacement(self):
+        """A stale post-connect handler cannot publish between check and commit."""
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        checked_current = threading.Event()
+        release_commit = threading.Event()
+        disconnect_entered = threading.Event()
+        release_disconnect = threading.Event()
+        instances, results = [], []
+        controller.resultAccepted.connect(lambda data, _handle: results.append(data))
+
+        class Handler:
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.ip_address = kwargs["ip_address"]
+                self.connected = False
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_connections(self):
+                return [2]
+
+            def disconnect(self):
+                if self.ip_address == "192.0.2.10":
+                    disconnect_entered.set()
+                    release_disconnect.wait(2)
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, state["candidates"])
+            real_commit = controller._commit_session_authority_locked
+
+            def pause_before_commit(context, identity, handler):
+                if context == first:
+                    self.assertTrue(controller._is_current(context))
+                    checked_current.set()
+                    release_commit.wait(2)
+                return real_commit(context, identity, handler)
+
+            controller._commit_session_authority_locked = pause_before_commit
+            first_thread = threading.Thread(
+                target=controller._run_background_operation, args=(first,)
+            )
+            first_thread.start()
+            self.assertTrue(checked_current.wait(1))
+
+            state["ip"] = "192.0.2.11"
+            replacement = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.11",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(replacement, state["candidates"])
+            release_commit.set()
+            first_thread.join(1)
+
+            self.assertFalse(first_thread.is_alive())
+            self.assertIs(replacement, controller._active_context)
+            self.assertIsNone(controller._session_handler)
+            self.assertIsNone(controller._session_identity)
+            self.assertIsNone(controller._published_session_ip)
+            self.assertEqual([], results)
+
+            cleanup = next(
+                runnable for runnable in pool.runnables
+                if getattr(runnable.context, "operation_kind", None) == "cleanup"
+            )
+            replacement_thread = threading.Thread(
+                target=controller._run_background_operation, args=(replacement,)
+            )
+            replacement_thread.start()
+            cleanup_thread = threading.Thread(target=cleanup.run)
+            cleanup_thread.start()
+            self.assertTrue(disconnect_entered.wait(1))
+            self.assertEqual(["192.0.2.10"], [handler.ip_address for handler in instances])
+
+            release_disconnect.set()
+            cleanup_thread.join(1)
+            replacement_thread.join(1)
+
+        self.assertFalse(cleanup_thread.is_alive())
+        self.assertFalse(replacement_thread.is_alive())
+        self.assertEqual(
+            ["192.0.2.10", "192.0.2.11"],
+            [handler.ip_address for handler in instances],
+        )
+        self.assertIs(replacement, controller._active_context)
+        self.assertEqual("192.0.2.11", controller._published_session_ip)
+        self.assertEqual([], results)
+
+    def test_stale_queued_keepalive_start_cannot_restart_timer(self):
+        """Queued start signals carry the committed context, not signal order."""
+        controller, state, pool = self.make_controller()
+        starts = []
+
+        class Timer:
+            active = False
+
+            def isActive(self):
+                return self.active
+
+            def start(self):
+                starts.append(True)
+                self.active = True
+
+            def stop(self):
+                self.active = False
+
+        class Handler:
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.connected = False
+                self.ip_address = kwargs["ip_address"]
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        controller._keepalive_timer = Timer()
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._submit(first, state["candidates"])
+            first_thread = threading.Thread(target=controller._acquire_session, args=(first, ()))
+            first_thread.start()
+            first_thread.join(1)
+            self.assertFalse(first_thread.is_alive())
+
+            controller.invalidate_context()
+            state["ip"] = "192.0.2.11"
+            replacement = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.11",
+                candidate_index=0,
+                state_changing=False,
+            )
+            self.app.processEvents()
+            self.assertEqual([], starts)
+
+            retirement = next(
+                runnable for runnable in pool.runnables
+                if getattr(runnable.context, "operation_kind", None) == "retirement"
+            )
+            retirement.run()
+            controller._submit(replacement, state["candidates"])
+            controller._acquire_session(replacement, ())
+
+        self.assertEqual([True], starts)
+        self.assertEqual("192.0.2.11", controller._published_session_ip)
+
     def test_public_full_refresh_target_replacement_retires_old_owner_before_b_starts(self):
         """Public A-to-B replacement keeps A's transport identity observable."""
         controller, state, pool = self.make_controller()

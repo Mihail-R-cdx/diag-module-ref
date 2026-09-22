@@ -208,3 +208,12 @@
 - [x] 22.2 Preserve the actual owner identity across public A→B replacement and same-IP credential-revision replacement.
 - [x] 22.3 Add deterministic stale-connect, public target replacement, and revision replacement regressions.
 - [x] 22.4 Run focused/full software and strict OpenSpec validation; hardware remains unchecked.
+
+## 23. Atomic Matrix session authority remediation
+
+- [x] 23.1 Serialize Matrix generation, active-context, endpoint/revision, persistent-session publication, and keepalive authority through a short metadata lock with documented non-blocking lock order.
+- [x] 23.2 Atomically verify exact request currentness and commit persistent Matrix session ownership after `connect()` without enclosing I/O, disconnect, or retirement waits.
+- [x] 23.3 Bind queued keepalive start to the exact committed context so an invalidated queued signal cannot restart the timer.
+- [x] 23.4 Add deterministic post-connect/pre-publication replacement and queued-keepalive regressions; retain stale-connect, target/revision replacement, retirement, and no-replay coverage.
+- [x] 23.5 Run focused/full software and strict OpenSpec validation; hardware remains unchecked.
+- [ ] 23.6 Re-run read-only hardware validation when representative Matrix hardware is available; do not mutate routes.
