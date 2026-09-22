@@ -201,3 +201,10 @@
 - [x] 21.2 Keep retirement acquisition-gating and ensure no waiter holds the serialized owner lock while waiting for retirement completion.
 - [x] 21.3 Add deterministic blocked-I/O invalidation and target/revision replacement regressions; preserve stale waiter and no-replay coverage.
 - [x] 21.4 Run focused/full software and strict OpenSpec validation; hardware remains unchecked.
+
+## 22. Stale connect and target-owner remediation
+
+- [x] 22.1 Retire a handler that becomes stale while `connect()` is in progress without publishing persistent session or keepalive authority.
+- [x] 22.2 Preserve the actual owner identity across public A→B replacement and same-IP credential-revision replacement.
+- [x] 22.3 Add deterministic stale-connect, public target replacement, and revision replacement regressions.
+- [x] 22.4 Run focused/full software and strict OpenSpec validation; hardware remains unchecked.

@@ -197,7 +197,7 @@ class MatrixController(QObject):
         self._stopKeepaliveRequested.connect(self._stop_keepalive_timer)
 
     def invalidate_context(self):
-        retiring_ip = self._last_ip
+        retiring_ip = self._retirement_owner_ip(self._last_ip)
         self._generation += 1
         self._active_context = None
         self._request_keepalive_stop()
@@ -205,7 +205,7 @@ class MatrixController(QObject):
 
     def shutdown(self):
         """Retire active work/session asynchronously on the Matrix owner lane."""
-        retiring_ip = self._last_ip
+        retiring_ip = self._retirement_owner_ip(self._last_ip)
         self._generation += 1
         self._active_context = None
         self._request_keepalive_stop()
@@ -213,7 +213,6 @@ class MatrixController(QObject):
 
     def request_full_refresh(self, ip_address: str, candidates, candidate_index: int):
         self._last_model = MATRIX_DEVICE_NAME
-        self._last_ip = ip_address
         context = self._make_context(
             operation_kind="full_refresh",
             ip_address=ip_address,
@@ -328,7 +327,9 @@ class MatrixController(QObject):
         ):
             # Snapshot the old endpoint before publishing the replacement
             # context.  The GUI must not acquire either transport lock here.
-            self._release_session_background(retiring_ip=self._last_ip)
+            self._release_session_background(
+                retiring_ip=self._retirement_owner_ip(self._last_ip)
+            )
         self._last_ip = ip_address
         self._last_credential_revision = revision
         self._active_context = context
@@ -563,6 +564,14 @@ class MatrixController(QObject):
                     self._reserve_retirement_locked(context, handler),
                 )
                 raise
+            if not self._is_current(context):
+                # connect() can return after GUI invalidation.  The connected
+                # transport is real but stale, so publish its cleanup boundary
+                # before releasing serialized ownership.  It must never become
+                # reusable persistent session authority or start keepalive.
+                retirement = self._reserve_retirement_locked(context, handler)
+                self._schedule_retirement(retirement)
+                raise MatrixOperationSuperseded()
             self._session_identity = identity
             self._session_handler = handler
             with self._retirement_lock:
@@ -595,16 +604,25 @@ class MatrixController(QObject):
             _MatrixRetirementOperation(self, MatrixRetirementRequest(context, key, event))
         )
 
-    def _make_cleanup_context(self):
+    def _retirement_owner_ip(self, fallback_ip):
+        """Return actual persistent transport ownership, not mutable UI state."""
+        with self._retirement_lock:
+            return self._published_session_ip or fallback_ip
+
+    def _make_cleanup_context(self, *, ip_address=None, credential_revision=None):
         operation_id = next(self._operation_serial)
         return MatrixOperationContext(
             model=MATRIX_DEVICE_NAME,
-            ip_address=self._last_ip,
+            ip_address=ip_address if ip_address is not None else self._last_ip,
             operation_kind="cleanup",
             generation=self._generation,
             operation_id=operation_id,
             expected_operation_id=operation_id,
-            credential_context_revision=self._last_credential_revision,
+            credential_context_revision=(
+                self._last_credential_revision
+                if credential_revision is None
+                else credential_revision
+            ),
         )
 
     def _make_retirement_context(self, ip_address):
@@ -710,7 +728,12 @@ class MatrixController(QObject):
                 self._retirement_events[key] = event
             self._retirement_cleanup_events.add((key, event))
         cleanup_context = (
-            context if context.operation_kind == "cleanup" else self._make_cleanup_context()
+            context
+            if context.operation_kind == "cleanup"
+            else self._make_cleanup_context(
+                ip_address=context.ip_address,
+                credential_revision=context.credential_context_revision,
+            )
         )
         return MatrixRetirement(cleanup_context, handler, key, event)
 

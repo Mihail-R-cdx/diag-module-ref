@@ -564,6 +564,207 @@ class MatrixControllerTests(unittest.TestCase):
             retirement_thread.join(1)
             self.assertFalse(retirement_thread.is_alive())
 
+    def test_invalidation_during_connect_retires_stale_handler_without_publication(self):
+        """A connected-but-stale handler cannot become persistent authority."""
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_stop = lambda: None
+        keepalive_starts = []
+        controller._request_keepalive_start = lambda: keepalive_starts.append(True)
+        connect_entered = threading.Event()
+        release_connect = threading.Event()
+        disconnect_entered = threading.Event()
+        release_disconnect = threading.Event()
+        instances = []
+        errors = []
+        controller.errorAccepted.connect(lambda *args: errors.append(args))
+
+        class BlockingConnectHandler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = False
+                self.index = len(instances)
+                instances.append(self)
+
+            def connect(self):
+                connect_entered.set()
+                release_connect.wait(2)
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def get_connections(self):
+                return [2]
+
+            def disconnect(self):
+                disconnect_entered.set()
+                if self.index == 0:
+                    release_disconnect.wait(2)
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", BlockingConnectHandler):
+            stale = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            stale_thread = threading.Thread(
+                target=controller._run_background_operation, args=(stale,)
+            )
+            stale_thread.start()
+            self.assertTrue(connect_entered.wait(1))
+
+            invalidation_thread = threading.Thread(target=controller.invalidate_context)
+            invalidation_thread.start()
+            invalidation_thread.join(0.2)
+            self.assertFalse(invalidation_thread.is_alive())
+            self.assertIsNone(controller._active_context)
+            self.assertFalse(disconnect_entered.is_set())
+
+            release_connect.set()
+            stale_thread.join(1)
+            self.assertFalse(stale_thread.is_alive())
+            self.assertIsNone(controller._session_handler)
+            self.assertIsNone(controller._session_identity)
+            self.assertIsNone(controller._published_session_ip)
+            self.assertEqual([], keepalive_starts)
+            key = controller._retirement_key(stale)
+            with controller._retirement_lock:
+                self.assertIn(key, controller._retirement_events)
+
+            replacement = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            replacement_thread = threading.Thread(
+                target=controller._run_background_operation, args=(replacement,)
+            )
+            replacement_thread.start()
+            self.assertEqual(1, len(instances))
+
+            cleanup = next(
+                runnable for runnable in pool.runnables
+                if getattr(runnable.context, "operation_kind", None) == "cleanup"
+            )
+            cleanup_thread = threading.Thread(target=cleanup.run)
+            cleanup_thread.start()
+            self.assertTrue(disconnect_entered.wait(1))
+            self.assertEqual(1, len(instances))
+            release_disconnect.set()
+            cleanup_thread.join(1)
+            replacement_thread.join(1)
+
+        self.app.processEvents()
+        self.assertFalse(cleanup_thread.is_alive())
+        self.assertFalse(replacement_thread.is_alive())
+        self.assertEqual([], errors)
+
+    def test_public_full_refresh_target_replacement_retires_old_owner_before_b_starts(self):
+        """Public A-to-B replacement keeps A's transport identity observable."""
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        instances = []
+
+        class Handler:
+            def __init__(self, **kwargs):
+                self.log_callback = None
+                self.ip_address = kwargs["ip_address"]
+                self.connected = False
+                instances.append(self)
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._acquire_session(first, ())
+            self.assertEqual("192.0.2.10", controller._session_identity.ip_address)
+            self.assertEqual("192.0.2.10", controller._published_session_ip)
+
+            controller.request_full_refresh("192.0.2.11", state["candidates"], 0)
+            current = controller._active_context
+            self.assertEqual("192.0.2.11", current.ip_address)
+            old_key = controller._retirement_key(first)
+            with controller._retirement_lock:
+                self.assertIn(old_key, controller._retirement_events)
+
+            controller.invalidate_context()
+            self.assertIsNone(controller._active_context)
+            with controller._retirement_lock:
+                self.assertIn(old_key, controller._retirement_events)
+
+            stale_b = next(
+                runnable for runnable in pool.runnables
+                if getattr(runnable.context, "ip_address", None) == "192.0.2.11"
+                and getattr(runnable.context, "operation_kind", None) == "full_refresh"
+            )
+            stale_b.run()
+            self.assertEqual(1, len(instances))
+
+            retirement = next(
+                runnable for runnable in pool.runnables
+                if getattr(runnable.context, "operation_kind", None) == "retirement"
+            )
+            retirement.run()
+
+        self.assertIsNone(controller._session_handler)
+        self.assertIsNone(controller._session_identity)
+        self.assertIsNone(controller._published_session_ip)
+
+    def test_public_same_ip_revision_replacement_publishes_retirement_for_old_session(self):
+        controller, state, pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                self.log_callback = None
+                self.connected = False
+
+            def connect(self):
+                self.connected = True
+
+            def is_connected(self):
+                return self.connected
+
+            def disconnect(self):
+                self.connected = False
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            first = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._acquire_session(first, ())
+            state["revision"] = 2
+
+            controller.request_full_refresh("192.0.2.10", state["candidates"], 0)
+
+        self.assertEqual(2, controller._active_context.credential_context_revision)
+        with controller._retirement_lock:
+            self.assertIn(controller._retirement_key(first), controller._retirement_events)
+        self.assertTrue(any(
+            getattr(runnable.context, "operation_kind", None) == "retirement"
+            for runnable in pool.runnables
+        ))
+
     def test_replacement_target_waits_for_published_retirement_without_owner_lock_cycle(self):
         """A new endpoint cannot bypass retirement even when scheduled first."""
         controller, state, pool = self.make_controller()
