@@ -3136,6 +3136,11 @@ class VCSDiagnosticApp(QMainWindow):
             self.ip_entry.text().strip() if hasattr(self, "ip_entry") else "",
         )
 
+    @staticmethod
+    def _is_matrix_device(device_name):
+        """Use the exact registered screen classification for Matrix policy."""
+        return screen_key_for_model(device_name) == "matrix"
+
     def _matrix_credential_candidates(self, device_name, ip_address):
         active_request = self.__dict__.get("_active_request") or {}
         candidates = None
@@ -3217,7 +3222,7 @@ class VCSDiagnosticApp(QMainWindow):
             self._clear_room_diagnostic_session("credential_context_changed")
 
         if (
-            device_name == MATRIX_DEVICE_NAME
+            self._is_matrix_device(device_name)
             and self._active_request_matches_model_ip(device_name, normalized_ip)
         ):
             self._matrix_credential_context_revision = (
@@ -3634,7 +3639,7 @@ class VCSDiagnosticApp(QMainWindow):
             codec_screen.reset_volume_session()
         if codec_screen and hasattr(codec_screen, 'stop_te20_monitor_audio_polling'):
             codec_screen.stop_te20_monitor_audio_polling()
-        if device_name != MATRIX_DEVICE_NAME:
+        if not self._is_matrix_device(device_name):
             self.matrix_controller.invalidate_context()
 
         screen_type = entry.screen_key
@@ -3868,7 +3873,7 @@ class VCSDiagnosticApp(QMainWindow):
         return (
             self.is_vcs_codec_device(device_name)
             or VCSDiagnosticApp._is_pcs4i_device(device_name)
-            or device_name == MATRIX_DEVICE_NAME
+            or VCSDiagnosticApp._is_matrix_device(device_name)
             or device_name == "Biamp Tesira Forte CI"
         )
 
@@ -4187,14 +4192,12 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_huawei_te20(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Polycom RPG 310":
             self.refresh_polycom_rpg310(ip_address, credential_snapshot=credential_snapshot)
-        elif device_name == "Extron IN1804":
-            self.refresh_extron_in1804(ip_address, credential_snapshot=credential_snapshot)
+        elif self._is_matrix_device(device_name):
+            self.refresh_matrix_data(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Biamp Tesira Forte CI":
             self.refresh_biamp_tesira_forte_ci(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Extron DMP 64 Plus":
             self.refresh_extron_dmp64_plus(ip_address, credential_snapshot=credential_snapshot)
-        elif device_type == "matrix":
-            self.refresh_matrix_data(ip_address, credential_snapshot=credential_snapshot)
         else:
             QMessageBox.information(
                 self,
@@ -4822,7 +4825,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setEnabled(True)
                 self.refresh_btn.setText("Обновить данные")
 
-    def refresh_extron_in1804(
+    def refresh_matrix_data(
         self,
         ip_address: str,
         *,
@@ -4830,8 +4833,8 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list=None,
         current_idx=None,
     ):
-        """Обновление данных Extron IN1804 с перебором credentials"""
-        print(f"=== Начинаю обновление Extron IN1804 для {ip_address} ===")
+        """Refresh any registered Matrix through the one MatrixController path."""
+        print(f"=== Начинаю обновление Matrix для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
             QMessageBox.warning(self, "Неверный IP адрес", "Введите корректный IP адрес.")
@@ -4881,6 +4884,10 @@ class VCSDiagnosticApp(QMainWindow):
             if hasattr(self, 'refresh_btn'):
                 self.refresh_btn.setEnabled(True)
                 self.refresh_btn.setText("Обновить данные")
+
+    def refresh_extron_in1804(self, ip_address: str, **kwargs):
+        """Compatibility entry point; Matrix policy uses ``refresh_matrix_data``."""
+        return self.refresh_matrix_data(ip_address, **kwargs)
 
     def refresh_aten_pdu(self, ip_address: str):
         """Start one Aten PDU attempt with the GUI-selected credential."""
@@ -5193,18 +5200,18 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = getattr(worker, 'creds_list', []) if worker else []
         if (
             worker
-            and getattr(worker, 'device_name', None) == MATRIX_DEVICE_NAME
+            and VCSDiagnosticApp._is_matrix_device(getattr(worker, 'device_name', None))
             and not creds_list
         ):
             creds_list = self._matrix_credential_candidates(
-                MATRIX_DEVICE_NAME,
+                getattr(worker, 'device_name', None),
                 getattr(worker, 'ip_address', None),
             )
         error = redact_exception(
             error,
             VCSDiagnosticApp._credential_secrets(creds_list),
         )
-        if worker and getattr(worker, 'device_name', None) == "Extron IN1804":
+        if worker and VCSDiagnosticApp._is_matrix_device(getattr(worker, 'device_name', None)):
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
         elif worker and getattr(worker, 'device_name', None) == "Huawei TE20":
             self.finish_te20_terminal(f"Опрос завершён с ошибкой: {error}")
@@ -5291,8 +5298,8 @@ class VCSDiagnosticApp(QMainWindow):
                             creds_list=creds_list,
                             current_idx=next_idx,
                         )
-                    elif device_name == "Extron IN1804":
-                        self.refresh_extron_in1804(
+                    elif VCSDiagnosticApp._is_matrix_device(device_name):
+                        self.refresh_matrix_data(
                             worker.ip_address,
                             creds_list=creds_list,
                             current_idx=next_idx,

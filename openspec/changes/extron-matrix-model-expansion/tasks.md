@@ -217,3 +217,12 @@
 - [x] 23.4 Add deterministic post-connect/pre-publication replacement and queued-keepalive regressions; retain stale-connect, target/revision replacement, retirement, and no-replay coverage.
 - [x] 23.5 Run focused/full software and strict OpenSpec validation; hardware remains unchecked.
 - [ ] 23.6 Re-run read-only hardware validation when representative Matrix hardware is available; do not mutate routes.
+
+## 24. Independent-validation route and credential remediation
+
+- [x] 24.1 Keep standalone missing route evidence UNKNOWN and non-actionable.
+- [x] 24.2 Prevent stale legacy route projection from authorizing standalone intent.
+- [x] 24.3 Generalize supported Matrix credential retry/invalidation through unified Matrix classification.
+- [x] 24.4 Add DTP/XTP/IN-family structured-auth retry regressions and misleading-error negative coverage.
+- [x] 24.5 Run focused/full software, strict OpenSpec, and Git validation.
+- [ ] 24.6 Hardware remains not run unless representative hardware is intentionally tested read-only.

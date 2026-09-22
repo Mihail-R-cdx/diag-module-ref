@@ -64,21 +64,62 @@ class MatrixScreen(BaseScreen):
     def _name(self, names, item, fallback):
         if isinstance(names, dict): return names.get(item) or fallback
         return names[item - 1] if isinstance(names, (list, tuple)) and item - 1 < len(names) and names[item - 1] else fallback
+
+    def _route_state(self, output_id, input_id):
+        """Return the fail-closed route semantic for one visible cell.
+
+        ``None`` is deliberately not an explicit untied value here.  The
+        standalone snapshot format has no canonical marker that distinguishes
+        it from absent or malformed route evidence.
+        """
+        data = self.matrix_data if isinstance(self.matrix_data, dict) else {}
+        routes = data.get("routes")
+        route = None
+        has_route_evidence = False
+        if isinstance(routes, dict) and output_id in routes:
+            route = routes[output_id]
+            has_route_evidence = True
+        elif (
+            output_id == 1
+            and len(self.available_output_ids) == 1
+            and "current_connection" in data
+        ):
+            route = data["current_connection"]
+            has_route_evidence = True
+
+        if not has_route_evidence or not isinstance(route, int) or route not in self.available_input_ids:
+            return "UNKNOWN"
+        return "ACTIVE" if route == input_id else "KNOWN_OTHER"
+
+    @staticmethod
+    def _route_item(semantic):
+        if semantic == "ACTIVE":
+            item = MatrixScreen._status_item(True, COLORS["primary"], "Активное подключение", "Активное подключение")
+            tooltip = "Активное подключение"
+        elif semantic == "KNOWN_OTHER":
+            item = MatrixScreen._status_item(False, COLORS["primary"], "Нет подключения", "Нет подключения")
+            tooltip = "Нет подключения"
+        else:
+            item = MatrixScreen._status_item(False, COLORS["primary"], "Нет данных", "Нет данных")
+            tooltip = "Нет данных"
+        item.setData(Qt.UserRole, semantic)
+        item.setToolTip(tooltip)
+        return item
+
     def fill_matrix_table(self):
         if self.matrix_table is None: return
         data = self.matrix_data or {}; self.matrix_table.setRowCount(len(self.available_input_ids)); self.matrix_table.setColumnCount(3 + len(self.available_output_ids))
-        signal = data.get("signal_presence", {}); legacy_signal = data.get("signal_status", {}); hdcp = data.get("input_hdcp", {}); routes = data.get("routes", {})
-        if not routes and self.available_output_ids == [1]: routes = {1: data.get("current_connection", self.current_connection)}
+        signal = data.get("signal_presence", {}); legacy_signal = data.get("signal_status", {}); hdcp = data.get("input_hdcp", {})
         for row, input_id in enumerate(self.available_input_ids):
             legacy = legacy_signal.get(input_id, {}) if isinstance(legacy_signal, dict) else {}; present = signal.get(input_id, legacy.get("has_signal") if isinstance(legacy, dict) else None) if isinstance(signal, dict) else None
             self.matrix_table.setItem(row, 0, self._status_item(present is True, COLORS["success"], "Сигнал присутствует", "Нет сигнала" if data else "Нет данных"))
             state = hdcp.get(input_id) if isinstance(hdcp, dict) else None
             self.matrix_table.setItem(row, 1, self._hdcp_item(state))
             name = QTableWidgetItem(self._name(self.input_names, input_id, "Input %s" % input_id)); name.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter); self.matrix_table.setItem(row, 2, name)
-            for column, output_id in enumerate(self.available_output_ids, 3): self.matrix_table.setItem(row, column, self._status_item(routes.get(output_id) == input_id, COLORS["primary"], "Активное подключение", "Нет подключения"))
+            for column, output_id in enumerate(self.available_output_ids, 3): self.matrix_table.setItem(row, column, self._route_item(self._route_state(output_id, input_id)))
     def update_data(self, data=None):
         if not data: self.fill_matrix_table(); return
-        self.matrix_data = data; self.available_input_ids = list(data.get("available_input_ids", range(1, int(data.get("inputs_num") or 0) + 1))); self.available_output_ids = list(data.get("available_output_ids", range(1, int(data.get("outputs_num") or 1) + 1))); self.inputs_num = len(self.available_input_ids); self.outputs_num = len(self.available_output_ids); self.input_names = data.get("input_names", {}); self.output_names = data.get("output_names", {}); self.current_connection = data.get("current_connection", self.current_connection)
+        self.matrix_data = data; self.available_input_ids = list(data.get("available_input_ids", range(1, int(data.get("inputs_num") or 0) + 1))); self.available_output_ids = list(data.get("available_output_ids", range(1, int(data.get("outputs_num") or 1) + 1))); self.inputs_num = len(self.available_input_ids); self.outputs_num = len(self.available_output_ids); self.input_names = data.get("input_names", {}); self.output_names = data.get("output_names", {}); self.current_connection = data.get("current_connection")
         self.update_table_headers(); self.fill_matrix_table(); self.model_value.set_value(data.get("model") or "Unknown"); temperature = data.get("temperature"); self.temp_value.set_value("%s°C" % temperature if temperature is not None else "—"); self.protocol_value.set_value(data.get("connection_protocol", "Unknown"))
     def update_table_headers(self):
         if self.matrix_table is None: return
@@ -88,7 +129,11 @@ class MatrixScreen(BaseScreen):
         for column in range(3, 3 + len(names)): header.setSectionResizeMode(column, QHeaderView.Stretch)
     def on_output_cell_clicked(self, row, column):
         if column < 3 or row < 0 or row >= len(self.available_input_ids) or column - 3 >= len(self.available_output_ids): return
-        self.routeRequested.emit(self.available_output_ids[column - 3], self.available_input_ids[row])
+        output_id = self.available_output_ids[column - 3]
+        input_id = self.available_input_ids[row]
+        if self._route_state(output_id, input_id) != "KNOWN_OTHER":
+            return
+        self.routeRequested.emit(output_id, input_id)
     def update_info_panel(self):
         if self.matrix_data: self.update_data(self.matrix_data)
     def update_connection_display(self): self.fill_matrix_table()

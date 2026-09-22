@@ -326,6 +326,83 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual([(1, 1)], intents)
 
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_missing_route_map_is_unknown_and_non_actionable(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1], "available_output_ids": [1], "routes": {}})
+
+        cell = screen.matrix_table.item(0, 3)
+        self.assertEqual("UNKNOWN", cell.data(Qt.UserRole))
+        self.assertEqual("Нет данных", cell.toolTip())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_missing_or_none_legacy_route_is_unknown_and_non_actionable(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        for snapshot in (
+            {"inputs_num": 1, "available_output_ids": [1]},
+            {"inputs_num": 1, "available_output_ids": [1], "current_connection": None},
+        ):
+            with self.subTest(snapshot=snapshot):
+                screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+                intents = []
+                screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+                screen.update_data(snapshot)
+                self.assertEqual("UNKNOWN", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+                screen.on_output_cell_clicked(0, 3)
+                self.assertEqual([], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_known_other_is_actionable_but_active_route_is_not(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {1: 2}})
+        self.assertEqual("KNOWN_OTHER", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {1: 1}})
+        self.assertEqual("ACTIVE", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_new_unknown_snapshot_cannot_reuse_stale_route_or_authorize_click(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {1: 2}})
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {}})
+        self.assertEqual("UNKNOWN", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_multi_output_unknown_route_is_not_actionable(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1, 2], "routes": {1: 2}})
+        self.assertEqual("KNOWN_OTHER", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        self.assertEqual("UNKNOWN", screen.matrix_table.item(0, 4).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        screen.on_output_cell_clicked(0, 4)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
     def test_canonical_in1804_hdcp_state_reaches_standalone_matrix_table(self):
         from gui.screens.matrix_screen import MatrixScreen
         screen = MatrixScreen(); self.addCleanup(screen.deleteLater)

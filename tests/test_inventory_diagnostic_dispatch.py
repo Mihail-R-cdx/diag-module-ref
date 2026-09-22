@@ -432,7 +432,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
             ("Huawei TE40", "refresh_huawei_te40"),
             ("CloudLink Bar 310", "refresh_huawei_bar310"),
             ("Polycom RPG 310", "refresh_polycom_rpg310"),
-            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Extron IN1804", "refresh_matrix_data"),
             ("Aten PE8208AV", "pdu"),
             ("Extron IPL T PCS4i", "pdu"),
             ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
@@ -465,7 +465,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
     def test_empty_credential_chain_blocks_auth_required_models_before_reachability(self):
         cases = (
             ("Huawei TE40", "refresh_huawei_te40"),
-            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Extron IN1804", "refresh_matrix_data"),
             ("Aten PE8208AV", "pdu"),
             ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
             ("Extron DMP 64 Plus", "refresh_extron_dmp64_plus"),
@@ -561,7 +561,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
             ("Huawei TE40", "refresh_huawei_te40", {"username": "first", "password": "old-1"}),
             ("CloudLink Bar 310", "refresh_huawei_bar310", {"username": "first", "password": "old-1"}),
             ("Polycom RPG 310", "refresh_polycom_rpg310", {"username": "first", "password": "old-1"}),
-            ("Extron IN1804", "refresh_extron_in1804", {"username": "first", "password": "old-1"}),
+            ("Extron IN1804", "refresh_matrix_data", {"username": "first", "password": "old-1"}),
             ("Aten PE8208AV", "pdu", {"username": "first", "password": "old-1"}),
             ("Extron IPL T PCS4i", "pdu", {"password": "old-1"}),
             ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci", {"username": "first", "password": "old-1"}),
@@ -824,7 +824,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
     def test_supersede_after_reachability_handoff_preserves_active_lifecycle_ui(self):
         cases = (
             ("Huawei TE40", "refresh_huawei_te40"),
-            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Extron IN1804", "refresh_matrix_data"),
             ("Aten PE8208AV", "pdu"),
             ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),
             ("Extron DMP 64 Plus", "refresh_extron_dmp64_plus"),
@@ -923,7 +923,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
     def test_failed_reachability_blocks_all_lifecycle_categories(self):
         cases = (
             ("Huawei TE40", "refresh_huawei_te40"),
-            ("Extron IN1804", "refresh_extron_in1804"),
+            ("Extron IN1804", "refresh_matrix_data"),
             ("Aten PE8208AV", "pdu"),
             ("Extron IPL T PCS4i", "pdu"),
             ("Biamp Tesira Forte CI", "refresh_biamp_tesira_forte_ci"),

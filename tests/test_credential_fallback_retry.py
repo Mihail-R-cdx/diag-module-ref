@@ -30,6 +30,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             "refresh_huawei_bar310",
             "refresh_polycom_rpg310",
             "refresh_extron_in1804",
+            "refresh_matrix_data",
             "refresh_aten_pdu",
             "refresh_biamp_tesira_forte_ci",
         ):
@@ -56,6 +57,11 @@ class CredentialFallbackRetryTests(unittest.TestCase):
     def biamp_worker(self, index=0, total=5):
         worker = self.worker(index=index, total=total)
         worker.device_name = "Biamp Tesira Forte CI"
+        return worker
+
+    def matrix_worker(self, model, index=0, total=2):
+        worker = self.worker(index=index, total=total)
+        worker.device_name = model
         return worker
 
     def prepare_data_window(self, worker):
@@ -414,7 +420,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
             "Huawei TE40": "refresh_huawei_te40",
             "CloudLink Bar 310": "refresh_huawei_bar310",
             "Polycom RPG 310": "refresh_polycom_rpg310",
-            "Extron IN1804": "refresh_extron_in1804",
+            "Extron IN1804": "refresh_matrix_data",
             "Biamp Tesira Forte CI": "refresh_biamp_tesira_forte_ci",
         }
         for device_name, method_name in refresh_methods.items():
@@ -650,6 +656,78 @@ class CredentialFallbackRetryTests(unittest.TestCase):
                     self.assertNotIn(secret, public_text)
                 self.assertIn("<redacted>", terminal_text)
 
+    def test_supported_matrix_models_use_the_same_structured_retry_path(self):
+        for model in (
+            "Extron DTP CrossPoint 108 4K",
+            "Extron XTP II CrossPoint 1600",
+            "Extron IN1808",
+        ):
+            with self.subTest(model=model):
+                window = self.make_window()
+                worker = self.matrix_worker(model)
+                window.current_worker = worker
+                window.refresh_matrix_data.side_effect = lambda *_args, **_kwargs: setattr(window, "current_worker", object())
+
+                window.on_device_error(("authentication_error", "rejected", ""), worker, 1)
+
+                window.refresh_matrix_data.assert_called_once_with(
+                    "192.0.2.10", creds_list=worker.creds_list, current_idx=1
+                )
+                window.refresh_extron_in1804.assert_not_called()
+                self.assertEqual(1, window._credential_attempt_plans[f"{model}|192.0.2.10"].current_index)
+                window.set_current_credential_index.assert_not_called()
+
+    def test_new_matrix_protocol_error_with_auth_like_text_does_not_fallback(self):
+        window = self.make_window()
+        worker = self.matrix_worker("Extron DTP CrossPoint 108 4K")
+        window.current_worker = worker
+
+        with patch.object(QMessageBox, "critical"):
+            window.on_device_error(("protocol_error", "401 auth failure", ""), worker, 1)
+
+        window.refresh_matrix_data.assert_not_called()
+        window.set_current_credential_index.assert_not_called()
+
+    def test_new_matrix_saved_index_advances_only_through_its_remaining_suffix(self):
+        window = self.make_window()
+        model = "Extron DTP CrossPoint 108 4K"
+        first_worker = self.matrix_worker(model, index=1, total=3)
+        window.current_worker = first_worker
+        attempted = [1]
+
+        def start_next(*_args, **kwargs):
+            next_index = kwargs["current_idx"]
+            attempted.append(next_index)
+            window.current_worker = self.matrix_worker(model, index=next_index, total=3)
+
+        window.refresh_matrix_data.side_effect = start_next
+        window.on_device_error(("authentication_error", "rejected", ""), first_worker, 1)
+        terminal_worker = window.current_worker
+        with patch.object(QMessageBox, "warning"):
+            window.on_device_error(("authentication_error", "rejected", ""), terminal_worker, 1)
+
+        self.assertEqual([1, 2], attempted)
+        window.set_current_credential_index.assert_not_called()
+        self.assertNotIn(f"{model}|192.0.2.10", window._credential_attempt_plans)
+
+    def test_new_matrix_credential_change_invalidates_active_matrix_context(self):
+        window = self.make_window()
+        window._active_request = {
+            "id": 1,
+            "device": "Extron XTP II CrossPoint 1600",
+            "ip": "192.0.2.10",
+            "screen": None,
+        }
+        window.matrix_controller = Mock()
+        window._matrix_credential_context_revision = 4
+
+        VCSDiagnosticApp._on_credential_configuration_changed(
+            window, "Extron XTP II CrossPoint 1600", "192.0.2.10"
+        )
+
+        self.assertEqual(5, window._matrix_credential_context_revision)
+        window.matrix_controller.invalidate_context.assert_called_once_with()
+
 
 class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
     def make_window(self):
@@ -665,6 +743,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         window.set_current_credential_index = Mock()
         window.refresh_pdu = Mock()
         window.refresh_extron_in1804 = Mock()
+        window.refresh_matrix_data = Mock()
         window.finish_matrix_terminal = Mock()
         window.refresh_btn = Mock()
         window.screens = {}
@@ -1069,7 +1148,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         )
         self.assertEqual(1, next_index)
 
-        VCSDiagnosticApp.refresh_extron_in1804(window, ip_address)
+        VCSDiagnosticApp.refresh_matrix_data(window, ip_address)
 
         window.matrix_controller.request_full_refresh.assert_called_once_with(
             ip_address,
@@ -1096,7 +1175,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         )
 
         window.on_device_error(("authentication_error", "bad 0", ""), window.current_worker, 1)
-        self.assertEqual(1, window.refresh_extron_in1804.call_count)
+        self.assertEqual(1, window.refresh_matrix_data.call_count)
         self.assertEqual(
             1,
             window._credential_attempt_plans[
@@ -1118,7 +1197,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
                 1,
             )
 
-        self.assertEqual(1, window.refresh_extron_in1804.call_count)
+        self.assertEqual(1, window.refresh_matrix_data.call_count)
         self.assertNotIn(
             f"{device_name}|{ip_address}",
             window.__dict__.get("_credential_attempt_plans", {}),
@@ -1200,7 +1279,7 @@ class PCS4iCredentialFallbackRetryTests(unittest.TestCase):
         with patch("gui.matrix_controller.ExtronIN1804Handler", FakeHandler):
             with patch("gui.matrix_controller.ExtronIN1804DataParser") as parser:
                 parser.return_value.parse.return_value = {"model": "IN1804"}
-                VCSDiagnosticApp.refresh_extron_in1804(
+                VCSDiagnosticApp.refresh_matrix_data(
                     window,
                     ip_address,
                     creds_list=frozen,
