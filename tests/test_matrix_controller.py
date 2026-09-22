@@ -180,6 +180,61 @@ class MatrixControllerTests(unittest.TestCase):
             self.assertIs(next_handler, controller._session_handler)
             self.assertEqual(2, len(instances))
 
+    def test_retirement_waiter_superseded_before_release_never_constructs_handler(self):
+        """A waiter that becomes stale at the barrier has no acquisition authority."""
+        controller, _state, _pool = self.make_controller()
+        controller._request_keepalive_start = lambda: None
+        controller._request_keepalive_stop = lambda: None
+        wait_entered = threading.Event()
+        constructed, results, errors = [], [], []
+        controller.resultAccepted.connect(lambda data, _handle: results.append(data))
+        controller.errorAccepted.connect(lambda error, _handle: errors.append(error))
+
+        class ObservedBarrier(threading.Event):
+            def wait(self, timeout=None):
+                wait_entered.set()
+                return super().wait(timeout)
+
+        class Handler:
+            def __init__(self, **_kwargs):
+                constructed.append(self)
+
+        with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            waiter = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            barrier = ObservedBarrier()
+            key = controller._retirement_key(waiter)
+            with controller._retirement_lock:
+                controller._retirement_events[key] = barrier
+
+            waiter_thread = threading.Thread(
+                target=controller._run_background_operation,
+                args=(waiter,),
+            )
+            waiter_thread.start()
+            self.assertTrue(wait_entered.wait(1))
+
+            replacement = controller._make_context(
+                operation_kind="quick_refresh",
+                ip_address="192.0.2.10",
+                candidate_index=0,
+                state_changing=False,
+            )
+            controller._complete_retirement(key, barrier)
+            waiter_thread.join(1)
+            self.app.processEvents()
+
+        self.assertFalse(waiter_thread.is_alive())
+        self.assertEqual([], constructed)
+        self.assertEqual([], results)
+        self.assertEqual([], errors)
+        self.assertIsNone(controller._session_handler)
+        self.assertIs(controller._active_context, replacement)
+
     def test_read_only_acquisition_fails_closed_after_retirement_timeout(self):
         from core.exceptions import ProtocolError
 
@@ -561,6 +616,8 @@ class MatrixControllerTests(unittest.TestCase):
         release_first = threading.Event()
         disconnect_started = threading.Event()
         release_disconnect = threading.Event()
+        schedule_entered = threading.Event()
+        release_schedule = threading.Event()
         second_used_new_handler = threading.Event()
         instances = []
         calls = []
@@ -595,6 +652,14 @@ class MatrixControllerTests(unittest.TestCase):
                     release_disconnect.wait(2)
 
         with patch("gui.matrix_controller.ExtronIN1804Handler", Handler):
+            original_schedule = controller._schedule_retirement
+
+            def blocked_schedule(retirement):
+                schedule_entered.set()
+                release_schedule.wait(2)
+                original_schedule(retirement)
+
+            controller._schedule_retirement = blocked_schedule
             first = controller._make_context(
                 operation_kind="quick_refresh",
                 ip_address="192.0.2.10",
@@ -623,6 +688,15 @@ class MatrixControllerTests(unittest.TestCase):
             second_thread.start()
 
             release_first.set()
+            self.assertTrue(schedule_entered.wait(1))
+            key = controller._retirement_key(first)
+            with controller._retirement_lock:
+                self.assertIn(key, controller._retirement_events)
+                self.assertFalse(controller._retirement_events[key].is_set())
+            self.assertFalse(second_used_new_handler.wait(0.05))
+            self.assertEqual(1, len(instances))
+
+            release_schedule.set()
             first_thread.join(1)
             cleanup = next(
                 runnable for runnable in pool.runnables

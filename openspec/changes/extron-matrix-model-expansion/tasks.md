@@ -186,3 +186,11 @@
 - [x] 19.3 Keep legacy IN1804 missing route evidence semantically UNKNOWN and non-actionable.
 - [x] 19.4 Reconcile historical `60-1381-23` wording with the documented exact alias and add focused retirement/legacy-route regressions.
 - [ ] 19.5 Perform read-only hardware QA when fixtures are available; do not record PASS without a run and do not mutate routes.
+
+## 20. Atomic Matrix retirement publication remediation
+
+- [x] 20.1 Publish the per-endpoint retirement barrier while the serialized Matrix ownership boundary is still held, before scheduling detached physical cleanup.
+- [x] 20.2 Reject a waiter that becomes stale while awaiting retirement before credential lookup, handler construction, connection, or SIS I/O, without emitting a replacement-context failure.
+- [x] 20.3 Add deterministic regressions for the detach-to-background publication gap and stale-after-wait acquisition rejection.
+- [x] 20.4 Run focused controller, Matrix UI, room-equipment and profile regressions; then run the full offline suite and strict OpenSpec validation.
+- [ ] 20.5 Re-run read-only hardware validation when representative Matrix hardware is available; do not mutate routes.
