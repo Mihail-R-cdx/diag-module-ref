@@ -24,7 +24,7 @@ No global Extron command table SHALL assume that all models use the same routing
 
 If research has not established an authoritative command for an optional field, the capability SHALL be `UNPROVEN`/unavailable and the application SHALL NOT send a speculative SIS read.
 
-The six `Общая информация` fields are acceptance-critical for every Matrix model supported by this change and are not optional diagnostics. If authoritative acquisition for `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, or `Время работы` is unproven for an in-scope model, that is a blocking capability gap for that profile. The implementation SHALL establish authoritative read/source evidence before claiming a complete successful full refresh or hardware PASS; it SHALL NOT fill the gap with a guessed command, placeholder, unrelated field, stale snapshot, or synthetic value.
+The five `Общая информация` fields are acceptance-critical for every Matrix model supported by this change and are not optional diagnostics. If authoritative acquisition for `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, or `Температура` is unproven for an in-scope model, that is a blocking capability gap for that profile. The implementation SHALL establish authoritative read/source evidence before claiming a complete successful full refresh or hardware PASS; it SHALL NOT fill the gap with a guessed command, placeholder, unrelated field, stale snapshot, or synthetic value.
 
 ### 5. Deferred profiles cannot become runtime authority
 
@@ -51,7 +51,6 @@ MatrixCapabilities(
     supports_output_names,
     supports_temperature,
     supports_firmware,
-    supports_uptime,
     supports_device_mac_fallback,
     supports_device_serial_fallback,
     route_profile,
@@ -70,7 +69,6 @@ MatrixState(
         "serial_number": authoritative_serial,
         "firmware": authoritative_firmware,
         "temperature": authoritative_temperature,
-        "uptime": authoritative_uptime,
     },
     routes={output_id: input_id_or_none},
     signal_presence={input_id: bool_or_none},
@@ -225,9 +223,7 @@ Fixed topology SHALL be resolved from exact-model identity/profile data. Physica
 
 Earlier implementation work established exact-frame identity, topology and route syntax for first-generation XTP and XTP II. That work is retained only as historical/non-production evidence.
 
-The mandatory six-field General-information requirement requires authoritative device uptime. Current protocol research found official XTP/XTP II network-protocol documentation, but did not establish an approved stable machine-readable uptime source/grammar for these frames. The change therefore does not claim production support for XTP CrossPoint 1600/3200 or XTP II CrossPoint 1600/3200/6400.
-
-Unified production registration and inventory dispatch SHALL fail closed for those models after remediation. A future semantic change MAY restore them only after proving the same six-field acquisition contract. Historical exact identity/topology parsers SHALL NOT silently re-enable production support.
+XTP CrossPoint 1600/3200 and XTP II CrossPoint 1600/3200/6400 remain explicitly deferred from production-supported scope in this change. This deferral is independent of the General-information field set. Unified production registration and inventory dispatch SHALL fail closed for those models after remediation. A future semantic change MAY restore them through a separately reviewed production-scope decision. Historical exact identity/topology parsers SHALL NOT silently re-enable production support.
 
 ## HDCP Normalization
 
@@ -279,7 +275,6 @@ MAC-адрес
 Серийный номер
 Версия прошивки
 Температура
-Время работы
 ```
 
 ### Source decisions
@@ -298,42 +293,19 @@ MAC-адрес
 | DTP CrossPoint 84 | `Q` | one accepted `x.xx` firmware token | `S` | documented status tuple; internal temperature field only |
 | DTP CrossPoint 82/84/86/108 4K | `Q` | one accepted `x.xx` firmware token | `S` | documented status tuple; internal temperature is field 2 |
 
-`Время работы` uses one separate read-only SNMPv2c MIB-II query for all remaining in-scope profiles. The approved acquisition contract is:
-
-```text
-transport       UDP/161
-version         SNMPv2c
-operation       GetRequest
-OID             1.3.6.1.2.1.1.3.0  (MIB-II sysUpTime.0)
-expected value  ASN.1 TimeTicks
-semantic value  non-negative hundredths of a second since the network-management portion was last re-initialized
-```
-
-The response is accepted only when the SNMP version/community envelope is valid, the response request-id equals the current request, error-status is zero, there is exactly one varbind, the returned OID is exactly `1.3.6.1.2.1.1.3.0`, and the value is a non-negative TimeTicks integer. Mismatched request-id/OID/type, malformed BER, an SNMP error, extra varbinds or timeout are unavailable uptime evidence and keep the refresh incomplete.
-
-### SNMP monitoring credential and lifecycle
-
-The uptime query reuses the existing application-owned `CredentialProvider` without changing its schema. Deployment SHALL configure one dedicated explicit password-only profile named `matrix-snmp-read`; its password value is the fleet read-only SNMPv2c community. Application composition resolves exactly that explicit profile before SNMP I/O and passes only the assigned community value to the background read-only collector.
-
-`matrix-snmp-read` is not part of the Matrix SSH/Telnet credential candidate chain. SNMP failure SHALL NOT authorize Matrix credential fallback, successful-index persistence, or handler replacement. The community is secret material and SHALL NOT appear in public contexts, logs, exceptions, dialogs, signals, results or status text.
-
-SNMP I/O SHALL run outside the Qt GUI thread. The collector issues only the single-OID GET above; no SNMP SET, WALK or TRAP operation is authorized. Read-only retry is bounded to at most one retry after timeout, with a fresh request-id. A valid SNMP response carrying a protocol/error-status failure is terminal for that uptime acquisition and is not retried.
-
-Implementation SHALL use a focused standard-library UDP/BER helper limited to the exact ASN.1 types required for this request/response contract. No new runtime dependency is introduced.
-
 ### Closed acquisition matrix
 
-| Production profile | Model | MAC | Serial | Firmware | Temperature | Uptime | Readiness |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| IN1804 | exact `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | SNMPv2c `sysUpTime.0` | READY |
-| IN1806 / IN1808 | exact `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | SNMPv2c `sysUpTime.0` | READY |
-| IN1608 xi | exact closed `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | SNMPv2c `sysUpTime.0` | READY |
-| DTP CrossPoint 84 | exact documented `I` profile | canonical inventory required | canonical inventory required | `Q` | `S` | SNMPv2c `sysUpTime.0` | READY |
-| DTP CrossPoint 82/84/86/108 4K | exact `N` part-number profile | canonical inventory required | canonical inventory required | `Q` | `S` | SNMPv2c `sysUpTime.0` | READY |
-| XTP CrossPoint 1600/3200 | deferred / not production-supported | n/a | n/a | n/a | n/a | no approved source | DEFERRED |
-| XTP II CrossPoint 1600/3200/6400 | deferred / not production-supported | n/a | n/a | n/a | n/a | no approved source | DEFERRED |
+| Production profile | Model | MAC | Serial | Firmware | Temperature | Readiness |
+| --- | --- | --- | --- | --- | --- | --- |
+| IN1804 | exact `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | READY |
+| IN1806 / IN1808 | exact `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | READY |
+| IN1608 xi | exact closed `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | READY |
+| DTP CrossPoint 84 | exact documented `I` profile | canonical inventory required | canonical inventory required | `Q` | `S` | READY |
+| DTP CrossPoint 82/84/86/108 4K | exact `N` part-number profile | canonical inventory required | canonical inventory required | `Q` | `S` | READY |
+| XTP CrossPoint 1600/3200 | deferred / not production-supported | n/a | n/a | n/a | n/a | DEFERRED |
+| XTP II CrossPoint 1600/3200/6400 | deferred / not production-supported | n/a | n/a | n/a | n/a | DEFERRED |
 
-There are no unresolved blocking acquisition cells for the remaining supported scope. The explicit product decision is that canonical inventory MAC/serial are prerequisites rather than guessed device values, and XTP/XTP II are deferred rather than claiming six-field support without authoritative uptime.
+There are no unresolved blocking acquisition cells for the remaining supported scope. Canonical inventory MAC/serial are prerequisites rather than guessed device values; XTP/XTP II remain explicitly deferred by scope rather than by a missing General-information field.
 
 The existing no-stale/no-secret/currentness rules apply to the tuple. A prior successful value SHALL clear when the current refresh cannot establish it.
 
@@ -411,7 +383,7 @@ IN1806 resolves as its own canonical profile from exact `IN1806` model identity
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.
 - XTP/XTP II production support is deferred entirely by the General-information acquisition decision above; historical topology/name/HDCP evidence is non-authoritative for current production dispatch.
 
-For remaining in-scope models, the six General-information fields are excluded from optional/deferred behavior. Canonical inventory MAC/serial are mandatory prerequisites; firmware, temperature and SNMP uptime must succeed for complete implementation/hardware acceptance.
+For remaining in-scope models, the five General-information fields are excluded from optional/deferred behavior. Canonical inventory MAC/serial are mandatory prerequisites; firmware and temperature must succeed for complete implementation/hardware acceptance.
 
 ## Follow-up hardware compatibility
 
