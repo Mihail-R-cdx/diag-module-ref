@@ -1934,7 +1934,6 @@ class RoomReadOnlyPresentation(QWidget):
             ("Серийный номер", row.serial_number),
             ("Версия прошивки", source.get("firmware")),
             ("Температура", source.get("temperature")),
-            ("Время работы", source.get("uptime")),
         )
         value_object_names = {
             "Модель": "roomMatrixModelValue",
@@ -1942,7 +1941,6 @@ class RoomReadOnlyPresentation(QWidget):
             "Серийный номер": "roomMatrixSerialValue",
             "Версия прошивки": "roomMatrixFirmwareValue",
             "Температура": "roomMatrixTemperatureValue",
-            "Время работы": "roomMatrixUptimeValue",
         }
         for label, value in fields:
             displayed_value = "%s°C" % value if label == "Температура" and value not in (None, "") else str(value) if value not in (None, "") else no_data
