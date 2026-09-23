@@ -14,15 +14,15 @@
 Only these hardware result values may be recorded: `PASS`, `PARTIAL`, `FAIL`,
 `NOT RUN`, and `BLOCKED`. For the current permitting hardware gate, `PASS`
 requires every applicable **Phase A read-only** check **and** authoritative,
-non-empty values for all six `Общая информация` fields: model, MAC address,
-serial number, firmware version, temperature, and uptime. If even one required
+non-empty values for all five `Общая информация` fields: model, MAC address,
+serial number, firmware version, and temperature. If even one required
 field remains `Нет данных`, missing, stale, malformed, synthetic, or unproven,
 the run is not `PASS`. Phase B route mutation is
 separate, optional, and non-permitting; it is not required for a read-only
 hardware PASS and SHALL NOT be performed without explicit operational approval.
 
 `PARTIAL` means only a documented subset of read-only checks was observed,
-including a run that cannot yet establish all six mandatory General-information
+including a run that cannot yet establish all five mandatory General-information
 fields without contradicting the profile. `FAIL` means observed hardware
 contradicts the implementation/approved profile or a required field cannot be
 acquired as implemented and requires remediation/retest. `BLOCKED` means a
@@ -30,7 +30,7 @@ present device could not be exercised for an external reason.
 
 ## Mandatory General-information hardware gate
 
-For every hardware model evaluated for PASS, capture and verify all six fields:
+For every hardware model evaluated for PASS, capture and verify all five fields:
 
 ```text
 Модель
@@ -38,11 +38,10 @@ MAC-адрес
 Серийный номер
 Версия прошивки
 Температура
-Время работы
 ```
 
 `Модель` must match accepted exact identity/canonical profile. MAC and serial must come from current canonical room/inventory evidence. If either is absent, the fixture cannot receive complete-refresh or hardware PASS; no device fallback is approved.
-Firmware and temperature must be observed from the approved exact SIS reads; uptime must be observed from the approved SNMPv2c `sysUpTime.0` read. Values must be non-empty and plausible for the device; placeholders,
+Firmware and temperature must be observed from the approved exact SIS reads. Values must be non-empty and plausible for the device; placeholders,
 model-as-serial substitution, synthetic zero, stale cache, or copied values do not
 count. A missing exact command/source is a capability gap requiring architecture/
 implementation follow-up, not permission to mark PASS.
@@ -51,17 +50,15 @@ implementation follow-up, not permission to mark PASS.
 
 This table mirrors the closed pre-implementation authority in `design.md`.
 
-| Profile group | Model | MAC | Serial | Firmware | Temperature | Uptime | General-information readiness |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| IN1804 | PROVEN `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
-| IN1806 / IN1808 | PROVEN `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
-| IN1608 xi | PROVEN closed `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
-| DTP CrossPoint 84 | PROVEN `I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `S` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
-| DTP CrossPoint 82/84/86/108 4K | PROVEN exact `N` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `S` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
-| XTP CrossPoint 1600/3200 | DEFERRED | n/a | n/a | n/a | n/a | no approved source | NOT IN SUPPORTED SCOPE |
-| XTP II CrossPoint 1600/3200/6400 | DEFERRED | n/a | n/a | n/a | n/a | no approved source | NOT IN SUPPORTED SCOPE |
-
-For supported IN/DTP hardware, PASS additionally requires SNMP to be enabled and the deployment read-only community to be available through explicit password-only profile `matrix-snmp-read`. Missing monitoring configuration is BLOCKED, not permission to substitute local elapsed time or scrape an undocumented page.
+| Profile group | Model | MAC | Serial | Firmware | Temperature | General-information readiness |
+| --- | --- | --- | --- | --- | --- | --- |
+| IN1804 | PROVEN `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | READY FOR IMPLEMENTATION |
+| IN1806 / IN1808 | PROVEN `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | READY FOR IMPLEMENTATION |
+| IN1608 xi | PROVEN closed `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | READY FOR IMPLEMENTATION |
+| DTP CrossPoint 84 | PROVEN `I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `S` | READY FOR IMPLEMENTATION |
+| DTP CrossPoint 82/84/86/108 4K | PROVEN exact `N` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `S` | READY FOR IMPLEMENTATION |
+| XTP CrossPoint 1600/3200 | DEFERRED | n/a | n/a | n/a | n/a | NOT IN SUPPORTED SCOPE |
+| XTP II CrossPoint 1600/3200/6400 | DEFERRED | n/a | n/a | n/a | n/a | NOT IN SUPPORTED SCOPE |
 
 ## Model capability and evidence matrix
 
@@ -91,7 +88,7 @@ model selected for retest:
    `diagnostic_model` without changing the source-model evidence.
 2. Connect through the normal application/handler path and capture the exact
    identity response; verify it matches the inventory expectation.
-3. Establish the complete six-field General-information tuple under the source rules above. Inventory MAC and serial are mandatory. Firmware/temperature use the approved exact SIS profile and uptime uses SNMPv2c `sysUpTime.0` through `matrix-snmp-read`. Do not mark the run PASS if any required field is missing.
+3. Establish the complete five-field General-information tuple under the source rules above. Inventory MAC and serial are mandatory. Firmware/temperature use the approved exact SIS profile. Do not mark the run PASS if any required field is missing.
 4. Read the remaining profile-approved capabilities, topology, signal presence, input HDCP, output HDCP, HDCP authorization, names, and all applicable routes. Optional unavailable/unproven fields remain unavailable; do not issue a trial command.
 5. Where practical, compare parsed state with the device Web UI or known current state. Record raw request/response pairs with firmware version and device serial/asset reference, omitting credentials.
 
@@ -148,17 +145,3 @@ Restore the original route if a mutation was actually authorized and performed,
 then verify the same targeted readback. If a failure occurs after possible send,
 do not replay automatically. Preserve raw evidence and record the optional
 mutation result separately from the mandatory Phase A read-only status.
-
-
-## SNMP uptime read-only hardware procedure
-
-For each remaining supported IN/DTP fixture:
-1. confirm canonical inventory MAC and serial are non-empty;
-2. confirm SNMP is enabled operationally on the device;
-3. resolve dedicated `matrix-snmp-read` without logging its community value;
-4. issue SNMPv2c GET for exactly `1.3.6.1.2.1.1.3.0` on UDP/161;
-5. record the returned TimeTicks value and formatted uptime with the community redacted;
-6. reject mismatched request-id/OID/type, non-zero error-status, malformed BER, extra varbinds or timeout as incomplete evidence;
-7. compare with visible device uptime where available only as a plausibility check.
-
-No SNMP mutation, walk or trap operation is permitted.
