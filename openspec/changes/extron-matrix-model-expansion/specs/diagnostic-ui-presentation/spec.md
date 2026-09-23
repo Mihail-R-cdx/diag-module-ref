@@ -205,7 +205,7 @@ device evidence explicitly establishes zero.
 
 - **GIVEN** an exact supported Matrix model completes its authoritative current full-refresh acquisition
 - **WHEN** that refresh is accepted as complete successful
-- **THEN** all six General-information rows contain authoritative values
+- **THEN** all five General-information rows contain authoritative values
 - **AND** none renders `Нет данных`, a placeholder, or stale prior evidence
 
 #### Scenario: Missing inventory MAC or serial blocks complete success
