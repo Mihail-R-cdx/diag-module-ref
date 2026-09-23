@@ -381,7 +381,7 @@ IN1806 resolves as its own canonical profile from exact `IN1806` model identity
 ## Deferred / Evidence-Dependent Items
 
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.
-- XTP/XTP II production support is deferred entirely by the General-information acquisition decision above; historical topology/name/HDCP evidence is non-authoritative for current production dispatch.
+- XTP/XTP II production support is deferred by an explicit scope decision, independently of the General-information field set; restoring production support requires a separate reviewed semantic change. Historical topology/name/HDCP evidence is non-authoritative for current production dispatch.
 
 For remaining in-scope models, the five General-information fields are excluded from optional/deferred behavior. Canonical inventory MAC/serial are mandatory prerequisites; firmware and temperature must succeed for complete implementation/hardware acceptance.
 
