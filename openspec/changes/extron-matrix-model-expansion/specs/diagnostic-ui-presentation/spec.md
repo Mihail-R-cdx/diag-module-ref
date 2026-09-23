@@ -148,12 +148,11 @@ MAC-адрес
 Серийный номер
 Версия прошивки
 Температура
-Время работы
 ```
 
 For every exact Extron Matrix model supported by this change, a room Matrix full
 refresh MAY be classified as complete and successful only when accepted current
-evidence establishes an authoritative non-empty value for all six rows.
+evidence establishes an authoritative non-empty value for all five rows.
 
 Source authority SHALL be:
 
@@ -162,7 +161,6 @@ Source authority SHALL be:
 - `Серийный номер`: mandatory current canonical room/inventory evidence;
 - `Версия прошивки`: authoritative current exact-profile SIS read;
 - `Температура`: authoritative current exact-profile SIS read;
-- `Время работы`: authoritative current SNMPv2c MIB-II `sysUpTime.0` read under the application-owned monitoring profile.
 
 Presentation and acquisition SHALL NOT infer or synthesize a required value from
 another field, model text, reference artwork, logs, a prior snapshot, widget state,
@@ -203,7 +201,7 @@ device evidence explicitly establishes zero.
 - **THEN** `Температура` renders that zero value
 - **AND** it is not replaced with `Нет данных`
 
-#### Scenario: Successful full refresh fills all six rows
+#### Scenario: Successful full refresh fills all five rows
 
 - **GIVEN** an exact supported Matrix model completes its authoritative current full-refresh acquisition
 - **WHEN** that refresh is accepted as complete successful
@@ -323,15 +321,14 @@ columns readable.
 
 ### Requirement: Matrix information card projects canonical row facts
 
-The Matrix information card SHALL use the same six-field completeness and
+The Matrix information card SHALL use the same five-field completeness and
 authority contract as `Matrix General information preserves approved field order
 without fabricating evidence`. The row's canonical `ip_address` remains
 application/target authority but SHALL NOT be duplicated inside this card.
 
 Canonical current room/inventory MAC and serial are mandatory prerequisites.
 Their absence SHALL NOT activate a device fallback in this change. Firmware and
-temperature SHALL come only from authoritative current exact-profile SIS reads;
-uptime SHALL come only from the approved SNMPv2c MIB-II `sysUpTime.0` read. Model SHALL
+temperature SHALL come only from authoritative current exact-profile SIS reads. Model SHALL
 come from the accepted exact Matrix identity/canonical model.
 
 The card MAY show truthful no-data during incomplete/failed acquisition, but a
@@ -345,7 +342,7 @@ presentation values.
 - **WHEN** the information card renders
 - **THEN** it displays canonical MAC and serial values without an extra device read for those already-authoritative fields
 - **AND** it does not duplicate the exact row IP inside the card
-- **AND** firmware, temperature, and uptime still require authoritative current device evidence
+- **AND** firmware and temperature still require authoritative current device evidence
 
 #### Scenario: Missing canonical MAC or serial keeps the refresh incomplete
 - **GIVEN** the current exact Matrix row lacks canonical MAC or serial evidence
