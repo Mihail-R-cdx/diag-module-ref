@@ -259,5 +259,6 @@
 - [ ] 26.16 Retire XTP/XTP II from unified production registration and inventory dispatch while preserving fail-closed handling; historical parsers/tests may remain only if clearly unreachable from production dispatch.
 - [x] 26.17 Remove the Matrix `Время работы` row and `roomMatrixUptimeValue` projection from the room GUI; keep codec uptime presentation unchanged.
 - [x] 26.18 Remove SNMP from the Matrix architecture and deployment contract; do not add a Matrix SNMP credential profile, collector, dependency, or protocol lane.
+- [ ] 26.19 After the approved closed inventory-recognition and application-dispatch registries are implemented, synchronize `docs/equipment-inventory-runbook.md` with the resulting supported Matrix model set. Preserve root OpenSpec as normative authority; the runbook SHALL document the approved registry and SHALL NOT independently expand or narrow production support.
 
 All earlier completed XTP/XTP II tasks in sections 1-25 record historical branch work only. They are superseded for production-support authority by 26.12 and 26.16 and SHALL NOT be interpreted as keeping XTP/XTP II in current supported scope.
