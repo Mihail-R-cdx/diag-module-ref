@@ -272,7 +272,7 @@ GUI route columns and route validation SHALL use authoritative available logical
 
 ### Requirement: XTP and XTP II production support is deferred
 
-First-generation XTP CrossPoint 1600/3200 and XTP II CrossPoint 1600/3200/6400 SHALL NOT be exposed as supported production Matrix models by this change. Prior exact identity/topology/parser work is historical evidence only. A future reviewed change may restore support only after proving the mandatory six-field General-information acquisition contract, including authoritative uptime.
+First-generation XTP CrossPoint 1600/3200 and XTP II CrossPoint 1600/3200/6400 SHALL NOT be exposed as supported production Matrix models by this change. Prior exact identity/topology/parser work is historical evidence only. A future reviewed change may restore support only through a separately reviewed production-scope decision.
 
 #### Scenario: Deferred XTP inventory/runtime model does not dispatch
 - **WHEN** current inventory or direct target evidence identifies an XTP or XTP II frame
@@ -479,17 +479,15 @@ with `N` after authentication.
 
 ### Requirement: Complete Matrix full refresh requires authoritative General-information evidence
 
-For every exact Extron Matrix model remaining in production-supported scope, a complete successful full refresh SHALL establish current authoritative model, MAC address, serial number, firmware version, temperature, and uptime.
+For every exact Extron Matrix model remaining in production-supported scope, a complete successful full refresh SHALL establish current authoritative model, MAC address, serial number, firmware version, and temperature.
 
-Model authority is exact accepted device identity/canonical profile. MAC and serial are mandatory current canonical inventory evidence; this change has no device fallback for either. Firmware and temperature use only the approved exact-profile SIS commands from the design acquisition matrix. Uptime uses only the approved read-only SNMPv2c MIB-II `sysUpTime.0` acquisition.
+Model authority is exact accepted device identity/canonical profile. MAC and serial are mandatory current canonical inventory evidence; this change has no device fallback for either. Firmware and temperature use only the approved exact-profile SIS commands from the design acquisition matrix.
 
-Application composition SHALL resolve the dedicated explicit password-only credential profile `matrix-snmp-read` through the existing application-owned `CredentialProvider`; its password is the read-only SNMP community. It SHALL NOT reuse or advance Matrix login credential candidates for SNMP.
-
-A missing canonical MAC/serial, missing monitoring profile, disabled/unreachable SNMP, invalid SNMP response, failed firmware/temperature read, malformed/stale evidence, or synthetic value keeps the refresh incomplete.
+A missing canonical MAC/serial, failed firmware/temperature read, malformed/stale evidence, or synthetic value keeps the refresh incomplete.
 
 #### Scenario: Successful supported-Matrix refresh has complete General information
 - **WHEN** a full refresh for an exact remaining supported Matrix model is accepted as complete successful
-- **THEN** model, MAC, serial, firmware, temperature, and uptime are all authoritative current values
+- **THEN** model, MAC, serial, firmware, and temperature are all authoritative current values
 - **AND** none is missing, stale or synthetic
 
 #### Scenario: Missing inventory identity data blocks complete success
@@ -498,21 +496,7 @@ A missing canonical MAC/serial, missing monitoring profile, disabled/unreachable
 - **THEN** no speculative device MAC/serial command is sent
 - **AND** the refresh remains incomplete
 
-#### Scenario: SNMP uptime is exact and read-only
-- **GIVEN** the exact current Matrix model is one of the remaining in-scope IN or DTP profiles
-- **AND** application composition resolved one password-only `matrix-snmp-read` profile
-- **WHEN** uptime is acquired
-- **THEN** the background collector issues SNMPv2c GetRequest for only `1.3.6.1.2.1.1.3.0`
-- **AND** accepts only one matching TimeTicks varbind with zero error-status and current request-id
-- **AND** performs no SNMP SET/WALK/TRAP operation
-
-#### Scenario: SNMP failure does not advance Matrix login credentials
-- **WHEN** SNMP community resolution or uptime acquisition fails
-- **THEN** the current full refresh remains incomplete
-- **AND** no Matrix SSH/Telnet credential candidate index advances
-- **AND** no community value appears in public output
-
-#### Scenario: Deferred XTP does not claim six-field support
+#### Scenario: Deferred XTP does not claim supported completeness
 - **WHEN** target identity resolves to first-generation XTP or XTP II
 - **THEN** this change treats the profile as deferred/unsupported for production dispatch
 - **AND** a partial historical handler result cannot be classified as a supported complete refresh
