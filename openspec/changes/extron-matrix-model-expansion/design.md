@@ -22,7 +22,9 @@ No global Extron command table SHALL assume that all models use the same routing
 
 ### 4. Unproven is different from unsupported
 
-If research has not established an authoritative command for a field, the capability SHALL be `UNPROVEN`/unavailable and the application SHALL NOT send a speculative SIS read.
+If research has not established an authoritative command for an optional field, the capability SHALL be `UNPROVEN`/unavailable and the application SHALL NOT send a speculative SIS read.
+
+The six `Общая информация` fields are acceptance-critical for every Matrix model supported by this change and are not optional diagnostics. If authoritative acquisition for `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, or `Время работы` is unproven for an in-scope model, that is a blocking capability gap for that profile. The implementation SHALL establish authoritative read/source evidence before claiming a complete successful full refresh or hardware PASS; it SHALL NOT fill the gap with a guessed command, placeholder, unrelated field, stale snapshot, or synthetic value.
 
 ### 5. Profile selection precedes profile-specific decoding
 
@@ -50,6 +52,10 @@ MatrixCapabilities(
     supports_input_names,
     supports_output_names,
     supports_temperature,
+    supports_firmware,
+    supports_uptime,
+    supports_device_mac_fallback,
+    supports_device_serial_fallback,
     route_profile,
     input_hdcp_profile,
     output_hdcp_profile,
@@ -60,6 +66,14 @@ Normalized runtime state:
 
 ```python
 MatrixState(
+    general_info={
+        "model": authoritative_model,
+        "mac_address": authoritative_mac,
+        "serial_number": authoritative_serial,
+        "firmware": authoritative_firmware,
+        "temperature": authoritative_temperature,
+        "uptime": authoritative_uptime,
+    },
     routes={output_id: input_id_or_none},
     signal_presence={input_id: bool_or_none},
     input_hdcp={input_id: normalized_hdcp_state},
@@ -207,7 +221,7 @@ set video route I->O <I>*<O>%
 untie video O        0*<O>%
 ```
 
-Fixed topology SHALL be resolved from exact-model identity/profile data. Physical connector numbering MAY differ from logical routing-output numbering; GUI routing follows logical routing outputs. Temperature remains `UNPROVEN` until authoritative evidence is established.
+Fixed topology SHALL be resolved from exact-model identity/profile data. Physical connector numbering MAY differ from logical routing-output numbering; GUI routing follows logical routing outputs. DTP temperature is now a mandatory unresolved General-information capability gap: authoritative evidence must be established before a DTP profile can satisfy complete full-refresh or hardware-PASS acceptance.
 
 ### First-generation XTP CrossPoint profile
 
@@ -228,7 +242,7 @@ untie O              0*<O>!
 
 `WO<N>HDCP` SHALL NOT be used as the first-generation XTP frame output-HDCP command merely because DTP uses that form.
 
-Input/output names and temperature remain `UNPROVEN` unless authoritative commands are established.
+Input/output names may remain `UNPROVEN` where the routing table has an approved deterministic fallback. Temperature does not: for XTP it is a mandatory General-information capability gap and authoritative acquisition must be established before complete full-refresh or hardware-PASS acceptance.
 
 ### XTP II CrossPoint profile
 
@@ -248,7 +262,7 @@ untie O              0*<O>!
 
 XTP II **output-HDCP command and decoder remain UNPROVEN in this change until verified from official XTP II evidence**. The application SHALL NOT reuse either DTP `WO<N>HDCP` or first-generation XTP `W0<N>HDCP` by assumption.
 
-Input/output names and temperature also remain `UNPROVEN` until separately proven.
+Input/output names may remain `UNPROVEN` where presentation has an approved deterministic fallback. Temperature does not: for XTP II it is a mandatory General-information capability gap and authoritative acquisition must be established before complete full-refresh or hardware-PASS acceptance.
 
 ## HDCP Normalization
 
@@ -298,6 +312,45 @@ The application SHALL:
 6. use only those available IDs for polling, route reconciliation and GUI columns.
 
 A missing board slot SHALL NOT cause later IDs to be compressed into lower numbers.
+
+## Required General-information acquisition
+
+Every exact Matrix model supported by this change SHALL be able to produce a
+complete authoritative General-information tuple after a successful full refresh:
+
+```text
+Модель
+MAC-адрес
+Серийный номер
+Версия прошивки
+Температура
+Время работы
+```
+
+Authority is fixed as follows:
+
+- `Модель` comes from the accepted exact Matrix identity/canonical profile for the current operation.
+- `MAC-адрес` first uses current canonical room/inventory evidence when present; if that evidence is absent, the selected exact device profile SHALL provide an authoritative read-only device fallback.
+- `Серийный номер` first uses current canonical room/inventory evidence when present; if that evidence is absent, the selected exact device profile SHALL provide an authoritative read-only device fallback.
+- `Версия прошивки`, `Температура`, and `Время работы` SHALL come from authoritative current device reads for the selected exact profile.
+
+A full refresh SHALL NOT be classified as complete successful room-Matrix refresh
+while any one of these six values is missing, malformed, stale, synthetic, or
+unproven. Partial/incomplete/failed acquisition may present truthful `Нет данных`
+for the missing row, but that state is not the successful-full-refresh acceptance
+state required by this change.
+
+Exact commands/response grammars for the new mandatory device reads SHALL be
+established from authoritative documentation and/or hardware evidence per exact
+profile before implementation completion. Similar-looking commands from another
+Extron family SHALL NOT be copied by assumption. If a supported family has no
+proven authoritative way to acquire a required value, that is an unresolved scope/
+capability decision for this change, not an optional diagnostic and not permission
+to fabricate a value.
+
+The existing no-stale/no-secret/currentness rules apply to this tuple. A prior
+successful value SHALL clear when the current full refresh cannot establish it;
+old evidence SHALL NOT be retained merely to keep the card visually complete.
 
 ## GUI Design
 
@@ -372,10 +425,10 @@ IN1806 resolves as its own canonical profile from exact `IN1806` model identity
 ## Deferred / Evidence-Dependent Items
 
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.
-- XTP/XTP II names and temperature remain unavailable unless proven before implementation.
+- XTP/XTP II input/output names may remain unavailable where the approved deterministic presentation fallback applies.
 - XTP II output-HDCP remains unavailable unless its exact command/decoder is proven before implementation.
 
-Unresolved optional diagnostics SHALL remain unavailable rather than blocking core routing/topology support or encouraging speculative commands.
+The six General-information fields are explicitly excluded from this optional/deferred rule. Firmware, temperature, uptime, and any required device fallback for missing inventory MAC/serial must be proven for every in-scope model before complete implementation/hardware acceptance. Other unresolved optional diagnostics SHALL remain unavailable rather than encouraging speculative commands.
 
 ## Follow-up hardware compatibility
 

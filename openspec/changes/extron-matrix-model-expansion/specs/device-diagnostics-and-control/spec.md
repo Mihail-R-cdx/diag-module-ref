@@ -485,3 +485,55 @@ with `N` after authentication.
 - **WHEN** software presentation validation passes
 - **THEN** active-HDCP hardware evidence remains recorded as not exercised
 - **AND** post-remediation hardware retest remains required
+
+
+### Requirement: Complete Matrix full refresh requires authoritative General-information evidence
+
+For every exact Extron Matrix model supported by this change, a complete successful
+full refresh SHALL establish authoritative current values for all six room
+`Общая информация` fields: model, MAC address, serial number, firmware version,
+temperature, and uptime.
+
+Model authority SHALL be the accepted exact Matrix identity/canonical profile.
+MAC and serial MAY come from current canonical room/inventory evidence; when either
+is absent, the exact selected Matrix profile SHALL provide a proven read-only
+device fallback for that missing value. Firmware, temperature, and uptime SHALL
+come from proven authoritative current device reads.
+
+A missing, malformed, stale, synthetic, or unproven required value SHALL keep the
+refresh incomplete/failed for this acceptance contract. It SHALL NOT be converted
+to complete success merely because routing, signal, HDCP, names, or another subset
+of diagnostics succeeded.
+
+No handler/profile SHALL guess a required command from a different Extron family.
+If an exact supported profile lacks authoritative command/source evidence for one
+of these required values, the capability gap SHALL be resolved before that profile
+can satisfy implementation completion or hardware PASS.
+
+#### Scenario: Successful supported-Matrix refresh has complete General information
+
+- **WHEN** a full refresh for any exact supported Matrix model is accepted as complete successful
+- **THEN** model, MAC, serial, firmware, temperature, and uptime are all authoritative current values
+- **AND** none is missing or synthetic
+
+#### Scenario: Optional diagnostics do not compensate for missing required information
+
+- **GIVEN** routing, signal, HDCP, or naming diagnostics succeeded
+- **AND** firmware, temperature, uptime, required model evidence, or required MAC/serial authority is missing
+- **WHEN** full-refresh completion is evaluated
+- **THEN** the refresh is not accepted as complete successful
+- **AND** the missing required field is not synthesized from another successful diagnostic
+
+#### Scenario: Inventory absence activates only proven MAC or serial fallback
+
+- **GIVEN** the current canonical row lacks MAC or serial evidence
+- **WHEN** the exact Matrix profile attempts full refresh
+- **THEN** only a proven read-only device command/source for that exact profile may provide the missing field
+- **AND** an unproven fallback blocks complete-success classification before any guessed value is exposed
+
+#### Scenario: Required information remains stale-safe
+
+- **GIVEN** a previous Matrix refresh populated all six General-information values
+- **WHEN** a newer current refresh fails or cannot establish one required value
+- **THEN** the old value is not retained as current evidence for the new refresh
+- **AND** the newer refresh cannot be accepted as complete successful

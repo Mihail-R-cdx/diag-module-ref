@@ -13,14 +13,42 @@
 
 Only these hardware result values may be recorded: `PASS`, `PARTIAL`, `FAIL`,
 `NOT RUN`, and `BLOCKED`. For the current permitting hardware gate, `PASS`
-requires every applicable **Phase A read-only** check. Phase B route mutation is
+requires every applicable **Phase A read-only** check **and** authoritative,
+non-empty values for all six `Общая информация` fields: model, MAC address,
+serial number, firmware version, temperature, and uptime. If even one required
+field remains `Нет данных`, missing, stale, malformed, synthetic, or unproven,
+the run is not `PASS`. Phase B route mutation is
 separate, optional, and non-permitting; it is not required for a read-only
 hardware PASS and SHALL NOT be performed without explicit operational approval.
 
-`PARTIAL` means only a documented subset of read-only checks was observed.
-`FAIL` means observed hardware contradicted the then-current implementation or
-approved profile and requires remediation/retest. `BLOCKED` means a present
-device could not be exercised for an external reason.
+`PARTIAL` means only a documented subset of read-only checks was observed,
+including a run that cannot yet establish all six mandatory General-information
+fields without contradicting the profile. `FAIL` means observed hardware
+contradicts the implementation/approved profile or a required field cannot be
+acquired as implemented and requires remediation/retest. `BLOCKED` means a
+present device could not be exercised for an external reason.
+
+## Mandatory General-information hardware gate
+
+For every hardware model evaluated for PASS, capture and verify all six fields:
+
+```text
+Модель
+MAC-адрес
+Серийный номер
+Версия прошивки
+Температура
+Время работы
+```
+
+`Модель` must match accepted exact identity/canonical profile. MAC and serial may
+come from current canonical room/inventory evidence, but if either is absent the
+exact selected profile must prove its authoritative read-only device fallback.
+Firmware, temperature, and uptime must be observed from authoritative current
+device reads. Values must be non-empty and plausible for the device; placeholders,
+model-as-serial substitution, synthetic zero, stale cache, or copied values do not
+count. A missing exact command/source is a capability gap requiring architecture/
+implementation follow-up, not permission to mark PASS.
 
 ## Model capability and evidence matrix
 
@@ -35,16 +63,16 @@ for the optional Phase B only.
 | Extron IN1806 | Canonical / exact `IN1806`, part number `60-1663-01` | fixed 6x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | FAIL | Hardware banner identified `IN1806`, firmware `V1.04`, part number `60-1663-01`, while the pre-remediation application did not support the model. Post-remediation retest must prove video-only polling remains authoritative with audio breakaway and does not use `1!`. |
 | Extron IN1808 | Canonical / `1I` | fixed 8x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | PARTIAL | Prior read-only evidence was collected with the legacy combined AV route read. Post-remediation retest must prove `1%` video polling, including a breakaway-safe case where practical. No positive HDCP `2` case observed. Loop Out remains deferred. |
 | Extron IN1608 xi | Canonical / exact closed `1I` aliases | fixed 8x1 | Yes / modern mapping | Yes / Yes | Yes / unavailable / Yes | `&` / `<I>&` | FAIL | Hardware authenticated and returned `IN1608 xi IPCP SA`; pre-remediation exact resolver rejected that valid observed identity. Post-remediation retest must also prove video-only route polling and no combined `!` polling. |
-| DTP CrossPoint 84 | Canonical / documented DTP identity | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
-| DTP CrossPoint 82 4K | Canonical / part number `N` | fixed 8x2 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
-| DTP CrossPoint 84 4K | Canonical / part number `N` | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | NOT RUN | Must remain distinct from non-4K DTP 84; optional untie is `0*<O>%`. |
-| DTP CrossPoint 86 4K | Canonical / part number `N` | fixed 8x6 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | FAIL | Read-only poll returned names and `0LS`, then the old route poll sent `1!` and received `E13`. Post-remediation retest must prove `<O>%` readback; no mutation required. |
-| DTP CrossPoint 108 4K | Canonical / exact part number `N` aliases including `60-1381-12` | fixed 10x8 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | FAIL | Hardware returned exact part number `60-1381-12`; the pre-remediation allowlist rejected it. Post-remediation identity and read-only poll retest required. |
-| XTP CrossPoint 1600 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | `W0<N>HDCP` / unavailable | unavailable / unavailable / unavailable | `<O>!` / `<I>*<O>!` | NOT RUN | First-generation AV-route profile only; preserve empty-slot IDs. |
-| XTP CrossPoint 3200 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | `W0<N>HDCP` / unavailable | unavailable / unavailable / unavailable | `<O>!` / `<I>*<O>!` | NOT RUN | First-generation AV-route profile only; preserve empty-slot IDs. |
-| XTP II CrossPoint 1600 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / unavailable | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
-| XTP II CrossPoint 3200 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / unavailable | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
-| XTP II CrossPoint 6400 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / unavailable | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
+| DTP CrossPoint 84 | Canonical / documented DTP identity | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
+| DTP CrossPoint 82 4K | Canonical / part number `N` | fixed 8x2 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
+| DTP CrossPoint 84 4K | Canonical / part number `N` | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | Must remain distinct from non-4K DTP 84; optional untie is `0*<O>%`. |
+| DTP CrossPoint 86 4K | Canonical / part number `N` | fixed 8x6 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | FAIL | Read-only poll returned names and `0LS`, then the old route poll sent `1!` and received `E13`. Post-remediation retest must prove `<O>%` readback; no mutation required. |
+| DTP CrossPoint 108 4K | Canonical / exact part number `N` aliases including `60-1381-12` | fixed 10x8 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | FAIL | Hardware returned exact part number `60-1381-12`; the pre-remediation allowlist rejected it. Post-remediation identity and read-only poll retest required. |
+| XTP CrossPoint 1600 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | `W0<N>HDCP` / unavailable | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | First-generation AV-route profile only; preserve empty-slot IDs. |
+| XTP CrossPoint 3200 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | `W0<N>HDCP` / unavailable | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | First-generation AV-route profile only; preserve empty-slot IDs. |
+| XTP II CrossPoint 1600 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
+| XTP II CrossPoint 3200 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
+| XTP II CrossPoint 6400 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
 
 ## Phase A — read-only hardware procedure
 
@@ -55,13 +83,9 @@ model selected for retest:
    `diagnostic_model` without changing the source-model evidence.
 2. Connect through the normal application/handler path and capture the exact
    identity response; verify it matches the inventory expectation.
-3. Read only the profile-approved capabilities, topology, signal presence,
-   input HDCP, output HDCP, HDCP authorization, names, temperature, and all
-   applicable routes. Record unavailable/unproven fields as unavailable; do not
-   issue a trial command.
-4. Where practical, compare parsed state with the device Web UI or known
-   current state. Record raw request/response pairs with firmware version and
-   device serial/asset reference, omitting credentials.
+3. Establish the complete six-field General-information tuple under the source rules above. If inventory MAC/serial is absent, exercise only the exact profile's proven read-only fallback. Firmware, temperature, and uptime must come from authoritative device reads. Do not mark the run PASS if any required field is missing or unproven.
+4. Read the remaining profile-approved capabilities, topology, signal presence, input HDCP, output HDCP, HDCP authorization, names, and all applicable routes. Optional unavailable/unproven fields remain unavailable; do not issue a trial command.
+5. Where practical, compare parsed state with the device Web UI or known current state. Record raw request/response pairs with firmware version and device serial/asset reference, omitting credentials.
 
 For XTP and XTP II, retain raw responses for `N`, `I`, `*N`, and `0LS`,
 plus all applicable HDCP and route reads. Verify that the `N` part number

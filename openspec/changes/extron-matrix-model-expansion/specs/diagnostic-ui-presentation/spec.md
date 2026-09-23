@@ -138,6 +138,86 @@ Presentation SHALL NOT call `ExtronIN1804Handler`, any CrossPoint handler, `Matr
 - **WHEN** the table renders
 - **THEN** presentation exposes no actionable route cell for output `13`
 
+### Requirement: Matrix General information preserves approved field order without fabricating evidence
+
+The Matrix `Общая информация` card SHALL always reserve and render rows in this order:
+
+```text
+Модель
+MAC-адрес
+Серийный номер
+Версия прошивки
+Температура
+Время работы
+```
+
+For every exact Extron Matrix model supported by this change, a room Matrix full
+refresh MAY be classified as complete and successful only when accepted current
+evidence establishes an authoritative non-empty value for all six rows.
+
+Source authority SHALL be:
+
+- `Модель`: accepted exact Matrix identity/canonical model for the current operation;
+- `MAC-адрес`: current canonical room/inventory evidence when available, otherwise an authoritative read-only device fallback owned by the selected exact Matrix profile;
+- `Серийный номер`: current canonical room/inventory evidence when available, otherwise an authoritative read-only device fallback owned by the selected exact Matrix profile;
+- `Версия прошивки`: authoritative current device read;
+- `Температура`: authoritative current device read;
+- `Время работы`: authoritative current device read.
+
+Presentation and acquisition SHALL NOT infer or synthesize a required value from
+another field, model text, reference artwork, logs, a prior snapshot, widget state,
+default zero, placeholder text, or a command copied speculatively from another
+family. An unproven authoritative read for a required row is a blocking capability
+gap for that supported profile.
+
+`Нет данных` (or the foundation safe no-data equivalent) remains truthful only
+for a failed, incomplete, stale, or otherwise non-successful current acquisition.
+Such a state SHALL NOT be classified as a complete successful full refresh.
+A prior accepted value SHALL clear rather than survive into a current incomplete
+snapshot.
+
+Numeric temperature `0` remains a valid value only when successful current
+device evidence explicitly establishes zero.
+
+#### Scenario: Current Matrix snapshot lacks reference-only information fields
+
+- **GIVEN** a current Matrix acquisition lacks one or more authoritative General-information values
+- **AND** canonical room/inventory evidence cannot supply missing MAC/serial or the required device fallback/read did not establish them
+- **WHEN** the General information card renders and the acquisition is classified
+- **THEN** each missing row renders truthful no-data
+- **AND** the acquisition is not classified as a complete successful full refresh
+- **AND** no unrelated or synthetic value is inserted to make the card look complete
+
+#### Scenario: Failed model and temperature evidence remains no-data
+
+- **GIVEN** current Matrix normalization has no accepted exact model evidence or no authoritative current temperature evidence
+- **WHEN** the General information card renders
+- **THEN** the missing field shows `Нет данных`
+- **AND** local `Unknown`, stale prior evidence, or synthetic numeric zero is not rendered as device evidence
+- **AND** the refresh is not classified as complete successful
+
+#### Scenario: Real zero temperature remains visible
+
+- **GIVEN** accepted current Matrix evidence contains temperature numeric zero from a successful authoritative device response
+- **WHEN** the General information card renders
+- **THEN** `Температура` renders that zero value
+- **AND** it is not replaced with `Нет данных`
+
+#### Scenario: Successful full refresh fills all six rows
+
+- **GIVEN** an exact supported Matrix model completes its authoritative current full-refresh acquisition
+- **WHEN** that refresh is accepted as complete successful
+- **THEN** all six General-information rows contain authoritative values
+- **AND** none renders `Нет данных`, a placeholder, or stale prior evidence
+
+#### Scenario: Missing inventory MAC or serial uses device fallback
+
+- **GIVEN** the current exact Matrix row lacks canonical room/inventory MAC or serial evidence
+- **WHEN** a complete full refresh is attempted
+- **THEN** the selected exact profile uses its proven read-only device fallback for the missing required field
+- **AND** failure or unproven support for that fallback prevents complete-success classification
+- **AND** no guessed MAC or serial is synthesized
+
 ## REMOVED Requirements
 
 ### Requirement: Matrix Quick actions remain truthful to approved capabilities
@@ -243,19 +323,32 @@ columns readable.
 
 ### Requirement: Matrix information card projects canonical row facts
 
-The Matrix information card SHALL display the exact room row's canonical
-`mac_address` and `serial_number` directly from row/inventory projection. The
-row's canonical `ip_address` remains application/target authority but SHALL NOT
-be duplicated inside this information card. Firmware, temperature, and uptime SHALL be shown only from current
-accepted device evidence; unsupported or unproven diagnostics remain
-unavailable and SHALL NOT trigger guessed SIS commands. A missing current
-field SHALL clear to the established unavailable display rather than retaining
-old evidence.
+The Matrix information card SHALL use the same six-field completeness and
+authority contract as `Matrix General information preserves approved field order
+without fabricating evidence`. The row's canonical `ip_address` remains
+application/target authority but SHALL NOT be duplicated inside this card.
+
+Canonical current room/inventory MAC and serial SHALL be used when present.
+Their absence SHALL activate only the selected exact profile's proven read-only
+device fallback; it SHALL NOT permit a guessed value. Firmware, temperature,
+and uptime SHALL come only from authoritative current device reads. Model SHALL
+come from the accepted exact Matrix identity/canonical model.
+
+The card MAY show truthful no-data during incomplete/failed acquisition, but a
+snapshot with any missing required General-information value SHALL NOT be treated
+as a complete successful full refresh. Missing current evidence SHALL clear old
+presentation values.
 
 #### Scenario: Canonical inventory facts survive a device snapshot without them
-- **GIVEN** an exact Matrix room row has canonical MAC, serial, and IP values
-- **AND** its accepted device snapshot contains no MAC or serial
+- **GIVEN** an exact Matrix room row has current canonical MAC and serial values
+- **AND** its accepted device snapshot does not repeat those two values
 - **WHEN** the information card renders
-- **THEN** it displays canonical MAC and serial values
+- **THEN** it displays canonical MAC and serial values without an extra device read for those already-authoritative fields
 - **AND** it does not duplicate the exact row IP inside the card
-- **AND** it does not issue an additional device query
+- **AND** firmware, temperature, and uptime still require authoritative current device evidence
+
+#### Scenario: Missing canonical MAC or serial requires proven device fallback
+- **GIVEN** the current exact Matrix row lacks canonical MAC or serial evidence
+- **WHEN** a complete full refresh is attempted
+- **THEN** only the selected exact profile's proven read-only device acquisition may supply the missing value
+- **AND** absent/unproven fallback leaves the refresh incomplete rather than fabricating presentation evidence

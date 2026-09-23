@@ -33,7 +33,7 @@ The change also removes the current single-output assumption from normalized Mat
 - Discover XTP/XTP II runtime topology from read-only matrix-dimension plus installed-board evidence; do not infer topology with state-changing route probes.
 - Normalize Matrix routing as an output-to-input mapping instead of a single `current_connection` scalar.
 - Render one routing column per independently routable and currently available logical output. Physical output connectors SHALL NOT create duplicate routing columns when they share one logical route.
-- Keep input signal presence, HDCP state, names, temperature, and output metadata capability-driven. Unsupported or unproven reads SHALL remain unavailable rather than using speculative SIS commands.
+- Keep input signal presence, HDCP state, names, and output metadata capability-driven. The six `Общая информация` fields are no longer optional for an in-scope supported Matrix: every complete successful full refresh must establish authoritative `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, and `Время работы`. Unproven acquisition for any required field is a blocking capability gap, not permission to fabricate data or send speculative SIS commands.
 - Use family-specific HDCP command and decoder profiles. In particular, DTP output HDCP uses `WO<N>HDCP`, first-generation XTP output HDCP uses `W0<N>HDCP`, and XTP II output HDCP remains UNPROVEN until separately established from official evidence.
 - Preserve existing Matrix route mutation ambiguity/no-replay and reconciliation safety.
 
