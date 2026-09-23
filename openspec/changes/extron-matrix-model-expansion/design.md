@@ -26,11 +26,9 @@ If research has not established an authoritative command for an optional field, 
 
 The six `Общая информация` fields are acceptance-critical for every Matrix model supported by this change and are not optional diagnostics. If authoritative acquisition for `Модель`, `MAC-адрес`, `Серийный номер`, `Версия прошивки`, `Температура`, or `Время работы` is unproven for an in-scope model, that is a blocking capability gap for that profile. The implementation SHALL establish authoritative read/source evidence before claiming a complete successful full refresh or hardware PASS; it SHALL NOT fill the gap with a guessed command, placeholder, unrelated field, stale snapshot, or synthetic value.
 
-### 5. Profile selection precedes profile-specific decoding
+### 5. Deferred profiles cannot become runtime authority
 
-Matrix dimensions and installed-board symbols are not sufficient by themselves to distinguish first-generation XTP from XTP II. The application SHALL establish authoritative frame identity first, then select the matching XTP or XTP II decoder/profile, then interpret dimension/board evidence under that selected profile.
-
-Authoritative frame identity SHALL come from a documented frame identity/part-number response accepted by an exact-frame registry. The `*N` response may contribute the frame part number plus slot-by-slot board evidence when the official profile defines that response. If the returned part number/identity cannot be resolved exactly, the device remains unsupported rather than inheriting the nearest XTP family profile.
+Historical XTP/XTP II identity, dimensions and installed-board decoders may remain as unreachable implementation detail until remediation removes or isolates them, but they SHALL NOT participate in current production profile selection, capability authority, polling, mutation or GUI topology. Unknown/deferred evidence remains unsupported rather than inheriting the nearest supported IN/DTP profile.
 
 ## Proposed Domain Model
 
@@ -243,7 +241,7 @@ Raw input values SHALL be decoded through the selected device profile.
 2 -> source present, HDCP present
 ```
 
-### IN1608 xi / approved DTP CrossPoint / XTP CrossPoint / XTP II CrossPoint input HDCP
+### IN1608 xi / approved DTP CrossPoint input HDCP
 
 ```text
 0 -> source absent
@@ -255,7 +253,7 @@ Normalized input states SHALL distinguish at least `ABSENT`, `PRESENT_HDCP`, `PR
 
 Room presentation continues to derive its HDCP display from normalized input HDCP status, not HDCP authorization/configuration or output HDCP state.
 
-Output HDCP SHALL use a separate per-family command/decoder profile. DTP and first-generation XTP are explicitly different; XTP II remains unavailable until proven.
+Output HDCP SHALL use the approved per-family command/decoder profile for remaining supported models. DTP uses its DTP-specific output-HDCP contract; deferred XTP/XTP II output-HDCP research is non-production evidence.
 
 ## Topology Discovery
 
@@ -267,18 +265,9 @@ IN1804 / IN1806 / IN1808 / IN1608 xi topology may be resolved from exact model i
 
 Only the exact DTP models named above may resolve to fixed logical topology. Unknown DTP2/DTP3/other DTP identities SHALL NOT match the DTP profile.
 
-### XTP / XTP II
+### Deferred XTP / XTP II topology
 
-The application SHALL:
-
-1. establish authoritative exact frame generation/identity;
-2. select XTP or XTP II profile from that identity;
-3. read matrix dimensions with the documented information query;
-4. read installed I/O board configuration with the selected profile;
-5. derive `available_input_ids` and `available_output_ids` without renumbering gaps caused by empty board slots;
-6. use only those available IDs for polling, route reconciliation and GUI columns.
-
-A missing board slot SHALL NOT cause later IDs to be compressed into lower numbers.
+No XTP/XTP II topology discovery runs in production under this change. Historical dimension/board decoders may remain unreachable until remediation, but no current room row or standalone Matrix target may select them as a supported profile.
 
 ## Required General-information acquisition
 
@@ -381,8 +370,7 @@ not use manufacturer text, substring matching, or registry order as model
 authority.
 
 Inventory rules may require components and forbid discriminating components.
-The latter distinguishes DTP CrossPoint 84 from DTP CrossPoint 84 4K and
-first-generation XTP CrossPoint from XTP II without priority. A bare IN1608
+The latter distinguishes DTP CrossPoint 84 from DTP CrossPoint 84 4K. A bare IN1608
 remains unresolved because `xi` is required. IN1806 remains a separate canonical
 runtime model from IN1808 and resolves only from its own exact inventory evidence. Canonical inventory output uses
 the exact runtime dispatch names, while original source-model text remains

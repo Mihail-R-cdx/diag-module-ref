@@ -81,11 +81,6 @@ for the optional Phase B only.
 | DTP CrossPoint 84 4K | Canonical / part number `N` | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | Must remain distinct from non-4K DTP 84; optional untie is `0*<O>%`. |
 | DTP CrossPoint 86 4K | Canonical / part number `N` | fixed 8x6 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | FAIL | Read-only poll returned names and `0LS`, then the old route poll sent `1!` and received `E13`. Post-remediation retest must prove `<O>%` readback; no mutation required. |
 | DTP CrossPoint 108 4K | Canonical / exact part number `N` aliases including `60-1381-12` | fixed 10x8 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | FAIL | Hardware returned exact part number `60-1381-12`; the pre-remediation allowlist rejected it. Post-remediation identity and read-only poll retest required. |
-| XTP CrossPoint 1600 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | `W0<N>HDCP` / unavailable | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | First-generation AV-route profile only; preserve empty-slot IDs. |
-| XTP CrossPoint 3200 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | `W0<N>HDCP` / unavailable | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | First-generation AV-route profile only; preserve empty-slot IDs. |
-| XTP II CrossPoint 1600 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
-| XTP II CrossPoint 3200 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
-| XTP II CrossPoint 6400 | Canonical / `N`, `I`, `*N` | dynamic board-aware | Yes / modern mapping | unavailable / Yes | unavailable / unavailable / REQUIRED-PROVE | `<O>!` / `<I>*<O>!` | NOT RUN | Output HDCP remains UNPROVEN/unavailable. |
 
 ## Phase A — read-only hardware procedure
 
@@ -147,8 +142,7 @@ For DTP, this optional operation is video-only: set `<I>*<O>%`, reconcile with
 `<O>%`, and use `0*<O>%` only for an explicitly authorized video untie.
 Do not change or infer audio ties.
 
-For XTP/XTP II, retain the separately approved AV-route profile and reconcile
-according to that profile.
+XTP/XTP II are deferred from production support; Phase B SHALL NOT route-switch them under this change.
 
 Restore the original route if a mutation was actually authorized and performed,
 then verify the same targeted readback. If a failure occurs after possible send,

@@ -323,33 +323,28 @@ Approved production profiles SHALL generate exact documented/hardware-confirmed 
 - **THEN** the state-changing command before transport termination is `0*7%`
 - **AND** audio tie state remains outside the operation
 
-#### Scenario: XTP-family mutation retains approved AV syntax
-- **WHEN** input `3` is routed to output `7` on an approved XTP or XTP II CrossPoint profile
-- **THEN** the state-changing command before transport termination is `3*7!`
+#### Scenario: Deferred XTP exposes no route mutation
+- **WHEN** target evidence identifies XTP or XTP II
+- **THEN** no production route mutation is authorized
+- **AND** historical `!` syntax is not reachable through supported dispatch
 
-### Requirement: CrossPoint output HDCP commands remain family-specific
+### Requirement: Supported CrossPoint output HDCP remains DTP-specific
 
-Approved DTP CrossPoint output-HDCP reads SHALL use `WO<N>HDCP`. First-generation XTP CrossPoint output-HDCP reads SHALL use `W0<N>HDCP`, and the all-outputs query SHALL use `W0*HDCP`. XTP II output-HDCP SHALL remain unavailable/UNPROVEN until an exact official command and decoder are approved.
+Approved DTP CrossPoint output-HDCP reads SHALL use `WO<N>HDCP`. Deferred XTP/XTP II output-HDCP parsers/commands, if retained historically, SHALL NOT be invoked by production dispatch.
 
-#### Scenario: XTP does not reuse DTP output-HDCP syntax
-- **WHEN** output HDCP is read on an approved first-generation XTP frame for output `4`
-- **THEN** the handler generates `W04HDCP` before transport termination
-- **AND** it does not generate DTP-form `WO4HDCP`
-
-#### Scenario: Unproven XTP II output HDCP sends nothing
-- **GIVEN** the XTP II profile has no approved output-HDCP command
-- **WHEN** diagnostic collection reaches optional output-HDCP data
-- **THEN** no speculative DTP or first-generation XTP command is sent
-- **AND** output HDCP remains unavailable/unknown
+#### Scenario: Deferred XTP sends no output-HDCP query
+- **WHEN** target evidence identifies XTP or XTP II
+- **THEN** this change starts no production Matrix diagnostic collection for that target
+- **AND** neither DTP nor historical XTP output-HDCP syntax is sent
 
 ### Requirement: Input HDCP status is normalized by profile-specific semantics
 
-The active Matrix profile SHALL normalize raw input HDCP status according to its approved family semantics. IN1804/IN1806/IN1808 SHALL map `0=absent, 1=present without HDCP, 2=present with HDCP`. IN1608 xi, approved DTP, XTP and XTP II SHALL map `0=absent, 1=HDCP-compliant/present, 2=non-compliant/absent`. HDCP authorization/configuration SHALL remain distinct from actual input HDCP status.
+The active supported Matrix profile SHALL normalize raw input HDCP status according to its approved family semantics. IN1804/IN1806/IN1808 SHALL map `0=absent, 1=present without HDCP, 2=present with HDCP`. IN1608 xi and approved DTP SHALL map `0=absent, 1=HDCP-compliant/present, 2=non-compliant/absent`. Deferred XTP/XTP II normalization does not authorize production collection. HDCP authorization/configuration SHALL remain distinct from actual input HDCP status.
 
 #### Scenario: Raw value 1 differs by generation
 - **WHEN** raw input HDCP value `1` is received from IN1808
 - **THEN** normalized state is `PRESENT_NO_HDCP`
-- **WHEN** raw input HDCP value `1` is received from approved XTP
+- **WHEN** raw input HDCP value `1` is received from approved DTP
 - **THEN** normalized state is `PRESENT_HDCP`
 
 ### Requirement: Matrix route mutation preserves existing ambiguity safety
@@ -374,8 +369,7 @@ already provided by the Matrix transport MAY precede this closed resolution.
 
 Expected-model validation SHALL compare canonical resolved profile identity.
 Thus an expected `Extron IN1804` accepts a documented IN1804 wire alias, while
-an actual `IN1808` identity remains a fail-closed mismatch. DTP, XTP, and XTP
-II exact identity/part-number resolution remains unchanged.
+an actual `IN1808` identity remains a fail-closed mismatch. DTP exact identity/part-number resolution remains active; historical XTP/XTP II identity resolution is non-dispatched and does not create supported runtime authority.
 
 #### Scenario: IN1804 DI/DO full refresh remains compatible
 
@@ -420,9 +414,7 @@ evidence and `Inf01*` SHALL NOT be accepted as part-number evidence.
 - **AND** the diagnostic fails closed without profile guessing
 
 Unknown values, trailing garbage, multiple identity records, and expected-model
-mismatches SHALL fail closed. DTP CP84 retains its documented `I` token; DTP
-4K and XTP/XTP II retain exact `N` part-number authority, before downstream
-dimension and board-topology evidence. The exact hardware-proven `IN1608 xi IPCP SA`
+mismatches SHALL fail closed. DTP CP84 retains its documented `I` token and DTP 4K retains exact `N` part-number authority. Historical XTP/XTP II `N` parsing may remain only as non-dispatched evidence and SHALL NOT trigger downstream production topology discovery. The exact hardware-proven `IN1608 xi IPCP SA`
 `1I` identity SHALL resolve to canonical `IN1608 xi`; other IN1608 xi aliases remain
 closed unless separately approved. Exact DTP CrossPoint 108 4K part number
 `60-1381-12` SHALL resolve to its existing canonical profile without enabling any
@@ -445,12 +437,12 @@ expected model SHALL receive a neutral Matrix label rather than an IN1804 claim.
 - **AND** it is not `1I`
 - **AND** the expected DTP profile is preserved through the worker/handler boundary
 
-#### Scenario: IN and XTP II retain separate identity generations
+#### Scenario: Supported IN identity generation remains explicit
 
 - **WHEN** the room diagnostic model is `Extron IN1608 xi` or `Extron IN1806`
 - **THEN** its first authoritative identity command is `1I`
-- **WHEN** the room diagnostic model is `Extron XTP II CrossPoint 3200`
-- **THEN** its first authoritative identity command is `N`
+- **WHEN** evidence instead identifies deferred XTP/XTP II
+- **THEN** no production Matrix identity/polling session starts for that deferred model
 
 #### Scenario: Hardware-proven exact identities remain closed
 
