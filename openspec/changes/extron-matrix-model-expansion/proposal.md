@@ -13,7 +13,7 @@ The supported scope for this change is explicitly limited to:
 - Extron DTP CrossPoint 84
 - Extron DTP CrossPoint 4K Series: DTP CrossPoint 82 4K, 84 4K, 86 4K, and 108 4K
 
-First-generation XTP CrossPoint 1600/3200 and XTP II CrossPoint 1600/3200/6400 are deferred from production-supported scope in this change. Protocol research did not establish an authoritative machine-readable uptime source that satisfies the mandatory six-field General-information contract. Earlier XTP/XTP II implementation in this branch is historical work only and SHALL NOT keep those models production-dispatchable.
+First-generation XTP CrossPoint 1600/3200 and XTP II CrossPoint 1600/3200/6400 remain deferred from production-supported scope in this change. This is an explicit scope decision independent of the Matrix General-information fields. Earlier XTP/XTP II implementation in this branch is historical work only and SHALL NOT keep those models production-dispatchable.
 
 Legacy CrossPoint 300/450/Ultra, DTP2 CrossPoint, DTP3 CrossPoint, and any other CrossPoint generation not named above are explicitly out of scope and SHALL NOT inherit a supported profile by family-name similarity.
 
@@ -32,7 +32,7 @@ The change also removes the current single-output assumption from normalized Mat
 - Retire XTP/XTP II from unified production registration and inventory dispatch in this change. Their exact identity/topology research may be reused only by a future separately reviewed change that proves the same mandatory six-field acquisition contract.
 - Normalize Matrix routing as an output-to-input mapping instead of a single `current_connection` scalar.
 - Render one routing column per independently routable and currently available logical output. Physical output connectors SHALL NOT create duplicate routing columns when they share one logical route.
-- Keep input signal presence, HDCP state, names, and output metadata capability-driven. For every remaining in-scope Matrix, complete successful refresh requires all six General-information values. MAC and serial are mandatory canonical inventory prerequisites; firmware and temperature use exact approved SIS reads; uptime uses read-only SNMPv2c MIB-II `sysUpTime.0` through an application-owned monitoring credential.
+- Keep input signal presence, HDCP state, names, and output metadata capability-driven. For every remaining in-scope Matrix, complete successful refresh requires all five General-information values: model, MAC address, serial number, firmware version, and temperature. MAC and serial are mandatory canonical inventory prerequisites; firmware and temperature use exact approved SIS reads.
 - Use family-specific HDCP command and decoder profiles for the remaining supported IN/DTP scope. Historical XTP/XTP II HDCP work does not keep those deferred profiles supported.
 - Preserve existing Matrix route mutation ambiguity/no-replay and reconciliation safety.
 
@@ -60,7 +60,7 @@ For new devices, only officially documented or separately hardware-validated SIS
 - Legacy analog CrossPoint 300/450/Ultra support.
 - DTP2 CrossPoint and DTP3 CrossPoint support.
 - Any DTP generation not explicitly resolved to one of the approved profiles above.
-- First-generation XTP CrossPoint and XTP II CrossPoint production support; these models are deferred until a separately reviewed change proves mandatory General-information acquisition, including authoritative uptime.
+- First-generation XTP CrossPoint and XTP II CrossPoint production support; these models remain explicitly deferred from this change and require a separately reviewed scope decision before production enablement.
 - Speculative support for commands not proven by official Extron documentation or hardware evidence.
 - Reworking unrelated codec, audio-DSP, PDU, room-search, credential, or occupancy behavior.
 - Treating every physical output connector as an independently routable output.
