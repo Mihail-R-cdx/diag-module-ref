@@ -136,7 +136,7 @@ class MatrixPresentationTests(unittest.TestCase):
         row.status = DeviceRowStatus.CONNECTED
         row.network_actions_enabled = True
         row.accepted_snapshot = {
-            "model": "IN1804", "firmware": "1.2.3", "temperature": 59, "uptime": "10 h", "inputs_num": 4,
+            "model": "IN1804", "firmware": "1.2.3", "temperature": 59, "inputs_num": 4,
             "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1],
             "input_names": {1: "Laptop", 2: "Camera", 3: "PC", 4: "Doc Cam"},
             "output_names": {1: "Projector"},
@@ -165,7 +165,7 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual("SERIAL-1", projection.findChild(QLabel, "roomMatrixSerialValue").text())
         self.assertEqual("1.2.3", projection.findChild(QLabel, "roomMatrixFirmwareValue").text())
         self.assertEqual("59°C", projection.findChild(QWidget, "roomMatrixTemperatureValue").text())
-        self.assertEqual("10 h", projection.findChild(QLabel, "roomMatrixUptimeValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixUptimeValue"))
         self.assertEqual("192.0.2.4", projection.findChild(QLabel, "roomMatrixIpValue").text())
         self.assertIsNone(projection.findChild(QPushButton, "roomMatrixRebootButton"))
         self.assertEqual([], [card for card in projection.findChildren(QWidget, "roomMatrixQuickActions")])
@@ -209,7 +209,7 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual("192.0.2.4", projection.findChild(QLabel, "roomMatrixIpValue").text())
         self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixFirmwareValue").text())
         self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixTemperatureValue").text())
-        self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixUptimeValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixUptimeValue"))
 
         for changes in (
             {"stale": True},
