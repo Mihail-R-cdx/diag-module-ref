@@ -2,7 +2,7 @@
 
 ### Requirement: Expanded Matrix redesign targets the current room exact-row presentation surface
 
-The modern Matrix presentation SHALL render inside the current room-mode exact-row presentation owned by `RoomDiagnosticTreeWidget` for every exact Extron Matrix registration approved by `device-diagnostics-and-control`, including the existing `Extron IN1804` baseline and newly approved IN1806, IN1808, IN1608 xi, DTP CrossPoint, XTP CrossPoint, and XTP II CrossPoint profiles.
+The modern Matrix presentation SHALL render inside the current room-mode exact-row presentation owned by `RoomDiagnosticTreeWidget` for every exact Extron Matrix registration approved by `device-diagnostics-and-control`, including the existing `Extron IN1804` baseline and approved IN1806, IN1808, IN1608 xi, and DTP CrossPoint profiles. XTP/XTP II are deferred and are not supported production Matrix rows in this change.
 
 A focused presentation-only Matrix dashboard component MAY consume accepted exact-row evidence and emit safe non-secret local intents, but SHALL NOT own room identity, target-search, request generation/currentness, credentials, handler/session lifecycle, polling/live ownership, mutation delivery, reconciliation authority, profile selection, SIS syntax, or device network I/O.
 
@@ -29,7 +29,7 @@ If authoritative output-name evidence exists for an output ID, that name SHOULD 
 
 Rows SHALL follow a proven accepted current input topology. The presentation SHALL NOT fabricate eight rows, compress gaps in available IDs, or make an unproven ordinal actionable.
 
-A device exposing several physical connectors that share one logical route SHALL still create one route column for that logical route. A multi-output CrossPoint creates one column per authoritative available logical output. If an installed XTP/XTP II board gap removes outputs, later output IDs retain their actual numbers.
+A device exposing several physical connectors that share one logical route SHALL still create one route column for that logical route. A multi-output CrossPoint creates one column per authoritative available logical output. Deferred XTP/XTP II board topology does not create production route columns in this change.
 
 #### Scenario: Four-input accepted Matrix is not rendered as eight inputs
 - **GIVEN** accepted current Matrix evidence establishes four inputs
@@ -134,7 +134,7 @@ Presentation SHALL NOT call `ExtronIN1804Handler`, any CrossPoint handler, `Matr
 - **AND** it does not collapse the intent to output `1`
 
 #### Scenario: Unavailable output exposes no route intent
-- **GIVEN** current XTP/XTP II topology marks output `13` unavailable because its board slot is empty
+- **GIVEN** a future supported multi-output profile marks output `13` unavailable
 - **WHEN** the table renders
 - **THEN** presentation exposes no actionable route cell for output `13`
 
@@ -158,11 +158,11 @@ evidence establishes an authoritative non-empty value for all six rows.
 Source authority SHALL be:
 
 - `Модель`: accepted exact Matrix identity/canonical model for the current operation;
-- `MAC-адрес`: current canonical room/inventory evidence when available, otherwise an authoritative read-only device fallback owned by the selected exact Matrix profile;
-- `Серийный номер`: current canonical room/inventory evidence when available, otherwise an authoritative read-only device fallback owned by the selected exact Matrix profile;
-- `Версия прошивки`: authoritative current device read;
-- `Температура`: authoritative current device read;
-- `Время работы`: authoritative current device read.
+- `MAC-адрес`: mandatory current canonical room/inventory evidence;
+- `Серийный номер`: mandatory current canonical room/inventory evidence;
+- `Версия прошивки`: authoritative current exact-profile SIS read;
+- `Температура`: authoritative current exact-profile SIS read;
+- `Время работы`: authoritative current SNMPv2c MIB-II `sysUpTime.0` read under the application-owned monitoring profile.
 
 Presentation and acquisition SHALL NOT infer or synthesize a required value from
 another field, model text, reference artwork, logs, a prior snapshot, widget state,
@@ -182,7 +182,7 @@ device evidence explicitly establishes zero.
 #### Scenario: Current Matrix snapshot lacks reference-only information fields
 
 - **GIVEN** a current Matrix acquisition lacks one or more authoritative General-information values
-- **AND** canonical room/inventory evidence cannot supply missing MAC/serial or the required device fallback/read did not establish them
+- **AND** canonical room/inventory evidence cannot supply MAC/serial or another mandatory current read did not establish its value
 - **WHEN** the General information card renders and the acquisition is classified
 - **THEN** each missing row renders truthful no-data
 - **AND** the acquisition is not classified as a complete successful full refresh
@@ -210,12 +210,12 @@ device evidence explicitly establishes zero.
 - **THEN** all six General-information rows contain authoritative values
 - **AND** none renders `Нет данных`, a placeholder, or stale prior evidence
 
-#### Scenario: Missing inventory MAC or serial uses device fallback
+#### Scenario: Missing inventory MAC or serial blocks complete success
 
 - **GIVEN** the current exact Matrix row lacks canonical room/inventory MAC or serial evidence
 - **WHEN** a complete full refresh is attempted
-- **THEN** the selected exact profile uses its proven read-only device fallback for the missing required field
-- **AND** failure or unproven support for that fallback prevents complete-success classification
+- **THEN** no device fallback is guessed or sent for that field
+- **AND** complete-success classification is prevented
 - **AND** no guessed MAC or serial is synthesized
 
 ## REMOVED Requirements
@@ -300,7 +300,7 @@ horizontal table header.
 Route-column headings SHALL use authoritative output-name evidence only when the active profile proves and successfully returns it. An unproven output-name command SHALL cause deterministic fallback heading `Output <id>` rather than speculative SIS I/O or a fabricated configured name.
 
 #### Scenario: XTP output naming is unproven
-- **GIVEN** the active XTP profile has no approved output-name read
+- **GIVEN** the active approved profile has no authoritative output-name read
 - **WHEN** the Matrix table renders output `5`
 - **THEN** the heading uses deterministic fallback `Output 5`
 - **AND** presentation does not imply that an empty configured name was returned
@@ -328,10 +328,10 @@ authority contract as `Matrix General information preserves approved field order
 without fabricating evidence`. The row's canonical `ip_address` remains
 application/target authority but SHALL NOT be duplicated inside this card.
 
-Canonical current room/inventory MAC and serial SHALL be used when present.
-Their absence SHALL activate only the selected exact profile's proven read-only
-device fallback; it SHALL NOT permit a guessed value. Firmware, temperature,
-and uptime SHALL come only from authoritative current device reads. Model SHALL
+Canonical current room/inventory MAC and serial are mandatory prerequisites.
+Their absence SHALL NOT activate a device fallback in this change. Firmware and
+temperature SHALL come only from authoritative current exact-profile SIS reads;
+uptime SHALL come only from the approved SNMPv2c MIB-II `sysUpTime.0` read. Model SHALL
 come from the accepted exact Matrix identity/canonical model.
 
 The card MAY show truthful no-data during incomplete/failed acquisition, but a
@@ -347,8 +347,8 @@ presentation values.
 - **AND** it does not duplicate the exact row IP inside the card
 - **AND** firmware, temperature, and uptime still require authoritative current device evidence
 
-#### Scenario: Missing canonical MAC or serial requires proven device fallback
+#### Scenario: Missing canonical MAC or serial keeps the refresh incomplete
 - **GIVEN** the current exact Matrix row lacks canonical MAC or serial evidence
 - **WHEN** a complete full refresh is attempted
-- **THEN** only the selected exact profile's proven read-only device acquisition may supply the missing value
-- **AND** absent/unproven fallback leaves the refresh incomplete rather than fabricating presentation evidence
+- **THEN** the refresh remains incomplete
+- **AND** no device fallback or fabricated presentation value is used

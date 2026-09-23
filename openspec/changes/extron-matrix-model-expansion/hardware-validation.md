@@ -41,37 +41,27 @@ MAC-адрес
 Время работы
 ```
 
-`Модель` must match accepted exact identity/canonical profile. MAC and serial may
-come from current canonical room/inventory evidence, but if either is absent the
-exact selected profile must prove its authoritative read-only device fallback.
-Firmware, temperature, and uptime must be observed from authoritative current
-device reads. Values must be non-empty and plausible for the device; placeholders,
+`Модель` must match accepted exact identity/canonical profile. MAC and serial must come from current canonical room/inventory evidence. If either is absent, the fixture cannot receive complete-refresh or hardware PASS; no device fallback is approved.
+Firmware and temperature must be observed from the approved exact SIS reads; uptime must be observed from the approved SNMPv2c `sysUpTime.0` read. Values must be non-empty and plausible for the device; placeholders,
 model-as-serial substitution, synthetic zero, stale cache, or copied values do not
 count. A missing exact command/source is a capability gap requiring architecture/
 implementation follow-up, not permission to mark PASS.
 
 ## General-information acquisition/evidence matrix
 
-This table mirrors the pre-implementation authority in `design.md`. `PROVEN`
-means the exact source/command and grammar are approved. `REQUIRED-PROVE`
-means the capability is mandatory but still blocks implementation and hardware
-PASS. Inventory-first fields still show fallback status because hardware PASS must
-remain possible when canonical inventory evidence is absent.
+This table mirrors the closed pre-implementation authority in `design.md`.
 
 | Profile group | Model | MAC | Serial | Firmware | Temperature | Uptime | General-information readiness |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| IN1804 | PROVEN `1I` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `E20STAT}` | REQUIRED-PROVE machine source | BLOCKED |
-| IN1806 / IN1808 | PROVEN `1I` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `E20STAT}` | REQUIRED-PROVE machine source; web UI visibility alone is insufficient | BLOCKED |
-| IN1608 xi | PROVEN `1I` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `E20STAT}` | REQUIRED-PROVE machine source | BLOCKED |
-| DTP CrossPoint 84 | PROVEN `I` | REQUIRED-PROVE device fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S`, temperature field 2 | REQUIRED-PROVE machine source | BLOCKED |
-| DTP CrossPoint 82/84/86/108 4K | PROVEN `N` exact part number | REQUIRED-PROVE device fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S`, temperature field 2 | REQUIRED-PROVE machine source | BLOCKED |
-| XTP CrossPoint 1600 / 3200 | PROVEN `N + I + *N` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S` profile temperature field | REQUIRED-PROVE machine source | BLOCKED |
-| XTP II CrossPoint 1600 / 3200 / 6400 | PROVEN `N + I + *N` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S` profile temperature field | REQUIRED-PROVE machine source | BLOCKED |
+| IN1804 | PROVEN `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
+| IN1806 / IN1808 | PROVEN `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
+| IN1608 xi | PROVEN closed `1I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `W20STAT` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
+| DTP CrossPoint 84 | PROVEN `I` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `S` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
+| DTP CrossPoint 82/84/86/108 4K | PROVEN exact `N` | REQUIRED canonical inventory | REQUIRED canonical inventory | PROVEN `Q` | PROVEN `S` | PROVEN design: SNMPv2c `sysUpTime.0` | READY FOR IMPLEMENTATION |
+| XTP CrossPoint 1600/3200 | DEFERRED | n/a | n/a | n/a | n/a | no approved source | NOT IN SUPPORTED SCOPE |
+| XTP II CrossPoint 1600/3200/6400 | DEFERRED | n/a | n/a | n/a | n/a | no approved source | NOT IN SUPPORTED SCOPE |
 
-No row in this table is eligible for hardware `PASS` while its readiness is
-`BLOCKED`. A later architecture amendment that closes a cell must update this
-table, the normative acquisition matrix, focused tests, and the read-only hardware
-procedure together before implementation/hardware evidence can claim that capability.
+For supported IN/DTP hardware, PASS additionally requires SNMP to be enabled and the deployment read-only community to be available through explicit password-only profile `matrix-snmp-read`. Missing monitoring configuration is BLOCKED, not permission to substitute local elapsed time or scrape an undocumented page.
 
 ## Model capability and evidence matrix
 
@@ -106,17 +96,11 @@ model selected for retest:
    `diagnostic_model` without changing the source-model evidence.
 2. Connect through the normal application/handler path and capture the exact
    identity response; verify it matches the inventory expectation.
-3. Establish the complete six-field General-information tuple under the source rules above. If inventory MAC/serial is absent, exercise only the exact profile's proven read-only fallback. Firmware, temperature, and uptime must come from authoritative device reads. Do not mark the run PASS if any required field is missing or unproven.
+3. Establish the complete six-field General-information tuple under the source rules above. Inventory MAC and serial are mandatory. Firmware/temperature use the approved exact SIS profile and uptime uses SNMPv2c `sysUpTime.0` through `matrix-snmp-read`. Do not mark the run PASS if any required field is missing.
 4. Read the remaining profile-approved capabilities, topology, signal presence, input HDCP, output HDCP, HDCP authorization, names, and all applicable routes. Optional unavailable/unproven fields remain unavailable; do not issue a trial command.
 5. Where practical, compare parsed state with the device Web UI or known current state. Record raw request/response pairs with firmware version and device serial/asset reference, omitting credentials.
 
-For XTP and XTP II, retain raw responses for `N`, `I`, `*N`, and `0LS`,
-plus all applicable HDCP and route reads. Verify that the `N` part number
-equals the `*N` part number, the board-symbol sequence has the frame-specific
-slot count, and every symbol belongs to the selected generation's symbol table.
-Empty slots must retain later logical IDs. An undocumented symbol stops that
-profile's validation and is recorded verbatim; it does not authorize parser
-expansion.
+XTP and XTP II are deferred and are not hardware-PASS targets in this change. Do not run them merely to satisfy this change's permitting gate.
 
 For DTP, capture the real `0LS` response exactly, including whether it is bare,
 `Frq00*`-prefixed, space-separated, or contiguous. Verify DTP CrossPoint 84's
@@ -170,3 +154,17 @@ Restore the original route if a mutation was actually authorized and performed,
 then verify the same targeted readback. If a failure occurs after possible send,
 do not replay automatically. Preserve raw evidence and record the optional
 mutation result separately from the mandatory Phase A read-only status.
+
+
+## SNMP uptime read-only hardware procedure
+
+For each remaining supported IN/DTP fixture:
+1. confirm canonical inventory MAC and serial are non-empty;
+2. confirm SNMP is enabled operationally on the device;
+3. resolve dedicated `matrix-snmp-read` without logging its community value;
+4. issue SNMPv2c GET for exactly `1.3.6.1.2.1.1.3.0` on UDP/161;
+5. record the returned TimeTicks value and formatted uptime with the community redacted;
+6. reject mismatched request-id/OID/type, non-zero error-status, malformed BER, extra varbinds or timeout as incomplete evidence;
+7. compare with visible device uptime where available only as a plausibility check.
+
+No SNMP mutation, walk or trap operation is permitted.

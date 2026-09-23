@@ -223,46 +223,13 @@ untie video O        0*<O>%
 
 Fixed topology SHALL be resolved from exact-model identity/profile data. Physical connector numbering MAY differ from logical routing-output numbering; GUI routing follows logical routing outputs. DTP temperature is now a mandatory unresolved General-information capability gap: authoritative evidence must be established before a DTP profile can satisfy complete full-refresh or hardware-PASS acceptance.
 
-### First-generation XTP CrossPoint profile
+### Deferred XTP / XTP II profiles
 
-The approved profile uses authoritative exact-frame identity plus documented XTP matrix/board evidence:
+Earlier implementation work established exact-frame identity, topology and route syntax for first-generation XTP and XTP II. That work is retained only as historical/non-production evidence.
 
-```text
-frame identity       documented exact frame/part-number evidence
-matrix dimensions    I
-installed boards     *N
-signal presence      0LS
-input HDCP           WI<N>HDCP
-output HDCP          W0<N>HDCP
-all output HDCP      W0*HDCP
-read AV route O      <O>!
-set AV route I->O    <I>*<O>!
-untie O              0*<O>!
-```
+The mandatory six-field General-information requirement requires authoritative device uptime. Current protocol research found official XTP/XTP II network-protocol documentation, but did not establish an approved stable machine-readable uptime source/grammar for these frames. The change therefore does not claim production support for XTP CrossPoint 1600/3200 or XTP II CrossPoint 1600/3200/6400.
 
-`WO<N>HDCP` SHALL NOT be used as the first-generation XTP frame output-HDCP command merely because DTP uses that form.
-
-Input/output names may remain `UNPROVEN` where the routing table has an approved deterministic fallback. Temperature does not: for XTP it is a mandatory General-information capability gap and authoritative acquisition must be established before complete full-refresh or hardware-PASS acceptance.
-
-### XTP II CrossPoint profile
-
-XTP II remains a separate profile. It uses authoritative exact-frame identity before interpreting dimension/board evidence:
-
-```text
-frame identity       documented exact XTP II frame/part-number evidence
-matrix dimensions    I
-installed boards     *N
-signal presence      0LS
-input HDCP           WI<N>HDCP
-HDCP authorization   WE<N>HDCP
-read AV route O      <O>!
-set AV route I->O    <I>*<O>!
-untie O              0*<O>!
-```
-
-XTP II **output-HDCP command and decoder remain UNPROVEN in this change until verified from official XTP II evidence**. The application SHALL NOT reuse either DTP `WO<N>HDCP` or first-generation XTP `W0<N>HDCP` by assumption.
-
-Input/output names may remain `UNPROVEN` where presentation has an approved deterministic fallback. Temperature does not: for XTP II it is a mandatory General-information capability gap and authoritative acquisition must be established before complete full-refresh or hardware-PASS acceptance.
+Unified production registration and inventory dispatch SHALL fail closed for those models after remediation. A future semantic change MAY restore them only after proving the same six-field acquisition contract. Historical exact identity/topology parsers SHALL NOT silently re-enable production support.
 
 ## HDCP Normalization
 
@@ -315,8 +282,7 @@ A missing board slot SHALL NOT cause later IDs to be compressed into lower numbe
 
 ## Required General-information acquisition
 
-Every exact Matrix model supported by this change SHALL be able to produce a
-complete authoritative General-information tuple after a successful full refresh:
+Every exact Matrix model remaining in production-supported scope SHALL produce a complete authoritative General-information tuple after a successful full refresh:
 
 ```text
 Модель
@@ -327,116 +293,60 @@ MAC-адрес
 Время работы
 ```
 
-Authority is fixed as follows:
+### Source decisions
 
-- `Модель` comes from the accepted exact Matrix identity/canonical profile for the current operation.
-- `MAC-адрес` first uses current canonical room/inventory evidence when present; if that evidence is absent, the selected exact device profile SHALL provide an authoritative read-only device fallback.
-- `Серийный номер` first uses current canonical room/inventory evidence when present; if that evidence is absent, the selected exact device profile SHALL provide an authoritative read-only device fallback.
-- `Версия прошивки`, `Температура`, and `Время работы` SHALL come from authoritative current device reads for the selected exact profile.
+`Модель` comes from the accepted exact device identity/canonical profile.
 
-A full refresh SHALL NOT be classified as complete successful room-Matrix refresh
-while any one of these six values is missing, malformed, stale, synthetic, or
-unproven. Partial/incomplete/failed acquisition may present truthful `Нет данных`
-for the missing row, but that state is not the successful-full-refresh acceptance
-state required by this change.
+`MAC-адрес` and `Серийный номер` are mandatory canonical inventory prerequisites. The schema-v4 mappings `MAC -> mac_address` and `Серийный номер -> serial_number` remain their sole authority in this change. There is no device fallback. If either canonical value is absent, the inventory record remains valid, but Matrix full refresh cannot be classified complete-success.
 
-### General-information acquisition matrix
+`Версия прошивки` and `Температура` use only the exact approved profile reads:
 
-This matrix is the pre-implementation acquisition authority. Status meanings are:
+| Profile | Firmware | Accepted firmware grammar | Temperature | Accepted temperature grammar |
+| --- | --- | --- | --- | --- |
+| IN1804 | `Q` | one accepted firmware token / exact verbose tagged form | `W20STAT` | one current Celsius integer / exact tagged status form |
+| IN1806 / IN1808 | `Q` | `n.nn` or exact `Ver01*n.nn` form | `W20STAT` | one current Celsius value / exact `20Stat` tagged form |
+| IN1608 xi | `Q` | one accepted firmware token / exact tagged form | `W20STAT` | one current Celsius value / exact tagged status form |
+| DTP CrossPoint 84 | `Q` | one accepted `x.xx` firmware token | `S` | documented status tuple; internal temperature field only |
+| DTP CrossPoint 82/84/86/108 4K | `Q` | one accepted `x.xx` firmware token | `S` | documented status tuple; internal temperature is field 2 |
 
-- `PROVEN` — the exact source/command and accepted grammar are already established
-  by current approved architecture plus the cited official product programming
-  documentation/hardware evidence.
-- `PROVEN-INVENTORY-FIRST` — current canonical room/inventory evidence is the
-  first authority and the listed exact device command is the approved fallback.
-- `REQUIRED-PROVE (blocking)` — the product contract requires the value, but this
-  change does not yet have an approved exact machine-readable command/source and
-  response grammar for that profile. Production implementation for this change
-  SHALL NOT start while any such cell remains.
+`Время работы` uses one separate read-only SNMPv2c MIB-II query for all remaining in-scope profiles. The approved acquisition contract is:
 
 ```text
-Profile group
-  Field        Source / exact read                         Accepted response grammar                         Status / evidence
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
-IN1804
-  model        device 1I                                   closed IN1804 exact alias grammar                  PROVEN
-  MAC          inventory first; fallback ECH}              00-05-A6-xx-xx-xx; verbose Iph•<MAC>             PROVEN-INVENTORY-FIRST
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    dotted firmware token / exact tagged form          PROVEN
-  temperature  device E20STAT} (W20STAT equivalent)        two-digit Celsius; verbose 20Stat•<temp>          PROVEN
-  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
-
-IN1806 / IN1808
-  model        device 1I                                   exact model token; verbose Inf01*<model>           PROVEN
-  MAC          inventory first; fallback ECH}              00-05-A6-xx-xx-xx; verbose Iph•<MAC>             PROVEN-INVENTORY-FIRST
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    n.nn; verbose Ver01*n.nn                          PROVEN
-  temperature  device E20STAT} (W20STAT equivalent)        two-digit Celsius; verbose 20Stat•<temp>          PROVEN
-  uptime       internal Web UI visibly exposes Uptime,
-               but exact machine read/grammar TBD          no approved machine-readable grammar               REQUIRED-PROVE (blocking)
-
-IN1608 xi
-  model        device 1I                                   closed exact IN1608 xi alias grammar               PROVEN
-  MAC          inventory first; fallback ECH}              00-05-A6-xx-xx-xx; verbose Iph•<MAC>             PROVEN-INVENTORY-FIRST
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    dotted firmware token / exact tagged form          PROVEN
-  temperature  device E20STAT} (W20STAT equivalent)        Celsius token / exact tagged form                  PROVEN
-  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
-
-DTP CrossPoint 84
-  model        device I                                    exact DTPCP84 identity                             PROVEN
-  MAC          inventory first; device fallback TBD        no approved exact fallback grammar in this change REQUIRED-PROVE (blocking)
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    x.xx                                               PROVEN
-  temperature  device S                                    [Sts00*]voltage•tempC•fan1•fan2; temp is field 2  PROVEN
-  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
-
-DTP CrossPoint 82/84/86/108 4K
-  model        device N                                    exact part-number / Pno<part-number> grammar       PROVEN
-  MAC          inventory first; device fallback TBD        no approved exact fallback grammar in this change REQUIRED-PROVE (blocking)
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    x.xx                                               PROVEN
-  temperature  device S                                    [Sts00*]voltage•tempC•future•future; field 2      PROVEN
-  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
-
-XTP CrossPoint 1600 / 3200
-  model        device N + I + *N                            exact frame part-number plus approved topology     PROVEN
-  MAC          inventory first; fallback ECH}              exact MAC token; verbose Iph tagged form           PROVEN-INVENTORY-FIRST
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    x.xx / profile-approved firmware token             PROVEN
-  temperature  device S                                    profile positional status; internal temp in °F     PROVEN
-  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
-
-XTP II CrossPoint 1600 / 3200 / 6400
-  model        device N + I + *N                            exact XTP II frame identity plus topology          PROVEN
-  MAC          inventory first; fallback ECH}              exact MAC token; verbose Iph tagged form           PROVEN-INVENTORY-FIRST
-  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
-  firmware     device Q                                    x.xx / profile-approved firmware token             PROVEN
-  temperature  device S                                    profile positional status; internal temp in °F     PROVEN
-  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+transport       UDP/161
+version         SNMPv2c
+operation       GetRequest
+OID             1.3.6.1.2.1.1.3.0  (MIB-II sysUpTime.0)
+expected value  ASN.1 TimeTicks
+semantic value  non-negative hundredths of a second since the network-management portion was last re-initialized
 ```
 
-Evidence references for the PROVEN rows are the exact product programming/user
-guides already used by this change: IN1804 Series User Guide 68-3274-01_C;
-IN1806 and IN1808 Series User Guide 68-3131-01_B; IN1608 xi Series User Guide
-68-2290-02; DTP CrossPoint 84 Programming Guide 68-2349-01_D; DTP CrossPoint
-4K Series User Guide 68-2368-02_R; and the exact first-generation XTP CrossPoint
-and XTP II CrossPoint programming guides used for the approved frame/topology
-profiles. Hardware evidence may confirm an already-approved grammar but SHALL NOT
-silently create a new cross-family command contract.
+The response is accepted only when the SNMP version/community envelope is valid, the response request-id equals the current request, error-status is zero, there is exactly one varbind, the returned OID is exactly `1.3.6.1.2.1.1.3.0`, and the value is a non-negative TimeTicks integer. Mismatched request-id/OID/type, malformed BER, an SNMP error, extra varbinds or timeout are unavailable uptime evidence and keep the refresh incomplete.
 
-The currently unresolved serial fallbacks and uptime machine reads are therefore
-explicit architecture blockers across the supported scope; DTP MAC fallback is
-also unresolved in this change. The product decision is to preserve the six-field
-requirement and current model scope rather than weaken either one silently. Those
-blocking cells SHALL be resolved by architecture/protocol research and reviewed
-OpenSpec amendment before any production implementation session. A visible value
-on a human web page is not sufficient unless a stable authenticated machine-readable
-source and exact response/DOM/API grammar are separately approved.
+### SNMP monitoring credential and lifecycle
 
-The existing no-stale/no-secret/currentness rules apply to this tuple. A prior
-successful value SHALL clear when the current full refresh cannot establish it;
-old evidence SHALL NOT be retained merely to keep the card visually complete.
+The uptime query reuses the existing application-owned `CredentialProvider` without changing its schema. Deployment SHALL configure one dedicated explicit password-only profile named `matrix-snmp-read`; its password value is the fleet read-only SNMPv2c community. Application composition resolves exactly that explicit profile before SNMP I/O and passes only the assigned community value to the background read-only collector.
+
+`matrix-snmp-read` is not part of the Matrix SSH/Telnet credential candidate chain. SNMP failure SHALL NOT authorize Matrix credential fallback, successful-index persistence, or handler replacement. The community is secret material and SHALL NOT appear in public contexts, logs, exceptions, dialogs, signals, results or status text.
+
+SNMP I/O SHALL run outside the Qt GUI thread. The collector issues only the single-OID GET above; no SNMP SET, WALK or TRAP operation is authorized. Read-only retry is bounded to at most one retry after timeout, with a fresh request-id. A valid SNMP response carrying a protocol/error-status failure is terminal for that uptime acquisition and is not retried.
+
+Implementation SHALL use a focused standard-library UDP/BER helper limited to the exact ASN.1 types required for this request/response contract. No new runtime dependency is introduced.
+
+### Closed acquisition matrix
+
+| Production profile | Model | MAC | Serial | Firmware | Temperature | Uptime | Readiness |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| IN1804 | exact `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | SNMPv2c `sysUpTime.0` | READY |
+| IN1806 / IN1808 | exact `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | SNMPv2c `sysUpTime.0` | READY |
+| IN1608 xi | exact closed `1I` profile | canonical inventory required | canonical inventory required | `Q` | `W20STAT` | SNMPv2c `sysUpTime.0` | READY |
+| DTP CrossPoint 84 | exact documented `I` profile | canonical inventory required | canonical inventory required | `Q` | `S` | SNMPv2c `sysUpTime.0` | READY |
+| DTP CrossPoint 82/84/86/108 4K | exact `N` part-number profile | canonical inventory required | canonical inventory required | `Q` | `S` | SNMPv2c `sysUpTime.0` | READY |
+| XTP CrossPoint 1600/3200 | deferred / not production-supported | n/a | n/a | n/a | n/a | no approved source | DEFERRED |
+| XTP II CrossPoint 1600/3200/6400 | deferred / not production-supported | n/a | n/a | n/a | n/a | no approved source | DEFERRED |
+
+There are no unresolved blocking acquisition cells for the remaining supported scope. The explicit product decision is that canonical inventory MAC/serial are prerequisites rather than guessed device values, and XTP/XTP II are deferred rather than claiming six-field support without authoritative uptime.
+
+The existing no-stale/no-secret/currentness rules apply to the tuple. A prior successful value SHALL clear when the current refresh cannot establish it.
 
 ## GUI Design
 
@@ -511,10 +421,9 @@ IN1806 resolves as its own canonical profile from exact `IN1806` model identity
 ## Deferred / Evidence-Dependent Items
 
 - IN1808 Loop Out exposure remains deferred unless evidence and product intent explicitly include it.
-- XTP/XTP II input/output names may remain unavailable where the approved deterministic presentation fallback applies.
-- XTP II output-HDCP remains unavailable unless its exact command/decoder is proven before implementation.
+- XTP/XTP II production support is deferred entirely by the General-information acquisition decision above; historical topology/name/HDCP evidence is non-authoritative for current production dispatch.
 
-The six General-information fields are explicitly excluded from this optional/deferred rule. Firmware, temperature, uptime, and any required device fallback for missing inventory MAC/serial must be proven for every in-scope model before complete implementation/hardware acceptance. Other unresolved optional diagnostics SHALL remain unavailable rather than encouraging speculative commands.
+For remaining in-scope models, the six General-information fields are excluded from optional/deferred behavior. Canonical inventory MAC/serial are mandatory prerequisites; firmware, temperature and SNMP uptime must succeed for complete implementation/hardware acceptance.
 
 ## Follow-up hardware compatibility
 

@@ -4,8 +4,8 @@
 The application SHALL provide production GUI diagnostic paths for Huawei TE20,
 Huawei TE40, CloudLink Bar 310, CloudLink Box 310, Polycom RPG 310, Extron
 IN1804, Extron IN1806, Extron IN1808, Extron IN1608 xi, the approved DTP CrossPoint exact
-model set, approved first-generation XTP CrossPoint frames, approved XTP II
-CrossPoint frames, Aten PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI,
+model set; first-generation XTP CrossPoint and XTP II CrossPoint frames are
+deferred and SHALL NOT remain production-supported after this remediation, Aten PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI,
 and Extron DMP 64 Plus only where those devices are connected to the
 main-window/room dispatch through exact registered diagnostic models.
 
@@ -238,7 +238,7 @@ A parser/handler default, missing readback, failed read, malformed response, unk
 
 The application SHALL collect Matrix diagnostics/control data through an approved profile selected from current exact device identity and, where required, installed-hardware evidence. A command unproven for the active profile SHALL NOT be sent merely because another Extron family supports a similar command.
 
-For XTP/XTP II, exact frame identity/profile selection SHALL occur before profile-specific dimension/board decoding. Matrix dimensions alone SHALL NOT select the generation.
+Historical XTP/XTP II identity/topology parsers MAY remain only as non-dispatched implementation detail until removed, but unified production registration SHALL NOT select them in this change. Matrix dimensions SHALL NOT resurrect a deferred profile.
 
 #### Scenario: Unknown model does not inherit a nearby profile
 - **WHEN** an Extron device identity cannot be resolved exactly to an approved capability profile
@@ -270,20 +270,18 @@ GUI route columns and route validation SHALL use authoritative available logical
 - **THEN** normalized topology contains one logical route output for that route
 - **AND** GUI exposes one routing column rather than one per connector
 
-### Requirement: XTP and XTP II topology is derived from exact identity plus read-only installed-hardware evidence
+### Requirement: XTP and XTP II production support is deferred
 
-After exact generation/frame profile selection, XTP/XTP II SHALL combine authoritative matrix-dimension information with installed board-slot evidence to derive available logical IDs. State-changing route commands SHALL NOT be used for topology discovery. Empty slots SHALL preserve numbering gaps.
+First-generation XTP CrossPoint 1600/3200 and XTP II CrossPoint 1600/3200/6400 SHALL NOT be exposed as supported production Matrix models by this change. Prior exact identity/topology/parser work is historical evidence only. A future reviewed change may restore support only after proving the mandatory six-field General-information acquisition contract, including authoritative uptime.
 
-#### Scenario: Missing output board preserves logical IDs
-- **GIVEN** an approved XTP/XTP II frame whose installed-board evidence shows outputs `13..16` absent and `17..20` installed
-- **WHEN** topology is derived
-- **THEN** outputs `13..16` are unavailable
-- **AND** outputs `17..20` retain those exact IDs
-- **AND** they are not compressed downward
+#### Scenario: Deferred XTP inventory/runtime model does not dispatch
+- **WHEN** current inventory or direct target evidence identifies an XTP or XTP II frame
+- **THEN** this change does not authorize a production Matrix handler/session for that frame
+- **AND** no route, status, credential, or topology I/O starts under a nearest supported profile
 
 ### Requirement: Extron route commands are selected by approved profile
 
-Approved profiles SHALL generate exact documented/hardware-confirmed route syntax. IN1804 retains the deployed compatibility profile `!` / `<I>*1!`. For the newly added presentation switchers, canonical `routes[1]` is video-only: IN1806 and IN1808 read `1%` and set `<I>*1%`; IN1608 xi reads `&` and sets `<I>&`. Their audio ties are outside the Matrix table and SHALL NOT be changed or used for reconciliation by a room route intent. For approved DTP CrossPoint profiles, canonical `routes[output_id]` also means the video tie only: read `<O>%`, set video `<I>*<O>%`, and untie video `0*<O>%`. XTP/XTP II route-query and AV-mutation syntax remains owned by their separately approved profiles and SHALL NOT inherit the presentation/DTP video-only syntax merely by CrossPoint family similarity.
+Approved production profiles SHALL generate exact documented/hardware-confirmed route syntax. IN1804 retains `!` / `<I>*1!`; IN1806/IN1808 use video-only `1%` / `<I>*1%`; IN1608 xi uses video-only `&` / `<I>&`; approved DTP CrossPoint uses video-only `<O>%`, `<I>*<O>%`, and `0*<O>%`. Deferred XTP/XTP II route syntax does not authorize production dispatch.
 
 #### Scenario: IN1806 and IN1808 route read is video-only
 - **WHEN** the application reads the current IN1806 or IN1808 Matrix route
@@ -489,74 +487,40 @@ with `N` after authentication.
 
 ### Requirement: Complete Matrix full refresh requires authoritative General-information evidence
 
-For every exact Extron Matrix model supported by this change, a complete successful
-full refresh SHALL establish authoritative current values for all six room
-`Общая информация` fields: model, MAC address, serial number, firmware version,
-temperature, and uptime.
+For every exact Extron Matrix model remaining in production-supported scope, a complete successful full refresh SHALL establish current authoritative model, MAC address, serial number, firmware version, temperature, and uptime.
 
-Model authority SHALL be the accepted exact Matrix identity/canonical profile.
-MAC and serial MAY come from current canonical room/inventory evidence; when either
-is absent, the exact selected Matrix profile SHALL provide a proven read-only
-device fallback for that missing value. Firmware, temperature, and uptime SHALL
-come from proven authoritative current device reads.
+Model authority is exact accepted device identity/canonical profile. MAC and serial are mandatory current canonical inventory evidence; this change has no device fallback for either. Firmware and temperature use only the approved exact-profile SIS commands from the design acquisition matrix. Uptime uses only the approved read-only SNMPv2c MIB-II `sysUpTime.0` acquisition.
 
-A missing, malformed, stale, synthetic, or unproven required value SHALL keep the
-refresh incomplete/failed for this acceptance contract. It SHALL NOT be converted
-to complete success merely because routing, signal, HDCP, names, or another subset
-of diagnostics succeeded.
+Application composition SHALL resolve the dedicated explicit password-only credential profile `matrix-snmp-read` through the existing application-owned `CredentialProvider`; its password is the read-only SNMP community. It SHALL NOT reuse or advance Matrix login credential candidates for SNMP.
 
-No handler/profile SHALL guess a required command from a different Extron family.
-If an exact supported profile lacks authoritative command/source evidence for one
-of these required values, the capability gap SHALL be resolved before that profile
-can satisfy implementation completion or hardware PASS.
+A missing canonical MAC/serial, missing monitoring profile, disabled/unreachable SNMP, invalid SNMP response, failed firmware/temperature read, malformed/stale evidence, or synthetic value keeps the refresh incomplete.
 
 #### Scenario: Successful supported-Matrix refresh has complete General information
-
-- **WHEN** a full refresh for any exact supported Matrix model is accepted as complete successful
+- **WHEN** a full refresh for an exact remaining supported Matrix model is accepted as complete successful
 - **THEN** model, MAC, serial, firmware, temperature, and uptime are all authoritative current values
-- **AND** none is missing or synthetic
+- **AND** none is missing, stale or synthetic
 
-#### Scenario: Optional diagnostics do not compensate for missing required information
+#### Scenario: Missing inventory identity data blocks complete success
+- **GIVEN** the exact current Matrix inventory row lacks canonical MAC or serial
+- **WHEN** a full refresh is attempted
+- **THEN** no speculative device MAC/serial command is sent
+- **AND** the refresh remains incomplete
 
-- **GIVEN** routing, signal, HDCP, or naming diagnostics succeeded
-- **AND** firmware, temperature, uptime, required model evidence, or required MAC/serial authority is missing
-- **WHEN** full-refresh completion is evaluated
-- **THEN** the refresh is not accepted as complete successful
-- **AND** the missing required field is not synthesized from another successful diagnostic
+#### Scenario: SNMP uptime is exact and read-only
+- **GIVEN** the exact current Matrix model is one of the remaining in-scope IN or DTP profiles
+- **AND** application composition resolved one password-only `matrix-snmp-read` profile
+- **WHEN** uptime is acquired
+- **THEN** the background collector issues SNMPv2c GetRequest for only `1.3.6.1.2.1.1.3.0`
+- **AND** accepts only one matching TimeTicks varbind with zero error-status and current request-id
+- **AND** performs no SNMP SET/WALK/TRAP operation
 
-#### Scenario: Inventory absence activates only proven MAC or serial fallback
+#### Scenario: SNMP failure does not advance Matrix login credentials
+- **WHEN** SNMP community resolution or uptime acquisition fails
+- **THEN** the current full refresh remains incomplete
+- **AND** no Matrix SSH/Telnet credential candidate index advances
+- **AND** no community value appears in public output
 
-- **GIVEN** the current canonical row lacks MAC or serial evidence
-- **WHEN** the exact Matrix profile attempts full refresh
-- **THEN** only a proven read-only device command/source for that exact profile may provide the missing field
-- **AND** an unproven fallback blocks complete-success classification before any guessed value is exposed
-
-#### Scenario: Required information remains stale-safe
-
-- **GIVEN** a previous Matrix refresh populated all six General-information values
-- **WHEN** a newer current refresh fails or cannot establish one required value
-- **THEN** the old value is not retained as current evidence for the new refresh
-- **AND** the newer refresh cannot be accepted as complete successful
-
-#### Scenario: Acquisition design is closed before implementation
-
-- **GIVEN** an in-scope Matrix profile has any General-information acquisition cell marked `REQUIRED-PROVE (blocking)` in the approved design matrix
-- **WHEN** implementation readiness is evaluated
-- **THEN** production implementation for this change is not authorized
-- **AND** an engineer SHALL NOT choose, infer, probe, or copy an exact command/HTTP source/response grammar during implementation
-- **AND** the blocking cell requires an architecture/protocol-research amendment and review first
-
-#### Scenario: Human web-page visibility is not yet machine authority
-
-- **GIVEN** official documentation shows a required value such as uptime in a human-facing internal web page
-- **AND** this change has no approved stable authenticated machine-readable endpoint or exact DOM/API response grammar for that value
-- **WHEN** General-information capability is classified
-- **THEN** the field remains `REQUIRED-PROVE (blocking)`
-- **AND** presentation scraping is not introduced by implementation guesswork
-
-#### Scenario: Cross-family numeric information commands are not inferred
-
-- **GIVEN** another Extron product documents a numeric information command for serial, MAC, firmware, or another field
-- **WHEN** the selected exact Matrix profile does not independently document and approve that same command/grammar
-- **THEN** the command is not used for this profile
-- **AND** the required field remains blocking until exact-family evidence is approved
+#### Scenario: Deferred XTP does not claim six-field support
+- **WHEN** target identity resolves to first-generation XTP or XTP II
+- **THEN** this change treats the profile as deferred/unsupported for production dispatch
+- **AND** a partial historical handler result cannot be classified as a supported complete refresh

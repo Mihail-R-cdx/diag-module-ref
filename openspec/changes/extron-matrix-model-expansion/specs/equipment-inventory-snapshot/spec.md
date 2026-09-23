@@ -5,9 +5,10 @@
 The offline equipment inventory converter SHALL recognize normalized model and
 name evidence for `Extron IN1804`, `Extron IN1806`, `Extron IN1808`, `Extron IN1608 xi`, `Extron
 DTP CrossPoint 84`, `Extron DTP CrossPoint 82 4K`, `Extron DTP CrossPoint 84
-4K`, `Extron DTP CrossPoint 86 4K`, `Extron DTP CrossPoint 108 4K`, `Extron
-XTP CrossPoint 1600`, `Extron XTP CrossPoint 3200`, `Extron XTP II CrossPoint
-1600`, `Extron XTP II CrossPoint 3200`, and `Extron XTP II CrossPoint 6400`.
+4K`, `Extron DTP CrossPoint 86 4K`, and `Extron DTP CrossPoint 108 4K`.
+XTP CrossPoint and XTP II CrossPoint recognition introduced by earlier work in
+this branch SHALL be retired from production dispatch because those models are
+deferred by the mandatory uptime contract.
 It SHALL emit the exact canonical runtime dispatch model in
 `diagnostic_model`, retain the original source-model text, and use `other` as
 the expected-kind consistency value for these Matrix models.
@@ -20,9 +21,9 @@ matches.
 
 Rules MAY declare required and forbidden components when a positive subset is
 not sufficient to represent approved exact distinctions. `DTP CrossPoint 84`
-SHALL forbid the `4k` component; first-generation `XTP CrossPoint 1600` and
-`XTP CrossPoint 3200` SHALL forbid `ii`; XTP II models SHALL require `ii`; and
-`Extron IN1608 xi` SHALL require `xi`. Unrecognized, conflicting, or
+SHALL forbid the `4k` component and `Extron IN1608 xi` SHALL require `xi`.
+Deferred XTP/XTP II evidence SHALL NOT resolve to a supported production
+`diagnostic_model` under this change. Unrecognized, conflicting, or
 multi-match evidence SHALL remain unresolved under the existing fail-closed
 inventory behavior.
 
@@ -45,15 +46,26 @@ inventory behavior.
 - **WHEN** evidence contains `DTP CrossPoint 84 4K`
 - **THEN** it resolves only to `Extron DTP CrossPoint 84 4K`
 
-#### Scenario: XTP generations remain distinct
+#### Scenario: Deferred XTP evidence is not production-supported
 
-- **WHEN** evidence contains an approved first-generation `XTP CrossPoint 1600` or `XTP CrossPoint 3200`
-- **THEN** it does not also resolve to the corresponding XTP II model
-- **WHEN** evidence contains the corresponding approved XTP II model
-- **THEN** it does not also resolve to the first-generation model
+- **WHEN** model/name evidence identifies first-generation XTP CrossPoint or XTP II CrossPoint
+- **THEN** this change does not emit an XTP/XTP II supported production `diagnostic_model`
+- **AND** runtime cannot dispatch it as a supported Matrix profile
 
 #### Scenario: Cross-field Matrix disagreement fails closed
 
 - **WHEN** model evidence identifies `Extron IN1808` and name evidence identifies `Extron IN1608 xi`
 - **THEN** `diagnostic_model` remains unset
 - **AND** the converter reports the existing ambiguous-diagnostic-model outcome
+
+
+### Requirement: Complete Matrix diagnostics require canonical inventory MAC and serial
+
+For every Matrix model remaining supported by this change, canonical `mac_address` and `serial_number` are mandatory prerequisites for complete-success Matrix diagnostics. Existing schema-v4 nullability remains unchanged repository-wide: a null Matrix MAC or serial is valid inventory data, but it cannot satisfy the Matrix complete-refresh gate.
+
+#### Scenario: Supported Matrix row lacks serial
+- **GIVEN** a supported Matrix canonical record has `serial_number = null`
+- **WHEN** room Matrix diagnostics run
+- **THEN** inventory loading remains valid
+- **AND** Matrix full refresh cannot be classified complete-success
+- **AND** no serial is guessed from model, credentials, IP, MAC or device banner

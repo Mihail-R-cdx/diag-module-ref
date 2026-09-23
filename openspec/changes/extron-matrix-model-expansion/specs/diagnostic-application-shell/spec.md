@@ -62,18 +62,13 @@ After a successful or uncertain Matrix route mutation, reconciliation SHALL quer
 
 ### Requirement: Matrix capability context remains current-operation scoped
 
-Exact model/frame identity, topology and profile selection used for validation/reconciliation SHALL belong to the current Matrix target/context. XTP/XTP II profile selection SHALL be established from authoritative exact frame identity before family-specific board/dimension decoding.
+Exact model/frame identity, topology and profile selection used for validation/reconciliation SHALL belong to the current Matrix target/context. Deferred XTP/XTP II evidence SHALL NOT become current production capability authority in this change.
 
-#### Scenario: Matrix target changes between records
-- **WHEN** the active Matrix target changes from a single-output IN1804 to a multi-output XTP device
-- **THEN** old IN1804 route/topology/profile authority is invalidated
-- **AND** no route mutation is permitted until current XTP exact-frame identity, topology and capability evidence is established
-
-#### Scenario: XTP dimensions do not select XTP II profile
-- **GIVEN** a Matrix dimension response could be valid for more than one XTP generation
-- **WHEN** current exact frame identity has not yet resolved the generation
-- **THEN** the application does not choose XTP or XTP II profile from dimensions alone
-- **AND** profile-specific board/HDCP decoding remains unavailable until exact identity is resolved
+#### Scenario: Matrix target changes to deferred XTP
+- **WHEN** the active Matrix target changes from a supported IN/DTP Matrix to XTP or XTP II evidence
+- **THEN** old route/topology/profile authority is invalidated
+- **AND** no production Matrix handler/session, route mutation, credential attempt, or topology I/O starts for the deferred target
+- **AND** historical XTP parser state cannot restore support
 
 ### Requirement: Matrix GUI preserves canonical HDCP and temperature evidence
 
@@ -101,3 +96,24 @@ empty state and SHALL NOT retain an earlier value or invent `0°C`.
 - **THEN** each existing temperature field displays `59°C`
 - **WHEN** a later current snapshot has unavailable temperature
 - **THEN** the standalone field displays its empty state
+
+
+### Requirement: Matrix SNMP uptime uses application-owned monitoring credentials
+
+Application composition SHALL resolve exactly one explicit password-only `matrix-snmp-read` profile through the existing `CredentialProvider` before starting the read-only SNMP uptime collector. The assigned password value is the SNMPv2c read community.
+
+The monitoring profile is separate from the Matrix device-login credential plan. SNMP timeout, wrong community, disabled service, malformed BER, or protocol error SHALL NOT authorize Matrix login credential fallback, successful-index changes, or handler/session replacement. Workers/collectors SHALL NOT read provider storage directly.
+
+The community SHALL be treated as secret material and redacted from logs, exceptions, dialogs, signals, results and status text. SNMP I/O SHALL execute outside the Qt GUI thread and SHALL be limited to the exact read-only uptime GET defined by `device-diagnostics-and-control`.
+
+#### Scenario: Monitoring profile is resolved before SNMP I/O
+- **WHEN** a supported Matrix full refresh reaches uptime acquisition
+- **THEN** application composition resolves explicit profile `matrix-snmp-read`
+- **AND** requires `auth_mode=password`
+- **AND** passes only that assigned community to the background uptime collector
+
+#### Scenario: Monitoring failure is not Matrix authentication fallback
+- **WHEN** SNMP acquisition times out or returns a protocol/authentication-equivalent failure
+- **THEN** the full refresh is incomplete
+- **AND** the normal Matrix credential chain is unchanged
+- **AND** public output contains no community value
