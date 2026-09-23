@@ -3,7 +3,7 @@
 ### Requirement: Supported production device diagnostics
 The application SHALL provide production GUI diagnostic paths for Huawei TE20,
 Huawei TE40, CloudLink Bar 310, CloudLink Box 310, Polycom RPG 310, Extron
-IN1804, Extron IN1808, Extron IN1608 xi, the approved DTP CrossPoint exact
+IN1804, Extron IN1806, Extron IN1808, Extron IN1608 xi, the approved DTP CrossPoint exact
 model set, approved first-generation XTP CrossPoint frames, approved XTP II
 CrossPoint frames, Aten PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI,
 and Extron DMP 64 Plus only where those devices are connected to the
@@ -283,12 +283,18 @@ After exact generation/frame profile selection, XTP/XTP II SHALL combine authori
 
 ### Requirement: Extron route commands are selected by approved profile
 
-Approved profiles SHALL generate exact documented/hardware-confirmed route syntax: IN1804 `!` / `<I>*1!`; IN1808 `1!` / `<I>*1!`; IN1608 xi `!` / `<I>!`; approved CrossPoint `<O>!` / `<I>*<O>!` / untie `0*<O>!`.
+Approved profiles SHALL generate exact documented/hardware-confirmed route syntax: IN1804 `!` / `<I>*1!`; IN1806 and IN1808 `1!` / `<I>*1!`; IN1608 xi `!` / `<I>!`. Approved DTP CrossPoint read-only video-route authority uses `<O>%`, while AV route mutation remains `<I>*<O>!` and untie remains `0*<O>!`. XTP/XTP II route-query syntax remains owned by their separately approved profiles and SHALL NOT inherit the DTP `%` query merely by CrossPoint family similarity.
 
-#### Scenario: IN1808 route read targets main logical output
-- **WHEN** the application reads current IN1808 main route
+#### Scenario: IN1806 and IN1808 route read targets main logical output
+- **WHEN** the application reads current IN1806 or IN1808 main route
 - **THEN** it sends `1!` before transport termination
 - **AND** it does not use IN1804 bare `!`
+
+#### Scenario: DTP read-only route query is not an AV tie command
+- **WHEN** the application reads the current video route for DTP CrossPoint output `6`
+- **THEN** it sends `6%` before transport termination
+- **AND** it does not send `6!` as a read-only query
+- **AND** a DTP `E13` response from the old `!` polling form cannot be treated as successful route evidence
 
 #### Scenario: IN1608 mutation uses its own profile
 - **WHEN** input `5` is selected on supported IN1608 xi
@@ -315,7 +321,7 @@ Approved DTP CrossPoint output-HDCP reads SHALL use `WO<N>HDCP`. First-generatio
 
 ### Requirement: Input HDCP status is normalized by profile-specific semantics
 
-The active Matrix profile SHALL normalize raw input HDCP status according to its approved family semantics. IN1804/IN1808 SHALL map `0=absent, 1=present without HDCP, 2=present with HDCP`. IN1608 xi, approved DTP, XTP and XTP II SHALL map `0=absent, 1=HDCP-compliant/present, 2=non-compliant/absent`. HDCP authorization/configuration SHALL remain distinct from actual input HDCP status.
+The active Matrix profile SHALL normalize raw input HDCP status according to its approved family semantics. IN1804/IN1806/IN1808 SHALL map `0=absent, 1=present without HDCP, 2=present with HDCP`. IN1608 xi, approved DTP, XTP and XTP II SHALL map `0=absent, 1=HDCP-compliant/present, 2=non-compliant/absent`. HDCP authorization/configuration SHALL remain distinct from actual input HDCP status.
 
 #### Scenario: Raw value 1 differs by generation
 - **WHEN** raw input HDCP value `1` is received from IN1808
@@ -393,8 +399,12 @@ evidence and `Inf01*` SHALL NOT be accepted as part-number evidence.
 Unknown values, trailing garbage, multiple identity records, and expected-model
 mismatches SHALL fail closed. DTP CP84 retains its documented `I` token; DTP
 4K and XTP/XTP II retain exact `N` part-number authority, before downstream
-dimension and board-topology evidence. Additional IN1608 xi aliases SHALL NOT
-be added without authoritative documentation or hardware evidence.
+dimension and board-topology evidence. The exact hardware-proven `IN1608 xi IPCP SA`
+`1I` identity SHALL resolve to canonical `IN1608 xi`; other IN1608 xi aliases remain
+closed unless separately approved. Exact DTP CrossPoint 108 4K part number
+`60-1381-12` SHALL resolve to its existing canonical profile without enabling any
+`60-1381-*` wildcard. IN1806 SHALL resolve as canonical `Extron IN1806` from exact
+`IN1806` identity and exact part number `60-1663-01` where part-number evidence is used.
 
 ### Requirement: Room Matrix identity selection preserves exact diagnostic-model authority
 
@@ -414,10 +424,25 @@ expected model SHALL receive a neutral Matrix label rather than an IN1804 claim.
 
 #### Scenario: IN and XTP II retain separate identity generations
 
-- **WHEN** the room diagnostic model is `Extron IN1608 xi`
+- **WHEN** the room diagnostic model is `Extron IN1608 xi` or `Extron IN1806`
 - **THEN** its first authoritative identity command is `1I`
 - **WHEN** the room diagnostic model is `Extron XTP II CrossPoint 3200`
 - **THEN** its first authoritative identity command is `N`
+
+#### Scenario: Hardware-proven exact identities remain closed
+
+- **WHEN** `Extron IN1608 xi` returns `IN1608 xi IPCP SA` to `1I`
+- **THEN** it resolves to canonical `IN1608 xi`
+- **WHEN** `Extron DTP CrossPoint 108 4K` returns `60-1381-12` to `N`
+- **THEN** it resolves to canonical `DTP CrossPoint 108 4K`
+- **AND** an unlisted adjacent suffix is not accepted by prefix or wildcard inference
+
+#### Scenario: IN1806 remains distinct from IN1808
+
+- **WHEN** the expected model is `Extron IN1806` and `1I` returns exact `IN1806`
+- **THEN** the six-input IN1806 profile is selected
+- **AND** inputs `7` and `8` are not fabricated from IN1808
+- **AND** exact part number `60-1663-01` is consistent with the IN1806 profile
 
 ### Requirement: Hardware acquisition and GUI presentation are separate Matrix QA gates
 

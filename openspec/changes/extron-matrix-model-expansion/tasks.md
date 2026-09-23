@@ -237,3 +237,15 @@
 - [x] 25.6 Cover same-IP Matrix model replacement without session reuse.
 - [x] 25.7 Run focused/full software, strict OpenSpec and Git validation.
 - [ ] 25.8 Hardware remains not run unless actually performed.
+
+## 26. 2026-09-23 hardware/UI remediation and IN1806 scope expansion
+
+- [x] 26.1 Reconcile the read-only hardware and GUI observations into approved OpenSpec architecture: IN1806 is in-scope; exact IN1608 xi / DTP identities remain closed; DTP route read is family-specific; production Matrix debug/IP/action leftovers are removed.
+- [ ] 26.2 Implement exact `Extron IN1806` registration/profile and inventory canonicalization with six authoritative inputs, one main logical route, exact `IN1806` identity, and exact part number `60-1663-01`; do not alias it to IN1808.
+- [ ] 26.3 Extend only the hardware-proven closed identity maps: `IN1608 xi IPCP SA` -> canonical `IN1608 xi`, and DTP CrossPoint 108 4K `60-1381-12` -> its existing canonical profile; add no substring/prefix/wildcard acceptance.
+- [ ] 26.4 Correct DTP CrossPoint read-only video-route polling/reconciliation to documented `<O>%`; retain non-replay-safe AV mutation `<I>*<O>!` and family-specific XTP/XTP II query authority.
+- [ ] 26.5 Remove production Matrix `Отладка`, the information-card `IP-адрес` row, embedded `!`/warning/action control, and trailing action/footer area without creating a second refresh/polling lane.
+- [ ] 26.6 Add focused regression coverage for IN1806 topology/identity/dispatch, IN1608 xi IPCP SA identity, DTP `60-1381-12`, DTP `%` route read and `E13` old-query rejection, and the cleaned Matrix information/dashboard presentation.
+- [ ] 26.7 Run focused tests, full offline tests, Git diff checks, and repository-local strict OpenSpec validation; create and push one focused implementation remediation commit only after architecture approval.
+- [ ] 26.8 Re-run read-only hardware QA on available IN1806, IN1608 xi IPCP SA, DTP CrossPoint 86 4K, and DTP CrossPoint 108 4K evidence; no route mutation, no fabricated PASS, and record unavailable fixtures truthfully.
+- [ ] 26.9 After implementation, perform fresh independent validation on the published remote HEAD, including disposable archive-applicability check because this change still uses MODIFIED/REMOVED Requirements; archive remains forbidden until a permitting verdict.

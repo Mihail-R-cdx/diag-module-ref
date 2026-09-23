@@ -2,7 +2,7 @@
 
 ## Context
 
-Current Matrix behavior is centered on `ExtronIN1804Handler`, one logical routing output, and a scalar current route. The new scope adds other single-output presentation switchers and true multi-output matrix frames while preserving hardware-confirmed IN1804 behavior.
+Current Matrix behavior is centered on `ExtronIN1804Handler`, one logical routing output, and a scalar current route. The new scope adds IN1806 plus other single-output presentation switchers and true multi-output matrix frames while preserving hardware-confirmed IN1804 behavior.
 
 The design must make command syntax, topology, identity and HDCP decoding explicit per approved family/model profile.
 
@@ -92,6 +92,42 @@ set route            <I>*1!
 
 The command terminator remains transport-owned. This profile SHALL NOT be rewritten merely to match an alternate canonical form shown in a manual when that would regress the deployed hardware-confirmed behavior.
 
+### IN1806 profile
+
+IN1806 is a distinct exact supported application/profile identity with six logical
+inputs and one logical main routing output. It SHALL NOT be represented as IN1808
+merely because both devices share a documented SIS family.
+
+Hardware and official evidence establish the exact identity pair:
+
+```text
+model identity        IN1806
+part number           60-1663-01
+logical inputs        1..6
+logical main output   1
+```
+
+Its approved SIS profile follows the documented IN1806/IN1808 command family:
+
+```text
+identity             1I
+part number          N
+temperature          W20STAT
+input name N         WI<N>VNAM
+output name N        WO<N>VNAM
+signal presence      W0LS
+HDCP authorization   WE<N>HDCP
+input HDCP           WI<N>HDCP
+output HDCP          WO<N>HDCP
+read main route      1!
+set main route       <I>*1!
+```
+
+Inputs 7 and 8 are unavailable for IN1806 and SHALL NOT be fabricated from the
+IN1808 profile. The separate HDMI loop output is not a second main routing column;
+loop-out exposure remains outside generalized main-route authority unless separately
+approved.
+
 ### IN1808 profile
 
 ```text
@@ -139,7 +175,7 @@ DTP CrossPoint 108 4K
 
 It explicitly excludes DTP2 CrossPoint, DTP3 CrossPoint and any unnamed DTP generation.
 
-For the approved DTP profiles:
+For the approved DTP profiles, read-only route authority is the video route. The documented `<O>%` query is distinct from AV tie creation; `<O>!` SHALL NOT be used as a DTP read-only route query. Hardware QA observed `E13` after the old `1!` polling attempt on a DTP CrossPoint 86 4K path, after other diagnostic reads had already succeeded.
 
 ```text
 identity/profile     exact documented model identity -> fixed topology registry
@@ -148,7 +184,7 @@ input name N         W<N>NI
 output name N        W<N>NO
 input HDCP           WI<N>HDCP
 output HDCP          WO<N>HDCP
-read AV route O      <O>!
+read video route O   <O>%
 set AV route I->O    <I>*<O>!
 untie O              0*<O>!
 ```
@@ -200,7 +236,7 @@ Input/output names and temperature also remain `UNPROVEN` until separately prove
 
 Raw input values SHALL be decoded through the selected device profile.
 
-### IN1804 / IN1808 input HDCP
+### IN1804 / IN1806 / IN1808 input HDCP
 
 ```text
 0 -> source absent
@@ -226,7 +262,7 @@ Output HDCP SHALL use a separate per-family command/decoder profile. DTP and fir
 
 ### Fixed presentation switchers
 
-IN1804 / IN1808 / IN1608 topology may be resolved from exact model identity and an authoritative fixed profile.
+IN1804 / IN1806 / IN1808 / IN1608 xi topology may be resolved from exact model identity and an authoritative fixed profile.
 
 ### Fixed DTP CrossPoint models
 
@@ -246,6 +282,8 @@ The application SHALL:
 A missing board slot SHALL NOT cause later IDs to be compressed into lower numbers.
 
 ## GUI Design
+
+The production room Matrix dashboard SHALL NOT expose hardware-QA/debug leftovers. `Отладка` is absent; the information card has no `IP-адрес` row, no embedded `!`/warning/action button, and no footer/action strip below the approved information fields. Existing room/global refresh authority remains outside that information card and does not create a Matrix-specific polling lane.
 
 The Matrix table is dynamic:
 
@@ -278,7 +316,8 @@ authority.
 Inventory rules may require components and forbid discriminating components.
 The latter distinguishes DTP CrossPoint 84 from DTP CrossPoint 84 4K and
 first-generation XTP CrossPoint from XTP II without priority. A bare IN1608
-remains unresolved because `xi` is required. Canonical inventory output uses
+remains unresolved because `xi` is required. IN1806 remains a separate canonical
+runtime model from IN1808 and resolves only from its own exact inventory evidence. Canonical inventory output uses
 the exact runtime dispatch names, while original source-model text remains
 source evidence.
 
@@ -304,9 +343,13 @@ canonical map; expected-model validation compares canonical profiles. `1I`
 accepts only a bare model or `Inf01*<model>`; `N` accepts only a bare exact
 part number or `Pno<part-number>`. These are not generic prefix stripping:
 `Pno` is not model evidence and `Inf01*` is not part-number evidence. Multiple
-records, trailing garbage, unknown values, and undocumented IN1608 xi aliases
-remain fail-closed. DTP/XTP part-number authority and downstream topology
-evidence remain unchanged.
+records, trailing garbage, and unknown values remain fail-closed. The closed
+IN1608 xi wire-alias map now additionally accepts the hardware-proven exact
+`IN1608 xi IPCP SA` identity and no substring/prefix family inference. The DTP
+CrossPoint 108 4K exact part-number map additionally accepts the hardware-proven
+`60-1381-12`; adjacent suffixes remain unsupported unless separately approved.
+IN1806 resolves as its own canonical profile from exact `IN1806` model identity
+(and exact `60-1663-01` part-number evidence where that command is used).
 
 ## Deferred / Evidence-Dependent Items
 
@@ -344,3 +387,29 @@ IN1808 recorded `w20STAT=47`, input HDCP `0,1,1,1,0,0,0,0`, signal
 neither observed a positive active-HDCP (`2`) case. DTP CrossPoint 86 4K
 transport/auth passed on the old wrong fallback path; post-fix hardware retest
 is still required and its first identity assertion is `N` after authentication.
+
+## 2026-09-23 Read-only hardware QA findings
+
+The following observations are architecture evidence for this remediation and
+must be reproduced by post-implementation hardware QA; they are not themselves
+implementation completion:
+
+- IN1608 xi hardware authenticated successfully and returned exact `1I` identity
+  `IN1608 xi IPCP SA`; the previous closed resolver rejected that valid exact
+  variant.
+- DTP CrossPoint 108 4K hardware returned exact `N` part number `60-1381-12`;
+  the previous exact allowlist did not contain it.
+- A DTP CrossPoint 86 4K read-only poll successfully returned names and `0LS`
+  signal evidence, then the old route poll sent `1!` and received `E13`.
+  DTP read-only video-route authority therefore uses documented `<O>%`; AV tie
+  mutation remains `<I>*<O>!`.
+- IN1806 hardware banner identified `IN1806`, firmware `V1.04`, part number
+  `60-1663-01`. This change now includes IN1806 as a distinct six-input,
+  one-main-route supported profile.
+- Production room Matrix UI showed `Отладка`, an information-card IP row, an
+  embedded `!` action, and trailing card action/footer space. Those elements
+  are explicitly removed from the approved production presentation.
+
+These observations invalidate the earlier archive readiness. Implementation,
+independent revalidation, and read-only hardware QA must all be repeated on the
+new published remediation HEAD before archive.

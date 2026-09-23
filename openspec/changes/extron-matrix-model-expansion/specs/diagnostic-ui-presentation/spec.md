@@ -2,7 +2,7 @@
 
 ### Requirement: Expanded Matrix redesign targets the current room exact-row presentation surface
 
-The modern Matrix presentation SHALL render inside the current room-mode exact-row presentation owned by `RoomDiagnosticTreeWidget` for every exact Extron Matrix registration approved by `device-diagnostics-and-control`, including the existing `Extron IN1804` baseline and newly approved IN1808, IN1608 xi, DTP CrossPoint, XTP CrossPoint, and XTP II CrossPoint profiles.
+The modern Matrix presentation SHALL render inside the current room-mode exact-row presentation owned by `RoomDiagnosticTreeWidget` for every exact Extron Matrix registration approved by `device-diagnostics-and-control`, including the existing `Extron IN1804` baseline and newly approved IN1806, IN1808, IN1608 xi, DTP CrossPoint, XTP CrossPoint, and XTP II CrossPoint profiles.
 
 A focused presentation-only Matrix dashboard component MAY consume accepted exact-row evidence and emit safe non-secret local intents, but SHALL NOT own room identity, target-search, request generation/currentness, credentials, handler/session lifecycle, polling/live ownership, mutation delivery, reconciliation authority, profile selection, SIS syntax, or device network I/O.
 
@@ -176,32 +176,39 @@ rendered in MIH-11.
 ### Requirement: Matrix dashboard uses compact information and routing surfaces
 
 The room Matrix dashboard SHALL contain no separate `Быстрые действия` card,
-large refresh button, reboot placeholder, or replacement action card. The
-routing-table card SHALL occupy the released horizontal dashboard area while
-the information card remains compact.
+large refresh button, reboot placeholder, replacement action card, production
+`Отладка` affordance, or Matrix-specific footer/action strip. The routing-table
+card SHALL occupy the released horizontal dashboard area while the information
+card remains compact.
 
-Local Refresh SHALL be a compact circular-arrow control in the information
-card's `IP-адрес` row, beside the exact canonical row IP address. Its stable
-Qt object name, tooltip, and accessible name SHALL be `roomMatrixRefreshButton`
-and `Обновить статус`, respectively. It SHALL emit only the existing exact-row
-Local Refresh intent and use the same lifecycle/currentness/interaction gating;
-it SHALL NOT create a Matrix-specific polling lane.
+The Matrix information card SHALL NOT contain an `IP-адрес` row. It SHALL NOT
+contain an embedded circular refresh control, `!`/warning button, unlabeled
+action button, debug button, or trailing action/footer area below the approved
+information fields. Existing room/global refresh lifecycle and currentness
+authority remain outside this information card; removing these controls SHALL
+NOT create a replacement Matrix-specific polling lane.
 
 The routing-table card retains its border/background framework but SHALL hide
 its SectionCard title/header completely, so its first visible content is the
 horizontal table header.
 
-#### Scenario: Local Refresh remains an exact-row intent
-- **GIVEN** the exact connected Matrix row currently permits Local Refresh
-- **WHEN** the operator activates the compact IP-row refresh control
-- **THEN** exactly one existing exact-row Local Refresh intent is requested
-- **AND** no parallel Matrix refresh controller/lane is created
+#### Scenario: Information card has no IP/action footer
+- **WHEN** the Matrix information card renders
+- **THEN** it has no `IP-адрес` field
+- **AND** it has no embedded refresh/debug/warning/action button
+- **AND** its visible content ends with the approved diagnostic information rows
+
+#### Scenario: Existing refresh lifecycle is not duplicated
+- **GIVEN** room/global refresh is available through an already-approved affordance outside the Matrix information card
+- **WHEN** the Matrix dashboard renders
+- **THEN** that existing application lifecycle remains authoritative
+- **AND** the Matrix information card adds no local refresh controller or network path
 
 #### Scenario: Matrix action card is absent
 - **WHEN** the room Matrix dashboard renders
-- **THEN** `Быстрые действия`, `Обновить статус` as a large action, and
-  `Перезагрузить устройство` are absent
-- **AND** no replacement action card or standalone-screen affordance is exposed
+- **THEN** `Быстрые действия`, production `Отладка`, `Обновить статус` as a large action,
+  `Перезагрузить устройство`, and embedded `!`/warning actions are absent
+- **AND** no replacement action/footer card or standalone-screen affordance is exposed
 
 #### Scenario: Table begins without a card title gap
 - **WHEN** the room Matrix routing card renders
@@ -237,8 +244,9 @@ columns readable.
 ### Requirement: Matrix information card projects canonical row facts
 
 The Matrix information card SHALL display the exact room row's canonical
-`ip_address`, `mac_address`, and `serial_number` directly from row/inventory
-projection. Firmware, temperature, and uptime SHALL be shown only from current
+`mac_address` and `serial_number` directly from row/inventory projection. The
+row's canonical `ip_address` remains application/target authority but SHALL NOT
+be duplicated inside this information card. Firmware, temperature, and uptime SHALL be shown only from current
 accepted device evidence; unsupported or unproven diagnostics remain
 unavailable and SHALL NOT trigger guessed SIS commands. A missing current
 field SHALL clear to the established unavailable display rather than retaining
@@ -248,5 +256,6 @@ old evidence.
 - **GIVEN** an exact Matrix room row has canonical MAC, serial, and IP values
 - **AND** its accepted device snapshot contains no MAC or serial
 - **WHEN** the information card renders
-- **THEN** it displays those canonical row values and the exact row IP
+- **THEN** it displays canonical MAC and serial values
+- **AND** it does not duplicate the exact row IP inside the card
 - **AND** it does not issue an additional device query

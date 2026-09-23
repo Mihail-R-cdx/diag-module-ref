@@ -3,7 +3,7 @@
 ### Requirement: Approved Matrix inventory canonicalization
 
 The offline equipment inventory converter SHALL recognize normalized model and
-name evidence for `Extron IN1804`, `Extron IN1808`, `Extron IN1608 xi`, `Extron
+name evidence for `Extron IN1804`, `Extron IN1806`, `Extron IN1808`, `Extron IN1608 xi`, `Extron
 DTP CrossPoint 84`, `Extron DTP CrossPoint 82 4K`, `Extron DTP CrossPoint 84
 4K`, `Extron DTP CrossPoint 86 4K`, `Extron DTP CrossPoint 108 4K`, `Extron
 XTP CrossPoint 1600`, `Extron XTP CrossPoint 3200`, `Extron XTP II CrossPoint
@@ -25,6 +25,12 @@ SHALL forbid the `4k` component; first-generation `XTP CrossPoint 1600` and
 `Extron IN1608 xi` SHALL require `xi`. Unrecognized, conflicting, or
 multi-match evidence SHALL remain unresolved under the existing fail-closed
 inventory behavior.
+
+#### Scenario: IN1806 remains a distinct canonical inventory model
+
+- **WHEN** normalized model or name evidence identifies `Extron IN1806`, `IN1806`, or spacing-equivalent `IN 1806`
+- **THEN** `diagnostic_model` is exactly `Extron IN1806`
+- **AND** it does not resolve to `Extron IN1808`
 
 #### Scenario: Long-form IN1808 source name
 

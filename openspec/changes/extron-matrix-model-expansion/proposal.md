@@ -7,6 +7,7 @@ The application currently exposes Matrix diagnostics and routing through an IN18
 The supported scope for this change is explicitly limited to:
 
 - Extron IN1804 (existing hardware-validated baseline, preserved without regression)
+- Extron IN1806
 - Extron IN1808
 - Extron IN1608 xi
 - Extron DTP CrossPoint 84
@@ -23,8 +24,10 @@ The change also removes the current single-output assumption from normalized Mat
 - Modify the existing root Matrix requirements rather than creating parallel normative contracts for supported diagnostics, limited device control, fail-closed Matrix normalization/reconciliation, MatrixScreen intent ownership, and Matrix room presentation.
 - Introduce an explicit Extron Matrix capability/topology model that separates exact device identity, logical input/output numbering, actually available input/output IDs, independently routable outputs, physical output connectors/endpoints, and per-family command/capability support.
 - Preserve the current IN1804 hardware-confirmed command profile as the compatibility baseline, even where an official manual documents an alternate accepted SIS form.
-- Add model/family-specific SIS profiles for IN1808 and IN1608 xi.
-- Add a common multi-output CrossPoint AV-routing profile only where the documented SIS syntax is shared, while keeping identity/topology and diagnostic command profiles family-specific.
+- Add model/family-specific SIS profiles for IN1806, IN1808, and IN1608 xi. IN1806 remains its own exact six-input application/profile identity rather than being represented as IN1808.
+- Keep identity resolution closed while accepting hardware-proven exact evidence: `IN1608 xi IPCP SA` resolves to canonical `IN1608 xi`, DTP CrossPoint 108 4K exact part number `60-1381-12` resolves to that existing canonical profile, and IN1806 exact identity/part number remains `IN1806` / `60-1663-01`.
+- Add common CrossPoint mutation syntax only where documented SIS semantics are actually shared. Read-only route-query syntax remains family-specific; approved DTP CrossPoint video-route reads use `<O>%` and SHALL NOT use state-changing/AV-tie form `<O>!` as a query.
+- Remove hardware-QA-discovered production Matrix presentation leftovers: no `Отладка` affordance, no information-card `IP-адрес` row, no embedded `!`/warning action, and no trailing action/footer area below the approved information fields.
 - For DTP CrossPoint, support only the exact DTP CrossPoint 84 and DTP CrossPoint 4K model set listed above; fixed topology is resolved from authoritative exact-model identity/profile data.
 - For XTP/XTP II, select the generation-specific profile from authoritative frame identity evidence before decoding board/configuration evidence. Matrix dimensions alone SHALL NOT discriminate XTP from XTP II.
 - Discover XTP/XTP II runtime topology from read-only matrix-dimension plus installed-board evidence; do not infer topology with state-changing route probes.
