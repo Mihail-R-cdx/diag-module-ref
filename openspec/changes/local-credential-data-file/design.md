@@ -55,6 +55,18 @@ Operators migrate manually by creating/copying the required local values into
 Safe error text SHALL reference `data.local.json` and `data.example.json` and
 must not reveal credential/profile values.
 
+## Root-spec terminology migration
+
+The archive delta SHALL leave no current root requirement treating `credentials.local.json`
+as an active runtime store. Requirements whose behavior depends on the canonical path SHALL
+name `data.local.json`. Requirements that only prohibit workers/controllers/handlers from
+reading provider internals SHALL use durable wording such as `local credential store` or
+`provider storage` rather than binding that ownership rule to a filename.
+
+The retired filename remains normative only where repository protection or explicit migration
+from a legacy workstation file is the subject. Archived OpenSpec history is immutable and is
+not rewritten.
+
 ## Unchanged architecture
 
 The following remain unchanged:

@@ -6,6 +6,7 @@
 - [x] 1.2 Define `data.example.json` as the tracked safe template.
 - [x] 1.3 Preserve `credentials.local.json` only as a retired ignored sensitive filename; runtime fallback to it is forbidden.
 - [x] 1.4 Keep provider/schema/fallback/redaction architecture unchanged.
+- [x] 1.5 Reconcile every current root `credential-source-isolation` requirement that names `credentials.local.json`: canonical-path requirements use `data.local.json`, ownership-only requirements use durable provider/local-store terminology, and archived history remains unchanged.
 
 ## 2. Implementation
 
@@ -22,5 +23,5 @@
 - [ ] 3.3 Run `.\openspec.cmd validate local-credential-data-file --strict` and `.\openspec.cmd validate --all --strict`.
 - [ ] 3.4 Run `git diff --check` and `git diff --cached --check`.
 - [ ] 3.5 Perform independent validation on the exact published remote HEAD.
-- [ ] 3.6 Because this change MODIFIES root requirements, perform disposable archive-applicability validation before `READY FOR ARCHIVE`.
+- [ ] 3.6 Because this change MODIFIES root requirements, perform disposable archive-applicability validation before `READY FOR ARCHIVE`, and verify the simulated root specs contain no stale runtime `credentials.local.json` reference outside explicit legacy-protection/migration semantics.
 - [ ] 3.7 Archive only after a permitting independent verdict, then repeat strict-all, full offline tests, Git checks, and archive/root-spec diff review before merge.

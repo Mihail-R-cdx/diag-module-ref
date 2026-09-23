@@ -19,6 +19,7 @@ semantics, schema, ownership, fallback policy, and secret-handling rules remain 
   is the single canonical provider path after implementation.
 - Update safe missing-file guidance, tests, ignore rules, and operator documentation
   to the new names.
+- Normalize every current root requirement that still names the retired runtime file: use `data.local.json` where the canonical path matters and durable `local credential store` / `provider storage` wording where the requirement is only about ownership. Archived OpenSpec history remains untouched.
 - Preserve all internal credential terminology such as `CredentialProvider`,
   `JsonCredentialProvider`, credential profiles, candidate ordering, and redaction.
 
