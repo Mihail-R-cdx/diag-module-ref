@@ -121,6 +121,112 @@ After deployment of this reviewed recognition-registry change, the organization 
 - **THEN** the combined match union remains ambiguous under the existing diagnostic-model cardinality contract
 - **AND** `diagnostic_model` remains unset
 
+### Requirement: Device kind uses exact authoritative source type mapping
+
+Schema-v1 `device_kind` SHALL use the closed vocabulary:
+
+```text
+pdu
+video_codec
+other
+```
+
+For the confirmed organization workbook, the importer SHALL map exact normalized source `Тип модели` values as follows:
+
+```text
+Video Conference -> video_codec
+БРП              -> pdu
+any other value  -> other
+```
+
+The importer SHALL NOT use substring matching, fuzzy matching, model-name guessing, manufacturer guessing, recognized diagnostic-model evidence, GUI page registration, or runtime diagnostic routing to silently override the result of this exact source-type mapping.
+
+A known supported model whose source `Тип модели` maps to an unexpected `device_kind` MAY produce the structured non-fatal consistency issue `KNOWN_MODEL_TYPE_MISMATCH`. The expected-kind registry used by that diagnostic is importer-only consistency evidence. It SHALL NOT grant authority to change `device_kind`, suppress an exact recognized `diagnostic_model`, choose a runtime page/controller, or alter canonical schema.
+
+For the currently reviewed diagnostic models, the importer-side consistency expectations SHALL be:
+
+```text
+Huawei TE50                    -> video_codec
+Extron IN1804                 -> other
+Extron IN1806                 -> other
+Extron IN1808                 -> other
+Extron IN1608 xi              -> other
+Extron DTP CrossPoint 84      -> other
+Extron DTP CrossPoint 82 4K   -> other
+Extron DTP CrossPoint 84 4K   -> other
+Extron DTP CrossPoint 86 4K   -> other
+Extron DTP CrossPoint 108 4K  -> other
+Aten PE8208AV                  -> other
+Extron IPL T PCS4i             -> other
+```
+
+These expected values reflect the authoritative source-type contract for the reviewed organization rows. Runtime diagnostic dispatch is independently authorized by exact canonical `diagnostic_model`; it SHALL NOT require an expected `device_kind` result. XTP CrossPoint and XTP II CrossPoint models are deferred from production scope and SHALL have no production expected-kind entry under this change.
+
+#### Scenario: Video Conference type is mapped
+
+- **WHEN** normalized `Тип модели` is exactly `Video Conference`
+- **THEN** canonical `device_kind` is exactly `video_codec`
+
+#### Scenario: БРП type is mapped
+
+- **WHEN** normalized `Тип модели` is exactly `БРП`
+- **THEN** canonical `device_kind` is exactly `pdu`
+
+#### Scenario: Other type value is mapped safely
+
+- **WHEN** normalized `Тип модели` is any value other than the two explicitly mapped values, including an unknown or new value
+- **THEN** canonical `device_kind` is exactly `other`
+- **AND** the importer does not guess a more specific kind from other text, recognized model, or diagnostic page registration
+
+#### Scenario: Huawei TE50 has a video-codec consistency expectation
+
+- **GIVEN** reviewed recognition yields exact `diagnostic_model = Huawei TE50`
+- **WHEN** importer consistency diagnostics evaluate the expected-kind registry
+- **THEN** the expected kind is exactly `video_codec`
+- **AND** exact source `Тип модели` mapping remains the sole authority for canonical `device_kind`
+- **AND** a mismatch is non-fatal consistency evidence and does not suppress the recognized diagnostic model
+
+#### Scenario: Correct Aten source type has no known-model mismatch
+
+- **GIVEN** source `Модель` evidence recognizes exact `diagnostic_model = Aten PE8208AV`
+- **AND** exact source `Тип модели` mapping produces `device_kind = other`
+- **WHEN** importer consistency diagnostics are evaluated
+- **THEN** no `KNOWN_MODEL_TYPE_MISMATCH` is emitted for that record
+- **AND** `device_kind` remains `other`
+
+#### Scenario: Correct PCS4i source type has no known-model mismatch
+
+- **GIVEN** source `Модель` evidence recognizes exact `diagnostic_model = Extron IPL T PCS4i`
+- **AND** exact source `Тип модели` mapping produces `device_kind = other`
+- **WHEN** importer consistency diagnostics are evaluated
+- **THEN** no `KNOWN_MODEL_TYPE_MISMATCH` is emitted for that record
+- **AND** `device_kind` remains `other`
+
+#### Scenario: Known model conflicts with source type
+
+- **GIVEN** source `Модель` evidence recognizes exact `diagnostic_model = Aten PE8208AV`
+- **AND** exact source `Тип модели` mapping produces `device_kind = pdu` or `video_codec`
+- **WHEN** importer consistency diagnostics are evaluated
+- **THEN** the importer emits non-fatal `KNOWN_MODEL_TYPE_MISMATCH`
+- **AND** canonical `device_kind` remains the exact authoritative source-type result
+- **AND** canonical `diagnostic_model` remains `Aten PE8208AV`
+- **AND** the importer does not silently rewrite either field
+
+#### Scenario: Consistency registry has no runtime dispatch authority
+
+- **WHEN** runtime diagnostics consume a valid canonical record
+- **THEN** importer expected-kind evidence is not used to select a page, controller, handler, or fallback model
+- **AND** runtime dispatch may use only the exact canonical `diagnostic_model` under the diagnostic-application-shell contract
+
+#### Scenario: Approved Matrix models use importer-only other consistency expectation
+
+- **GIVEN** reviewed recognition yields one of `Extron IN1804`, `Extron IN1806`, `Extron IN1808`, `Extron IN1608 xi`, `Extron DTP CrossPoint 84`, `Extron DTP CrossPoint 82 4K`, `Extron DTP CrossPoint 84 4K`, `Extron DTP CrossPoint 86 4K`, or `Extron DTP CrossPoint 108 4K`
+- **WHEN** importer consistency diagnostics evaluate the expected-kind registry
+- **THEN** the expected kind is exactly `other`
+- **AND** exact source `Тип модели` mapping remains the sole authority for canonical `device_kind`
+- **AND** a mismatch remains non-fatal consistency evidence and does not suppress the recognized diagnostic model
+- **AND** no XTP/XTP II model receives a production expected-kind entry under this change
+
 ## ADDED Requirements
 
 ### Requirement: Complete Matrix diagnostics require canonical inventory MAC and serial

@@ -260,5 +260,6 @@
 - [x] 26.17 Remove the Matrix `Время работы` row and `roomMatrixUptimeValue` projection from the room GUI; keep codec uptime presentation unchanged.
 - [x] 26.18 Remove SNMP from the Matrix architecture and deployment contract; do not add a Matrix SNMP credential profile, collector, dependency, or protocol lane.
 - [ ] 26.19 After the approved closed inventory-recognition and application-dispatch registries are implemented, synchronize `docs/equipment-inventory-runbook.md` with the resulting supported Matrix model set. Preserve root OpenSpec as normative authority; the runbook SHALL document the approved registry and SHALL NOT independently expand or narrow production support.
+- [ ] 26.20 Reconcile the importer expected-kind consistency registry with the approved production Matrix registry: `Extron IN1804`, `Extron IN1806`, `Extron IN1808`, `Extron IN1608 xi`, and approved DTP CrossPoint exact models use importer-only expectation `other`; XTP/XTP II have no production expected-kind entry. Preserve exact source `Тип модели` mapping as the sole authority for canonical `device_kind`.
 
 All earlier completed XTP/XTP II tasks in sections 1-25 record historical branch work only. They are superseded for production-support authority by 26.12 and 26.16 and SHALL NOT be interpreted as keeping XTP/XTP II in current supported scope.
