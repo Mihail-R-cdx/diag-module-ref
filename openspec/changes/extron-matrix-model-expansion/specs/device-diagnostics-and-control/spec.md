@@ -537,3 +537,26 @@ can satisfy implementation completion or hardware PASS.
 - **WHEN** a newer current refresh fails or cannot establish one required value
 - **THEN** the old value is not retained as current evidence for the new refresh
 - **AND** the newer refresh cannot be accepted as complete successful
+
+#### Scenario: Acquisition design is closed before implementation
+
+- **GIVEN** an in-scope Matrix profile has any General-information acquisition cell marked `REQUIRED-PROVE (blocking)` in the approved design matrix
+- **WHEN** implementation readiness is evaluated
+- **THEN** production implementation for this change is not authorized
+- **AND** an engineer SHALL NOT choose, infer, probe, or copy an exact command/HTTP source/response grammar during implementation
+- **AND** the blocking cell requires an architecture/protocol-research amendment and review first
+
+#### Scenario: Human web-page visibility is not yet machine authority
+
+- **GIVEN** official documentation shows a required value such as uptime in a human-facing internal web page
+- **AND** this change has no approved stable authenticated machine-readable endpoint or exact DOM/API response grammar for that value
+- **WHEN** General-information capability is classified
+- **THEN** the field remains `REQUIRED-PROVE (blocking)`
+- **AND** presentation scraping is not introduced by implementation guesswork
+
+#### Scenario: Cross-family numeric information commands are not inferred
+
+- **GIVEN** another Extron product documents a numeric information command for serial, MAC, firmware, or another field
+- **WHEN** the selected exact Matrix profile does not independently document and approve that same command/grammar
+- **THEN** the command is not used for this profile
+- **AND** the required field remains blocking until exact-family evidence is approved

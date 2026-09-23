@@ -50,6 +50,29 @@ model-as-serial substitution, synthetic zero, stale cache, or copied values do n
 count. A missing exact command/source is a capability gap requiring architecture/
 implementation follow-up, not permission to mark PASS.
 
+## General-information acquisition/evidence matrix
+
+This table mirrors the pre-implementation authority in `design.md`. `PROVEN`
+means the exact source/command and grammar are approved. `REQUIRED-PROVE`
+means the capability is mandatory but still blocks implementation and hardware
+PASS. Inventory-first fields still show fallback status because hardware PASS must
+remain possible when canonical inventory evidence is absent.
+
+| Profile group | Model | MAC | Serial | Firmware | Temperature | Uptime | General-information readiness |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| IN1804 | PROVEN `1I` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `E20STAT}` | REQUIRED-PROVE machine source | BLOCKED |
+| IN1806 / IN1808 | PROVEN `1I` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `E20STAT}` | REQUIRED-PROVE machine source; web UI visibility alone is insufficient | BLOCKED |
+| IN1608 xi | PROVEN `1I` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `E20STAT}` | REQUIRED-PROVE machine source | BLOCKED |
+| DTP CrossPoint 84 | PROVEN `I` | REQUIRED-PROVE device fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S`, temperature field 2 | REQUIRED-PROVE machine source | BLOCKED |
+| DTP CrossPoint 82/84/86/108 4K | PROVEN `N` exact part number | REQUIRED-PROVE device fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S`, temperature field 2 | REQUIRED-PROVE machine source | BLOCKED |
+| XTP CrossPoint 1600 / 3200 | PROVEN `N + I + *N` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S` profile temperature field | REQUIRED-PROVE machine source | BLOCKED |
+| XTP II CrossPoint 1600 / 3200 / 6400 | PROVEN `N + I + *N` | PROVEN inventory / `ECH}` fallback | REQUIRED-PROVE device fallback | PROVEN `Q` | PROVEN `S` profile temperature field | REQUIRED-PROVE machine source | BLOCKED |
+
+No row in this table is eligible for hardware `PASS` while its readiness is
+`BLOCKED`. A later architecture amendment that closes a cell must update this
+table, the normative acquisition matrix, focused tests, and the read-only hardware
+procedure together before implementation/hardware evidence can claim that capability.
+
 ## Model capability and evidence matrix
 
 “Unavailable” means the approved profile must not send a speculative read, not

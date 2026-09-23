@@ -340,13 +340,99 @@ unproven. Partial/incomplete/failed acquisition may present truthful `Нет д�
 for the missing row, but that state is not the successful-full-refresh acceptance
 state required by this change.
 
-Exact commands/response grammars for the new mandatory device reads SHALL be
-established from authoritative documentation and/or hardware evidence per exact
-profile before implementation completion. Similar-looking commands from another
-Extron family SHALL NOT be copied by assumption. If a supported family has no
-proven authoritative way to acquire a required value, that is an unresolved scope/
-capability decision for this change, not an optional diagnostic and not permission
-to fabricate a value.
+### General-information acquisition matrix
+
+This matrix is the pre-implementation acquisition authority. Status meanings are:
+
+- `PROVEN` — the exact source/command and accepted grammar are already established
+  by current approved architecture plus the cited official product programming
+  documentation/hardware evidence.
+- `PROVEN-INVENTORY-FIRST` — current canonical room/inventory evidence is the
+  first authority and the listed exact device command is the approved fallback.
+- `REQUIRED-PROVE (blocking)` — the product contract requires the value, but this
+  change does not yet have an approved exact machine-readable command/source and
+  response grammar for that profile. Production implementation for this change
+  SHALL NOT start while any such cell remains.
+
+```text
+Profile group
+  Field        Source / exact read                         Accepted response grammar                         Status / evidence
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+IN1804
+  model        device 1I                                   closed IN1804 exact alias grammar                  PROVEN
+  MAC          inventory first; fallback ECH}              00-05-A6-xx-xx-xx; verbose Iph•<MAC>             PROVEN-INVENTORY-FIRST
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    dotted firmware token / exact tagged form          PROVEN
+  temperature  device E20STAT} (W20STAT equivalent)        two-digit Celsius; verbose 20Stat•<temp>          PROVEN
+  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+
+IN1806 / IN1808
+  model        device 1I                                   exact model token; verbose Inf01*<model>           PROVEN
+  MAC          inventory first; fallback ECH}              00-05-A6-xx-xx-xx; verbose Iph•<MAC>             PROVEN-INVENTORY-FIRST
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    n.nn; verbose Ver01*n.nn                          PROVEN
+  temperature  device E20STAT} (W20STAT equivalent)        two-digit Celsius; verbose 20Stat•<temp>          PROVEN
+  uptime       internal Web UI visibly exposes Uptime,
+               but exact machine read/grammar TBD          no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+
+IN1608 xi
+  model        device 1I                                   closed exact IN1608 xi alias grammar               PROVEN
+  MAC          inventory first; fallback ECH}              00-05-A6-xx-xx-xx; verbose Iph•<MAC>             PROVEN-INVENTORY-FIRST
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    dotted firmware token / exact tagged form          PROVEN
+  temperature  device E20STAT} (W20STAT equivalent)        Celsius token / exact tagged form                  PROVEN
+  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+
+DTP CrossPoint 84
+  model        device I                                    exact DTPCP84 identity                             PROVEN
+  MAC          inventory first; device fallback TBD        no approved exact fallback grammar in this change REQUIRED-PROVE (blocking)
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    x.xx                                               PROVEN
+  temperature  device S                                    [Sts00*]voltage•tempC•fan1•fan2; temp is field 2  PROVEN
+  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+
+DTP CrossPoint 82/84/86/108 4K
+  model        device N                                    exact part-number / Pno<part-number> grammar       PROVEN
+  MAC          inventory first; device fallback TBD        no approved exact fallback grammar in this change REQUIRED-PROVE (blocking)
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    x.xx                                               PROVEN
+  temperature  device S                                    [Sts00*]voltage•tempC•future•future; field 2      PROVEN
+  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+
+XTP CrossPoint 1600 / 3200
+  model        device N + I + *N                            exact frame part-number plus approved topology     PROVEN
+  MAC          inventory first; fallback ECH}              exact MAC token; verbose Iph tagged form           PROVEN-INVENTORY-FIRST
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    x.xx / profile-approved firmware token             PROVEN
+  temperature  device S                                    profile positional status; internal temp in °F     PROVEN
+  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+
+XTP II CrossPoint 1600 / 3200 / 6400
+  model        device N + I + *N                            exact XTP II frame identity plus topology          PROVEN
+  MAC          inventory first; fallback ECH}              exact MAC token; verbose Iph tagged form           PROVEN-INVENTORY-FIRST
+  serial       inventory first; device fallback TBD        no approved device grammar                        REQUIRED-PROVE (blocking)
+  firmware     device Q                                    x.xx / profile-approved firmware token             PROVEN
+  temperature  device S                                    profile positional status; internal temp in °F     PROVEN
+  uptime       device source TBD                           no approved machine-readable grammar               REQUIRED-PROVE (blocking)
+```
+
+Evidence references for the PROVEN rows are the exact product programming/user
+guides already used by this change: IN1804 Series User Guide 68-3274-01_C;
+IN1806 and IN1808 Series User Guide 68-3131-01_B; IN1608 xi Series User Guide
+68-2290-02; DTP CrossPoint 84 Programming Guide 68-2349-01_D; DTP CrossPoint
+4K Series User Guide 68-2368-02_R; and the exact first-generation XTP CrossPoint
+and XTP II CrossPoint programming guides used for the approved frame/topology
+profiles. Hardware evidence may confirm an already-approved grammar but SHALL NOT
+silently create a new cross-family command contract.
+
+The currently unresolved serial fallbacks and uptime machine reads are therefore
+explicit architecture blockers across the supported scope; DTP MAC fallback is
+also unresolved in this change. The product decision is to preserve the six-field
+requirement and current model scope rather than weaken either one silently. Those
+blocking cells SHALL be resolved by architecture/protocol research and reviewed
+OpenSpec amendment before any production implementation session. A visible value
+on a human web page is not sufficient unless a stable authenticated machine-readable
+source and exact response/DOM/API grammar are separately approved.
 
 The existing no-stale/no-secret/currentness rules apply to this tuple. A prior
 successful value SHALL clear when the current full refresh cannot establish it;
