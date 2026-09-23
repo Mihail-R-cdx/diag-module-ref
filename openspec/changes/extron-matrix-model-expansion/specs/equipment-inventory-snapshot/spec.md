@@ -231,7 +231,7 @@ These expected values reflect the authoritative source-type contract for the rev
 
 ### Requirement: Complete Matrix diagnostics require canonical inventory MAC and serial
 
-For every Matrix model remaining supported by this change, canonical `mac_address` and `serial_number` are mandatory prerequisites for complete-success Matrix diagnostics. Existing schema-v4 nullability remains unchanged repository-wide: a null Matrix MAC or serial is valid inventory data, but it cannot satisfy the Matrix complete-refresh gate.
+For every Matrix model remaining supported by this change, complete-success Matrix diagnostics SHALL require canonical `mac_address` and `serial_number`. Existing schema-v4 nullability remains unchanged repository-wide: a null Matrix MAC or serial is valid inventory data, but it cannot satisfy the Matrix complete-refresh gate.
 
 #### Scenario: Supported Matrix row lacks serial
 - **GIVEN** a supported Matrix canonical record has `serial_number = null`
