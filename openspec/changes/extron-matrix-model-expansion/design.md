@@ -175,7 +175,7 @@ DTP CrossPoint 108 4K
 
 It explicitly excludes DTP2 CrossPoint, DTP3 CrossPoint and any unnamed DTP generation.
 
-For the approved DTP profiles, read-only route authority is the video route. The documented `<O>%` query is distinct from AV tie creation; `<O>!` SHALL NOT be used as a DTP read-only route query. Hardware QA observed `E13` after the old `1!` polling attempt on a DTP CrossPoint 86 4K path, after other diagnostic reads had already succeeded.
+For the approved DTP profiles, canonical `routes[output_id]` authority is the video tie only. The documented `<O>%` query is distinct from AV tie syntax; `<O>!` SHALL NOT be used as a DTP read-only route query. A DTP route intent SHALL mutate only video with `<I>*<O>%`, and video untie SHALL use `0*<O>%`. Audio ties are outside this Matrix table and SHALL NOT be read, displayed, changed, or used for reconciliation by the DTP route operation. Hardware QA observed `E13` after the old `1!` polling attempt on a DTP CrossPoint 86 4K path, after other diagnostic reads had already succeeded.
 
 ```text
 identity/profile     exact documented model identity -> fixed topology registry
@@ -185,8 +185,8 @@ output name N        W<N>NO
 input HDCP           WI<N>HDCP
 output HDCP          WO<N>HDCP
 read video route O   <O>%
-set AV route I->O    <I>*<O>!
-untie O              0*<O>!
+set video route I->O <I>*<O>%
+untie video O        0*<O>%
 ```
 
 Fixed topology SHALL be resolved from exact-model identity/profile data. Physical connector numbering MAY differ from logical routing-output numbering; GUI routing follows logical routing outputs. Temperature remains `UNPROVEN` until authoritative evidence is established.
@@ -401,8 +401,9 @@ implementation completion:
   the previous exact allowlist did not contain it.
 - A DTP CrossPoint 86 4K read-only poll successfully returned names and `0LS`
   signal evidence, then the old route poll sent `1!` and received `E13`.
-  DTP read-only video-route authority therefore uses documented `<O>%`; AV tie
-  mutation remains `<I>*<O>!`.
+  DTP canonical route authority is video-only: read `<O>%`, mutation
+  `<I>*<O>%`, and video untie `0*<O>%`. Audio ties remain outside the current
+  Matrix table and are not changed by this route intent.
 - IN1806 hardware banner identified `IN1806`, firmware `V1.04`, part number
   `60-1663-01`. This change now includes IN1806 as a distinct six-input,
   one-main-route supported profile.

@@ -37,7 +37,7 @@
 - [x] 3.2 Preserve the existing IN1804 working command profile.
 - [x] 3.3 Add IN1808 route/name/status profile.
 - [x] 3.4 Add IN1608 xi route/name/status profile.
-- [x] 3.5 Add common multi-output CrossPoint AV-routing syntax only where DTP/XTP/XTP II documentation proves it shared.
+- [x] 3.5 Extract common multi-output CrossPoint transport/topology mechanics; the original shared AV-route assumption is superseded for DTP by task 26.4, while XTP/XTP II retain their separately approved `!` AV-route profile.
 - [x] 3.6 Add exact DTP CrossPoint model identity/topology capability resolution and reject DTP2/DTP3/unknown DTP generations.
 - [x] 3.7 Add first-generation XTP board-aware capability resolution with output-HDCP read `W0<N>HDCP` / all-output `W0*HDCP`.
 - [x] 3.8 Add XTP II board-aware capability resolution as a distinct profile; do not implement output-HDCP until exact official command/decoder evidence is approved.
@@ -95,8 +95,8 @@
 - [x] 9.2 IN1804 current route read `!` remains accepted and route mutation remains `<I>*1!`.
 - [x] 9.3 IN1808 route read/set use `1!` and `<I>*1!`.
 - [x] 9.4 IN1608 xi route read/set use `!` and `<I>!`.
-- [x] 9.5 CrossPoint route read/set use `<O>!` and `<I>*<O>!` across multiple outputs.
-- [x] 9.6 CrossPoint untie `0*<O>!` normalizes to an untied output.
+- [x] 9.5 XTP/XTP II CrossPoint route read/set retain `<O>!` and `<I>*<O>!` across multiple outputs; DTP coverage is superseded by pending task 26.4.
+- [x] 9.6 XTP/XTP II CrossPoint untie `0*<O>!` normalizes to an untied output; DTP video-only untie coverage is superseded by pending task 26.4.
 - [x] 9.7 HDCP raw value `1/2` is decoded differently for required profile groups.
 - [x] 9.8 DTP output-HDCP generates `WO<N>HDCP`; first-generation XTP generates `W0<N>HDCP`; XTP II sends no speculative output-HDCP query while unproven.
 - [x] 9.9 XTP/XTP II board gaps preserve original logical IDs in GUI and route validation.
@@ -243,9 +243,9 @@
 - [x] 26.1 Reconcile the read-only hardware and GUI observations into approved OpenSpec architecture: IN1806 is in-scope; exact IN1608 xi / DTP identities remain closed; DTP route read is family-specific; production Matrix debug/IP/action leftovers are removed.
 - [ ] 26.2 Implement exact `Extron IN1806` registration/profile and inventory canonicalization with six authoritative inputs, one main logical route, exact `IN1806` identity, and exact part number `60-1663-01`; do not alias it to IN1808.
 - [ ] 26.3 Extend only the hardware-proven closed identity maps: `IN1608 xi IPCP SA` -> canonical `IN1608 xi`, and DTP CrossPoint 108 4K `60-1381-12` -> its existing canonical profile; add no substring/prefix/wildcard acceptance.
-- [ ] 26.4 Correct DTP CrossPoint read-only video-route polling/reconciliation to documented `<O>%`; retain non-replay-safe AV mutation `<I>*<O>!` and family-specific XTP/XTP II query authority.
+- [ ] 26.4 Make DTP canonical route semantics video-only end to end: read/reconcile `<O>%`, set `<I>*<O>%`, untie `0*<O>%`; do not change DTP audio ties, and preserve separate XTP/XTP II `!` AV-route authority.
 - [ ] 26.5 Remove production Matrix `Отладка`, the information-card `IP-адрес` row, embedded `!`/warning/action control, and trailing action/footer area without creating a second refresh/polling lane.
-- [ ] 26.6 Add focused regression coverage for IN1806 topology/identity/dispatch, IN1608 xi IPCP SA identity, DTP `60-1381-12`, DTP `%` route read and `E13` old-query rejection, and the cleaned Matrix information/dashboard presentation.
+- [ ] 26.6 Add focused regression coverage for IN1806 topology/identity/dispatch, IN1608 xi IPCP SA identity, DTP `60-1381-12`, DTP video-only `%` read/set/untie plus `E13` old-query rejection and no-audio-mutation semantics, and the cleaned Matrix information/dashboard presentation.
 - [ ] 26.7 Run focused tests, full offline tests, Git diff checks, and repository-local strict OpenSpec validation; create and push one focused implementation remediation commit only after architecture approval.
 - [ ] 26.8 Re-run read-only hardware QA on available IN1806, IN1608 xi IPCP SA, DTP CrossPoint 86 4K, and DTP CrossPoint 108 4K evidence; no route mutation, no fabricated PASS, and record unavailable fixtures truthfully.
 - [ ] 26.9 After implementation, perform fresh independent validation on the published remote HEAD, including disposable archive-applicability check because this change still uses MODIFIED/REMOVED Requirements; archive remains forbidden until a permitting verdict.

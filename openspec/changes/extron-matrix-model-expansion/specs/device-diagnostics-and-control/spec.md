@@ -283,7 +283,7 @@ After exact generation/frame profile selection, XTP/XTP II SHALL combine authori
 
 ### Requirement: Extron route commands are selected by approved profile
 
-Approved profiles SHALL generate exact documented/hardware-confirmed route syntax: IN1804 `!` / `<I>*1!`; IN1806 and IN1808 `1!` / `<I>*1!`; IN1608 xi `!` / `<I>!`. Approved DTP CrossPoint read-only video-route authority uses `<O>%`, while AV route mutation remains `<I>*<O>!` and untie remains `0*<O>!`. XTP/XTP II route-query syntax remains owned by their separately approved profiles and SHALL NOT inherit the DTP `%` query merely by CrossPoint family similarity.
+Approved profiles SHALL generate exact documented/hardware-confirmed route syntax: IN1804 `!` / `<I>*1!`; IN1806 and IN1808 `1!` / `<I>*1!`; IN1608 xi `!` / `<I>!`. For approved DTP CrossPoint profiles, canonical `routes[output_id]` means the video tie only: read `<O>%`, set video `<I>*<O>%`, and untie video `0*<O>%`. DTP audio ties are outside the current Matrix table and SHALL NOT be changed or used for reconciliation by a DTP route intent. XTP/XTP II route-query and AV-mutation syntax remains owned by their separately approved profiles and SHALL NOT inherit the DTP `%` semantics merely by CrossPoint family similarity.
 
 #### Scenario: IN1806 and IN1808 route read targets main logical output
 - **WHEN** the application reads current IN1806 or IN1808 main route
@@ -300,8 +300,18 @@ Approved profiles SHALL generate exact documented/hardware-confirmed route synta
 - **WHEN** input `5` is selected on supported IN1608 xi
 - **THEN** the command before transport termination is `5!`
 
-#### Scenario: CrossPoint mutation addresses explicit output
-- **WHEN** input `3` is routed to output `7` on an approved CrossPoint profile
+#### Scenario: DTP video mutation addresses explicit output
+- **WHEN** input `3` is routed to output `7` on an approved DTP CrossPoint profile
+- **THEN** the state-changing command before transport termination is `3*7%`
+- **AND** no DTP audio tie is changed by that route intent
+
+#### Scenario: DTP video untie remains video-only
+- **WHEN** an approved DTP CrossPoint output `7` is explicitly untied by the Matrix route operation
+- **THEN** the state-changing command before transport termination is `0*7%`
+- **AND** audio tie state remains outside the operation
+
+#### Scenario: XTP-family mutation retains approved AV syntax
+- **WHEN** input `3` is routed to output `7` on an approved XTP or XTP II CrossPoint profile
 - **THEN** the state-changing command before transport termination is `3*7!`
 
 ### Requirement: CrossPoint output HDCP commands remain family-specific
