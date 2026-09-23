@@ -32,9 +32,9 @@ for the optional Phase B only.
 | Model | Inventory / identity | Topology | Signal / input HDCP | Output HDCP / auth | Input / output names / temp | Route read / optional mutation | Hardware status | Evidence / required retest |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Extron IN1804 | Canonical / `1I` | fixed 4x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `!` / `<I>*1!` | PARTIAL | Prior read-only evidence recorded temp `59`, input HDCP `0,1,0,1`, signal `0*1*0*1`, and route-read PASS. No positive HDCP `2` case observed. |
-| Extron IN1806 | Canonical / exact `IN1806`, part number `60-1663-01` | fixed 6x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1!` / `<I>*1!` | FAIL | Hardware banner identified `IN1806`, firmware `V1.04`, part number `60-1663-01`, while the pre-remediation application did not support the model. Full read-only post-remediation retest required. |
-| Extron IN1808 | Canonical / `1I` | fixed 8x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1!` / `<I>*1!` | PARTIAL | Prior read-only evidence recorded temp `47`, input HDCP `0,1,1,1,0,0,0,0`, signal `0*1*1*1*0*0*0*0`, and route-read PASS. No positive HDCP `2` case observed. Loop Out remains deferred. |
-| Extron IN1608 xi | Canonical / exact closed `1I` aliases | fixed 8x1 | Yes / modern mapping | Yes / Yes | Yes / unavailable / Yes | `!` / `<I>!` | FAIL | Hardware authenticated and returned `IN1608 xi IPCP SA`; pre-remediation exact resolver rejected that valid observed identity. Post-remediation read-only retest required. |
+| Extron IN1806 | Canonical / exact `IN1806`, part number `60-1663-01` | fixed 6x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | FAIL | Hardware banner identified `IN1806`, firmware `V1.04`, part number `60-1663-01`, while the pre-remediation application did not support the model. Post-remediation retest must prove video-only polling remains authoritative with audio breakaway and does not use `1!`. |
+| Extron IN1808 | Canonical / `1I` | fixed 8x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | PARTIAL | Prior read-only evidence was collected with the legacy combined AV route read. Post-remediation retest must prove `1%` video polling, including a breakaway-safe case where practical. No positive HDCP `2` case observed. Loop Out remains deferred. |
+| Extron IN1608 xi | Canonical / exact closed `1I` aliases | fixed 8x1 | Yes / modern mapping | Yes / Yes | Yes / unavailable / Yes | `&` / `<I>&` | FAIL | Hardware authenticated and returned `IN1608 xi IPCP SA`; pre-remediation exact resolver rejected that valid observed identity. Post-remediation retest must also prove video-only route polling and no combined `!` polling. |
 | DTP CrossPoint 84 | Canonical / documented DTP identity | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
 | DTP CrossPoint 82 4K | Canonical / part number `N` | fixed 8x2 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
 | DTP CrossPoint 84 4K | Canonical / part number `N` | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / unavailable | `<O>%` / `<I>*<O>%` | NOT RUN | Must remain distinct from non-4K DTP 84; optional untie is `0*<O>%`. |
@@ -81,13 +81,16 @@ review, not permission to change parsing or command semantics.
 For IN1806, exercise only the approved read-only commands for its exact six-input
 profile and verify inputs 7 and 8 are not fabricated. Record exact `1I` identity,
 part number `60-1663-01` where queried, and all supported current status fields.
+Read the canonical Matrix route with `1%`; do not use `1!` for polling. Where
+operationally observable without mutation, verify the read remains valid when audio
+is in breakaway from video.
 
 For IN1808, exercise only the approved read-only commands `1I`, `W20STAT`,
 `WI<N>VNAM`, `WO<N>VNAM`, `W0LS`, `WE<N>HDCP`, `WI<N>HDCP`,
-`WO<N>HDCP`, and `1!`; do not model Loop Out as a second main route.
+`WO<N>HDCP`, and `1%`; do not use `1!` for Matrix polling and do not model Loop Out as a second main route. Where operationally observable without mutation, verify `1%` remains authoritative while audio is in breakaway.
 
 For IN1608 xi, use `1I`, `W20STAT`, `W<N>NI`, `W0LS`, `WE<N>HDCP`,
-`WI<N>HDCP`, `WO<N>HDCP`, and `!`. The exact hardware-observed
+`WI<N>HDCP`, `WO<N>HDCP`, and `&`. Do not use combined-selection `!` for Matrix polling. The exact hardware-observed
 `IN1608 xi IPCP SA` identity must resolve closed to canonical `IN1608 xi`.
 Do not probe an unproven IN1608 xi output-name read.
 
@@ -106,6 +109,8 @@ when:
 ```text
 routes[target_output] == requested_input
 ```
+
+For IN1806/IN1808, this optional operation is video-only: set `<I>*1%` and reconcile with `1%`. For IN1608 xi, set `<I>&` and reconcile with `&`. Do not change or infer audio ties for these presentation-switcher profiles. IN1804 remains on its separate legacy compatibility profile.
 
 For DTP, this optional operation is video-only: set `<I>*<O>%`, reconcile with
 `<O>%`, and use `0*<O>%` only for an explicitly authorized video untie.

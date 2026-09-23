@@ -283,12 +283,19 @@ After exact generation/frame profile selection, XTP/XTP II SHALL combine authori
 
 ### Requirement: Extron route commands are selected by approved profile
 
-Approved profiles SHALL generate exact documented/hardware-confirmed route syntax: IN1804 `!` / `<I>*1!`; IN1806 and IN1808 `1!` / `<I>*1!`; IN1608 xi `!` / `<I>!`. For approved DTP CrossPoint profiles, canonical `routes[output_id]` means the video tie only: read `<O>%`, set video `<I>*<O>%`, and untie video `0*<O>%`. DTP audio ties are outside the current Matrix table and SHALL NOT be changed or used for reconciliation by a DTP route intent. XTP/XTP II route-query and AV-mutation syntax remains owned by their separately approved profiles and SHALL NOT inherit the DTP `%` semantics merely by CrossPoint family similarity.
+Approved profiles SHALL generate exact documented/hardware-confirmed route syntax. IN1804 retains the deployed compatibility profile `!` / `<I>*1!`. For the newly added presentation switchers, canonical `routes[1]` is video-only: IN1806 and IN1808 read `1%` and set `<I>*1%`; IN1608 xi reads `&` and sets `<I>&`. Their audio ties are outside the Matrix table and SHALL NOT be changed or used for reconciliation by a room route intent. For approved DTP CrossPoint profiles, canonical `routes[output_id]` also means the video tie only: read `<O>%`, set video `<I>*<O>%`, and untie video `0*<O>%`. XTP/XTP II route-query and AV-mutation syntax remains owned by their separately approved profiles and SHALL NOT inherit the presentation/DTP video-only syntax merely by CrossPoint family similarity.
 
-#### Scenario: IN1806 and IN1808 route read targets main logical output
-- **WHEN** the application reads current IN1806 or IN1808 main route
-- **THEN** it sends `1!` before transport termination
-- **AND** it does not use IN1804 bare `!`
+#### Scenario: IN1806 and IN1808 route read is video-only
+- **WHEN** the application reads the current IN1806 or IN1808 Matrix route
+- **THEN** it sends `1%` before transport termination
+- **AND** it does not send `1!` on the polling path
+- **AND** the returned video source is authoritative even when audio breakaway is active
+
+#### Scenario: IN1806 and IN1808 route intent changes video only
+- **WHEN** input `5` is selected on supported IN1806 or IN1808
+- **THEN** the state-changing command before transport termination is `5*1%`
+- **AND** the audio tie is not changed by that route intent
+- **AND** reconciliation reads `1%`
 
 #### Scenario: DTP read-only route query is not an AV tie command
 - **WHEN** the application reads the current video route for DTP CrossPoint output `6`
@@ -296,9 +303,17 @@ Approved profiles SHALL generate exact documented/hardware-confirmed route synta
 - **AND** it does not send `6!` as a read-only query
 - **AND** a DTP `E13` response from the old `!` polling form cannot be treated as successful route evidence
 
-#### Scenario: IN1608 mutation uses its own profile
+#### Scenario: IN1608 xi route read remains valid in audio breakaway
+- **WHEN** the application reads the current IN1608 xi Matrix route
+- **THEN** it sends `&` before transport termination
+- **AND** it does not send combined-selection `!` on the polling path
+- **AND** the returned video source is authoritative independently of the audio tie
+
+#### Scenario: IN1608 xi mutation changes video only
 - **WHEN** input `5` is selected on supported IN1608 xi
-- **THEN** the command before transport termination is `5!`
+- **THEN** the state-changing command before transport termination is `5&`
+- **AND** the audio tie is not changed by that route intent
+- **AND** reconciliation reads `&`
 
 #### Scenario: DTP video mutation addresses explicit output
 - **WHEN** input `3` is routed to output `7` on an approved DTP CrossPoint profile

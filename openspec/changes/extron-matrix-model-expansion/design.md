@@ -119,14 +119,16 @@ signal presence      W0LS
 HDCP authorization   WE<N>HDCP
 input HDCP           WI<N>HDCP
 output HDCP          WO<N>HDCP
-read main route      1!
-set main route       <I>*1!
+read video route     1%
+set video route      <I>*1%
 ```
 
 Inputs 7 and 8 are unavailable for IN1806 and SHALL NOT be fabricated from the
-IN1808 profile. The separate HDMI loop output is not a second main routing column;
-loop-out exposure remains outside generalized main-route authority unless separately
-approved.
+IN1808 profile. Canonical `routes[1]` is the video route only; audio breakaway is
+outside the Matrix table, and neither polling nor route intent SHALL change or
+reconcile the audio tie. The separate HDMI loop output is not a second main routing
+column; loop-out exposure remains outside generalized main-route authority unless
+separately approved.
 
 ### IN1808 profile
 
@@ -139,11 +141,11 @@ signal presence      W0LS
 HDCP authorization   WE<N>HDCP
 input HDCP           WI<N>HDCP
 output HDCP          WO<N>HDCP
-read main route      1!
-set main route       <I>*1!
+read video route     1%
+set video route      <I>*1%
 ```
 
-Main scaled routing remains one logical route even when multiple physical output connectors share that route. Loop-out routing is deferred unless separately proven and accepted as an auxiliary endpoint in this change; it SHALL NOT be silently counted as a second main matrix output.
+Main scaled routing remains one logical route even when multiple physical output connectors share that route. Canonical `routes[1]` is the video route only: read with `1%` and mutate with `<I>*1%`. Audio breakaway is outside the Matrix table and SHALL NOT be changed by route intent or used for reconciliation. Loop-out routing is deferred unless separately proven and accepted as an auxiliary endpoint in this change; it SHALL NOT be silently counted as a second main matrix output.
 
 ### IN1608 xi profile
 
@@ -155,11 +157,27 @@ signal presence      W0LS
 HDCP authorization   WE<N>HDCP
 input HDCP           WI<N>HDCP
 output HDCP          WO<N>HDCP
-read route           !
-set route            <I>!
+read video route     &
+set video route      <I>&
 ```
 
-Output-name read remains `UNPROVEN` unless separately established.
+Canonical `routes[1]` is video-only. The combined `!` selection and separate
+audio route are outside the Matrix table, so polling and room route intent SHALL
+not change or reconcile the audio tie. Output-name read remains `UNPROVEN`
+unless separately established.
+
+### Presentation-switcher route-state semantics
+
+For IN1806, IN1808, and IN1608 xi, the room Matrix table represents video routing
+only. Read, mutation, and reconciliation SHALL therefore target the video route
+and SHALL remain valid when the device is in audio breakaway mode. Combined AV
+selection commands (`!`) SHALL NOT be used by these new profiles for polling or
+route mutation. Audio routing is not displayed and SHALL NOT be changed by a
+Matrix-table route intent.
+
+IN1804 is an explicit compatibility exception: its existing deployed
+hardware-confirmed `!` / `<I>*1!` route profile remains unchanged until separate
+evidence and approval justify a migration.
 
 ### DTP CrossPoint approved scope
 

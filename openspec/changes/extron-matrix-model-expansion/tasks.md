@@ -93,8 +93,8 @@
 
 - [x] 9.1 IN1804 existing full-status command sequence remains hardware-compatible.
 - [x] 9.2 IN1804 current route read `!` remains accepted and route mutation remains `<I>*1!`.
-- [x] 9.3 IN1808 route read/set use `1!` and `<I>*1!`.
-- [x] 9.4 IN1608 xi route read/set use `!` and `<I>!`.
+- [x] 9.3 Historical IN1808 combined AV route coverage used `1!` / `<I>*1!`; this is superseded by pending task 26.10 because the Matrix table now owns video-only route state.
+- [x] 9.4 Historical IN1608 xi combined AV route coverage used `!` / `<I>!`; this is superseded by pending task 26.10 because the Matrix table now owns video-only route state.
 - [x] 9.5 XTP/XTP II CrossPoint route read/set retain `<O>!` and `<I>*<O>!` across multiple outputs; DTP coverage is superseded by pending task 26.4.
 - [x] 9.6 XTP/XTP II CrossPoint untie `0*<O>!` normalizes to an untied output; DTP video-only untie coverage is superseded by pending task 26.4.
 - [x] 9.7 HDCP raw value `1/2` is decoded differently for required profile groups.
@@ -245,7 +245,9 @@
 - [ ] 26.3 Extend only the hardware-proven closed identity maps: `IN1608 xi IPCP SA` -> canonical `IN1608 xi`, and DTP CrossPoint 108 4K `60-1381-12` -> its existing canonical profile; add no substring/prefix/wildcard acceptance.
 - [ ] 26.4 Make DTP canonical route semantics video-only end to end: read/reconcile `<O>%`, set `<I>*<O>%`, untie `0*<O>%`; do not change DTP audio ties, and preserve separate XTP/XTP II `!` AV-route authority.
 - [ ] 26.5 Remove production Matrix `Отладка`, the information-card `IP-адрес` row, embedded `!`/warning/action control, and trailing action/footer area without creating a second refresh/polling lane.
-- [ ] 26.6 Add focused regression coverage for IN1806 topology/identity/dispatch, IN1608 xi IPCP SA identity, DTP `60-1381-12`, DTP video-only `%` read/set/untie plus `E13` old-query rejection and no-audio-mutation semantics, and the cleaned Matrix information/dashboard presentation.
+- [ ] 26.6 Add focused regression coverage for IN1806 topology/identity/dispatch, IN1608 xi IPCP SA identity, DTP `60-1381-12`, DTP video-only `%` read/set/untie plus `E13` old-query rejection and no-audio-mutation semantics, IN1806/IN1808 `1%` video-only breakaway-safe routing, IN1608 xi `&` video-only routing, and the cleaned Matrix information/dashboard presentation.
 - [ ] 26.7 Run focused tests, full offline tests, Git diff checks, and repository-local strict OpenSpec validation; create and push one focused implementation remediation commit only after architecture approval.
 - [ ] 26.8 Re-run read-only hardware QA on available IN1806, IN1608 xi IPCP SA, DTP CrossPoint 86 4K, and DTP CrossPoint 108 4K evidence; no route mutation, no fabricated PASS, and record unavailable fixtures truthfully.
 - [ ] 26.9 After implementation, perform fresh independent validation on the published remote HEAD, including disposable archive-applicability check because this change still uses MODIFIED/REMOVED Requirements; archive remains forbidden until a permitting verdict.
+- [ ] 26.10 Implement video-only canonical routing for the newly added presentation-switcher profiles: IN1806/IN1808 read `1%`, set `<I>*1%`; IN1608 xi read `&`, set `<I>&`; combined AV commands are not used for polling/mutation and audio ties remain unchanged. Preserve the separate hardware-confirmed IN1804 compatibility profile.
+- [ ] 26.11 Add breakaway-focused regressions proving IN1806/IN1808 polling does not use `1!`, IN1608 xi polling does not use `!`, and successful route reconciliation validates only the requested video state without changing hidden audio state.
