@@ -217,7 +217,7 @@ set video route I->O <I>*<O>%
 untie video O        0*<O>%
 ```
 
-Fixed topology SHALL be resolved from exact-model identity/profile data. Physical connector numbering MAY differ from logical routing-output numbering; GUI routing follows logical routing outputs. DTP temperature is now a mandatory unresolved General-information capability gap: authoritative evidence must be established before a DTP profile can satisfy complete full-refresh or hardware-PASS acceptance.
+Fixed topology SHALL be resolved from exact-model identity/profile data. Physical connector numbering MAY differ from logical routing-output numbering; GUI routing follows logical routing outputs. DTP temperature acquisition is architecturally resolved through the approved `S` status profile. Hardware validation must still prove the accepted temperature field/grammar before a DTP fixture may receive hardware PASS.
 
 ### Deferred XTP / XTP II profiles
 
