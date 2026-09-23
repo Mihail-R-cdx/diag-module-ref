@@ -8,7 +8,7 @@ DTP CrossPoint 84`, `Extron DTP CrossPoint 82 4K`, `Extron DTP CrossPoint 84
 4K`, `Extron DTP CrossPoint 86 4K`, and `Extron DTP CrossPoint 108 4K`.
 XTP CrossPoint and XTP II CrossPoint recognition introduced by earlier work in
 this branch SHALL be retired from production dispatch because those models are
-deferred by the mandatory uptime contract.
+explicitly deferred from the current change scope.
 It SHALL emit the exact canonical runtime dispatch model in
 `diagnostic_model`, retain the original source-model text, and use `other` as
 the expected-kind consistency value for these Matrix models.
