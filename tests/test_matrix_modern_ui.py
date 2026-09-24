@@ -253,6 +253,8 @@ class MatrixPresentationTests(unittest.TestCase):
         widths = [table.columnWidth(column) for column in range(4, table.columnCount())]
         self.assertLessEqual(max(widths) - min(widths), 1)
         self.assertIsNone(presentation.findChild(QPushButton, "roomMatrixRefreshButton"))
+        self.assertIsNone(presentation.findChild(QPushButton, "roomLocalRefreshButton"))
+        self.assertIsNone(presentation.findChild(QPushButton, "roomLocalDebugButton"))
         self.assertEqual([], calls)
         self.assertEqual(["не выбран", "UNTIED", "активен", "UNKNOWN"], [table.item(0, column).data(Qt.UserRole) for column in range(4, 8)])
         self.assertEqual(

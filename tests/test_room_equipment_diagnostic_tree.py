@@ -31,8 +31,8 @@ from core.room_diagnostic_tree import (
 from core.room_interaction import RoomInteractionContext, RoomInteractionKind
 
 
-def record(record_id, *, ip="192.0.2.10", model="Huawei TE40", room="R-1", source="Synthetic", name=None, address=None, vip=None):
-    return EquipmentRecord(record_id, source, model, ip, None, None, room, name, "other", vip, address)
+def record(record_id, *, ip="192.0.2.10", model="Huawei TE40", room="R-1", source="Synthetic", name=None, address=None, vip=None, mac=None, serial=None):
+    return EquipmentRecord(record_id, source, model, ip, mac, serial, room, name, "other", vip, address)
 
 
 def inventory(*records):
@@ -45,6 +45,7 @@ def inventory(*records):
 CAPS = {
     "Huawei TE40": RoomModelCapability("Huawei TE40", "codec", "huawei_te40", "codec"),
     "Extron IPL T PCS4i": RoomModelCapability("Extron IPL T PCS4i", "pdu", "pdu_pcs4i", "pcs", credentialless_allowed=True),
+    "Extron IN1804": RoomModelCapability("Extron IN1804", "matrix", "matrix", "matrix"),
 }
 
 
@@ -136,6 +137,47 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(2, len(adapter.calls))
         self.assertEqual([("Huawei TE40", "192.0.2.10", 1)], persisted)
         self.assertEqual(DeviceRowStatus.CONNECTED, session.row_for("a").status)
+
+    def test_matrix_automatic_refresh_requires_current_five_field_evidence(self):
+        complete = {
+            "model": "IN1804", "firmware": "1.2.3", "temperature": 0,
+        }
+        cases = (
+            ("complete", "aa:bb:cc:dd:ee:ff", "SERIAL-1", complete, DeviceRowStatus.CONNECTED, True),
+            ("missing MAC", None, "SERIAL-1", complete, DeviceRowStatus.INCOMPLETE, False),
+            ("missing serial", "aa:bb:cc:dd:ee:ff", None, complete, DeviceRowStatus.INCOMPLETE, False),
+            ("missing firmware", "aa:bb:cc:dd:ee:ff", "SERIAL-1", {**complete, "firmware": None}, DeviceRowStatus.INCOMPLETE, False),
+            ("missing temperature", "aa:bb:cc:dd:ee:ff", "SERIAL-1", {**complete, "temperature": None}, DeviceRowStatus.INCOMPLETE, False),
+        )
+        for label, mac, serial, snapshot, expected_status, persists in cases:
+            with self.subTest(label=label):
+                session = self._session([
+                    record("matrix", model="Extron IN1804", mac=mac, serial=serial),
+                ])
+                row = session.row_for("matrix")
+                # A new incomplete refresh must never leave a prior complete
+                # snapshot looking current.
+                row.accepted_snapshot = {"model": "old", "firmware": "old", "temperature": 99}
+                adapter = _Adapter([[
+                    OneShotEvent(OneShotEventKind.USABLE_SUCCESS, snapshot, credential_success=True),
+                    OneShotEvent(OneShotEventKind.CLEANUP_COMPLETE),
+                ]])
+                persisted = []
+                RoomDiagnosticOrchestrator(
+                    adapters={"matrix": adapter},
+                    credential_candidates=lambda *_: ({"id": 0}, {"id": 1}),
+                    ping=lambda _ip: True,
+                    persist_success=lambda evidence: persisted.append(evidence),
+                ).run(session)
+                self.assertEqual(expected_status, row.status)
+                self.assertEqual(persists, bool(persisted))
+                self.assertEqual(1, len(adapter.calls), "incomplete evidence is not authentication fallback")
+                if persists:
+                    self.assertEqual(snapshot, row.accepted_snapshot)
+                    self.assertIsNone(row.partial_data)
+                else:
+                    self.assertIsNone(row.accepted_snapshot)
+                    self.assertEqual(snapshot, row.partial_data)
 
     def test_authentication_cleanup_timeout_does_not_start_next_candidate_but_continues_next_row(self):
         session = self._session([record("a"), record("b", ip="192.0.2.11")])
@@ -785,7 +827,12 @@ class RoomGuiCompositionTests(unittest.TestCase):
     def _matrix_route_session(self, window, *, record_id="matrix", generation=20, bind=True):
         from gui.diagnostic_dispatch import room_model_capabilities
 
-        matrix = record(record_id, model="Extron IN1804")
+        matrix = record(
+            record_id,
+            model="Extron IN1804",
+            mac="aa:bb:cc:dd:ee:ff",
+            serial="SERIAL-1",
+        )
         stock = inventory(matrix)
         session = build_room_session(
             inventory=stock,
@@ -803,6 +850,48 @@ class RoomGuiCompositionTests(unittest.TestCase):
             window.room_diagnostic_session = session
             window.room_interaction_coordinator.bind_session(session)
         return session, row
+
+    def test_matrix_local_refresh_incomplete_result_never_completes_or_persists(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        _session, row = self._matrix_route_session(window)
+        row.accepted_snapshot = {"model": "IN1804", "firmware": "old", "temperature": 42}
+        coordinator = window.room_interaction_coordinator
+        context = coordinator._new_context(row, RoomInteractionKind.LOCAL_REFRESH)
+        coordinator._active = context
+        window._room_credential_attempts[context] = (({"id": 0},), 0, None)
+        window.set_current_credential_index = Mock()
+        current = {"model": "IN1804", "firmware": None, "temperature": 0}
+
+        window._on_room_local_refresh_finished(context, True, current, False, None)
+
+        self.assertEqual(DeviceRowStatus.INCOMPLETE, row.status)
+        self.assertIsNone(row.accepted_snapshot)
+        self.assertEqual(current, row.partial_data)
+        window.set_current_credential_index.assert_not_called()
+
+    def test_matrix_live_incomplete_result_clears_current_snapshot_without_persistence(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        _session, row = self._matrix_route_session(window)
+        row.accepted_snapshot = {"model": "IN1804", "firmware": "old", "temperature": 42}
+        coordinator = window.room_interaction_coordinator
+        context = coordinator._new_context(row, RoomInteractionKind.LIVE)
+        coordinator._active = context
+        window._room_credential_attempts[context] = (({"id": 0},), 0, None)
+        window.set_current_credential_index = Mock()
+        current = {"model": "IN1804", "firmware": "1.2.3", "temperature": None}
+
+        self.assertFalse(window._accept_room_matrix_result(context, current))
+
+        self.assertEqual(DeviceRowStatus.INCOMPLETE, row.status)
+        self.assertIsNone(row.accepted_snapshot)
+        self.assertEqual(current, row.partial_data)
+        window.set_current_credential_index.assert_not_called()
 
     def test_matrix_confirmation_admits_one_current_exact_row(self):
         from PyQt5.QtWidgets import QMessageBox

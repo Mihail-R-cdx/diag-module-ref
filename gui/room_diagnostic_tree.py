@@ -1304,7 +1304,7 @@ class RoomReadOnlyPresentation(QWidget):
         use_matrix_dashboard = screen_key == "matrix"
         audio_actions = []
         refresh_button = None
-        if screen_key not in {"pdu", "codec"}:
+        if screen_key not in {"pdu", "codec", "matrix"}:
             refresh_button = QPushButton("Локальный опрос", self)
             refresh_button.setObjectName("roomLocalRefreshButton")
             refresh_button.setEnabled(
@@ -1321,7 +1321,7 @@ class RoomReadOnlyPresentation(QWidget):
             audio_actions.append(refresh_button)
         elif refresh_button is not None and not use_matrix_dashboard and not is_codec_dashboard:
             layout.addWidget(refresh_button)
-        if screen_key not in {"pdu", "codec"}:
+        if screen_key not in {"pdu", "codec", "matrix"}:
             debug_button = QPushButton("Отладка", self)
             debug_button.setObjectName("roomLocalDebugButton")
             debug_button.setEnabled(
@@ -1387,6 +1387,8 @@ class RoomReadOnlyPresentation(QWidget):
 
     @staticmethod
     def _state_text(row) -> str:
+        if row.status is DeviceRowStatus.INCOMPLETE:
+            return "Текущие данные Matrix неполны"
         if row.partial_data is not None and row.accepted_snapshot is None:
             return "Неподтверждённые данные: подключение продолжается"
         if row.stale:

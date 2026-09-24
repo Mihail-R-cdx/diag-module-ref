@@ -811,10 +811,16 @@ class RoomLiveProductionLifecycleTests(unittest.TestCase):
                 window, session = self._window_session(model)
                 key = window.get_credential_key(model, "192.0.2.10")
                 window.current_credential_index[key] = 1
+                matrix_row = session.row_for("a")
+                if model == "Extron IN1804":
+                    matrix_row.mac_address = "aa:bb:cc:dd:ee:ff"
+                    matrix_row.serial_number = "SERIAL-1"
                 window.room_interaction_coordinator.cycle_finished(session)
                 window.current_credential_index.pop(key)
                 if model == "Extron IN1804":
-                    ControlledMatrix.instances[-1].resultAccepted.emit({"matrix": "ok"}, object())
+                    ControlledMatrix.instances[-1].resultAccepted.emit({
+                        "model": "IN1804", "firmware": "1.2.3", "temperature": 0,
+                    }, object())
                 else:
                     ControlledDmpWorker.instances[-1].signals.result.emit({"meter": "ok"})
                 self.assertEqual(1, window.get_current_credential_index(model, "192.0.2.10"))

@@ -1940,6 +1940,15 @@ class VCSDiagnosticApp(QMainWindow):
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is None or not coordinator.accepts_context(context):
             return False
+        if not self._room_full_refresh_complete(context, data):
+            coordinator.complete(
+                context,
+                success=False,
+                data=dict(data or {}),
+                incomplete=True,
+                warning="Общая информация Matrix неполна: нужны модель, MAC, серийный номер, прошивка и температура",
+            )
+            return False
         attempt = self._room_credential_attempts.get(context)
         if attempt is None:
             return False
@@ -2024,7 +2033,7 @@ class VCSDiagnosticApp(QMainWindow):
         controller.request_full_refresh(context.ip_address, (credential,), 0)
 
     def _accept_room_matrix_result(self, context, data):
-        self._accept_room_model_live_success(context, dict(data or {}))
+        return self._accept_room_model_live_success(context, dict(data or {}))
 
     def _accept_room_matrix_terminal(self, context, error, candidate_index):
         category = error[0] if error else None
@@ -2244,6 +2253,12 @@ class VCSDiagnosticApp(QMainWindow):
             if self._retry_room_authentication(context):
                 return
             success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
+        incomplete = False
+        if success and not self._room_full_refresh_complete(context, data):
+            success = False
+            incomplete = True
+            connection_lost = False
+            warning = "Общая информация Matrix неполна: нужны модель, MAC, серийный номер, прошивка и температура"
         requested_route = self._room_matrix_reconciliation_requests.pop(context, None)
         if requested_route is not None:
             requested_output, requested_input = requested_route
@@ -2258,6 +2273,7 @@ class VCSDiagnosticApp(QMainWindow):
             success=success,
             data=data,
             connection_lost=connection_lost,
+            incomplete=incomplete,
             warning=warning,
         )
         attempt = self._room_credential_attempts.pop(context, None)
@@ -2271,6 +2287,27 @@ class VCSDiagnosticApp(QMainWindow):
                     timer.stop()
                     timer.deleteLater()
         self.room_diagnostic_controller.forget_local_refresh(context)
+
+    def _room_full_refresh_complete(self, context, data):
+        """Evaluate a room result against the current exact row only."""
+        from core.room_diagnostic_tree import room_full_refresh_complete
+
+        session = self.__dict__.get("room_diagnostic_session")
+        if session is None:
+            return False
+        try:
+            row = session.row_for(context.record_id)
+        except KeyError:
+            return False
+        if (
+            session.identity.inventory_snapshot_id != context.inventory_snapshot_id
+            or session.identity.room_generation != context.room_generation
+            or row.diagnostic_model != context.diagnostic_model
+            or row.ip_address != context.ip_address
+            or row.operation_token != context.row_operation_token
+        ):
+            return False
+        return room_full_refresh_complete(row, data)
 
     def _on_room_pdu_mutation_finished(
         self, context, success, data, connection_lost, warning

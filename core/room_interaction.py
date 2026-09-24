@@ -17,6 +17,7 @@ from core.room_diagnostic_tree import (
     DeviceRowStatus,
     RoomCycleStatus,
     RoomDiagnosticSession,
+    mark_room_matrix_refresh_incomplete,
 )
 from core.call_activity import normalize_call_activity
 
@@ -293,6 +294,7 @@ class RoomInteractionCoordinator:
         success: bool,
         data: Any = None,
         connection_lost: bool = False,
+        incomplete: bool = False,
         unconfirmed: bool = False,
         may_have_sent: bool = True,
         warning: str | None = None,
@@ -377,7 +379,12 @@ class RoomInteractionCoordinator:
             row.network_actions_enabled = True
             row.status = DeviceRowStatus.CONNECTED
         elif not success:
-            if (
+            if incomplete:
+                # Matrix composition already evaluated the exact-row
+                # five-field gate.  This is truthful incomplete evidence,
+                # never a transport/authentication failure.
+                mark_room_matrix_refresh_incomplete(row, data)
+            elif (
                 context.kind in {RoomInteractionKind.MUTATION, RoomInteractionKind.RECONCILIATION}
                 and may_have_sent
             ) or unconfirmed:
