@@ -330,11 +330,14 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         if len(lines) != 1:
             return None
         if family == "DTP":
-            # Approved DTP ``S`` grammar is the complete four-field status
-            # tuple. Its second decimal field is the internal temperature.
-            # Do not accept partial, star-delimited, or loosely numeric text.
+            # DTP ``S`` returns one four-field record. The programming guides
+            # document voltage, internal Celsius temperature, and two integral
+            # auxiliary fields (fan RPM on DTP CrossPoint 84; future-status
+            # fields on the 4K models). ``Sts00*`` is the exact verbose-mode
+            # 2/3 prefix. Values such as 0 and the documented 750000 are both
+            # valid auxiliary evidence, so do not hard-code one sample.
             matched = re.fullmatch(
-                r"\d+\.\d{3}\s+(\d+\.\d{3})\s+0\s+0",
+                r"(?:Sts00\*)?-?\d+\.\d{3} (-?\d+\.\d{3}) \d+ \d+",
                 lines[0],
             )
             if matched is None:

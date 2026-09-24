@@ -350,9 +350,22 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         in1608.get_device_info()
         with self.assertRaises(ProtocolError):
             in1608.get_routes()
-        for response in ("status*27", "12.125 57.000 0", "12.125 57.000 0 1", "12.125 57 0 0", "12.125 57.000 0 0 extra"):
+        for response in ("status*27", "12.125 57.000 0", "12.125 57.000 0 0 extra", "12.125 57 0 0", "voltage 57.000 0 0", "12.125 57.000 -1 0", "12.125 57.000 0 aux"):
             with self.subTest(response=response):
                 self.assertIsNone(ExtronMatrixHandler._parse_temperature(response, "DTP"))
+
+    def test_dtp_status_tuple_accepts_documented_auxiliary_fields_and_verbose_form(self):
+        parse_temperature = ExtronMatrixHandler._parse_temperature
+        # The 4K SIS programming guide documents ``750000`` in each future
+        # status field; the legacy DTP CP 84 guide documents fan RPM fields.
+        for response in (
+            "12.125 57.000 0 0",
+            "12.125 57.000 750000 750000",
+            "Sts00*12.125 57.000 750000 750000",
+            "12.125 57.000 1976 2004",
+        ):
+            with self.subTest(response=response):
+                self.assertEqual(57, parse_temperature(response, "DTP"))
 
     def test_dtp_route_and_output_hdcp_are_production_specific(self):
         dtp = RecordingMatrix("60-1381-01", expected_model="DTP CrossPoint 108 4K")
