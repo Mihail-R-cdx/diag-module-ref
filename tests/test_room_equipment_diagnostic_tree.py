@@ -505,7 +505,7 @@ class OrchestratorTests(unittest.TestCase):
     def test_room_matrix_worker_preserves_exact_canonical_model(self):
         from core.room_diagnostic_tree import OneShotAttemptContext
         from gui.room_one_shot_adapters import _matrix_worker
-        for model in ("Extron DTP CrossPoint 86 4K", "Extron IN1608 xi", "Extron XTP II CrossPoint 3200"):
+        for model in ("Extron DTP CrossPoint 86 4K", "Extron IN1608 xi", "Extron IN1806"):
             context = OneShotAttemptContext(self._session([record("a")]).identity, "a", model, "192.0.2.10", 1, {"username": "u", "password": "p"})
             self.assertEqual(model, _matrix_worker(context).expected_model)
 
@@ -519,10 +519,7 @@ class OrchestratorTests(unittest.TestCase):
         fixtures = {
             "Extron DTP CrossPoint 86 4K": ("N", "60-1382-01", {}),
             "Extron IN1608 xi": ("1I", "IN1608 xi", {}),
-            "Extron XTP II CrossPoint 3200": (
-                "N", "60-1981-01",
-                {"I": "32x32", "*N": "60-1981-01.nnnnnnnnoooooooo"},
-            ),
+            "Extron IN1806": ("1I", "IN1806", {}),
         }
 
         class RecordingHandler(ExtronMatrixHandler):

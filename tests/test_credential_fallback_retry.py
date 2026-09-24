@@ -659,7 +659,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
     def test_supported_matrix_models_use_the_same_structured_retry_path(self):
         for model in (
             "Extron DTP CrossPoint 108 4K",
-            "Extron XTP II CrossPoint 1600",
+            "Extron IN1806",
             "Extron IN1808",
         ):
             with self.subTest(model=model):
@@ -714,7 +714,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window = self.make_window()
         window._active_request = {
             "id": 1,
-            "device": "Extron XTP II CrossPoint 1600",
+            "device": "Extron IN1806",
             "ip": "192.0.2.10",
             "screen": None,
         }
@@ -722,7 +722,7 @@ class CredentialFallbackRetryTests(unittest.TestCase):
         window._matrix_credential_context_revision = 4
 
         VCSDiagnosticApp._on_credential_configuration_changed(
-            window, "Extron XTP II CrossPoint 1600", "192.0.2.10"
+            window, "Extron IN1806", "192.0.2.10"
         )
 
         self.assertEqual(5, window._matrix_credential_context_revision)

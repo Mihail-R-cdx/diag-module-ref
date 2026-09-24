@@ -3,9 +3,9 @@ import unittest
 
 from core.exceptions import ProtocolError
 from core.base_handler import BaseExtronMatrixHandler
-from core.parser import ExtronMatrixDataParser
+from core.parser import ExtronMatrixDataParser, matrix_general_information_complete
 from handlers.extron.matrix import (
-    HDCP_PRESENT_HDCP, HDCP_PRESENT_NO_HDCP, XTP_PART_NUMBER_TO_MODEL,
+    HDCP_PRESENT_HDCP, HDCP_PRESENT_NO_HDCP, IN1806_PART_NUMBER, XTP_PART_NUMBER_TO_MODEL,
     ExtronMatrixHandler, decode_hdcp, decode_xtp_input_board_symbol,
     decode_xtp_output_board_symbol, decode_xtp_ii_input_board_symbol,
     decode_xtp_ii_output_board_symbol, parse_signal_presence, parse_star_n,
@@ -30,6 +30,9 @@ class RecordingMatrix(ExtronMatrixHandler):
 
 
 class MatrixProtocolFixtureTests(unittest.TestCase):
+    def test_in1806_uses_documented_part_number(self):
+        self.assertEqual(IN1806_PART_NUMBER, "60-1663-01")
+
     XTP3200_PART = "60-1167-01"
     XTP3200_STAR_N = "60-1167-01.GGHFXFIHDDDEJXXM"
 
@@ -40,6 +43,52 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
             self.assertIsNone(normalize_identity_response(command, value))
         self.assertEqual("IN1808", RecordingMatrix("Inf01*IN1808 IPCP SA", expected_model="Extron IN1808").get_device_info()["model"])
         self.assertEqual("DTP CrossPoint 108 4K", RecordingMatrix("Pno60-1381-01", expected_model="DTP CrossPoint 108 4K").get_device_info()["model"])
+
+    def test_approved_identity_extensions_are_exact(self):
+        self.assertEqual("IN1806", RecordingMatrix("IN1806", expected_model="Extron IN1806").get_device_info()["model"])
+        self.assertEqual((1, 2, 3, 4, 5, 6), resolve_matrix_capabilities("IN1806").available_input_ids)
+        self.assertEqual("IN1608 xi", RecordingMatrix("IN1608 xi IPCP SA", expected_model="Extron IN1608 xi").get_device_info()["model"])
+        self.assertEqual("DTP CrossPoint 108 4K", resolve_identity_token("60-1381-12", "DTP").exact_model)
+        self.assertIsNone(resolve_identity_token("60-1381-13", "DTP"))
+
+    def test_general_information_uses_only_current_inventory_and_sis_evidence(self):
+        current = {
+            "model": "IN1806", "firmware": "1.04", "temperature": 0,
+        }
+        self.assertTrue(matrix_general_information_complete(
+            current, mac_address="aa:bb:cc:dd:ee:ff", serial_number="SERIAL-1"
+        ))
+        self.assertFalse(matrix_general_information_complete(
+            current, mac_address="aa:bb:cc:dd:ee:ff", serial_number=None
+        ))
+        self.assertFalse(matrix_general_information_complete(
+            {**current, "firmware": None}, mac_address="aa:bb:cc:dd:ee:ff", serial_number="SERIAL-1"
+        ))
+
+    def test_every_production_profile_acquires_firmware_and_temperature_exactly(self):
+        fixtures = (
+            ("Extron IN1804", "IN1804", "w20STAT", "20Stat*0"),
+            ("Extron IN1806", "IN1806", "w20STAT", "20Stat*0"),
+            ("Extron IN1808", "IN1808", "w20STAT", "20Stat*0"),
+            ("Extron IN1608 xi", "IN1608 xi", "w20STAT", "20Stat*0"),
+            ("DTP CrossPoint 84", "DTPCP84", "S", "status*27"),
+            ("DTP CrossPoint 82 4K", "60-1583-01", "S", "status*27"),
+            ("DTP CrossPoint 84 4K", "60-1515-01", "S", "status*27"),
+            ("DTP CrossPoint 86 4K", "60-1382-01", "S", "status*27"),
+            ("DTP CrossPoint 108 4K", "60-1381-12", "S", "status*27"),
+        )
+        for expected, identity, temperature_command, temperature_response in fixtures:
+            with self.subTest(expected=expected):
+                handler = RecordingMatrix(
+                    identity, {"Q": "1.04", temperature_command: temperature_response}, expected_model=expected
+                )
+                info = handler.get_device_info()
+                self.assertEqual(expected.removeprefix("Extron "), info["model"])
+                self.assertEqual("1.04", info["firmware"])
+                self.assertEqual(0 if temperature_command == "w20STAT" else 27, info["temperature"])
+                self.assertTrue(matrix_general_information_complete(
+                    info, mac_address="aa:bb:cc:dd:ee:ff", serial_number="SERIAL-1"
+                ))
 
     def test_xtp3200_documented_part_identity_and_compact_star_n(self):
         profile = resolve_identity_token(self.XTP3200_PART, "XTP")
@@ -241,26 +290,48 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertEqual(HDCP_PRESENT_NO_HDCP, decode_hdcp("1", "legacy"))
         self.assertEqual(HDCP_PRESENT_HDCP, decode_hdcp("1", "modern"))
 
-    def test_in1808_and_in1608_route_commands_remain_distinct(self):
-        in1808 = RecordingMatrix("IN1808", {"1!": "In3 All"})
+    def test_new_presentation_profiles_use_video_only_route_commands(self):
+        in1806 = RecordingMatrix("IN1806", {"1%": "Vid3"})
+        in1806.get_device_info()
+        self.assertEqual({1: 3}, in1806.get_routes())
+        in1806.set_connection(1, 3)
+        self.assertIn(("1%", True), in1806.commands)
+        self.assertIn(("3*1%", False), in1806.commands)
+        self.assertNotIn(("1!", True), in1806.commands)
+
+        in1808 = RecordingMatrix("IN1808", {"1%": "Vid3"})
         in1808.get_device_info()
         self.assertEqual({1: 3}, in1808.get_routes())
         in1808.set_connection(1, 3)
-        self.assertIn(("1!", True), in1808.commands)
-        self.assertIn(("3*1!", False), in1808.commands)
-        in1608 = RecordingMatrix("IN1608 xi", {"!": "In3 All"})
-        in1608.get_device_info()
-        in1608.set_connection(1, 3)
-        self.assertIn(("3!", False), in1608.commands)
+        self.assertIn(("1%", True), in1808.commands)
+        self.assertIn(("3*1%", False), in1808.commands)
+        self.assertNotIn(("1!", True), in1808.commands)
 
-    def test_dtp_and_xtp_output_hdcp_syntax_remains_separate(self):
+        in1608 = RecordingMatrix("IN1608 xi", {"&": "Vid3"})
+        in1608.get_device_info()
+        self.assertEqual({1: 3}, in1608.get_routes())
+        in1608.set_connection(1, 3)
+        self.assertIn(("&", True), in1608.commands)
+        self.assertIn(("3&", False), in1608.commands)
+        self.assertNotIn(("!", True), in1608.commands)
+
+    def test_dtp_route_and_output_hdcp_are_production_specific(self):
         dtp = RecordingMatrix("60-1381-01", expected_model="DTP CrossPoint 108 4K")
         dtp.get_device_info(); dtp.get_hdcp_info()
         self.assertIn(("wO1HDCP", True), dtp.commands)
-        xtp = RecordingMatrix(self.XTP3200_PART, {"I": "32x32", "*N": self.XTP3200_STAR_N}, expected_model="XTP CrossPoint 3200")
-        xtp.get_device_info(); xtp.get_hdcp_info()
-        self.assertIn(("w01HDCP", True), xtp.commands)
-        self.assertNotIn(("wO1HDCP", True), xtp.commands)
+        dtp.responses.update({"1%": "Vid3", "0*1%": ""})
+        self.assertEqual({1: 3}, dtp.get_routes((1,)))
+        dtp.set_connection(1, 3)
+        dtp.untie(1)
+        self.assertIn(("1%", True), dtp.commands)
+        self.assertIn(("3*1%", False), dtp.commands)
+        self.assertIn(("0*1%", False), dtp.commands)
+        self.assertNotIn(("1!", True), dtp.commands)
+        rejected = RecordingMatrix("60-1381-01", {"1%": "E13"}, expected_model="DTP CrossPoint 108 4K")
+        rejected.get_device_info()
+        with self.assertRaises(ProtocolError):
+            rejected.get_routes((1,))
+        self.assertIsNone(resolve_matrix_capabilities("XTP CrossPoint 3200"))
 
     def test_parser_keeps_multi_output_route_authority(self):
         caps = resolve_matrix_capabilities("DTP CrossPoint 108 4K")

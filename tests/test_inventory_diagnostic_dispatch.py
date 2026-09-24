@@ -65,6 +65,7 @@ class DispatchRegistryTests(unittest.TestCase):
             "CloudLink Box 310",
             "Polycom RPG 310",
             "Extron IN1804",
+            "Extron IN1806",
             "Extron IN1808",
             "Extron IN1608 xi",
             "Extron DTP CrossPoint 84",
@@ -72,11 +73,6 @@ class DispatchRegistryTests(unittest.TestCase):
             "Extron DTP CrossPoint 84 4K",
             "Extron DTP CrossPoint 86 4K",
             "Extron DTP CrossPoint 108 4K",
-            "Extron XTP CrossPoint 1600",
-            "Extron XTP CrossPoint 3200",
-            "Extron XTP II CrossPoint 1600",
-            "Extron XTP II CrossPoint 3200",
-            "Extron XTP II CrossPoint 6400",
             "Aten PE8208AV",
             "Extron IPL T PCS4i",
             "Biamp Tesira Forte CI",
@@ -1021,7 +1017,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
             def disconnect(self):
                 self.connected = False
 
-        for model in ("Extron DTP CrossPoint 108 4K", "Extron XTP II CrossPoint 1600"):
+        for model in ("Extron DTP CrossPoint 108 4K",):
             with self.subTest(model=model), patch(
                 "gui.matrix_controller.ExtronIN1804Handler", Handler
             ), patch("gui.matrix_controller.ExtronIN1804DataParser") as parser, patch(
@@ -1035,7 +1031,7 @@ class AsyncReachabilityDispatchTests(unittest.TestCase):
                 refresh.run()
 
         self.assertEqual(
-            ["Extron DTP CrossPoint 108 4K", "Extron XTP II CrossPoint 1600"],
+            ["Extron DTP CrossPoint 108 4K"],
             expected_models,
         )
 

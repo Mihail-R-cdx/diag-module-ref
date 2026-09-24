@@ -1040,7 +1040,7 @@ class ExtronMatrixDataParser:
         output_names = data.get("output_names") if isinstance(data.get("output_names"), Mapping) else {}
         info = data.get("device_info") if isinstance(data.get("device_info"), Mapping) else {}
         parsed = {
-            "model": info.get("model"), "temperature": info.get("temperature"),
+            "model": info.get("model"), "firmware": info.get("firmware"), "temperature": info.get("temperature"),
             "logical_input_ids": list(getattr(caps, "logical_input_ids", ())),
             "logical_output_ids": list(getattr(caps, "logical_output_ids", ())),
             "available_input_ids": list(inputs), "available_output_ids": list(outputs),
@@ -1056,6 +1056,23 @@ class ExtronMatrixDataParser:
         if outputs == (1,):
             parsed["current_connection"] = routes[1]
         return parsed
+
+
+def matrix_general_information_complete(data, *, mac_address=None, serial_number=None):
+    """Return whether one current Matrix refresh has all five authorities.
+
+    Inventory identity is deliberately passed by composition: handlers never
+    query a device for MAC or serial as a fallback.
+    """
+    source = data if isinstance(data, Mapping) else {}
+    values = (
+        source.get("model"), mac_address, serial_number,
+        source.get("firmware"), source.get("temperature"),
+    )
+    return all(
+        value is not None and (not isinstance(value, str) or bool(value.strip()))
+        for value in values
+    )
 
 
 class AtenPDUDataParser:

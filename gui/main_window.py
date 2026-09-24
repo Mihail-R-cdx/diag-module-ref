@@ -3564,6 +3564,21 @@ class VCSDiagnosticApp(QMainWindow):
         return request.get("id")
 
     def _on_matrix_result(self, data, worker):
+        data = dict(data) if isinstance(data, Mapping) else {}
+        inventory = getattr(self, "equipment_inventory", None)
+        model = getattr(getattr(worker, "matrix_context", None), "model", None)
+        ip_address = data.get("ip_address") or getattr(worker, "ip_address", None)
+        records = inventory.find_by_ip(ip_address) if inventory is not None and ip_address else ()
+        record = records[0] if len(records) == 1 and records[0].diagnostic_model == model else None
+        if record is not None:
+            data["mac_address"] = record.mac_address
+            data["serial_number"] = record.serial_number
+        from core.parser import matrix_general_information_complete
+        data["_matrix_general_information_complete"] = matrix_general_information_complete(
+            data,
+            mac_address=data.get("mac_address"),
+            serial_number=data.get("serial_number"),
+        )
         self.current_worker = worker
         self.on_device_data_received(data, worker, self._matrix_request_id())
 
@@ -5065,6 +5080,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         worker = worker or getattr(self, "current_worker", None)
         data = dict(data)
+        matrix_general_information_complete = data.pop("_matrix_general_information_complete", None)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
         credential_policy_handled = bool(data.pop('_credential_policy_handled', False))
@@ -5116,6 +5132,7 @@ class VCSDiagnosticApp(QMainWindow):
             and not credential_policy_handled
             and not VCSDiagnosticApp._is_pdu_device(getattr(worker, 'device_name', None))
             and not VCSDiagnosticApp._is_dmp_device(getattr(worker, 'device_name', None))
+            and matrix_general_information_complete is not False
         ):
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
@@ -5141,6 +5158,13 @@ class VCSDiagnosticApp(QMainWindow):
             current_screen = self.screens.get(self.current_screen_type)
         if current_screen:
             current_screen.update_data(data)
+        if matrix_general_information_complete is False:
+            self.set_ui_state(
+                UIState.UNAVAILABLE,
+                "Общая информация Matrix неполна: нужны модель, MAC, серийный номер, прошивка и температура",
+                current_screen,
+            )
+            return
         if not partial_update and worker:
             VCSDiagnosticApp._start_cloudlink_microphone_meter_for_accepted_codec(self, worker)
         

@@ -166,13 +166,10 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual("1.2.3", projection.findChild(QLabel, "roomMatrixFirmwareValue").text())
         self.assertEqual("59°C", projection.findChild(QWidget, "roomMatrixTemperatureValue").text())
         self.assertIsNone(projection.findChild(QLabel, "roomMatrixUptimeValue"))
-        self.assertEqual("192.0.2.4", projection.findChild(QLabel, "roomMatrixIpValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixIpValue"))
         self.assertIsNone(projection.findChild(QPushButton, "roomMatrixRebootButton"))
         self.assertEqual([], [card for card in projection.findChildren(QWidget, "roomMatrixQuickActions")])
-        refresh = projection.findChild(QPushButton, "roomMatrixRefreshButton")
-        self.assertIsNotNone(refresh)
-        self.assertEqual("Обновить статус", refresh.toolTip())
-        self.assertEqual("Обновить статус", refresh.accessibleName())
+        self.assertIsNone(projection.findChild(QPushButton, "roomMatrixRefreshButton"))
         self.assertIsNone(projection.findChild(QPushButton, "roomMatrixExtendedButton"))
         routing_card = projection.findChild(QWidget, "roomMatrixRoutingCard")
         routing_header = projection.findChild(QWidget, "roomMatrixRoutingHeader")
@@ -206,7 +203,7 @@ class MatrixPresentationTests(unittest.TestCase):
         projection = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
         self.assertEqual("aa:bb:cc:dd:ee:ff", projection.findChild(QLabel, "roomMatrixMacValue").text())
         self.assertEqual("SERIAL-1", projection.findChild(QLabel, "roomMatrixSerialValue").text())
-        self.assertEqual("192.0.2.4", projection.findChild(QLabel, "roomMatrixIpValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixIpValue"))
         self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixFirmwareValue").text())
         self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixTemperatureValue").text())
         self.assertIsNone(projection.findChild(QLabel, "roomMatrixUptimeValue"))
@@ -230,7 +227,7 @@ class MatrixPresentationTests(unittest.TestCase):
                 self.assertEqual([(row.record_id, 1, 2)], intents)
 
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
-    def test_multi_output_columns_are_equal_and_refresh_intent_is_exactly_once(self):
+    def test_multi_output_columns_are_equal_without_a_matrix_local_refresh_control(self):
         from core.room_diagnostic_tree import DeviceRowStatus, DeviceRowState, RoomModelCapability
         from gui.room_diagnostic_tree import RoomReadOnlyPresentation
 
@@ -255,9 +252,8 @@ class MatrixPresentationTests(unittest.TestCase):
         presentation.show(); self.app.processEvents(); table.apply_column_widths()
         widths = [table.columnWidth(column) for column in range(4, table.columnCount())]
         self.assertLessEqual(max(widths) - min(widths), 1)
-        refresh = presentation.findChild(QPushButton, "roomMatrixRefreshButton")
-        refresh.click()
-        self.assertEqual(["refresh"], calls)
+        self.assertIsNone(presentation.findChild(QPushButton, "roomMatrixRefreshButton"))
+        self.assertEqual([], calls)
         self.assertEqual(["не выбран", "UNTIED", "активен", "UNKNOWN"], [table.item(0, column).data(Qt.UserRole) for column in range(4, 8)])
         self.assertEqual(
             ["Выбрать вход для этого выхода", "Маршрут не назначен", "Маршрут активен", "Маршрут: нет данных"],

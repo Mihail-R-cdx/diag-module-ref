@@ -1929,7 +1929,7 @@ class RoomReadOnlyPresentation(QWidget):
         form.setVerticalSpacing(8)
         no_data = "Нет данных"
         fields = (
-            ("Модель", source.get("model") or row.diagnostic_model),
+            ("Модель", source.get("model")),
             ("MAC-адрес", row.mac_address),
             ("Серийный номер", row.serial_number),
             ("Версия прошивки", source.get("firmware")),
@@ -1948,31 +1948,6 @@ class RoomReadOnlyPresentation(QWidget):
             value_label.setObjectName(value_object_names[label])
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             form.addRow(label, value_label)
-        refresh_allowed = (
-            bool(request_local_refresh)
-            and local_refresh_allowed
-            and row.status is DeviceRowStatus.CONNECTED
-            and (row.network_actions_enabled or live_here)
-            and not row.interaction_blocked
-        )
-        ip_cell = QWidget(info)
-        ip_layout = QHBoxLayout(ip_cell)
-        ip_layout.setContentsMargins(0, 0, 0, 0)
-        ip_layout.setSpacing(6)
-        ip_value = QLabel(row.ip_address or no_data, ip_cell)
-        ip_value.setObjectName("roomMatrixIpValue")
-        ip_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        refresh = QPushButton("↻", ip_cell)
-        refresh.setObjectName("roomMatrixRefreshButton")
-        refresh.setToolTip("Обновить статус")
-        refresh.setAccessibleName("Обновить статус")
-        refresh.setFixedSize(28, 24)
-        refresh.setEnabled(refresh_allowed)
-        if request_local_refresh is not None:
-            refresh.clicked.connect(request_local_refresh)
-        ip_layout.addWidget(ip_value, 1)
-        ip_layout.addWidget(refresh)
-        form.addRow("IP-адрес", ip_cell)
         info.body_layout.addLayout(form)
         # Keep the compact facts directly below the heading.  The additional
         # room-dashboard height belongs beneath the data, not between rows.

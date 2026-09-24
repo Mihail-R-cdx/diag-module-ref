@@ -19,6 +19,11 @@ HDCP_PRESENT_HDCP = "PRESENT_HDCP"
 HDCP_PRESENT_NO_HDCP = "PRESENT_NO_HDCP"
 HDCP_UNKNOWN = "UNKNOWN"
 
+# Exact documented part number for the added IN1806 profile.  The runtime
+# model query for this family remains ``1I``; this value is retained as
+# immutable identity evidence rather than inferred from a family prefix.
+IN1806_PART_NUMBER = "60-1663-01"
+
 @dataclass(frozen=True)
 class MatrixCapabilities:
     family: str; exact_model: str; logical_input_ids: Tuple[int, ...]; logical_output_ids: Tuple[int, ...]
@@ -35,16 +40,15 @@ def _fixed(family, model, inputs, outputs, *, physical=(), signal=True, input_hd
 
 _PROFILES = {
     "IN1804": _fixed("IN", "IN1804", 4, 1, physical=("Main Output",), auth=True, input_names=True, output_names=True, temperature=True, route="in1804", input_profile="legacy", output_profile="in"),
+    "IN1806": _fixed("IN", "IN1806", 6, 1, physical=("Main Output", "Loop Out"), auth=True, input_names=True, output_names=True, temperature=True, route="in1806", input_profile="legacy", output_profile="in"),
     "IN1808": _fixed("IN", "IN1808", 8, 1, physical=("Main Output", "Loop Out"), auth=True, input_names=True, output_names=True, temperature=True, route="in1808", input_profile="legacy", output_profile="in"),
     "IN1608 XI": _fixed("IN", "IN1608 xi", 8, 1, physical=("Main Output",), auth=True, input_names=True, temperature=True, route="in1608", input_profile="modern", output_profile="in"),
-    "DTP CROSSPOINT 84": _fixed("DTP", "DTP CrossPoint 84", 8, 4, input_names=True, output_names=True),
-    "DTP CROSSPOINT 82 4K": _fixed("DTP", "DTP CrossPoint 82 4K", 8, 2, input_names=True, output_names=True),
-    "DTP CROSSPOINT 84 4K": _fixed("DTP", "DTP CrossPoint 84 4K", 8, 4, input_names=True, output_names=True),
-    "DTP CROSSPOINT 86 4K": _fixed("DTP", "DTP CrossPoint 86 4K", 8, 6, input_names=True, output_names=True),
-    "DTP CROSSPOINT 108 4K": _fixed("DTP", "DTP CrossPoint 108 4K", 10, 8, input_names=True, output_names=True),
+    "DTP CROSSPOINT 84": _fixed("DTP", "DTP CrossPoint 84", 8, 4, input_names=True, output_names=True, temperature=True),
+    "DTP CROSSPOINT 82 4K": _fixed("DTP", "DTP CrossPoint 82 4K", 8, 2, input_names=True, output_names=True, temperature=True),
+    "DTP CROSSPOINT 84 4K": _fixed("DTP", "DTP CrossPoint 84 4K", 8, 4, input_names=True, output_names=True, temperature=True),
+    "DTP CROSSPOINT 86 4K": _fixed("DTP", "DTP CrossPoint 86 4K", 8, 6, input_names=True, output_names=True, temperature=True),
+    "DTP CROSSPOINT 108 4K": _fixed("DTP", "DTP CrossPoint 108 4K", 10, 8, input_names=True, output_names=True, temperature=True),
 }
-_XTP_FIRST_GEN = frozenset({"XTP CROSSPOINT 1600", "XTP CROSSPOINT 3200"})
-_XTP_II = frozenset({"XTP II CROSSPOINT 1600", "XTP II CROSSPOINT 3200", "XTP II CROSSPOINT 6400"})
 
 # IN1804 Series SIS Configuration and Control documents these exact ``1I``
 # model-name responses.  They share the proven four-input/single-logical-route
@@ -63,6 +67,10 @@ IN1808_WIRE_IDENTITY_TO_CANONICAL = {
     "IN1808 IPCP MA 70": "IN1808",
     "IN1808 IPCP Q SA": "IN1808",
     "IN1808 IPCP Q MA 70": "IN1808",
+}
+IN1608_XI_WIRE_IDENTITY_TO_CANONICAL = {
+    "IN1608 XI": "IN1608 XI",
+    "IN1608 XI IPCP SA": "IN1608 XI",
 }
 
 def _identity_key(identity):
@@ -92,9 +100,9 @@ def resolve_matrix_capabilities(identity):
     if canonical_in1804 is not None: return _PROFILES[canonical_in1804]
     canonical_in1808 = IN1808_WIRE_IDENTITY_TO_CANONICAL.get(key)
     if canonical_in1808 is not None: return _PROFILES[canonical_in1808]
+    canonical_in1608 = IN1608_XI_WIRE_IDENTITY_TO_CANONICAL.get(key)
+    if canonical_in1608 is not None: return _PROFILES[canonical_in1608]
     if key in _PROFILES: return _PROFILES[key]
-    if key in _XTP_FIRST_GEN: return _fixed("XTP", " ".join(identity.strip().split()), 0, 0, auth=False, input_names=False, output_names=False, temperature=False, route="crosspoint", input_profile="modern", output_profile="xtp")
-    if key in _XTP_II: return _fixed("XTP II", " ".join(identity.strip().split()), 0, 0, auth=True, input_names=False, output_names=False, output_hdcp=False, temperature=False, route="crosspoint", input_profile="modern", output_profile="unproven")
     return None
 
 # Exact documented compact identity tokens/part numbers.  Wire identity is
@@ -110,7 +118,7 @@ DTP_IDENTITY_TOKENS = {
     "60-1382-01": "DTP CrossPoint 86 4K", "60-1382-92": "DTP CrossPoint 86 4K", "60-1382-92A": "DTP CrossPoint 86 4K", "60-1382-93": "DTP CrossPoint 86 4K", "60-1382-93A": "DTP CrossPoint 86 4K",
     # Exact legacy DTP CrossPoint 108 4K IPCP MA 70 SKU.  This is deliberately
     # an individual identity, not an inferred suffix range.
-    "60-1381-01": "DTP CrossPoint 108 4K", "60-1381-23": "DTP CrossPoint 108 4K", "60-1381-92": "DTP CrossPoint 108 4K", "60-1381-92A": "DTP CrossPoint 108 4K", "60-1381-93": "DTP CrossPoint 108 4K", "60-1381-93A": "DTP CrossPoint 108 4K",
+    "60-1381-01": "DTP CrossPoint 108 4K", "60-1381-12": "DTP CrossPoint 108 4K", "60-1381-23": "DTP CrossPoint 108 4K", "60-1381-92": "DTP CrossPoint 108 4K", "60-1381-92A": "DTP CrossPoint 108 4K", "60-1381-93": "DTP CrossPoint 108 4K", "60-1381-93A": "DTP CrossPoint 108 4K",
 }
 XTP_PART_NUMBER_TO_MODEL = {
     "60-1250-01": "XTP CrossPoint 1600", "60-1250-11": "XTP CrossPoint 1600",
@@ -123,7 +131,20 @@ XTP_PART_NUMBER_TO_MODEL = {
 
 def resolve_identity_token(token, family):
     key = _identity_key(token)
-    mapping = DTP_IDENTITY_TOKENS if family == "DTP" else XTP_PART_NUMBER_TO_MODEL
+    if family == "DTP":
+        mapping = DTP_IDENTITY_TOKENS
+    elif family in {"XTP", "XTP II"}:
+        # Historical-only parser evidence.  Production selection is closed in
+        # resolve_matrix_capabilities and the dispatch registry.
+        model = XTP_PART_NUMBER_TO_MODEL.get(key)
+        if not model or not model.startswith(family):
+            return None
+        return _fixed(family, model, 0, 0, auth=family == "XTP II", input_names=False,
+                      output_names=False, output_hdcp=family != "XTP II", temperature=False,
+                      route="crosspoint", input_profile="modern",
+                      output_profile="xtp" if family == "XTP" else "unproven")
+    else:
+        return None
     model = mapping.get(key)
     profile = resolve_matrix_capabilities(model) if model else None
     # A documented part number identifies one generation only.  Do not allow
@@ -189,14 +210,17 @@ def parse_signal_presence(response, profile, available_input_ids):
     return {item: states[index] == "1" if index < len(states) else None for index, item in enumerate(ids)}
 
 def _response_lines(response): return [line.strip() for line in response.replace("\r", "\n").split("\n") if line.strip()] if isinstance(response, str) else []
-def parse_route_response(response, output_id, input_ids):
+def parse_route_response(response, output_id, input_ids, command=None):
     lines = _response_lines(response)
-    if lines and lines[0] == "%s!" % output_id: lines.pop(0)
+    if lines and command and lines[0] == command: lines.pop(0)
     if len(lines) != 1: return None, False
     line = lines[0]
-    if line in {"0", "In00 All", "In00 Out%s" % output_id}: return None, True
-    bare = re.fullmatch(r"([1-9]\d*)", line); routed = re.fullmatch(r"In([1-9]\d*) (?:All|Out([1-9]\d*))", line)
-    value = int(bare.group(1)) if bare else int(routed.group(1)) if routed and (routed.group(2) is None or int(routed.group(2)) == output_id) else None
+    if line in {"0", "Vid0", "In00 All", "In00 Out%s" % output_id}: return None, True
+    bare = re.fullmatch(r"([1-9]\d*)", line)
+    routed = re.fullmatch(r"(?:In|Vid)([1-9]\d*) (?:All|Out([1-9]\d*))", line)
+    video = re.fullmatch(r"Vid([1-9]\d*)", line)
+    value = (int(bare.group(1)) if bare else int(video.group(1)) if video else
+             int(routed.group(1)) if routed and (routed.group(2) is None or int(routed.group(2)) == output_id) else None)
     return (value, True) if value in input_ids else (None, False)
 
 def available_ids_from_slots(maximum, slots, channels_per_slot=4):
@@ -276,16 +300,35 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         if requested is not None and profile.exact_model != requested.exact_model:
             raise ProtocolError("Extron Matrix identity does not match expected model")
         self.model, self.part_number, self.capabilities = profile.exact_model, identity.upper() if family != "IN" else None, profile
-        if profile.family in {"XTP", "XTP II"}:
-            dimensions = parse_matrix_dimensions(self._read("I").get("response", ""))
-            available_inputs, available_outputs = parse_xtp_topology(dimensions, self._read("*N").get("response", ""), profile.family, self.part_number)
-            if not available_inputs or not available_outputs: raise ProtocolError("XTP topology evidence was unavailable or malformed")
-            self.capabilities = replace(profile, logical_input_ids=_ids(dimensions[0]), logical_output_ids=_ids(dimensions[1]), available_input_ids=available_inputs, available_output_ids=available_outputs)
         self.inputs_num, self.outputs_num = len(self.capabilities.available_input_ids), len(self.capabilities.available_output_ids)
+        firmware = self._parse_firmware(self._read("Q").get("response", ""))
         temp = None
         if self.capabilities.supports_temperature:
-            response = self._read("w20STAT").get("response", "").strip(); temp = int(response) if response.isdigit() else None
-        return {"model": self.model, "temperature": temp}
+            command = "S" if self.capabilities.family == "DTP" else "w20STAT"
+            temp = self._parse_temperature(self._read(command).get("response", ""), self.capabilities.family)
+        return {"model": self.model, "firmware": firmware, "temperature": temp}
+
+    @staticmethod
+    def _parse_firmware(response):
+        lines = _response_lines(response)
+        if len(lines) != 1:
+            return None
+        matched = re.fullmatch(r"(?:Ver01\*)?(\d+(?:\.\d+)+)", lines[0])
+        return matched.group(1) if matched else None
+
+    @staticmethod
+    def _parse_temperature(response, family):
+        lines = _response_lines(response)
+        if len(lines) != 1:
+            return None
+        if family == "DTP":
+            # Approved DTP S grammar: the internal temperature is field two.
+            values = lines[0].split("*")
+            if len(values) < 2 or not re.fullmatch(r"-?\d+", values[1].strip()):
+                return None
+            return int(values[1].strip())
+        matched = re.fullmatch(r"(?:20Stat\*)?(-?\d+)", lines[0])
+        return int(matched.group(1)) if matched else None
     def _profile(self):
         if self.capabilities is None and self.model:
             self.capabilities = resolve_matrix_capabilities(self.model)
@@ -322,7 +365,11 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         profile = self._profile(); result = {}
         for output in tuple(output_ids or profile.available_output_ids):
             if output not in profile.available_output_ids: raise ValueError("Output number is outside Matrix capability")
-            command = "!" if profile.route_profile in {"in1804", "in1608"} else "1!" if profile.route_profile == "in1808" else "%s!" % output; value, valid = parse_route_response(self._read(command).get("response", ""), output, profile.available_input_ids)
+            command = ("!" if profile.route_profile == "in1804" else
+                       "&" if profile.route_profile == "in1608" else
+                       "1%" if profile.route_profile in {"in1806", "in1808"} else
+                       "%s%%" % output)
+            value, valid = parse_route_response(self._read(command).get("response", ""), output, profile.available_input_ids, command)
             if not valid: raise ProtocolError("Malformed or unavailable route evidence for output %s" % output)
             result[output] = value
         return result
@@ -334,11 +381,14 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
     def set_connection(self, output_num, input_num):
         profile = self._profile()
         if output_num not in profile.available_output_ids or input_num not in profile.available_input_ids: raise ValueError("Input or output number is outside Matrix capability")
-        command = "%s!" % input_num if profile.route_profile == "in1608" else "%s*1!" % input_num if profile.route_profile in {"in1804", "in1808"} else "%s*%s!" % (input_num, output_num)
+        command = ("%s&" % input_num if profile.route_profile == "in1608" else
+                   "%s*1!" % input_num if profile.route_profile == "in1804" else
+                   "%s*1%%" % input_num if profile.route_profile in {"in1806", "in1808"} else
+                   "%s*%s%%" % (input_num, output_num))
         try: self._read(command, replay_safe=False)
         except Exception as error: setattr(error, "_matrix_route_command_invoked", True); raise
         return True
     def untie(self, output_num):
         profile = self._profile()
-        if profile.route_profile != "crosspoint" or output_num not in profile.available_output_ids: raise ValueError("Output cannot be untied")
-        return self._read("0*%s!" % output_num, replay_safe=False)
+        if profile.family != "DTP" or output_num not in profile.available_output_ids: raise ValueError("Output cannot be untied")
+        return self._read("0*%s%%" % output_num, replay_safe=False)
