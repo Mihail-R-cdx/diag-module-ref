@@ -215,6 +215,14 @@ def parse_route_response(response, output_id, input_ids, command=None):
     if lines and command and lines[0] == command: lines.pop(0)
     if len(lines) != 1: return None, False
     line = lines[0]
+    # IN1608 xi's documented ``&`` readback is a two-digit, zero-padded
+    # video-input token (for example ``01``). Keep this grammar scoped to
+    # that command: it is neither a general numeric response nor evidence for
+    # another route family.
+    if command == "&":
+        in1608_route = re.fullmatch(r"0([1-9])", line)
+        value = int(in1608_route.group(1)) if in1608_route else None
+        return (value, True) if value in input_ids else (None, False)
     if line in {"0", "Vid0", "In00 All", "In00 Out%s" % output_id}: return None, True
     bare = re.fullmatch(r"([1-9]\d*)", line)
     routed = re.fullmatch(r"(?:In|Vid)([1-9]\d*) (?:All|Out([1-9]\d*))", line)
@@ -322,11 +330,17 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         if len(lines) != 1:
             return None
         if family == "DTP":
-            # Approved DTP S grammar: the internal temperature is field two.
-            values = lines[0].split("*")
-            if len(values) < 2 or not re.fullmatch(r"-?\d+", values[1].strip()):
+            # Approved DTP ``S`` grammar is the complete four-field status
+            # tuple. Its second decimal field is the internal temperature.
+            # Do not accept partial, star-delimited, or loosely numeric text.
+            matched = re.fullmatch(
+                r"\d+\.\d{3}\s+(\d+\.\d{3})\s+0\s+0",
+                lines[0],
+            )
+            if matched is None:
                 return None
-            return int(values[1].strip())
+            temperature = float(matched.group(1))
+            return int(temperature) if temperature.is_integer() else temperature
         matched = re.fullmatch(r"(?:20Stat\*)?(-?\d+)", lines[0])
         return int(matched.group(1)) if matched else None
     def _profile(self):

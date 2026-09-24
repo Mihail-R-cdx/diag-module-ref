@@ -236,6 +236,7 @@ class MatrixPresentationTests(unittest.TestCase):
                              serial_number="SERIAL-2", mac_address="aa:bb:cc:dd:ee:01")
         row.network_actions_enabled = True
         row.accepted_snapshot = {
+            "model": "DTP CrossPoint 86 4K", "firmware": "2.01", "temperature": 57,
             "inputs_num": 2, "available_input_ids": [1, 2], "available_output_ids": [1, 2, 5, 6],
             "input_names": {1: "Laptop", 2: "Camera"}, "routes": {1: 2, 2: None, 5: 1},
             "input_hdcp": {1: "PRESENT_HDCP", 2: "UNKNOWN"},
@@ -255,6 +256,8 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertIsNone(presentation.findChild(QPushButton, "roomMatrixRefreshButton"))
         self.assertIsNone(presentation.findChild(QPushButton, "roomLocalRefreshButton"))
         self.assertIsNone(presentation.findChild(QPushButton, "roomLocalDebugButton"))
+        self.assertEqual("2.01", presentation.findChild(QLabel, "roomMatrixFirmwareValue").text())
+        self.assertEqual("57°C", presentation.findChild(QLabel, "roomMatrixTemperatureValue").text())
         self.assertEqual([], calls)
         self.assertEqual(["не выбран", "UNTIED", "активен", "UNKNOWN"], [table.item(0, column).data(Qt.UserRole) for column in range(4, 8)])
         self.assertEqual(

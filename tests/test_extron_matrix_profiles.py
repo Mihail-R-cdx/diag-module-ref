@@ -71,11 +71,11 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
             ("Extron IN1806", "IN1806", "w20STAT", "20Stat*0"),
             ("Extron IN1808", "IN1808", "w20STAT", "20Stat*0"),
             ("Extron IN1608 xi", "IN1608 xi", "w20STAT", "20Stat*0"),
-            ("DTP CrossPoint 84", "DTPCP84", "S", "status*27"),
-            ("DTP CrossPoint 82 4K", "60-1583-01", "S", "status*27"),
-            ("DTP CrossPoint 84 4K", "60-1515-01", "S", "status*27"),
-            ("DTP CrossPoint 86 4K", "60-1382-01", "S", "status*27"),
-            ("DTP CrossPoint 108 4K", "60-1381-12", "S", "status*27"),
+            ("DTP CrossPoint 84", "DTPCP84", "S", "12.125 57.000 0 0"),
+            ("DTP CrossPoint 82 4K", "60-1583-01", "S", "12.125 57.000 0 0"),
+            ("DTP CrossPoint 84 4K", "60-1515-01", "S", "12.125 57.000 0 0"),
+            ("DTP CrossPoint 86 4K", "60-1382-01", "S", "12.125 57.000 0 0"),
+            ("DTP CrossPoint 108 4K", "60-1381-12", "S", "12.125 57.000 0 0"),
         )
         for expected, identity, temperature_command, temperature_response in fixtures:
             with self.subTest(expected=expected):
@@ -85,7 +85,7 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
                 info = handler.get_device_info()
                 self.assertEqual(expected.removeprefix("Extron "), info["model"])
                 self.assertEqual("1.04", info["firmware"])
-                self.assertEqual(0 if temperature_command == "w20STAT" else 27, info["temperature"])
+                self.assertEqual(0 if temperature_command == "w20STAT" else 57, info["temperature"])
                 self.assertTrue(matrix_general_information_complete(
                     info, mac_address="aa:bb:cc:dd:ee:ff", serial_number="SERIAL-1"
                 ))
@@ -307,13 +307,52 @@ class MatrixProtocolFixtureTests(unittest.TestCase):
         self.assertIn(("3*1%", False), in1808.commands)
         self.assertNotIn(("1!", True), in1808.commands)
 
-        in1608 = RecordingMatrix("IN1608 xi", {"&": "Vid3"})
+        in1608 = RecordingMatrix("IN1608 xi IPCP SA", {"&": "01"}, expected_model="Extron IN1608 xi")
         in1608.get_device_info()
-        self.assertEqual({1: 3}, in1608.get_routes())
-        in1608.set_connection(1, 3)
+        self.assertEqual({1: 1}, in1608.get_routes())
+        in1608.set_connection(1, 1)
         self.assertIn(("&", True), in1608.commands)
-        self.assertIn(("3&", False), in1608.commands)
+        self.assertIn(("1&", False), in1608.commands)
         self.assertNotIn(("!", True), in1608.commands)
+
+    def test_real_in1608_and_dtp_read_only_status_grammars_are_usable(self):
+        in1608 = RecordingMatrix("IN1608 xi IPCP SA", {
+            "Q": "2.01", "w20STAT": "20Stat*42", "w0LS": "1*1*1*1*1*1*1*1", "&": "01",
+        }, expected_model="Extron IN1608 xi")
+        in1608_status = in1608.get_full_status()
+        self.assertEqual("IN1608 xi", in1608_status["device_info"]["model"])
+        self.assertEqual({1: 1}, in1608_status["routes"])
+        self.assertIn(("&", True), in1608.commands)
+        self.assertNotIn(("!", True), in1608.commands)
+
+        dtp = RecordingMatrix("60-1382-01", {
+            "Q": "2.01", "S": "12.125 57.000 0 0", "0LS": "1*1*1*1*1*1*1*1",
+            **{"%s%%" % output: "Vid1" for output in range(1, 7)},
+        }, expected_model="DTP CrossPoint 86 4K")
+        dtp_status = dtp.get_full_status()
+        parsed = ExtronMatrixDataParser.parse(dtp_status)
+        self.assertEqual("DTP CrossPoint 86 4K", dtp_status["device_info"]["model"])
+        self.assertEqual("2.01", parsed["firmware"])
+        self.assertEqual(57, parsed["temperature"])
+        self.assertEqual({output: 1 for output in range(1, 7)}, parsed["routes"])
+        self.assertEqual("60-1382-01", dtp.part_number)
+        self.assertNotIn("serial_number", dtp_status["device_info"])
+        self.assertFalse(matrix_general_information_complete(
+            dtp_status["device_info"], mac_address="aa:bb:cc:dd:ee:ff", serial_number=None,
+        ))
+        self.assertIn(("N", True), dtp.commands)
+        self.assertIn(("S", True), dtp.commands)
+        self.assertIn(("1%", True), dtp.commands)
+        self.assertNotIn(("1!", True), dtp.commands)
+
+    def test_real_route_and_temperature_grammars_fail_closed_when_malformed(self):
+        in1608 = RecordingMatrix("IN1608 xi IPCP SA", {"&": "1"}, expected_model="Extron IN1608 xi")
+        in1608.get_device_info()
+        with self.assertRaises(ProtocolError):
+            in1608.get_routes()
+        for response in ("status*27", "12.125 57.000 0", "12.125 57.000 0 1", "12.125 57 0 0", "12.125 57.000 0 0 extra"):
+            with self.subTest(response=response):
+                self.assertIsNone(ExtronMatrixHandler._parse_temperature(response, "DTP"))
 
     def test_dtp_route_and_output_hdcp_are_production_specific(self):
         dtp = RecordingMatrix("60-1381-01", expected_model="DTP CrossPoint 108 4K")
