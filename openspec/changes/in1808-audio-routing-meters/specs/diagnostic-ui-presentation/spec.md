@@ -42,46 +42,7 @@ Mic/Line and File Player) and all approved output meter groups
 (HDMI/TP-DTP/DTP-analog/Line Out and exact-variant amplifier outputs).
 
 The tile SHALL also show the current physical Program source from mandatory
-read-only `1## ADDED Requirements
-
-### Requirement: Expanded IN1808 row switches only the right tile between Video and Audio
-
-For exact `Extron IN1808`, the expanded room Matrix row SHALL retain the
-existing `Общая информация` card unchanged and SHALL add one mode control in
-the row header aligned with the existing model/status content.
-
-The default expanded mode is Video and the control text is `Аудио`. Selecting
-it changes the local mode to Audio and the same control text to `Видео`.
-Selecting `Видео` returns to the existing video Matrix presentation.
-
-Only the right-hand expanded tile changes between modes. The mode switch SHALL
-not create another room row, another top-level screen, or another General
-information card.
-
-Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
-
-#### Scenario: Operator enters Audio mode
-
-- **GIVEN** exact current row is `Extron IN1808` and is expanded in Video mode
-- **WHEN** the operator activates `Аудио`
-- **THEN** `Общая информация` remains the same left card
-- **AND** only the right tile changes to the IN1808 Audio presentation
-- **AND** the same header control now reads `Видео`
-
-#### Scenario: Operator returns to Video
-
-- **GIVEN** an expanded IN1808 row is in Audio mode
-- **WHEN** the operator activates `Видео`
-- **THEN** the existing video Matrix right tile is restored
-- **AND** the mode control returns to `Аудио`
-- **AND** the left General-information presentation is unchanged
-
-### Requirement: IN1808 Audio presentation uses Variant B routing with modern segmented meters
-
-The IN1808 Audio right tile SHALL use Variant B: the primary diagnostic
-presentation combines read-only DSP routing with compact live meters.
-
- metadata. Accepted input 1..9 evidence binds that named
+read-only `1$` metadata. Accepted input 1..9 evidence binds that named
 DP/HDMI/TP/Aux source to both `Program L` and `Program R`; unavailable
 evidence is shown as UNKNOWN and is not guessed from video `1%`.
 
