@@ -183,13 +183,14 @@ class RoomDiagnosticController(QObject):
             entry = dispatch_entry_for_model(context.diagnostic_model)
             if entry is None or entry.mutation_binding_key != "matrix_room_route":
                 raise ValueError("Matrix routing is unavailable")
-            if not isinstance(command, dict) or command.get("output_num") != 1:
+            if not isinstance(command, dict) or not isinstance(command.get("output_num"), int):
                 raise ValueError("Некорректная команда Matrix")
+            output_num = command.get("output_num")
             input_num = command.get("input_num")
             if not isinstance(input_num, int) or input_num < 1 or credential is None or cancelled.is_set():
                 raise ValueError("Matrix route is not actionable")
             # The currentness gate precedes both handler acquisition and send.
-            handler = ExtronIN1804Handler(context.ip_address, username=credential.get("username"), password=credential.get("password"))
+            handler = ExtronIN1804Handler(context.ip_address, username=credential.get("username"), password=credential.get("password"), expected_model=context.diagnostic_model)
             if cancelled.is_set():
                 return
             try:
@@ -209,7 +210,7 @@ class RoomDiagnosticController(QObject):
             # From this point a transport failure can follow delivery; never
             # treat it as a pre-delivery authentication retry opportunity.
             command_invoked = True
-            handler.set_connection(1, input_num)
+            handler.set_connection(output_num, input_num)
             if cancelled.is_set():
                 return
             # The mutation owner must release the transport before its ACK can
@@ -217,7 +218,7 @@ class RoomDiagnosticController(QObject):
             handler.disconnect()
             handler = None
             # ACK is deliberately not cache evidence; coordinator reconciles.
-            self.matrixMutationFinished.emit(context, True, {"input_num": input_num}, False, None)
+            self.matrixMutationFinished.emit(context, True, {"output_num": output_num, "input_num": input_num}, False, None)
         except Exception:
             # Any error after an attempted send is ambiguous and cannot retry.
             message = "Состояние Matrix после команды не подтверждено" if command_invoked else "Не удалось выполнить коммутацию Matrix"

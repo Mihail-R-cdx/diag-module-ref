@@ -251,6 +251,31 @@ Polycom RPG 310
 Extron IN1804
   required: in + 1804
 
+Extron IN1806
+  required: in + 1806
+
+Extron IN1808
+  required: in + 1808
+
+Extron IN1608 xi
+  required: in + 1608 + xi
+
+Extron DTP CrossPoint 84
+  required: dtp + crosspoint + 84
+  forbidden: 4k
+
+Extron DTP CrossPoint 82 4K
+  required: dtp + crosspoint + 82 + 4k
+
+Extron DTP CrossPoint 84 4K
+  required: dtp + crosspoint + 84 + 4k
+
+Extron DTP CrossPoint 86 4K
+  required: dtp + crosspoint + 86 + 4k
+
+Extron DTP CrossPoint 108 4K
+  required: dtp + crosspoint + 108 + 4k
+
 Aten PE8208AV
   required: pe + 8208
 
@@ -265,7 +290,9 @@ Extron DMP 64 Plus
   required: dmp + 64
 ```
 
-`AV`, `CI`, and `Plus` are intentionally optional source components. Do not
+`AV`, `CI`, and `Plus` are intentionally optional source components. XTP and
+XTP II CrossPoint identities are deferred/unsupported and are deliberately
+absent from both production recognition and runtime dispatch. Do not
 add new aliases, manufacturer requirements, or registry-order tie breakers
 without a new approved OpenSpec change.
 
@@ -736,7 +763,7 @@ Operators enter only the target IP, then use Refresh/Enter to start diagnostics
 or `Пароль` to configure credentials. The application owns exact model
 resolution, accepted contexts, page routing, and lifecycle selection.
 
-The closed runtime dispatch registry is exactly the same nine canonical model
+The closed runtime dispatch registry uses the same approved canonical model
 names recognized by the importer:
 
 ```text
@@ -746,6 +773,14 @@ CloudLink Bar 310
 CloudLink Box 310
 Polycom RPG 310
 Extron IN1804
+Extron IN1806
+Extron IN1808
+Extron IN1608 xi
+Extron DTP CrossPoint 84
+Extron DTP CrossPoint 82 4K
+Extron DTP CrossPoint 84 4K
+Extron DTP CrossPoint 86 4K
+Extron DTP CrossPoint 108 4K
 Aten PE8208AV
 Extron IPL T PCS4i
 Biamp Tesira Forte CI
@@ -755,6 +790,11 @@ Extron DMP 64 Plus
 Each registry entry declares the target screen and existing lifecycle route.
 The registry must not contain credentials, indexes, handlers, workers,
 sessions, cookies, tokens, or mutable operation state.
+
+For every approved Matrix model, importer expected-kind `other` is only
+consistency evidence. The exact `Тип модели` mapping remains the sole source
+of canonical `device_kind`; expected kind does not suppress recognition or
+choose a page, controller, handler, or credential context.
 
 For every diagnostic start and every `Пароль` activation, application
 composition:

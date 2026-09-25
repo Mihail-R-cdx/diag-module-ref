@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from core.equipment_inventory import EquipmentInventory, EquipmentRecord, normalize_ip_address
 from core.exceptions import AuthenticationError
 from core.call_activity import CallActivity, normalize_call_activity
+from core.parser import matrix_general_information_complete
 
 
 class RoomSourceStatus(str, Enum):
@@ -35,6 +36,7 @@ class DeviceRowStatus(str, Enum):
     WAITING = "ожидание опроса"
     CONNECTING = "подключение..."
     CONNECTED = "подключено"
+    INCOMPLETE = "данные неполны"
     FAILED = "не удалось подключиться"
     DEGRADED = "соединение потеряно"
 
@@ -127,6 +129,30 @@ class DeviceRowState:
     @property
     def model_label(self) -> str:
         return self.diagnostic_model or self.source_model or "Модель не определена"
+
+
+def room_full_refresh_complete(row: DeviceRowState, data: Any) -> bool:
+    """Apply the Matrix five-field contract at the room composition boundary.
+
+    The exact room row owns canonical inventory MAC/serial.  Workers provide
+    only the current device result and never gain an inventory fallback.
+    """
+    if row.capability is None or row.capability.screen_key != "matrix":
+        return True
+    return matrix_general_information_complete(
+        data,
+        mac_address=row.mac_address,
+        serial_number=row.serial_number,
+    )
+
+
+def mark_room_matrix_refresh_incomplete(row: DeviceRowState, data: Any) -> None:
+    """Clear obsolete Matrix success evidence and retain truthful current data."""
+    row.accepted_snapshot = None
+    row.partial_data = data
+    row.status = DeviceRowStatus.INCOMPLETE
+    row.stale = False
+    row.failure_reason = None
 
 
 @dataclass
@@ -417,17 +443,20 @@ class RoomDiagnosticOrchestrator:
                     if event.kind is OneShotEventKind.PARTIAL:
                         row.partial_data = event.data
                     elif event.kind in {OneShotEventKind.USABLE_SUCCESS, OneShotEventKind.USABLE_SUCCESS_WITH_WARNING}:
-                        row.accepted_snapshot = event.data
-                        row.call_activity = normalize_call_activity(
-                            capability.call_activity_binding_key, event.data
-                        )
-                        row.status = DeviceRowStatus.CONNECTED
-                        if event.warning:
-                            row.warnings.append(event.warning)
-                        if event.credential_success and event.kind is OneShotEventKind.USABLE_SUCCESS:
-                            # A diagnostic result is not yet a completed attempt:
-                            # retain only non-secret evidence until retirement ends.
-                            pending_success_index = index
+                        if not room_full_refresh_complete(row, event.data):
+                            mark_room_matrix_refresh_incomplete(row, event.data)
+                        else:
+                            row.accepted_snapshot = event.data
+                            row.call_activity = normalize_call_activity(
+                                capability.call_activity_binding_key, event.data
+                            )
+                            row.status = DeviceRowStatus.CONNECTED
+                            if event.warning:
+                                row.warnings.append(event.warning)
+                            if event.credential_success and event.kind is OneShotEventKind.USABLE_SUCCESS:
+                                # A diagnostic result is not yet a completed attempt:
+                                # retain only non-secret evidence until retirement ends.
+                                pending_success_index = index
                     elif event.kind is OneShotEventKind.TERMINAL_FAILURE:
                         pending_success_index = None
                         if isinstance(event.data, AuthenticationError) and index + 1 < len(candidates):

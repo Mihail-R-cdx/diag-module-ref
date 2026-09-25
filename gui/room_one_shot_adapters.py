@@ -176,7 +176,7 @@ def _polycom_worker(context: OneShotAttemptContext):
 
 def _matrix_worker(context: OneShotAttemptContext):
     credentials = _credentials(context)
-    return ExtronIN1804Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), is_current=context.is_current)
+    return ExtronIN1804Worker(context.ip_address, username=credentials.get("username"), password=credentials.get("password"), expected_model=context.diagnostic_model, is_current=context.is_current)
 
 
 def _pdu_worker(context: OneShotAttemptContext):

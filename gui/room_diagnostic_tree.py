@@ -590,12 +590,13 @@ def normalize_matrix_presentation(snapshot: Any) -> list[tuple[Any, Any, Any, An
 
 
 class MatrixRoutingTable(QTableWidget):
-    """Room-only Matrix table with stable approved semantic proportions."""
+    """Room Matrix table with equal, compact dynamic route columns."""
 
-    column_ratios = (8, 19, 17, 27, 29)
+    fixed_column_weights = (8, 19, 17, 27)
+    route_column_weight = 10
 
     def __init__(self, parent=None):
-        super().__init__(0, len(self.column_ratios), parent)
+        super().__init__(0, len(self.fixed_column_weights) + 1, parent)
         header = self.horizontalHeader()
         for column in range(self.columnCount()):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
@@ -606,11 +607,16 @@ class MatrixRoutingTable(QTableWidget):
 
     def apply_column_widths(self) -> None:
         width = max(1, self.viewport().width())
-        remaining = width
-        for column, ratio in enumerate(self.column_ratios):
-            column_width = width * ratio // 100 if column < self.columnCount() - 1 else remaining
+        route_columns = max(0, self.columnCount() - len(self.fixed_column_weights))
+        weights = (*self.fixed_column_weights, *(self.route_column_weight,) * route_columns)
+        total_weight = sum(weights) or 1
+        route_width = width * self.route_column_weight // total_weight
+        static_widths = [width * weight // total_weight for weight in self.fixed_column_weights]
+        if static_widths:
+            static_widths[-1] += width - sum(static_widths) - route_columns * route_width
+        for column, column_width in enumerate((*static_widths, *(route_width,) * route_columns)):
+            self.horizontalHeader().setSectionResizeMode(column, QHeaderView.Fixed)
             self.setColumnWidth(column, column_width)
-            remaining -= column_width
 
 
 class RoomPduOutletTable(QTableWidget):
@@ -679,7 +685,8 @@ def _matrix_indicator_item(value: Any, *, positive: str, inactive: str) -> QTabl
         item.setText("○")
         item.setForeground(QBrush(QColor("#6F7B8A")))
     else:
-        item.setText("●")
+        # Unknown is neither a confirmed positive nor a confirmed negative.
+        item.setText("○")
         item.setForeground(QBrush(QColor("#6F7B8A")))
     return item
 
@@ -1297,7 +1304,7 @@ class RoomReadOnlyPresentation(QWidget):
         use_matrix_dashboard = screen_key == "matrix"
         audio_actions = []
         refresh_button = None
-        if screen_key not in {"pdu", "codec"}:
+        if screen_key not in {"pdu", "codec", "matrix"}:
             refresh_button = QPushButton("Локальный опрос", self)
             refresh_button.setObjectName("roomLocalRefreshButton")
             refresh_button.setEnabled(
@@ -1314,7 +1321,7 @@ class RoomReadOnlyPresentation(QWidget):
             audio_actions.append(refresh_button)
         elif refresh_button is not None and not use_matrix_dashboard and not is_codec_dashboard:
             layout.addWidget(refresh_button)
-        if screen_key not in {"pdu", "codec"}:
+        if screen_key not in {"pdu", "codec", "matrix"}:
             debug_button = QPushButton("Отладка", self)
             debug_button.setObjectName("roomLocalDebugButton")
             debug_button.setEnabled(
@@ -1380,6 +1387,8 @@ class RoomReadOnlyPresentation(QWidget):
 
     @staticmethod
     def _state_text(row) -> str:
+        if row.status is DeviceRowStatus.INCOMPLETE:
+            return "Текущие данные Matrix неполны"
         if row.partial_data is not None and row.accepted_snapshot is None:
             return "Неподтверждённые данные: подключение продолжается"
         if row.stale:
@@ -1923,21 +1932,33 @@ class RoomReadOnlyPresentation(QWidget):
         no_data = "Нет данных"
         fields = (
             ("Модель", source.get("model")),
-            ("MAC-адрес", source.get("mac_address")),
-            ("Серийный номер", source.get("serial_number")),
+            ("MAC-адрес", row.mac_address),
+            ("Серийный номер", row.serial_number),
             ("Версия прошивки", source.get("firmware")),
             ("Температура", source.get("temperature")),
-            ("Время работы", source.get("uptime")),
         )
+        value_object_names = {
+            "Модель": "roomMatrixModelValue",
+            "MAC-адрес": "roomMatrixMacValue",
+            "Серийный номер": "roomMatrixSerialValue",
+            "Версия прошивки": "roomMatrixFirmwareValue",
+            "Температура": "roomMatrixTemperatureValue",
+        }
         for label, value in fields:
-            value_label = QLabel(str(value) if value not in (None, "") else no_data, info)
+            displayed_value = "%s°C" % value if label == "Температура" and value not in (None, "") else str(value) if value not in (None, "") else no_data
+            value_label = QLabel(displayed_value, info)
+            value_label.setObjectName(value_object_names[label])
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             form.addRow(label, value_label)
         info.body_layout.addLayout(form)
         # Keep the compact facts directly below the heading.  The additional
         # room-dashboard height belongs beneath the data, not between rows.
         info.body_layout.addStretch(1)
-        card = SectionCard("Матрица (входы и коммутация)", "⇄", dashboard)
+        card = SectionCard("", "", dashboard)
+        card.setObjectName("roomMatrixRoutingCard")
+        card.header_widget.setObjectName("roomMatrixRoutingHeader")
+        card.header_widget.setVisible(False)
+        card.layout().setSpacing(0)
         table = MatrixRoutingTable(card)
         table.setObjectName("roomMatrixRouting")
         output_names = source.get("output_names")
@@ -1955,7 +1976,9 @@ class RoomReadOnlyPresentation(QWidget):
             and not row.stale
             and isinstance(source.get("inputs_num"), int)
         )
-        for values in normalize_matrix_presentation(source):
+        # Rebuilt below from authoritative output IDs.  The legacy scalar
+        # projection is intentionally disabled for generalized Matrix state.
+        for values in ():
             index = table.rowCount()
             table.insertRow(index)
             for column, value in enumerate(values):
@@ -1975,32 +1998,130 @@ class RoomReadOnlyPresentation(QWidget):
             if route_allowed and values[4] == "не выбран":
                 route_item = table.item(index, 4)
                 route_item.setToolTip("Выбрать вход для Main Output")
-        def request_route(index, column):
-            if column != 4 or not route_allowed:
-                return
-            values = normalize_matrix_presentation(source)
-            if not (0 <= index < len(values)) or values[index][4] != "не выбран":
-                return
-            request_matrix_route(1, values[index][0])
-        table.cellClicked.connect(request_route)
+        # The normalised Matrix domain owns available IDs and route map.  Do
+        # not derive room columns from connector count or outputs_num.
+        available_inputs = tuple(source.get("available_input_ids") or range(1, int(source.get("inputs_num") or 0) + 1))
+        available_outputs = tuple(source.get("available_output_ids") or (1,))
+        output_names = source.get("output_names") if isinstance(source.get("output_names"), Mapping) else {}
+        headers = ["№", "Сигнал", "HDCP", "Входы"] + [str(output_names.get(item) or "Output %s" % item) for item in available_outputs]
+        table.setColumnCount(len(headers)); table.setHorizontalHeaderLabels(headers); table.setRowCount(0)
+        routes = source.get("routes") if isinstance(source.get("routes"), Mapping) else {}
+        # Legacy IN1804 scalar evidence projects only an authoritative routed
+        # input.  A missing/None scalar is UNKNOWN, not an invented untied
+        # route, and must stay non-actionable.
+        if (
+            "routes" not in source
+            and available_outputs == (1,)
+            and isinstance(source.get("current_connection"), int)
+        ):
+            routes = {1: source["current_connection"]}
+        signals = source.get("signal_presence") if isinstance(source.get("signal_presence"), Mapping) else {}
+        legacy_signals = source.get("signal_status") if isinstance(source.get("signal_status"), Mapping) else {}
+        hdcp = source.get("input_hdcp") if isinstance(source.get("input_hdcp"), Mapping) else {}
+        names = source.get("input_names") if isinstance(source.get("input_names"), Mapping) else {}
+        legacy_names = source.get("input_names") if isinstance(source.get("input_names"), (list, tuple)) else ()
+        legacy_hdcp = source.get("input_hdcp_status") if isinstance(source.get("input_hdcp_status"), (list, tuple)) else ()
+        for row_index, input_id in enumerate(available_inputs):
+            table.insertRow(row_index)
+            present = signals.get(input_id, (legacy_signals.get(input_id) or {}).get("has_signal"))
+            signal_value = "есть" if present is True else "нет сигнала" if present is False else "Нет данных"
+            hdcp_state = hdcp.get(input_id)
+            if hdcp_state is None and input_id - 1 < len(legacy_hdcp):
+                hdcp_state = {
+                    "0": "ABSENT", "1": "PRESENT_NO_HDCP", "2": "PRESENT_HDCP",
+                }.get(str(legacy_hdcp[input_id - 1]), "UNKNOWN")
+            name_value = names.get(input_id) or (legacy_names[input_id - 1] if input_id - 1 < len(legacy_names) else "Input %s" % input_id)
+            route_states = []
+            for output_id in available_outputs:
+                if output_id not in routes:
+                    route_states.append("UNKNOWN")
+                elif routes[output_id] == input_id:
+                    route_states.append("активен")
+                elif routes[output_id] is None:
+                    route_states.append("UNTIED")
+                else:
+                    route_states.append("не выбран")
+            values = [input_id, signal_value, hdcp_state, name_value] + route_states
+            for column, value in enumerate(values):
+                if column == 1:
+                    item = _matrix_indicator_item(value, positive="есть", inactive="нет сигнала")
+                elif column == 2:
+                    item = _matrix_indicator_item(
+                        hdcp_state if hdcp_state in {"PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT"} else "UNKNOWN",
+                        positive="PRESENT_HDCP", inactive="PRESENT_NO_HDCP",
+                    )
+                    item.setToolTip("HDCP: %s" % item.data(Qt.UserRole))
+                else:
+                    item = _matrix_indicator_item(value, positive="активен", inactive="не выбран") if column >= 4 else QTableWidgetItem(str(value))
+                    if column >= 4:
+                        route_tooltips = {
+                            "активен": "Маршрут активен",
+                            "не выбран": "Выбрать вход для этого выхода",
+                            "UNTIED": "Маршрут не назначен",
+                            "UNKNOWN": "Маршрут: нет данных",
+                        }
+                        item.setToolTip(route_tooltips[value])
+                    if column == 3:
+                        item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(row_index, column, item)
+        def request_multi_route(index, column):
+            if not route_allowed or column < 4 or index < 0 or index >= len(available_inputs) or column - 4 >= len(available_outputs): return
+            output_id, input_id = available_outputs[column - 4], available_inputs[index]
+            state = table.item(index, column).data(Qt.UserRole)
+            if state in {"не выбран", "UNTIED"}:
+                request_matrix_route(output_id, input_id)
+        table.cellClicked.connect(request_multi_route)
+        # Compatibility projection remains only for old accepted IN1804
+        # snapshots which predate the route map.  It is not authority for new
+        # multi-output Matrix snapshots.
+        if "available_output_ids" not in source and "routes" not in source:
+            legacy_names = source.get("output_names") or ()
+            legacy_output = legacy_names[0] if isinstance(legacy_names, (list, tuple)) and legacy_names else "Main Output"
+            table.setColumnCount(5)
+            table.setHorizontalHeaderLabels(["№", "Сигнал", "HDCP", "Входы", str(legacy_output)])
+            table.setRowCount(0)
+            for index, values in enumerate(normalize_matrix_presentation(source)):
+                table.insertRow(index)
+                for column, value in enumerate(values):
+                    if column == 1:
+                        item = _matrix_indicator_item(value, positive="есть", inactive="нет сигнала")
+                    elif column == 4:
+                        route_state = (
+                            "активен" if value == "активен" else
+                            "не выбран" if value == "не выбран" else
+                            "UNKNOWN"
+                        )
+                        item = _matrix_indicator_item(route_state, positive="активен", inactive="не выбран")
+                        item.setToolTip(
+                            "Маршрут активен" if route_state == "активен" else
+                            "Выбрать вход для Main Output" if route_state == "не выбран" else
+                            "Маршрут: нет данных"
+                        )
+                    elif column == 2:
+                        state = {"есть": "PRESENT_HDCP", "нет": "PRESENT_NO_HDCP"}.get(str(value), "UNKNOWN")
+                        item = _matrix_indicator_item(state, positive="PRESENT_HDCP", inactive="PRESENT_NO_HDCP")
+                    else:
+                        item = QTableWidgetItem(str(value))
+                        if column == 3:
+                            item.setTextAlignment(Qt.AlignCenter)
+                    table.setItem(index, column, item)
+            table.cellClicked.disconnect(request_multi_route)
+            def request_legacy_route(index, column):
+                values = normalize_matrix_presentation(source)
+                current = source.get("current_connection")
+                if (
+                    route_allowed
+                    and isinstance(current, int)
+                    and column == 4
+                    and 0 <= index < len(values)
+                    and values[index][4] == "не выбран"
+                ):
+                    request_matrix_route(1, values[index][0])
+            table.cellClicked.connect(request_legacy_route)
         table.apply_column_widths()
         card.add_widget(table)
-        actions = SectionCard("Быстрые действия", "⚡", dashboard)
-        refresh = QPushButton("Обновить статус", actions)
-        refresh.setObjectName("roomMatrixRefreshButton")
-        refresh.setEnabled(bool(request_local_refresh) and local_refresh_allowed and row.status is DeviceRowStatus.CONNECTED and (row.network_actions_enabled or live_here) and not row.interaction_blocked)
-        if request_local_refresh is not None:
-            refresh.clicked.connect(request_local_refresh)
-        reboot = QPushButton("Перезагрузить устройство", actions)
-        reboot.setObjectName("roomMatrixRebootButton")
-        reboot.setEnabled(False)
-        actions.add_widget(refresh)
-        actions.add_widget(reboot)
-        # Likewise, the action buttons stay adjacent to the heading.
-        actions.body_layout.addStretch(1)
         dashboard_layout.addWidget(info, 25)
-        dashboard_layout.addWidget(card, 53)
-        dashboard_layout.addWidget(actions, 22)
+        dashboard_layout.addWidget(card, 75)
         layout.addWidget(dashboard)
 
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_popup=None, record_id=None, audio_actions=(), **_unused) -> None:

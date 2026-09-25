@@ -91,7 +91,12 @@ EQUIPMENT_PAGE_REGISTRY = (
     EquipmentPageRegistration(
         screen_key="matrix",
         page_kind="non_pdu",
-        device_models=("Extron IN1804",),
+        device_models=(
+            "Extron IN1804", "Extron IN1806", "Extron IN1808", "Extron IN1608 xi",
+            "Extron DTP CrossPoint 84", "Extron DTP CrossPoint 82 4K",
+            "Extron DTP CrossPoint 84 4K", "Extron DTP CrossPoint 86 4K",
+            "Extron DTP CrossPoint 108 4K",
+        ),
         shared_room_block=True,
         dedicated_pdu_room_placement=False,
     ),

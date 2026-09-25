@@ -12,12 +12,13 @@ from handlers.extron.in1804 import ExtronIN1804Handler
 class ExtronIN1804Worker(QRunnable):
     """Worker для опроса матрицы Extron IN1804"""
 
-    def __init__(self, ip_address, port=22023, username=None, password=None, *, is_current=None):
+    def __init__(self, ip_address, port=22023, username=None, password=None, *, expected_model=None, is_current=None):
         super().__init__()
         self.ip_address = ip_address
         self.port = port
         self.username = username
         self.password = password
+        self.expected_model = expected_model
         self.signals = WorkerSignals()
         self.handler = None
         self.is_current = is_current or (lambda: True)
@@ -28,7 +29,8 @@ class ExtronIN1804Worker(QRunnable):
         try:
             if not self.is_current():
                 return
-            self.signals.status.emit("Подключение к матрице Extron IN1804...")
+            matrix_label = self.expected_model or "Extron Matrix"
+            self.signals.status.emit("Подключение к матрице %s..." % matrix_label)
             self.signals.progress.emit(10)
 
             # Создаем и подключаем обработчик
@@ -36,7 +38,8 @@ class ExtronIN1804Worker(QRunnable):
                 ip_address=self.ip_address,
                 port=self.port,
                 username=self.username,
-                password=self.password
+                password=self.password,
+                expected_model=self.expected_model,
             )
             self.handler.log_callback = redacted_callback(self.signals.terminal_log.emit, _worker_secrets(self))
 

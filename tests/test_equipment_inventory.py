@@ -47,7 +47,12 @@ from tools.import_equipment_inventory import (
     resolve_converter_paths,
 )
 from core.interactive_session import _default_handler_factory
-from gui.diagnostic_dispatch import DiagnosticActionPurpose, ModelResolutionStatus, resolve_exact_model_for_ip
+from gui.diagnostic_dispatch import (
+    DiagnosticActionPurpose,
+    ModelResolutionStatus,
+    dispatch_model_names,
+    resolve_exact_model_for_ip,
+)
 from handlers.huawei.te40 import HuaweiTE40Handler
 
 
@@ -1007,6 +1012,81 @@ class EquipmentInventoryImporterTests(unittest.TestCase):
                 self.assertEqual(expected_kind[source_type], by_id[record_id].device_kind)
                 self.assertNotIn("UNMAPPED_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
                 self.assertNotIn("AMBIGUOUS_DIAGNOSTIC_MODEL", codes_by_record.get(record_id, set()))
+
+    def test_importer_recognizes_supported_extron_matrix_inventory_models_without_priority(self):
+        cases = (
+            ("RID-IN1804", "Extron IN1804", None, "Extron IN1804", None),
+            ("RID-IN1806", "Extron IN 1806", None, "Extron IN1806", None),
+            ("RID-IN1808-MODEL", "Extron IN1808 IPCP SA", None, "Extron IN1808", None),
+            ("RID-IN1808-NAME", None, "IN1808 IPCP SA", "Extron IN1808", None),
+            ("RID-IN1808-BOTH", "Extron IN 1808 IPCP SA", "Extron IN 1808 IPCP SA", "Extron IN1808", None),
+            ("RID-IN1608-XI", "Extron IN1608 xi", None, "Extron IN1608 xi", None),
+            ("RID-DTP-84", "DTP CrossPoint 84", None, "Extron DTP CrossPoint 84", None),
+            ("RID-DTP-82-4K", "DTP CrossPoint 82 4K", None, "Extron DTP CrossPoint 82 4K", None),
+            ("RID-DTP-84-4K", "DTP CrossPoint 84 4K", None, "Extron DTP CrossPoint 84 4K", None),
+            ("RID-DTP-86-4K", "DTP CrossPoint 86 4K", None, "Extron DTP CrossPoint 86 4K", None),
+            ("RID-DTP-108-4K", "DTP CrossPoint 108 4K", None, "Extron DTP CrossPoint 108 4K", None),
+            ("RID-XTP-1600", "XTP CrossPoint 1600", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-XTP-II-1600", "XTP II CrossPoint 1600", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-XTP-3200", "XTP CrossPoint 3200", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-XTP-II-3200", "XTP II CrossPoint 3200", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-XTP-II-6400", "XTP II CrossPoint 6400", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-IN1608-UNSPECIFIED", "IN1608", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-XTP-6400-UNSUPPORTED", "XTP CrossPoint 6400", None, None, "UNMAPPED_DIAGNOSTIC_MODEL"),
+            ("RID-MATRIX-CONFLICT", "Extron IN1808 IPCP SA", "Extron IN1608 xi", None, "AMBIGUOUS_DIAGNOSTIC_MODEL"),
+        )
+        model_issue_codes = {"UNMAPPED_DIAGNOSTIC_MODEL", "AMBIGUOUS_DIAGNOSTIC_MODEL"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "inventory.xlsx"
+            output = Path(directory) / "snapshot.json"
+            write_xlsx(
+                source,
+                [
+                    source_row(
+                        record_id,
+                        room_id=f"ROOM-MATRIX-{index}",
+                        room_name=f"Matrix Room {index}",
+                        model=model,
+                        source_model=source_model,
+                        source_type="Other",
+                        manufacturer=(
+                            "Unrelated manufacturer" if record_id == "RID-IN1808-MODEL" else None
+                        ),
+                        ip=f"192.0.2.{180 + index}",
+                        mac=f"00:11:22:33:cc:{index:02x}",
+                        serial=f"MATRIX-{index}",
+                        controller=None,
+                    )
+                    for index, (record_id, model, source_model, _expected, _issue) in enumerate(cases, start=1)
+                ],
+            )
+            result = import_equipment_inventory(source, output_path=output)
+            self.assertTrue(result.published, [issue.to_dict() for issue in result.issues])
+            inventory = load_equipment_inventory(output)
+
+        by_id = {record.record_id: record for record in inventory.records}
+        codes_by_record = issue_codes_by_record(result.issues)
+        dispatch_models = set(dispatch_model_names())
+        for record_id, _model, source_model, expected_model, expected_issue in cases:
+            with self.subTest(record_id=record_id):
+                record = by_id[record_id]
+                self.assertEqual(expected_model, record.diagnostic_model)
+                self.assertEqual(source_model, record.source_model)
+                self.assertEqual("other", record.device_kind)
+                model_issues = codes_by_record.get(record_id, set()) & model_issue_codes
+                if expected_issue is None:
+                    self.assertEqual(set(), model_issues)
+                    self.assertIn(expected_model, dispatch_models)
+                    resolved = resolve_exact_model_for_ip(
+                        purpose=DiagnosticActionPurpose.DIAGNOSTIC_START,
+                        normalized_ip=record.ip_address,
+                        inventory=inventory,
+                    )
+                    self.assertEqual(ModelResolutionStatus.RESOLVED, resolved.status)
+                    self.assertEqual(expected_model, resolved.entry.diagnostic_model)
+                else:
+                    self.assertEqual({expected_issue}, model_issues)
 
     def test_importer_preserves_mixed_component_separator_boundaries(self):
         positive_cases = [

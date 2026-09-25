@@ -16,7 +16,7 @@ from gui.room_diagnostic_tree import normalize_matrix_presentation
 
 try:
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication, QPushButton, QTableWidget, QWidget
+    from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QTableWidget, QWidget
 except ImportError:  # pragma: no cover
     QApplication = None
 
@@ -121,12 +121,12 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual("matrix_room_route_reconcile", entry.reconciliation_binding_key)
 
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
-    def test_room_dashboard_has_three_cards_and_truthful_table(self):
+    def test_room_dashboard_projects_canonical_facts_and_truthful_table(self):
         from core.equipment_inventory import EquipmentInventory, EquipmentInventoryMetadata, EquipmentRecord
         from core.room_diagnostic_tree import DeviceRowStatus, RoomModelCapability, build_room_session_from_room
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
-        record = EquipmentRecord("matrix", "Extron IN1804", "Extron IN1804", "192.0.2.4", None, None, "r", "Room", "matrix", None, None, None, None)
+        record = EquipmentRecord("matrix", "Extron IN1804", "Extron IN1804", "192.0.2.4", "aa:bb:cc:dd:ee:ff", "SERIAL-1", "r", "Room", "matrix", None, None, None, None)
         inventory = EquipmentInventory.from_records((record,), EquipmentInventoryMetadata(4, "sha256:" + "a" * 64))
         session = build_room_session_from_room(
             inventory=inventory, room_id="r", generation=1,
@@ -136,9 +136,13 @@ class MatrixPresentationTests(unittest.TestCase):
         row.status = DeviceRowStatus.CONNECTED
         row.network_actions_enabled = True
         row.accepted_snapshot = {
-            "model": "IN1804", "inputs_num": 2, "input_names": ["Laptop", "Camera"],
-            "output_names": ["Projector"], "signal_status": {1: {"has_signal": True}},
-            "hdcp_present": [True, False], "current_connection": 1,
+            "model": "IN1804", "firmware": "1.2.3", "temperature": 59, "inputs_num": 4,
+            "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1],
+            "input_names": {1: "Laptop", 2: "Camera", 3: "PC", 4: "Doc Cam"},
+            "output_names": {1: "Projector"},
+            "signal_presence": {1: True, 2: True, 3: False, 4: None},
+            "input_hdcp": {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "UNKNOWN"},
+            "routes": {1: 1},
         }
         session.expanded_record_id = row.record_id
         widget = RoomDiagnosticTreeWidget()
@@ -150,15 +154,29 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertIsNotNone(projection.findChild(QTableWidget, "roomMatrixRouting"))
         table = projection.findChild(QTableWidget, "roomMatrixRouting")
         self.assertEqual(["№", "Сигнал", "HDCP", "Входы", "Projector"], [table.horizontalHeaderItem(i).text() for i in range(5)])
-        self.assertEqual("есть", table.item(0, 2).text())
-        self.assertEqual("нет", table.item(1, 2).text())
+        self.assertEqual(["●", "○", "○", "○"], [table.item(index, 2).text() for index in range(4)])
+        self.assertEqual(["PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT", "UNKNOWN"], [table.item(index, 2).data(Qt.UserRole) for index in range(4)])
+        self.assertEqual(["HDCP: PRESENT_HDCP", "HDCP: PRESENT_NO_HDCP", "HDCP: ABSENT", "HDCP: UNKNOWN"], [table.item(index, 2).toolTip() for index in range(4)])
+        self.assertTrue(all(table.item(index, 2).textAlignment() & int(Qt.AlignHCenter) for index in range(4)))
+        self.assertTrue(all(table.item(index, 3).textAlignment() & int(Qt.AlignHCenter) for index in range(4)))
         self.assertIsNotNone(projection.findChild(QWidget, "roomMatrixDashboard"))
-        reboot = projection.findChild(QPushButton, "roomMatrixRebootButton")
-        self.assertIsNotNone(reboot)
-        self.assertFalse(reboot.isEnabled())
-        reboot.click()
-        self.assertEqual([], intents)
+        self.assertEqual("IN1804", projection.findChild(QLabel, "roomMatrixModelValue").text())
+        self.assertEqual("aa:bb:cc:dd:ee:ff", projection.findChild(QLabel, "roomMatrixMacValue").text())
+        self.assertEqual("SERIAL-1", projection.findChild(QLabel, "roomMatrixSerialValue").text())
+        self.assertEqual("1.2.3", projection.findChild(QLabel, "roomMatrixFirmwareValue").text())
+        self.assertEqual("59°C", projection.findChild(QWidget, "roomMatrixTemperatureValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixUptimeValue"))
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixIpValue"))
+        self.assertIsNone(projection.findChild(QPushButton, "roomMatrixRebootButton"))
+        self.assertEqual([], [card for card in projection.findChildren(QWidget, "roomMatrixQuickActions")])
+        self.assertIsNone(projection.findChild(QPushButton, "roomMatrixRefreshButton"))
         self.assertIsNone(projection.findChild(QPushButton, "roomMatrixExtendedButton"))
+        routing_card = projection.findChild(QWidget, "roomMatrixRoutingCard")
+        routing_header = projection.findChild(QWidget, "roomMatrixRoutingHeader")
+        self.assertFalse(routing_header.isVisible())
+        self.assertFalse(routing_header.isVisibleTo(routing_card))
+        self.assertEqual(0, routing_card.layout().spacing())
+        self.assertNotIn("Матрица (входы и коммутация)", [label.text() for label in routing_card.findChildren(QLabel)])
         table.cellClicked.emit(0, 4)
         self.assertEqual([], intents)
         table.cellClicked.emit(1, 4)
@@ -171,12 +189,24 @@ class MatrixPresentationTests(unittest.TestCase):
         dashboard.resize(1400, 400)
         dashboard.layout().setGeometry(dashboard.contentsRect())
         dashboard.layout().activate()
-        info, matrix, actions = (dashboard.layout().itemAt(index).widget() for index in range(3))
+        info, matrix = (dashboard.layout().itemAt(index).widget() for index in range(2))
         self.assertGreater(matrix.width(), info.width())
-        self.assertGreater(matrix.width(), actions.width())
         widths = [table.columnWidth(column) / table.viewport().width() for column in range(5)]
-        for actual, expected in zip(widths, (0.08, 0.19, 0.17, 0.27, 0.29)):
-            self.assertAlmostEqual(expected, actual, delta=0.03)
+        self.assertLess(widths[4], 0.15)
+
+        row.accepted_snapshot = {
+            "model": "IN1804", "inputs_num": 4,
+            "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1],
+            "routes": {1: 1},
+        }
+        widget.render(session)
+        projection = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0)
+        self.assertEqual("aa:bb:cc:dd:ee:ff", projection.findChild(QLabel, "roomMatrixMacValue").text())
+        self.assertEqual("SERIAL-1", projection.findChild(QLabel, "roomMatrixSerialValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixIpValue"))
+        self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixFirmwareValue").text())
+        self.assertEqual("Нет данных", projection.findChild(QLabel, "roomMatrixTemperatureValue").text())
+        self.assertIsNone(projection.findChild(QLabel, "roomMatrixUptimeValue"))
 
         for changes in (
             {"stale": True},
@@ -195,6 +225,82 @@ class MatrixPresentationTests(unittest.TestCase):
                 blocked_table = widget.tree.itemWidget(widget.tree.topLevelItem(0).child(0), 0).findChild(QTableWidget, "roomMatrixRouting")
                 blocked_table.cellClicked.emit(1, 4)
                 self.assertEqual([(row.record_id, 1, 2)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_multi_output_columns_are_equal_without_a_matrix_local_refresh_control(self):
+        from core.room_diagnostic_tree import DeviceRowStatus, DeviceRowState, RoomModelCapability
+        from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+
+        row = DeviceRowState("matrix", "Extron DTP CrossPoint 86 4K", "192.0.2.8", "DTP", DeviceRowStatus.CONNECTED,
+                             RoomModelCapability("Extron DTP CrossPoint 86 4K", "matrix", "matrix", "matrix_one_shot"),
+                             serial_number="SERIAL-2", mac_address="aa:bb:cc:dd:ee:01")
+        row.network_actions_enabled = True
+        row.accepted_snapshot = {
+            "model": "DTP CrossPoint 86 4K", "firmware": "2.01", "temperature": 57,
+            "inputs_num": 2, "available_input_ids": [1, 2], "available_output_ids": [1, 2, 5, 6],
+            "input_names": {1: "Laptop", 2: "Camera"}, "routes": {1: 2, 2: None, 5: 1},
+            "input_hdcp": {1: "PRESENT_HDCP", 2: "UNKNOWN"},
+        }
+        calls, routes = [], []
+        presentation = RoomReadOnlyPresentation(
+            row,
+            request_local_refresh=lambda: calls.append("refresh"),
+            request_matrix_route=lambda output, input_id: routes.append((output, input_id)),
+        )
+        self.addCleanup(presentation.deleteLater)
+        table = presentation.findChild(QTableWidget, "roomMatrixRouting")
+        presentation.resize(1200, 500)
+        presentation.show(); self.app.processEvents(); table.apply_column_widths()
+        widths = [table.columnWidth(column) for column in range(4, table.columnCount())]
+        self.assertLessEqual(max(widths) - min(widths), 1)
+        self.assertIsNone(presentation.findChild(QPushButton, "roomMatrixRefreshButton"))
+        self.assertIsNone(presentation.findChild(QPushButton, "roomLocalRefreshButton"))
+        self.assertIsNone(presentation.findChild(QPushButton, "roomLocalDebugButton"))
+        self.assertEqual("2.01", presentation.findChild(QLabel, "roomMatrixFirmwareValue").text())
+        self.assertEqual("57°C", presentation.findChild(QLabel, "roomMatrixTemperatureValue").text())
+        self.assertEqual([], calls)
+        self.assertEqual(["не выбран", "UNTIED", "активен", "UNKNOWN"], [table.item(0, column).data(Qt.UserRole) for column in range(4, 8)])
+        self.assertEqual(
+            ["Выбрать вход для этого выхода", "Маршрут не назначен", "Маршрут активен", "Маршрут: нет данных"],
+            [table.item(0, column).toolTip() for column in range(4, 8)],
+        )
+        table.cellClicked.emit(0, 4)  # known different input
+        table.cellClicked.emit(0, 5)  # explicitly untied output
+        table.cellClicked.emit(0, 6)  # active output
+        table.cellClicked.emit(0, 7)  # route evidence absent
+        self.assertEqual([(1, 1), (2, 1)], routes)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_legacy_in1804_unknown_route_is_not_projected_as_untied_or_actionable(self):
+        from core.room_diagnostic_tree import DeviceRowStatus, DeviceRowState, RoomModelCapability
+        from gui.room_diagnostic_tree import RoomReadOnlyPresentation
+
+        capability = RoomModelCapability("Extron IN1804", "matrix", "matrix", "matrix_one_shot")
+        row = DeviceRowState("matrix", "Extron IN1804", "192.0.2.4", "IN1804", DeviceRowStatus.CONNECTED, capability)
+        row.network_actions_enabled = True
+        row.accepted_snapshot = {"inputs_num": 2, "input_names": ["Laptop", "Camera"]}
+        intents = []
+        unknown = RoomReadOnlyPresentation(
+            row, request_matrix_route=lambda output, input_id: intents.append((output, input_id)),
+        )
+        self.addCleanup(unknown.deleteLater)
+        unknown_table = unknown.findChild(QTableWidget, "roomMatrixRouting")
+        self.assertEqual(["UNKNOWN", "UNKNOWN"], [unknown_table.item(index, 4).data(Qt.UserRole) for index in range(2)])
+        self.assertEqual(["Маршрут: нет данных", "Маршрут: нет данных"], [unknown_table.item(index, 4).toolTip() for index in range(2)])
+        unknown_table.cellClicked.emit(0, 4)
+        unknown_table.cellClicked.emit(1, 4)
+        self.assertEqual([], intents)
+
+        row.accepted_snapshot = {"inputs_num": 2, "input_names": ["Laptop", "Camera"], "current_connection": 2}
+        known = RoomReadOnlyPresentation(
+            row, request_matrix_route=lambda output, input_id: intents.append((output, input_id)),
+        )
+        self.addCleanup(known.deleteLater)
+        known_table = known.findChild(QTableWidget, "roomMatrixRouting")
+        self.assertEqual(["не выбран", "активен"], [known_table.item(index, 4).data(Qt.UserRole) for index in range(2)])
+        known_table.cellClicked.emit(1, 4)
+        known_table.cellClicked.emit(0, 4)
+        self.assertEqual([(1, 1)], intents)
 
     @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
     def test_standalone_unknown_input_count_has_no_rows_or_route_intent(self):
@@ -219,6 +325,100 @@ class MatrixPresentationTests(unittest.TestCase):
         self.assertEqual(0, screen.matrix_table.rowCount())
         screen.on_output_cell_clicked(0, 3)
         self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_missing_route_map_is_unknown_and_non_actionable(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1], "available_output_ids": [1], "routes": {}})
+
+        cell = screen.matrix_table.item(0, 3)
+        self.assertEqual("UNKNOWN", cell.data(Qt.UserRole))
+        self.assertEqual("Нет данных", cell.toolTip())
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_missing_or_none_legacy_route_is_unknown_and_non_actionable(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        for snapshot in (
+            {"inputs_num": 1, "available_output_ids": [1]},
+            {"inputs_num": 1, "available_output_ids": [1], "current_connection": None},
+        ):
+            with self.subTest(snapshot=snapshot):
+                screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+                intents = []
+                screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+                screen.update_data(snapshot)
+                self.assertEqual("UNKNOWN", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+                screen.on_output_cell_clicked(0, 3)
+                self.assertEqual([], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_known_other_is_actionable_but_active_route_is_not(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {1: 2}})
+        self.assertEqual("KNOWN_OTHER", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {1: 1}})
+        self.assertEqual("ACTIVE", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_new_unknown_snapshot_cannot_reuse_stale_route_or_authorize_click(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {1: 2}})
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1], "routes": {}})
+        self.assertEqual("UNKNOWN", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_standalone_multi_output_unknown_route_is_not_actionable(self):
+        from gui.screens.matrix_screen import MatrixScreen
+
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        intents = []
+        screen.routeRequested.connect(lambda output, input_number: intents.append((output, input_number)))
+        screen.update_data({"available_input_ids": [1, 2], "available_output_ids": [1, 2], "routes": {1: 2}})
+        self.assertEqual("KNOWN_OTHER", screen.matrix_table.item(0, 3).data(Qt.UserRole))
+        self.assertEqual("UNKNOWN", screen.matrix_table.item(0, 4).data(Qt.UserRole))
+        screen.on_output_cell_clicked(0, 3)
+        screen.on_output_cell_clicked(0, 4)
+        self.assertEqual([(1, 1)], intents)
+
+    @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+    def test_canonical_in1804_hdcp_state_reaches_standalone_matrix_table(self):
+        from gui.screens.matrix_screen import MatrixScreen
+        screen = MatrixScreen(); self.addCleanup(screen.deleteLater)
+        screen.update_data({"model": "IN1804", "temperature": 59, "available_input_ids": [1, 2, 3, 4], "available_output_ids": [1], "input_names": {1: "A", 2: "B", 3: "C", 4: "D"}, "input_hdcp": {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP", 3: "ABSENT", 4: "UNKNOWN"}, "routes": {1: 1}})
+        self.assertEqual(4, screen.matrix_table.rowCount())
+        self.assertEqual("●", screen.matrix_table.item(0, 1).text())
+        self.assertEqual("○", screen.matrix_table.item(1, 1).text())
+        self.assertEqual("○", screen.matrix_table.item(2, 1).text())
+        self.assertEqual("○", screen.matrix_table.item(3, 1).text())
+        self.assertEqual(["HDCP есть", "HDCP нет", "HDCP нет", "Нет данных"], [screen.matrix_table.item(row, 1).data(Qt.UserRole) for row in range(4)])
+        self.assertEqual(["PRESENT_HDCP", "PRESENT_NO_HDCP", "ABSENT", "UNKNOWN"], [screen.matrix_table.item(row, 1).data(Qt.UserRole + 1) for row in range(4)])
+        self.assertEqual(["HDCP есть", "HDCP нет", "HDCP нет", "HDCP: Нет данных"], [screen.matrix_table.item(row, 1).toolTip() for row in range(4)])
+        self.assertEqual("59°C", screen.temp_value.text())
+        screen.update_data({"temperature": None})
+        self.assertEqual("—", screen.temp_value.text())
 
 
 class MatrixMutationOrderingTests(unittest.TestCase):

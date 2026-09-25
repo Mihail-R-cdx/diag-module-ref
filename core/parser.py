@@ -909,6 +909,8 @@ class ExtronIN1804DataParser:
         """Преобразование сырых данных в формат для GUI"""
         if not data:
             return {}
+        if isinstance(data, Mapping) and data.get("capabilities") is not None:
+            return ExtronMatrixDataParser.parse(data)
         
         parsed = {}
         
@@ -981,6 +983,96 @@ class ExtronIN1804DataParser:
             if token in normalized:
                 return count
         return None
+
+
+class ExtronMatrixDataParser:
+    """Normalize exact-profile Matrix evidence for single and multi-output UI.
+
+    The handler has already selected the profile.  This parser accepts no
+    arbitrary digits as route authority and only exposes compatibility fields
+    when a single logical output has proven route evidence.
+    """
+
+    @staticmethod
+    def _legacy_hdcp_state(value, profile):
+        if value in {"ABSENT", "PRESENT_HDCP", "PRESENT_NO_HDCP", "UNKNOWN"}:
+            return value
+        try:
+            value = int(str(value).strip())
+        except (TypeError, ValueError):
+            return "UNKNOWN"
+        if value == 0:
+            return "ABSENT"
+        return ({1: "PRESENT_NO_HDCP", 2: "PRESENT_HDCP"} if profile == "legacy" else {1: "PRESENT_HDCP", 2: "PRESENT_NO_HDCP"}).get(value, "UNKNOWN")
+
+    @staticmethod
+    def parse(data):
+        if not isinstance(data, Mapping):
+            return {}
+        caps = data.get("capabilities")
+        if caps is None:
+            return ExtronIN1804DataParser.parse(data)
+        inputs = tuple(getattr(caps, "available_input_ids", ()) or ())
+        outputs = tuple(getattr(caps, "available_output_ids", ()) or ())
+        routes_raw = data.get("routes") if isinstance(data.get("routes"), Mapping) else {}
+        routes = {
+            output_id: routes_raw.get(output_id)
+            if routes_raw.get(output_id) in inputs else None
+            for output_id in outputs
+        }
+        signal_raw = data.get("signal_status") if isinstance(data.get("signal_status"), Mapping) else {}
+        signal = {item: signal_raw.get(item) if isinstance(signal_raw.get(item), bool) else None for item in inputs}
+        input_hdcp_raw = data.get("input_hdcp_status")
+        input_hdcp = input_hdcp_raw if isinstance(input_hdcp_raw, Mapping) else {
+            item: input_hdcp_raw[index]
+            for index, item in enumerate(inputs)
+            if isinstance(input_hdcp_raw, (list, tuple)) and index < len(input_hdcp_raw)
+        }
+        output_hdcp_raw = data.get("output_hdcp")
+        output_hdcp = output_hdcp_raw if isinstance(output_hdcp_raw, Mapping) else ({1: output_hdcp_raw} if outputs == (1,) else {})
+        auth_raw = data.get("input_hdcp_auth")
+        input_hdcp_auth = auth_raw if isinstance(auth_raw, Mapping) else {
+            item: auth_raw[index]
+            for index, item in enumerate(inputs)
+            if isinstance(auth_raw, (list, tuple)) and index < len(auth_raw)
+        }
+        input_names = data.get("input_names") if isinstance(data.get("input_names"), Mapping) else {}
+        output_names = data.get("output_names") if isinstance(data.get("output_names"), Mapping) else {}
+        info = data.get("device_info") if isinstance(data.get("device_info"), Mapping) else {}
+        parsed = {
+            "model": info.get("model"), "firmware": info.get("firmware"), "temperature": info.get("temperature"),
+            "logical_input_ids": list(getattr(caps, "logical_input_ids", ())),
+            "logical_output_ids": list(getattr(caps, "logical_output_ids", ())),
+            "available_input_ids": list(inputs), "available_output_ids": list(outputs),
+            "input_names": {item: input_names.get(item) for item in inputs},
+            "output_names": {item: output_names.get(item) for item in outputs},
+            "signal_presence": signal, "signal_status": {item: {"has_signal": value} for item, value in signal.items()},
+            "input_hdcp": {item: ExtronMatrixDataParser._legacy_hdcp_state(input_hdcp.get(item), getattr(caps, "input_hdcp_profile", "modern")) for item in inputs},
+            "output_hdcp": {item: output_hdcp.get(item) for item in outputs},
+            "input_hdcp_auth": {item: input_hdcp_auth.get(item) for item in inputs}, "routes": routes,
+            "inputs_num": len(inputs), "outputs_num": len(outputs),
+            "connection_protocol": data.get("connection_protocol", "Unknown"),
+        }
+        if outputs == (1,):
+            parsed["current_connection"] = routes[1]
+        return parsed
+
+
+def matrix_general_information_complete(data, *, mac_address=None, serial_number=None):
+    """Return whether one current Matrix refresh has all five authorities.
+
+    Inventory identity is deliberately passed by composition: handlers never
+    query a device for MAC or serial as a fallback.
+    """
+    source = data if isinstance(data, Mapping) else {}
+    values = (
+        source.get("model"), mac_address, serial_number,
+        source.get("firmware"), source.get("temperature"),
+    )
+    return all(
+        value is not None and (not isinstance(value, str) or bool(value.strip()))
+        for value in values
+    )
 
 
 class AtenPDUDataParser:

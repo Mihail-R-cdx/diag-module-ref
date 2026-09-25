@@ -35,7 +35,7 @@ from .room_diagnostic_tree import RoomDiagnosticTreeWidget
 from .dialogs import CallLogWindow
 from .room_one_shot_adapters import room_adapter_keys
 from .device_model_fallback_dialog import DeviceModelFallbackDialog
-from .matrix_controller import MATRIX_DEVICE_NAME, MatrixController
+from .matrix_controller import MatrixController
 from .pdu_controller import PDUController
 from .equipment_pages import (
     EQUIPMENT_PAGE_REGISTRY,
@@ -1163,7 +1163,7 @@ class VCSDiagnosticApp(QMainWindow):
             expected_identity, expected_token,
         ):
             coordinator.confirm_mutation(
-                {"output_num": 1, "input_num": input_num},
+                {"output_num": output_num, "input_num": input_num},
                 expected_session_identity=expected_identity,
                 expected_record_id=record_id,
                 expected_row_token=expected_token,
@@ -1181,7 +1181,7 @@ class VCSDiagnosticApp(QMainWindow):
             or session.identity != expected_identity
             or session.expanded_record_id != record_id
             or session.status not in {RoomCycleStatus.COMPLETE, RoomCycleStatus.COMPLETE_WITH_PROBLEMS}
-            or output_num != 1
+            or not isinstance(output_num, int)
             or not isinstance(input_num, int)
         ):
             return False
@@ -1190,10 +1190,11 @@ class VCSDiagnosticApp(QMainWindow):
         except KeyError:
             return False
         entry = dispatch_entry_for_model(row.diagnostic_model)
-        inputs = (row.accepted_snapshot or {}).get("inputs_num") if isinstance(row.accepted_snapshot, Mapping) else None
+        snapshot = row.accepted_snapshot if isinstance(row.accepted_snapshot, Mapping) else {}
+        inputs = tuple(snapshot.get("available_input_ids") or range(1, int(snapshot.get("inputs_num") or 0) + 1))
+        outputs = tuple(snapshot.get("available_output_ids") or (1,))
         return (
             session.is_current(expected_identity, row, expected_token)
-            and row.diagnostic_model == "Extron IN1804"
             and entry is not None
             and entry.mutation_binding_key == "matrix_room_route"
             and entry.reconciliation_binding_key == "matrix_room_route_reconcile"
@@ -1202,11 +1203,9 @@ class VCSDiagnosticApp(QMainWindow):
             and not row.interaction_blocked
             and not row.unconfirmed_after_command
             and row.network_actions_enabled
-            and isinstance(inputs, int)
-            and not isinstance(inputs, bool)
-            and inputs > 0
-            and 1 <= input_num <= inputs
-            and (row.accepted_snapshot or {}).get("current_connection") != input_num
+            and input_num in inputs
+            and output_num in outputs
+            and snapshot.get("routes", {output_num: snapshot.get("current_connection")}).get(output_num, snapshot.get("current_connection") if output_num == 1 else None) != input_num
         )
 
     def _on_room_debug_requested(self, record_id):
@@ -1274,13 +1273,14 @@ class VCSDiagnosticApp(QMainWindow):
         self._start_room_credential_attempt(context)
 
     def _start_room_matrix_reconciliation(self, context, result):
-        requested = result.get("input_num") if isinstance(result, Mapping) else None
-        if not isinstance(requested, int):
+        requested_input = result.get("input_num") if isinstance(result, Mapping) else None
+        requested_output = result.get("output_num") if isinstance(result, Mapping) else None
+        if not isinstance(requested_input, int) or not isinstance(requested_output, int):
             coordinator = self.__dict__.get("room_interaction_coordinator")
             if coordinator is not None:
                 coordinator.complete(context, success=False, unconfirmed=True, warning="Не удалось подтвердить Matrix route")
             return
-        self._room_matrix_reconciliation_requests[context] = requested
+        self._room_matrix_reconciliation_requests[context] = (requested_output, requested_input)
         self._start_room_credential_attempt(context)
 
     def _start_room_pdu_mutation(self, context, command):
@@ -1940,6 +1940,15 @@ class VCSDiagnosticApp(QMainWindow):
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is None or not coordinator.accepts_context(context):
             return False
+        if not self._room_full_refresh_complete(context, data):
+            coordinator.complete(
+                context,
+                success=False,
+                data=dict(data or {}),
+                incomplete=True,
+                warning="Общая информация Matrix неполна: нужны модель, MAC, серийный номер, прошивка и температура",
+            )
+            return False
         attempt = self._room_credential_attempts.get(context)
         if attempt is None:
             return False
@@ -2024,7 +2033,7 @@ class VCSDiagnosticApp(QMainWindow):
         controller.request_full_refresh(context.ip_address, (credential,), 0)
 
     def _accept_room_matrix_result(self, context, data):
-        self._accept_room_model_live_success(context, dict(data or {}))
+        return self._accept_room_model_live_success(context, dict(data or {}))
 
     def _accept_room_matrix_terminal(self, context, error, candidate_index):
         category = error[0] if error else None
@@ -2244,18 +2253,27 @@ class VCSDiagnosticApp(QMainWindow):
             if self._retry_room_authentication(context):
                 return
             success, data, connection_lost, warning = False, None, True, "Credentials отклонены"
-        requested_input = self._room_matrix_reconciliation_requests.pop(context, None)
-        if requested_input is not None and (
-            not success
-            or not isinstance(data, Mapping)
-            or data.get("current_connection") != requested_input
-        ):
-            success, data, connection_lost, warning = False, None, False, "Коммутация Matrix не подтверждена"
+        incomplete = False
+        if success and not self._room_full_refresh_complete(context, data):
+            success = False
+            incomplete = True
+            connection_lost = False
+            warning = "Общая информация Matrix неполна: нужны модель, MAC, серийный номер, прошивка и температура"
+        requested_route = self._room_matrix_reconciliation_requests.pop(context, None)
+        if requested_route is not None:
+            requested_output, requested_input = requested_route
+            routes = data.get("routes") if isinstance(data, Mapping) and isinstance(data.get("routes"), Mapping) else {}
+            confirmed = routes.get(requested_output) == requested_input
+            if requested_output == 1 and not routes and isinstance(data, Mapping):
+                confirmed = data.get("current_connection") == requested_input
+            if not success or not confirmed:
+                success, data, connection_lost, warning = False, None, False, "Matrix route was not confirmed"
         coordinator.complete(
             context,
             success=success,
             data=data,
             connection_lost=connection_lost,
+            incomplete=incomplete,
             warning=warning,
         )
         attempt = self._room_credential_attempts.pop(context, None)
@@ -2269,6 +2287,27 @@ class VCSDiagnosticApp(QMainWindow):
                     timer.stop()
                     timer.deleteLater()
         self.room_diagnostic_controller.forget_local_refresh(context)
+
+    def _room_full_refresh_complete(self, context, data):
+        """Evaluate a room result against the current exact row only."""
+        from core.room_diagnostic_tree import room_full_refresh_complete
+
+        session = self.__dict__.get("room_diagnostic_session")
+        if session is None:
+            return False
+        try:
+            row = session.row_for(context.record_id)
+        except KeyError:
+            return False
+        if (
+            session.identity.inventory_snapshot_id != context.inventory_snapshot_id
+            or session.identity.room_generation != context.room_generation
+            or row.diagnostic_model != context.diagnostic_model
+            or row.ip_address != context.ip_address
+            or row.operation_token != context.row_operation_token
+        ):
+            return False
+        return room_full_refresh_complete(row, data)
 
     def _on_room_pdu_mutation_finished(
         self, context, success, data, connection_lost, warning
@@ -2494,6 +2533,9 @@ class VCSDiagnosticApp(QMainWindow):
         self.matrix_controller.terminalAccepted.connect(self._on_matrix_terminal)
         self.matrix_controller.finishedAccepted.connect(self._on_matrix_finished)
         self.matrix_controller.routeAccepted.connect(self._on_matrix_route_accepted)
+        route_output_signal = getattr(self.matrix_controller, "routeAcceptedForOutput", None)
+        if route_output_signal is not None:
+            route_output_signal.connect(self._on_matrix_route_accepted_for_output)
         self.matrix_controller.routeError.connect(self._on_matrix_route_error)
     
     def create_update_time_panel(self):
@@ -2780,7 +2822,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._active_diagnostic_model_context = context
         self.current_screen_type = entry.screen_key
         self.setWindowTitle(f"Диагностический модуль ММК - {entry.diagnostic_model}")
-        if entry.diagnostic_model != MATRIX_DEVICE_NAME:
+        if entry.screen_key != "matrix":
             self.matrix_controller.invalidate_context()
         if not self._is_pdu_device(entry.diagnostic_model):
             self._invalidate_pdu_context()
@@ -3124,10 +3166,37 @@ class VCSDiagnosticApp(QMainWindow):
         self._dmp_controller().invalidate_context()
 
     def _matrix_public_context(self):
-        return (
-            MATRIX_DEVICE_NAME,
-            self.ip_entry.text().strip() if hasattr(self, "ip_entry") else "",
-        )
+        """Return only the current accepted Matrix diagnostic authority.
+
+        Matrix actions outlive the old device selector. Their model and IP
+        must therefore come from the accepted application request/context,
+        never from a QWidget or a historical IN1804 default.
+        """
+        request = self.__dict__.get("_active_request") or {}
+        accepted = self.__dict__.get("_active_diagnostic_model_context") or {}
+        model = request.get("device")
+        ip_address = request.get("ip")
+        if (
+            not self._is_matrix_device(model)
+            or normalize_ip_address(ip_address) != ip_address
+            or request.get("screen") is not getattr(self, "screens", {}).get("matrix")
+        ):
+            return (None, None)
+
+        # When present, the accepted diagnostic context is the current model
+        # authority and must agree with the live request.
+        if accepted and (
+            accepted.get("screen_key") != "matrix"
+            or accepted.get("model") != model
+            or accepted.get("ip") != ip_address
+        ):
+            return (None, None)
+        return (model, ip_address)
+
+    @staticmethod
+    def _is_matrix_device(device_name):
+        """Use the exact registered screen classification for Matrix policy."""
+        return screen_key_for_model(device_name) == "matrix"
 
     def _matrix_credential_candidates(self, device_name, ip_address):
         active_request = self.__dict__.get("_active_request") or {}
@@ -3210,7 +3279,7 @@ class VCSDiagnosticApp(QMainWindow):
             self._clear_room_diagnostic_session("credential_context_changed")
 
         if (
-            device_name == MATRIX_DEVICE_NAME
+            self._is_matrix_device(device_name)
             and self._active_request_matches_model_ip(device_name, normalized_ip)
         ):
             self._matrix_credential_context_revision = (
@@ -3532,6 +3601,21 @@ class VCSDiagnosticApp(QMainWindow):
         return request.get("id")
 
     def _on_matrix_result(self, data, worker):
+        data = dict(data) if isinstance(data, Mapping) else {}
+        inventory = getattr(self, "equipment_inventory", None)
+        model = getattr(getattr(worker, "matrix_context", None), "model", None)
+        ip_address = data.get("ip_address") or getattr(worker, "ip_address", None)
+        records = inventory.find_by_ip(ip_address) if inventory is not None and ip_address else ()
+        record = records[0] if len(records) == 1 and records[0].diagnostic_model == model else None
+        if record is not None:
+            data["mac_address"] = record.mac_address
+            data["serial_number"] = record.serial_number
+        from core.parser import matrix_general_information_complete
+        data["_matrix_general_information_complete"] = matrix_general_information_complete(
+            data,
+            mac_address=data.get("mac_address"),
+            serial_number=data.get("serial_number"),
+        )
         self.current_worker = worker
         self.on_device_data_received(data, worker, self._matrix_request_id())
 
@@ -3560,6 +3644,19 @@ class VCSDiagnosticApp(QMainWindow):
         if matrix_screen is not None:
             matrix_screen.current_connection = input_num
             matrix_screen.update_connection_display()
+
+    def _on_matrix_route_accepted_for_output(self, output_num, input_num):
+        matrix_screen = self.screens.get("matrix")
+        if matrix_screen is None:
+            return
+        data = matrix_screen.matrix_data
+        if isinstance(data, dict):
+            routes = dict(data.get("routes") or {})
+            routes[output_num] = input_num
+            data["routes"] = routes
+        if output_num == 1:
+            matrix_screen.current_connection = input_num
+        matrix_screen.update_connection_display()
 
     def _on_matrix_route_error(self, message):
         QMessageBox.warning(
@@ -3614,7 +3711,7 @@ class VCSDiagnosticApp(QMainWindow):
             codec_screen.reset_volume_session()
         if codec_screen and hasattr(codec_screen, 'stop_te20_monitor_audio_polling'):
             codec_screen.stop_te20_monitor_audio_polling()
-        if device_name != MATRIX_DEVICE_NAME:
+        if not self._is_matrix_device(device_name):
             self.matrix_controller.invalidate_context()
 
         screen_type = entry.screen_key
@@ -3848,7 +3945,7 @@ class VCSDiagnosticApp(QMainWindow):
         return (
             self.is_vcs_codec_device(device_name)
             or VCSDiagnosticApp._is_pcs4i_device(device_name)
-            or device_name == MATRIX_DEVICE_NAME
+            or VCSDiagnosticApp._is_matrix_device(device_name)
             or device_name == "Biamp Tesira Forte CI"
         )
 
@@ -4167,14 +4264,12 @@ class VCSDiagnosticApp(QMainWindow):
             self.refresh_huawei_te20(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Polycom RPG 310":
             self.refresh_polycom_rpg310(ip_address, credential_snapshot=credential_snapshot)
-        elif device_name == "Extron IN1804":
-            self.refresh_extron_in1804(ip_address, credential_snapshot=credential_snapshot)
+        elif self._is_matrix_device(device_name):
+            self.refresh_matrix_data(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Biamp Tesira Forte CI":
             self.refresh_biamp_tesira_forte_ci(ip_address, credential_snapshot=credential_snapshot)
         elif device_name == "Extron DMP 64 Plus":
             self.refresh_extron_dmp64_plus(ip_address, credential_snapshot=credential_snapshot)
-        elif device_type == "matrix":
-            self.refresh_matrix_data(ip_address, credential_snapshot=credential_snapshot)
         else:
             QMessageBox.information(
                 self,
@@ -4802,7 +4897,7 @@ class VCSDiagnosticApp(QMainWindow):
                 self.refresh_btn.setEnabled(True)
                 self.refresh_btn.setText("Обновить данные")
 
-    def refresh_extron_in1804(
+    def refresh_matrix_data(
         self,
         ip_address: str,
         *,
@@ -4810,14 +4905,17 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list=None,
         current_idx=None,
     ):
-        """Обновление данных Extron IN1804 с перебором credentials"""
-        print(f"=== Начинаю обновление Extron IN1804 для {ip_address} ===")
+        """Refresh any registered Matrix through the one MatrixController path."""
+        print(f"=== Начинаю обновление Matrix для {ip_address} ===")
         
         if not self.validate_ip_address(ip_address):
             QMessageBox.warning(self, "Неверный IP адрес", "Введите корректный IP адрес.")
             return
         
-        device_name = self.current_device_name()
+        device_name, accepted_ip = self._matrix_public_context()
+        if device_name is None or accepted_ip != ip_address:
+            self._fail_request_start("No current Matrix diagnostic context")
+            return
         creds_list = (
             tuple(creds_list or ())
             or self._snapshot_credential_candidates(
@@ -4861,6 +4959,10 @@ class VCSDiagnosticApp(QMainWindow):
             if hasattr(self, 'refresh_btn'):
                 self.refresh_btn.setEnabled(True)
                 self.refresh_btn.setText("Обновить данные")
+
+    def refresh_extron_in1804(self, ip_address: str, **kwargs):
+        """Compatibility entry point; Matrix policy uses ``refresh_matrix_data``."""
+        return self.refresh_matrix_data(ip_address, **kwargs)
 
     def refresh_aten_pdu(self, ip_address: str):
         """Start one Aten PDU attempt with the GUI-selected credential."""
@@ -5015,6 +5117,7 @@ class VCSDiagnosticApp(QMainWindow):
             return
         worker = worker or getattr(self, "current_worker", None)
         data = dict(data)
+        matrix_general_information_complete = data.pop("_matrix_general_information_complete", None)
         structured_outcome = data.pop('_outcome', None)
         credential_used = data.pop('_credential_used', None)
         credential_policy_handled = bool(data.pop('_credential_policy_handled', False))
@@ -5066,6 +5169,7 @@ class VCSDiagnosticApp(QMainWindow):
             and not credential_policy_handled
             and not VCSDiagnosticApp._is_pdu_device(getattr(worker, 'device_name', None))
             and not VCSDiagnosticApp._is_dmp_device(getattr(worker, 'device_name', None))
+            and matrix_general_information_complete is not False
         ):
             device_name = getattr(worker, 'device_name', None)
             current_idx = getattr(worker, 'current_idx', 0)
@@ -5091,6 +5195,13 @@ class VCSDiagnosticApp(QMainWindow):
             current_screen = self.screens.get(self.current_screen_type)
         if current_screen:
             current_screen.update_data(data)
+        if matrix_general_information_complete is False:
+            self.set_ui_state(
+                UIState.UNAVAILABLE,
+                "Общая информация Matrix неполна: нужны модель, MAC, серийный номер, прошивка и температура",
+                current_screen,
+            )
+            return
         if not partial_update and worker:
             VCSDiagnosticApp._start_cloudlink_microphone_meter_for_accepted_codec(self, worker)
         
@@ -5173,18 +5284,18 @@ class VCSDiagnosticApp(QMainWindow):
         creds_list = getattr(worker, 'creds_list', []) if worker else []
         if (
             worker
-            and getattr(worker, 'device_name', None) == MATRIX_DEVICE_NAME
+            and VCSDiagnosticApp._is_matrix_device(getattr(worker, 'device_name', None))
             and not creds_list
         ):
             creds_list = self._matrix_credential_candidates(
-                MATRIX_DEVICE_NAME,
+                getattr(worker, 'device_name', None),
                 getattr(worker, 'ip_address', None),
             )
         error = redact_exception(
             error,
             VCSDiagnosticApp._credential_secrets(creds_list),
         )
-        if worker and getattr(worker, 'device_name', None) == "Extron IN1804":
+        if worker and VCSDiagnosticApp._is_matrix_device(getattr(worker, 'device_name', None)):
             self.finish_matrix_terminal(f"Опрос завершён с ошибкой: {error}")
         elif worker and getattr(worker, 'device_name', None) == "Huawei TE20":
             self.finish_te20_terminal(f"Опрос завершён с ошибкой: {error}")
@@ -5271,8 +5382,8 @@ class VCSDiagnosticApp(QMainWindow):
                             creds_list=creds_list,
                             current_idx=next_idx,
                         )
-                    elif device_name == "Extron IN1804":
-                        self.refresh_extron_in1804(
+                    elif VCSDiagnosticApp._is_matrix_device(device_name):
+                        self.refresh_matrix_data(
                             worker.ip_address,
                             creds_list=creds_list,
                             current_idx=next_idx,

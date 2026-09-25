@@ -6,11 +6,22 @@ TBD - created by archiving change bootstrap-openspec-baseline. Update Purpose af
 ### Requirement: Supported production device diagnostics
 The application SHALL provide production GUI diagnostic paths for Huawei TE20,
 Huawei TE40, CloudLink Bar 310, CloudLink Box 310, Polycom RPG 310, Extron
-IN1804, Aten PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI, and Extron
-DMP 64 Plus only where those devices are connected to the main-window dispatch.
-Each diagnostic path SHALL obtain device data through its worker/handler path and
-present parser-normalized or handler-normalized data on the corresponding
-screen.
+IN1804, Extron IN1806, Extron IN1808, Extron IN1608 xi, the approved DTP CrossPoint exact
+model set; first-generation XTP CrossPoint and XTP II CrossPoint frames are
+deferred and SHALL NOT remain production-supported after this remediation, Aten PE8208AV, Extron IPL T PCS4i, Biamp Tesira Forte CI,
+and Extron DMP 64 Plus only where those devices are connected to the
+main-window/room dispatch through exact registered diagnostic models.
+
+Each diagnostic path SHALL obtain device data through its worker/handler path
+and present parser-normalized or handler-normalized data on the corresponding
+screen/room surface. Extron Matrix support SHALL resolve an approved exact
+capability/profile before issuing model-specific SIS reads or mutations.
+
+The DTP CrossPoint support in this change is limited to DTP CrossPoint 84 and
+DTP CrossPoint 82/84/86/108 4K. DTP2 CrossPoint, DTP3 CrossPoint, legacy
+CrossPoint 300/450/Ultra, and unnamed CrossPoint generations remain unsupported.
+Unknown/unsupported Extron identities SHALL NOT inherit a nearby profile by
+substring similarity.
 
 CloudLink Bar 310 and CloudLink Box 310 SHALL remain two distinct exact
 application models even though both dispatch through the reviewed shared
@@ -29,8 +40,9 @@ application identity to Bar 310.
 - **AND** the operation is not represented as `CloudLink Bar 310`
 
 #### Scenario: Matrix or PDU diagnostic refresh
-- **WHEN** an operator refreshes Extron IN1804, Aten PE8208AV, or Extron IPL T PCS4i successfully
-- **THEN** the matrix or PDU screen receives the parsed routing or outlet data for that device
+- **WHEN** an operator refreshes a supported Extron Matrix exact model, Aten PE8208AV, or Extron IPL T PCS4i successfully
+- **THEN** the matrix or PDU screen/room surface receives normalized routing/topology or outlet data for that exact device
+- **AND** an unknown Extron Matrix generation is not promoted to a supported profile
 
 #### Scenario: PCS4i power-control category
 - **WHEN** the operator opens the device selector
@@ -77,32 +89,22 @@ retrying one family member as the other.
 - **AND** the HTTP failure is not represented as a failed Telnet status read or a different device
 
 ### Requirement: Limited device control
-The GUI SHALL expose as network-capable device controls only operations implemented by the selected device path: codec presentation, audio/microphone operations, supported SIP server actions, Extron routing to output 1, Aten outlet on/off/reboot actions, Aten bulk on/off actions, Extron IPL T PCS4i outlet on/off actions, and Extron IPL T PCS4i bulk on/off actions. Unsupported device actions SHALL not be reported as successful.
+The GUI SHALL expose as network-capable device controls only operations implemented by the selected device path: codec presentation, audio/microphone operations, supported SIP server actions, Extron Matrix routing to an authoritative available logical output, Aten outlet on/off/reboot actions, Aten bulk on/off actions, Extron IPL T PCS4i outlet on/off actions, and Extron IPL T PCS4i bulk on/off actions. Unsupported device actions SHALL not be reported as successful.
+
+For a supported Extron Matrix, route intent SHALL contain explicit authoritative `input_id` and `output_id`. Single-output models remain valid with output `1`; multi-output CrossPoint models MAY expose multiple independently routable outputs. Route mutation SHALL be rejected before send when either ID is unavailable in current accepted topology.
 
 A reviewed fixed common dashboard MAY retain a visible local-only affordance for an unsupported codec or PDU operation only when the exact unified application/PDU capability authority explicitly marks that network capability unsupported and the click is resolved locally before room interaction admission. Such an affordance SHALL NOT be represented as an available/supported device network capability, SHALL NOT invalidate LIVE, acquire a handler/session, select credentials, create a mutation generation or perform device network I/O, and SHALL only produce the approved non-secret informational result.
 
 For codec dashboards, the existing codec-specific local-only presentation exception remains limited to the reviewed common codec affordances already approved by the codec presentation contract. For the dedicated common PDU dashboard, the exception is limited to fixed PDU controls required by `diagnostic-ui-presentation`; it does not authorize arbitrary unsupported PDU actions or direct widget-to-handler dispatch.
 
-The existing standalone/shared `PDUScreen` contract remains unchanged by this
-change. When that screen renders supported outlet controls for Extron IPL T
-PCS4i, it SHALL expose ON and OFF only; REBOOT SHALL NOT be shown as an
-operator action on that surface.
+The existing standalone/shared `PDUScreen` contract remains unchanged by this change. When that screen renders supported outlet controls for Extron IPL T PCS4i, it SHALL expose ON and OFF only; REBOOT SHALL NOT be shown as an operator action on that surface.
 
-PCS4i REBOOT SHALL remain unsupported as a network operation and SHALL NOT
-enter the state-changing room lifecycle. Separately, the fixed common **room**
-PDU dashboard MAY retain its visible per-outlet `Перезапуск` affordance as
-local-only unsupported presentation. That room-dashboard affordance SHALL NOT
-extend to, or change the supported-control rendering of, the standalone/shared
-`PDUScreen`. Activating the room-dashboard affordance while the common room
-lock matrix otherwise permits input SHALL report locally that the command is
-unsupported before room interaction admission, with zero LIVE invalidation,
-credential selection, handler/session acquisition, mutation generation, device
-I/O, or accepted-state mutation. No PCS4i bulk REBOOT and no general PDU bulk
-REBOOT control is authorized on either surface.
+PCS4i REBOOT SHALL remain unsupported as a network operation and SHALL NOT enter the state-changing room lifecycle. Separately, the fixed common room PDU dashboard MAY retain its visible per-outlet `Перезапуск` affordance as local-only unsupported presentation. That room-dashboard affordance SHALL NOT extend to, or change the supported-control rendering of, the standalone/shared `PDUScreen`. Activating the room-dashboard affordance while the common room lock matrix otherwise permits input SHALL report locally that the command is unsupported before room interaction admission, with zero LIVE invalidation, credential selection, handler/session acquisition, mutation generation, device I/O, or accepted-state mutation. No PCS4i bulk REBOOT and no general PDU bulk REBOOT control is authorized on either surface.
 
 #### Scenario: Extron routing action
-- **WHEN** an operator selects an actionable Extron input/output-1 cell with a connected handler
-- **THEN** the handler is asked to route that input to output 1 and the screen schedules a status refresh
+- **WHEN** an operator selects an actionable Extron Matrix input/output cell under current accepted topology
+- **THEN** the application/controller asks the active approved Matrix profile to route that exact input to that exact output
+- **AND** the screen/room surface schedules the approved reconciliation/status refresh
 
 #### Scenario: Aten outlet action
 - **WHEN** an operator confirms an `on`, `off`, or `reboot` action for an Aten outlet
@@ -1236,117 +1238,63 @@ Application startup/composition validation SHALL fail closed when a codec regist
 
 ### Requirement: Extron IN1804 Matrix normalization is fail-closed for routing authority
 
-The existing Extron IN1804 diagnostic path SHALL continue to use its current SIS read commands, but normalized Matrix evidence consumed by room presentation and route reconciliation SHALL distinguish confirmed values from missing, failed, malformed, unrecognized, or out-of-range evidence.
+The existing IN1804 diagnostic path SHALL continue to use its current hardware-confirmed SIS reads. Its accepted evidence remains fail-closed exactly as before. The generalized Matrix model MAY project the one accepted IN1804 route into `routes[1]`, but SHALL NOT weaken the existing `current_connection` grammar or fabricate evidence.
 
-MIH-11 SHALL NOT add a new SIS query merely to satisfy this requirement. It SHALL correct only the handling/normalization of existing Matrix model/count, device-info model/temperature, connection, and input-HDCP-status reads.
+`inputs_num` SHALL be accepted only when current model/capability evidence positively establishes the count. Missing/failed/unusable model evidence and local sentinels such as `Unknown` remain absent/`None`. Temperature is accepted only from a successful parseable current measurement; failed/malformed evidence remains absent and a real device-reported zero remains valid.
 
-#### Input count
+For IN1804, `current_connection` remains an optional accepted input ordinal derived only from the successfully parsed existing `!` readback and only when exactly one valid input within the proven accepted range is identified. The generalized route map SHALL represent that same evidence as `routes[1] = current_connection`; unknown route evidence SHALL produce `routes[1] = None/UNKNOWN` according to the normalized representation and SHALL NOT substitute input 1.
 
-`inputs_num` SHALL be accepted as a positive current Matrix input count only when existing model/capability evidence positively establishes that count. A constructor default, parser fallback, visual-reference row count, prior snapshot, or other convenience value SHALL NOT establish current accepted input authority.
+The existing `!` grammar remains self-contained and fail-closed: after framing normalization one exact command-echo line MAY be removed, then exactly one recognized current-input response family is accepted: decimal input ordinal `N` or tagged `In<N> All`, with `N` inside the proven range. Extra/multiple/ambiguous/unrelated numeric payload remains UNKNOWN.
 
-On the current implementation path specifically, legacy defaults equivalent to `self.inputs_num = 8` and `data.get("inputs_num", 8)` SHALL NOT be published/consumed as authoritative count when model/count evidence is unproven. Unknown count SHALL remain absent/`None`/explicitly unknown according to the chosen normalized representation.
-
-Per-input names/status arrays created only because of an unproven fallback count SHALL NOT make those ordinals actionable for room routing.
-
-#### Device-info model and temperature
-
-The General-information `model` and `temperature` values SHALL also preserve no-evidence semantics from the existing reads.
-
-A model value is accepted only when the existing model read succeeds and yields a non-empty current device value. Missing/failed/unusable model evidence and local convenience sentinels such as `Unknown` SHALL normalize to absent/`None`; they SHALL NOT be presented as if reported by the device. Model recognition for input-count capability remains the stricter exact-model/capability decision above.
-
-A temperature value is accepted only when the existing temperature read succeeds and yields one parseable numeric current measurement. Missing, failed, malformed, or unusable temperature evidence SHALL normalize to absent/`None`; handler/parser convenience defaults such as numeric `0` SHALL NOT manufacture a temperature measurement.
-
-A real device-reported numeric zero remains a valid temperature value when zero was actually parsed from a successful current temperature response. The normalization rule is therefore evidence-based, not `0 == unknown`.
-
-#### Current connection
-
-`current_connection` SHALL be an optional accepted input ordinal derived only from a successfully parsed existing `!` current-input readback. It is authoritative only when the readback identifies exactly one valid input within the proven accepted input range.
-
-Empty, failed, malformed, unrecognized, ambiguous, or out-of-range route evidence SHALL normalize to `None`/UNKNOWN. Neither the handler nor parser SHALL substitute input 1 in those cases.
-
-Connection parsing SHALL use the reviewed protocol response structure rather than concatenating unrelated digits into a synthetic input ordinal.
-
-For the existing `!` query, parsing SHALL be self-contained and fail closed. After normal transport framing/CR/LF normalization, the parser MAY remove one **exact command-echo line** consisting only of `!`. It SHALL then accept exactly one recognized current-input response family and no extra payload:
-
-```text
-untagged current-input response: decimal input ordinal only, N
-                                 (Extron SIS manual notation: X!])
-tagged/verbose response:         In<N> All
-```
-
-`N` SHALL contain exactly one decimal input ordinal and SHALL be within the proven accepted input range. Normal protocol line termination/framing may be stripped before matching; it SHALL NOT be searched for arbitrary digits.
-
-The parser SHALL reject as UNKNOWN any response with no recognized payload, multiple candidate payload lines, extra non-framing payload, multiple numeric candidates, partial/sub-string matches, unrelated numeric tokens, or an ordinal outside the proven accepted range. Echo-only input is UNKNOWN. This grammar applies to reconciliation as well as ordinary accepted Matrix readback.
-
-#### Input HDCP presence
-
-The room Matrix HDCP projection SHALL consume a dedicated normalized per-input tri-state presence value derived from the existing **input HDCP status** read, not from input HDCP authorization/configuration or output HDCP state.
-
-The existing IN1804 input-HDCP-status values SHALL normalize exactly as follows:
-
-```text
-raw status 2 -> True   # source/sink detected and HDCP present
-raw status 1 -> False  # source/sink detected and HDCP absent
-raw status 0 -> False  # no source/sink detected; HDCP is not present
-other / missing / failed / malformed / unrecognized -> None
-```
-
-The `0` case is confirmed absence of current HDCP, not an acquisition failure. Signal presence remains a separate column and may explain that no source is detected.
-
-A failed or unusable HDCP read SHALL NOT be converted to false/zero merely to provide a value. HDCP version information is not required or exposed by this requirement.
+The room HDCP projection consumes normalized **input HDCP status**, not authorization/configuration or output HDCP. IN1804 raw input status remains: `2 -> True`, `1 -> False`, `0 -> False`, unusable -> `None`.
 
 #### Scenario: Unproven Matrix input count remains unknown
-
 - **GIVEN** the Extron IN1804 diagnostic acquisition does not obtain evidence that establishes current supported input count
 - **WHEN** Matrix data is normalized
 - **THEN** normalized input count is UNKNOWN/absent rather than eight by default
 - **AND** unproven input ordinals are not accepted as route targets
 
 #### Scenario: Failed model evidence remains no-data
-
 - **GIVEN** the existing model read fails, is missing, or yields only a local `Unknown` convenience sentinel
 - **WHEN** Matrix data is normalized
 - **THEN** accepted model evidence is absent/`None`
 - **AND** room presentation cannot treat `Unknown` as a device-reported model value
 
 #### Scenario: Failed temperature evidence does not become zero
-
 - **GIVEN** the existing temperature read fails, is missing, or is malformed
 - **WHEN** Matrix data is normalized
 - **THEN** accepted temperature evidence is absent/`None`
 - **AND** numeric zero is not synthesized
 
 #### Scenario: Device-reported zero temperature remains a real value
-
 - **GIVEN** a successful current temperature response explicitly yields numeric zero
 - **WHEN** Matrix data is normalized
 - **THEN** accepted temperature is numeric zero
 - **AND** it is not converted to UNKNOWN merely because its value is zero
 
 #### Scenario: Empty connection evidence does not become Input 1
-
 - **GIVEN** the existing connection read returns no usable route evidence
 - **WHEN** Matrix data is normalized
 - **THEN** `current_connection` is UNKNOWN/`None`
+- **AND** `routes[1]` contains no fabricated input
 - **AND** input 1 is not synthesized
 
 #### Scenario: Untagged current-input response is accepted intentionally
-
 - **GIVEN** proven current input range includes input N
 - **AND** the existing `!` query returns exactly one untagged current-input payload containing only decimal ordinal N after normal framing removal
 - **WHEN** Matrix data is normalized
 - **THEN** `current_connection == N`
+- **AND** `routes[1] == N`
 - **AND** no unrelated digits are searched or concatenated
 
 #### Scenario: Tagged current-input response is accepted intentionally
-
 - **GIVEN** proven current input range includes input N
 - **AND** the existing `!` query returns exactly one tagged/verbose payload `In<N> All` after normal framing removal
 - **WHEN** Matrix data is normalized
 - **THEN** `current_connection == N`
+- **AND** `routes[1] == N`
 
 #### Scenario: Exact command echo may precede one valid payload
-
 - **GIVEN** the device/session echoes `!` as one exact line
 - **AND** exactly one valid untagged or tagged current-input response follows
 - **WHEN** Matrix data is normalized
@@ -1354,14 +1302,13 @@ A failed or unusable HDCP read SHALL NOT be converted to false/zero merely to pr
 - **AND** the one valid response is parsed normally
 
 #### Scenario: Malformed or ambiguous connection evidence does not become Input 1
-
 - **GIVEN** a connection response is successful at transport level but contains no exact recognized response, multiple payload candidates, extra payload, multiple numeric candidates, or unrelated digits
 - **WHEN** Matrix data is normalized
 - **THEN** `current_connection` is UNKNOWN/`None`
+- **AND** `routes[1]` is not fabricated
 - **AND** unrelated digits are not concatenated into route authority
 
 #### Scenario: Out-of-range connection evidence is rejected
-
 - **GIVEN** a proven accepted input count exists
 - **AND** parsed route evidence names an input outside that range
 - **WHEN** Matrix data is normalized
@@ -1369,36 +1316,32 @@ A failed or unusable HDCP read SHALL NOT be converted to false/zero merely to pr
 - **AND** the out-of-range value cannot authorize presentation or reconciliation
 
 #### Scenario: HDCP read failure remains unknown
-
 - **GIVEN** the existing input HDCP-status read fails or returns malformed/unrecognized evidence
 - **WHEN** the input HDCP presence projection is normalized
 - **THEN** its value is UNKNOWN/`None`
 - **AND** the GUI cannot present that failure as confirmed `нет`
 
 #### Scenario: Exact HDCP status mapping is deterministic
-
-- **GIVEN** existing input HDCP-status evidence is respectively `2`, `1`, and `0`
+- **GIVEN** existing IN1804 input HDCP-status evidence is respectively `2`, `1`, and `0`
 - **WHEN** each value is normalized
 - **THEN** the resulting `hdcp_present` values are respectively True, False, and False
 - **AND** no HDCP version token is required for room presentation
 
 ### Requirement: Matrix route reconciliation cannot succeed from synthetic or unknown evidence
 
-Any Matrix room reconciliation SHALL consume the fail-closed normalized evidence defined above. A route mutation is confirmed only when `current_connection` is a real accepted ordinal established by current readback and equals the requested input.
+Any Matrix room reconciliation SHALL consume fail-closed normalized evidence. For the existing IN1804 path, all existing accepted `!` grammar and `current_connection` requirements above remain valid. For generalized multi-output Matrix profiles, mutation confirmation SHALL use accepted `routes[target_output_id]` evidence from an authoritative current read of that same logical output.
 
-A parser/handler default, missing readback, failed read, malformed response, unknown connection, unproven input count, unrelated digit sequence, or response outside the exact accepted `!` grammar SHALL never satisfy route reconciliation.
+A parser/handler default, missing readback, failed read, malformed response, unknown route, unavailable input/output, unproven topology, unrelated digit sequence, or response outside the active profile's exact accepted grammar SHALL never satisfy reconciliation.
 
 #### Scenario: Requested Input 1 is not confirmed by empty readback
-
 - **GIVEN** output 1/input 1 was requested and route send entered reconciliation
 - **WHEN** current connection readback is empty, failed, malformed, ambiguous, outside the accepted grammar, or otherwise UNKNOWN
 - **THEN** reconciliation does not confirm input 1
 - **AND** the room mutation remains unconfirmed according to `room-device-interaction-lifecycle`
 
 #### Scenario: Requested input is confirmed by truthful readback
-
 - **GIVEN** output 1/input N was requested
-- **AND** current reconciliation readback matches one allowed `!` response family and establishes a valid normalized `current_connection == N`
+- **AND** current reconciliation readback establishes valid normalized route evidence equal to N for output 1
 - **WHEN** reconciliation evaluates the result
 - **THEN** that route evidence may satisfy the route-match condition
 - **AND** final acceptance remains subject to currentness and lifecycle cleanup requirements
@@ -2096,3 +2039,145 @@ Earlier `{deviceId, curVolume}` observations remain discovery evidence only. No 
 - **WHEN** a later change proposes to re-enable Box microphone LIVE
 - **THEN** it cannot infer the parser from Bar fields or the earlier pair shape alone
 - **AND** it must supply the complete transport-edge to normalized-meter contract before capability is advertised
+
+### Requirement: IN1804 documented wire identities preserve the canonical profile
+
+The Matrix identity resolver SHALL map only the documented IN1804-series `1I`
+responses `IN1804`, `IN1804 DI`, `IN1804 DO`, and `IN1804 DI/DO` to the
+canonical `IN1804` protocol profile and application model `Extron IN1804`.
+The resolver SHALL reject unlisted aliases, suffixes, and unrelated identities;
+it SHALL NOT use an IN1804 substring rule. Exact leading command echo removal
+already provided by the Matrix transport MAY precede this closed resolution.
+
+Expected-model validation SHALL compare canonical resolved profile identity.
+Thus an expected `Extron IN1804` accepts a documented IN1804 wire alias, while
+an actual `IN1808` identity remains a fail-closed mismatch. DTP exact identity/part-number resolution remains active; historical XTP/XTP II identity resolution is non-dispatched and does not create supported runtime authority.
+
+#### Scenario: IN1804 DI/DO full refresh remains compatible
+
+- **GIVEN** inventory expects `Extron IN1804`
+- **AND** the device returns `IN1804 DI/DO` to `1I`
+- **WHEN** the normal Matrix full-refresh path runs
+- **THEN** it uses the canonical IN1804 profile
+- **AND** it produces a normalized four-input, one-logical-output snapshot
+- **AND** the accepted snapshot can be presented by the standalone and room Matrix surfaces
+
+#### Scenario: Near-looking identity remains unsupported
+
+- **WHEN** an IN-family wire identity is not one of the documented IN1804 aliases
+- **THEN** it is not promoted by substring similarity
+
+### Requirement: IN1808 aliases and legacy IN1804 HDCP remain canonical
+
+Only documented IN1808 `1I` identities may resolve to canonical `IN1808`; all
+other suffixes fail closed. The Matrix parser SHALL convert legacy IN1804
+list-shaped input HDCP/auth and scalar output HDCP evidence into canonical
+per-input/per-output state before GUI presentation.
+
+#### Scenario: Legacy IN1804 HDCP evidence reaches presentation
+
+- **WHEN** IN1804 provides list input HDCP/auth and scalar output HDCP evidence
+- **THEN** the normalized snapshot retains each supported input and output value
+- **AND** the GUI consumes canonical state rather than legacy shapes
+
+### Requirement: Matrix SIS identity framing is command-specific and closed
+
+The identity path SHALL apply exact transport command-echo removal, then only
+the documented grammar for the issued identity command, then closed canonical
+resolution, then canonical expected-model comparison. `1I` accepts only a bare
+model identity or `Inf01*<model identity>`; `N` accepts only a bare exact part
+number or `Pno<exact part number>`. `Pno` SHALL NOT be accepted as model
+evidence and `Inf01*` SHALL NOT be accepted as part-number evidence.
+
+#### Scenario: Tagged identity evidence remains command-specific
+
+- **WHEN** `1I` returns `Pno60-1381-01` or `N` returns `Inf01*IN1808`
+- **THEN** neither response resolves a Matrix profile
+- **AND** the diagnostic fails closed without profile guessing
+
+Unknown values, trailing garbage, multiple identity records, and expected-model
+mismatches SHALL fail closed. DTP CP84 retains its documented `I` token and DTP 4K retains exact `N` part-number authority. Historical XTP/XTP II `N` parsing may remain only as non-dispatched evidence and SHALL NOT trigger downstream production topology discovery. The exact hardware-proven `IN1608 xi IPCP SA`
+`1I` identity SHALL resolve to canonical `IN1608 xi`; other IN1608 xi aliases remain
+closed unless separately approved. Exact DTP CrossPoint 108 4K part number
+`60-1381-12` SHALL resolve to its existing canonical profile without enabling any
+`60-1381-*` wildcard. IN1806 SHALL resolve as canonical `Extron IN1806` from exact
+`IN1806` identity and exact part number `60-1663-01` where part-number evidence is used.
+
+### Requirement: Room Matrix identity selection preserves exact diagnostic-model authority
+
+The room one-shot Matrix path SHALL pass its exact canonical `diagnostic_model`
+to the Matrix worker and then to the handler as `expected_model`. The worker
+SHALL select the resulting exact profile before its first authoritative identity
+read. It SHALL use model-aware connection status text; callers without an
+expected model SHALL receive a neutral Matrix label rather than an IN1804 claim.
+
+#### Scenario: DTP CrossPoint 86 4K room path starts with N
+
+- **GIVEN** the room diagnostic model is `Extron DTP CrossPoint 86 4K`
+- **WHEN** the room worker begins its handler refresh
+- **THEN** the first authoritative identity command is `N`
+- **AND** it is not `1I`
+- **AND** the expected DTP profile is preserved through the worker/handler boundary
+
+#### Scenario: Supported IN identity generation remains explicit
+
+- **WHEN** the room diagnostic model is `Extron IN1608 xi` or `Extron IN1806`
+- **THEN** its first authoritative identity command is `1I`
+- **WHEN** evidence instead identifies deferred XTP/XTP II
+- **THEN** no production Matrix identity/polling session starts for that deferred model
+
+#### Scenario: Hardware-proven exact identities remain closed
+
+- **WHEN** `Extron IN1608 xi` returns `IN1608 xi IPCP SA` to `1I`
+- **THEN** it resolves to canonical `IN1608 xi`
+- **WHEN** `Extron DTP CrossPoint 108 4K` returns `60-1381-12` to `N`
+- **THEN** it resolves to canonical `DTP CrossPoint 108 4K`
+- **AND** an unlisted adjacent suffix is not accepted by prefix or wildcard inference
+
+#### Scenario: IN1806 remains distinct from IN1808
+
+- **WHEN** the expected model is `Extron IN1806` and `1I` returns exact `IN1806`
+- **THEN** the six-input IN1806 profile is selected
+- **AND** inputs `7` and `8` are not fabricated from IN1808
+- **AND** exact part number `60-1663-01` is consistent with the IN1806 profile
+
+### Requirement: Hardware acquisition and GUI presentation are separate Matrix QA gates
+
+Read-only hardware acquisition evidence SHALL NOT by itself claim presentation
+success, and synthetic GUI coverage SHALL NOT claim hardware observation. The
+recorded IN1804 and IN1808 evidence proves temperature, input-HDCP, signal, and
+route reads only; neither device observed a positive `PRESENT_HDCP` input. The
+DTP CrossPoint 86 4K wrong fallback path observed `1I` and `DTPCP86`; the
+software propagation correction requires a post-fix hardware retest beginning
+with `N` after authentication.
+
+#### Scenario: Synthetic positive HDCP does not claim hardware observation
+
+- **GIVEN** GUI regression uses a synthetic `PRESENT_HDCP` state
+- **WHEN** software presentation validation passes
+- **THEN** active-HDCP hardware evidence remains recorded as not exercised
+- **AND** post-remediation hardware retest remains required
+
+### Requirement: Complete Matrix full refresh requires authoritative General-information evidence
+
+For every exact Extron Matrix model remaining in production-supported scope, a complete successful full refresh SHALL establish current authoritative model, MAC address, serial number, firmware version, and temperature.
+
+Model authority is exact accepted device identity/canonical profile. MAC and serial are mandatory current canonical inventory evidence; this change has no device fallback for either. Firmware and temperature use only the approved exact-profile SIS commands from the design acquisition matrix.
+
+A missing canonical MAC/serial, failed firmware/temperature read, malformed/stale evidence, or synthetic value keeps the refresh incomplete.
+
+#### Scenario: Successful supported-Matrix refresh has complete General information
+- **WHEN** a full refresh for an exact remaining supported Matrix model is accepted as complete successful
+- **THEN** model, MAC, serial, firmware, and temperature are all authoritative current values
+- **AND** none is missing, stale or synthetic
+
+#### Scenario: Missing inventory identity data blocks complete success
+- **GIVEN** the exact current Matrix inventory row lacks canonical MAC or serial
+- **WHEN** a full refresh is attempted
+- **THEN** no speculative device MAC/serial command is sent
+- **AND** the refresh remains incomplete
+
+#### Scenario: Deferred XTP does not claim supported completeness
+- **WHEN** target identity resolves to first-generation XTP or XTP II
+- **THEN** this change treats the profile as deferred/unsupported for production dispatch
+- **AND** a partial historical handler result cannot be classified as a supported complete refresh
