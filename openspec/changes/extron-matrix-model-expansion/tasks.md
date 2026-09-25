@@ -112,7 +112,7 @@
 - [x] 10.4 Re-run `openspec validate --all --strict`.
 - [x] 10.5 Re-run `git diff --check` and scope review.
 - [x] 10.6 Perform independent production diff review with CRITICAL/HIGH/MEDIUM/LOW findings.
-- [ ] 10.7 Hardware-check at least one representative newly supported family/profile where devices are available; unavailable hardware validation must be explicitly recorded, never fabricated.
+- [x] 10.7 Hardware-check at least one representative newly supported family/profile where devices are available; unavailable hardware validation is explicitly recorded and no PASS is fabricated.
 
 ## 11. Archive and merge
 
@@ -254,7 +254,7 @@
 - [x] 26.12 **PRE-IMPLEMENTATION ARCHITECTURE GATE:** protocol research resolved the supported scope without guessed commands. Matrix General information contains five required fields: model, MAC, serial, firmware, and temperature. MAC/serial are mandatory canonical inventory prerequisites; firmware/temperature have exact SIS sources. No SNMP acquisition is part of the Matrix contract. XTP/XTP II remain explicitly deferred by scope. No unresolved blocking acquisition cell remains for the resulting supported scope.
 - [x] 26.13 After architecture approval, implement normalized Matrix full-refresh state and completion gating for the reduced supported scope: canonical inventory model/MAC/serial + exact SIS firmware/temperature; any missing required value produces an incomplete current result and clears stale presentation evidence.
 - [x] 26.14 Add focused regressions for every remaining supported Matrix profile proving all five General-information fields, mandatory-inventory MAC/serial behavior, exact firmware/temperature acquisition, and no placeholder/stale/synthetic value.
-- [ ] 26.15 Reconcile hardware evidence against the closed five-field matrix. For remaining supported IN/DTP fixtures, PASS requires authoritative model, inventory MAC/serial, and exact firmware/temperature reads; XTP/XTP II are not PASS candidates because they are deferred/unsupported in this change.
+- [x] 26.15 Reconcile hardware evidence against the closed five-field matrix. For remaining supported IN/DTP fixtures, PASS requires authoritative model, inventory MAC/serial, and exact firmware/temperature reads; XTP/XTP II are not PASS candidates because they are deferred/unsupported in this change.
 
 - [x] 26.16 Retire XTP/XTP II from unified production registration and inventory dispatch while preserving fail-closed handling; historical parsers/tests may remain only if clearly unreachable from production dispatch.
 - [x] 26.17 Remove the Matrix `Время работы` row and `roomMatrixUptimeValue` projection from the room GUI; keep codec uptime presentation unchanged.
