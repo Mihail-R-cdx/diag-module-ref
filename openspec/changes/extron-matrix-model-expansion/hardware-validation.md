@@ -6,9 +6,11 @@
   predates the 2026-09-23 hardware/UI architecture remediation and no longer
   authorizes archive for the updated change.
 - **READ-ONLY HARDWARE EVIDENCE RECORDED:** IN1804 and IN1808 retain prior partial
-  evidence. Post-remediation read-only evidence is now recorded for IN1608 xi and
-  DTP CrossPoint 86 4K, but both are `PARTIAL`, not `PASS`.
-- **POST-REMEDIATION HARDWARE PASS:** none. Remaining fixtures without a
+  evidence. Captured post-remediation evidence exists for IN1608 xi and DTP
+  CrossPoint 86 4K; operator-attested post-remediation read-only QA is recorded
+  for IN1806 and DTP CrossPoint 108 4K. All four remediation fixtures are
+  `PARTIAL`, not `PASS`.
+- **POST-REMEDIATION HARDWARE PASS:** none. Fixtures without a
   post-remediation run are explicitly `NOT RUN`; historical failures are not
   carried forward as a current implementation failure without a current run.
 
@@ -71,21 +73,35 @@ for the optional Phase B only.
 | Model | Inventory / identity | Topology | Signal / input HDCP | Output HDCP / auth | Input / output names / temp | Route read / optional mutation | Hardware status | Evidence / required retest |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Extron IN1804 | Canonical / `1I` | fixed 4x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `!` / `<I>*1!` | PARTIAL | Prior read-only evidence recorded temp `59`, input HDCP `0,1,0,1`, signal `0*1*0*1`, and route-read PASS. No positive HDCP `2` case observed. |
-| Extron IN1806 | Canonical / exact `IN1806`, part number `60-1663-01` | fixed 6x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | NOT RUN | Historical banner identified `IN1806`, firmware `V1.04`, and part number `60-1663-01` before this implementation supported the model. No post-remediation hardware run is recorded; retest must prove video-only polling remains authoritative with audio breakaway and does not use `1!`. |
+| Extron IN1806 | Canonical / exact `IN1806`, part number `60-1663-01` | fixed 6x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | PARTIAL | Post-remediation read-only QA was operator-attested on real hardware: the current remediation behaved normally and no new protocol/profile/routing/UI contradiction was observed. The attestation has no captured raw responses or complete Phase A/five-field record, so it is not `PASS`; no route mutation occurred. |
 | Extron IN1808 | Canonical / `1I` | fixed 8x1 | Yes / legacy mapping | Yes / Yes | Yes / Yes / Yes | `1%` / `<I>*1%` | PARTIAL | Prior read-only evidence was collected with the legacy combined AV route read. Post-remediation retest must prove `1%` video polling, including a breakaway-safe case where practical. No positive HDCP `2` case observed. Loop Out remains deferred. |
 | Extron IN1608 xi | Canonical / exact closed `1I` aliases | fixed 8x1 | Yes / modern mapping | Yes / Yes | Yes / unavailable / Yes | `&` / `<I>&` | PARTIAL | Post-remediation evidence confirms closed identity, firmware, temperature, signal framing, and video-only `&` route readback; see the dated record below. The complete Phase A/five-field record is not captured, so this is not `PASS`. |
 | DTP CrossPoint 84 | Canonical / documented DTP identity | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
 | DTP CrossPoint 82 4K | Canonical / part number `N` | fixed 8x2 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | DTP canonical route is video-only; optional untie is `0*<O>%`. Capture actual `0LS` framing when available. |
 | DTP CrossPoint 84 4K | Canonical / part number `N` | fixed 8x4 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | Must remain distinct from non-4K DTP 84; optional untie is `0*<O>%`. |
 | DTP CrossPoint 86 4K | Canonical / part number `N` | fixed 8x6 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | PARTIAL | Post-remediation evidence confirms the exact `N` identity, firmware, temperature, and all six video route reads without `1!`; see the dated record below. Canonical inventory lacks serial evidence, so it cannot be `PASS`. |
-| DTP CrossPoint 108 4K | Canonical / exact part number `N` aliases including `60-1381-12` | fixed 10x8 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | NOT RUN | Historical hardware returned exact part number `60-1381-12`, which the former allowlist rejected. No post-remediation hardware run is recorded; identity and read-only polling require retest. |
+| DTP CrossPoint 108 4K | Canonical / exact part number `N` aliases including `60-1381-12` | fixed 10x8 | Yes / modern mapping | `WO<N>HDCP` / unavailable | Yes / Yes / REQUIRED-PROVE | `<O>%` / `<I>*<O>%` | PARTIAL | Post-remediation read-only QA was operator-attested on real hardware: the current remediation behaved normally and no new identity/routing/profile/UI contradiction was observed. The attestation has no captured raw responses or complete Phase A/five-field record, so it is not `PASS`; no route mutation occurred. Historical `N -> 60-1381-12` remains historical evidence, not a newly captured response. |
 
 ## 2026-09-25 post-remediation read-only evidence
 
 These observations are read-only and contain no route mutation. They reconcile
 the implementation evidence only; they do not replace the complete Phase A gate.
 
-### IN1608 xi
+### Operator-attested runs without captured raw values
+
+- **IN1806:** a post-remediation read-only run was performed on real hardware.
+  The operator attested that the current remediation behaved normally, with no
+  new protocol, profile, routing, or UI contradiction. No raw command/response
+  pair, MAC, serial, firmware, temperature, or complete five-field record was
+  supplied for this run. Status: `PARTIAL`.
+- **DTP CrossPoint 108 4K:** a post-remediation read-only run was performed on
+  real hardware. The operator attested that the current remediation behaved
+  normally, with no new identity, routing, profile, or UI contradiction. No raw
+  command/response pair, MAC, serial, firmware, temperature, or complete
+  five-field record was supplied for this run. Status: `PARTIAL`. The exact
+  historical `N -> 60-1381-12` observation is not newly captured evidence.
+
+### IN1608 xi captured evidence
 
 - `1I` returned `IN1608 xi IPCP SA`, which resolves through the closed exact
   alias to canonical `IN1608 xi`.
@@ -101,7 +117,7 @@ the implementation evidence only; they do not replace the complete Phase A gate.
   Phase A check and the complete five-field current record, so it cannot be
   promoted to `PASS`.
 
-### DTP CrossPoint 86 4K
+### DTP CrossPoint 86 4K captured evidence
 
 - `N` returned `60-1382-01`, identifying the exact DTP CrossPoint 86 4K
   profile; `Q` returned `2.01`.
