@@ -41,6 +41,50 @@ It SHALL expose all approved input/source meter groups (DP/HDMI/TP, Aux,
 Mic/Line and File Player) and all approved output meter groups
 (HDMI/TP-DTP/DTP-analog/Line Out and exact-variant amplifier outputs).
 
+The tile SHALL also show the current physical Program source from mandatory
+read-only `1## ADDED Requirements
+
+### Requirement: Expanded IN1808 row switches only the right tile between Video and Audio
+
+For exact `Extron IN1808`, the expanded room Matrix row SHALL retain the
+existing `Общая информация` card unchanged and SHALL add one mode control in
+the row header aligned with the existing model/status content.
+
+The default expanded mode is Video and the control text is `Аудио`. Selecting
+it changes the local mode to Audio and the same control text to `Видео`.
+Selecting `Видео` returns to the existing video Matrix presentation.
+
+Only the right-hand expanded tile changes between modes. The mode switch SHALL
+not create another room row, another top-level screen, or another General
+information card.
+
+Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
+
+#### Scenario: Operator enters Audio mode
+
+- **GIVEN** exact current row is `Extron IN1808` and is expanded in Video mode
+- **WHEN** the operator activates `Аудио`
+- **THEN** `Общая информация` remains the same left card
+- **AND** only the right tile changes to the IN1808 Audio presentation
+- **AND** the same header control now reads `Видео`
+
+#### Scenario: Operator returns to Video
+
+- **GIVEN** an expanded IN1808 row is in Audio mode
+- **WHEN** the operator activates `Видео`
+- **THEN** the existing video Matrix right tile is restored
+- **AND** the mode control returns to `Аудио`
+- **AND** the left General-information presentation is unchanged
+
+### Requirement: IN1808 Audio presentation uses Variant B routing with modern segmented meters
+
+The IN1808 Audio right tile SHALL use Variant B: the primary diagnostic
+presentation combines read-only DSP routing with compact live meters.
+
+ metadata. Accepted input 1..9 evidence binds that named
+DP/HDMI/TP/Aux source to both `Program L` and `Program R`; unavailable
+evidence is shown as UNKNOWN and is not guessed from video `1%`.
+
 Numeric meters SHALL use the same modern vertical 20-segment dBFS visual
 language already approved for room Audio DSP meters. The legacy standalone
 horizontal Audio DSP presentation is not the visual authority.
@@ -52,6 +96,12 @@ one boolean cell.
 The routing grid SHALL visibly distinguish ACTIVE, INACTIVE and UNKNOWN with a
 non-color semantic/accessibility representation. Audio route cells are
 read-only and non-actionable.
+
+The source/output labels for the 200xx grid come from the adopted
+`IN1808_PRODSP_PROFILE_MAPPING`, not runtime-discovered identity. The surface
+SHALL expose safe non-interactive metadata equivalent to
+`Карта каналов: профиль IN1808` through caption/tooltip/accessibility text so
+the mapping basis is not represented as cell-by-cell hardware discovery.
 
 #### Scenario: Stereo meter and routing evidence coexist
 

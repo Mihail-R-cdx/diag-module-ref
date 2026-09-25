@@ -69,9 +69,11 @@ the following occurs:
 - Matrix context is invalidated;
 - the application shuts down.
 
-Cleanup SHALL restore only meter instrumentation states changed by this exact
-subcontext when the same safe current session permits restoration. Cleanup
-SHALL NOT reconnect solely to send restoration commands.
+The hardware evidence does not establish ownership scope for meter-update
+state. Cleanup SHALL stop scheduling Audio reads and quiesce/cancel current
+Audio work through the existing Matrix LIVE boundary, but SHALL NOT send
+`V<OID>*0AU` under this change and SHALL NOT reconnect solely to modify
+meter-update state.
 
 Stale work SHALL be rejected before handler acquisition/I/O when possible and
 again before accepted publication. An old callback SHALL NOT update a
@@ -82,9 +84,52 @@ replacement row/context or restore old Audio mode/instrumentation authority.
 - **GIVEN** current IN1808 row is in Audio mode with live work active
 - **WHEN** that row collapses
 - **THEN** its Audio subcontext is superseded and no new meter cycle starts
-- **AND** orderly same-session restoration is attempted only for meter states
-  changed by that subcontext
+- **AND** cleanup sends no meter-disable command under the current unknown-scope policy
 - **AND** late callbacks cannot update the collapsed/replacement context
+
+### Requirement: IN1808 Audio LIVE obeys existing Matrix handoff and mutation gates
+
+IN1808 Audio polling SHALL be owned by the existing
+`RoomInteractionKind.LIVE` lifecycle. It SHALL NOT introduce another lifecycle
+kind or bypass the common serialized room interaction lane.
+
+When the operator switches Audio -> Video, presentation MAY change immediately,
+but video route and Local Refresh network actions SHALL remain disabled/rejected
+until the Audio subcontext is quiescent and the current LIVE owner satisfies
+the applicable cleanup/release boundary.
+
+A confirmed video route while Audio LIVE is active SHALL use the existing
+Matrix rule: invalidate/retire Matrix LIVE through bounded cleanup before
+mutation handler/session acquisition or send. If that cleanup boundary is not
+reached, the route SHALL NOT be sent.
+
+Local Refresh SHALL not overlap an Audio meter cycle and SHALL acquire no
+handler/session until prior LIVE cleanup/release permits it. Once mutation
+starts, Audio polling remains stopped; reconciliation remains exclusive and
+Audio/other LIVE work cannot resume until reconciliation is terminal and its
+cleanup boundary permits resumption.
+
+#### Scenario: Video route waits for Audio LIVE retirement
+
+- **GIVEN** current IN1808 Audio LIVE owns the exact row
+- **AND** the operator switches to Video and confirms a video route
+- **WHEN** LIVE cleanup has not reached the approved bounded release boundary
+- **THEN** the route is not sent
+- **AND** no mutation handler/session acquires overlapping Matrix resources
+
+#### Scenario: Local Refresh does not overlap Audio polling
+
+- **GIVEN** current IN1808 Audio LIVE has an in-flight or retiring meter cycle
+- **WHEN** Local Refresh is requested
+- **THEN** Local Refresh performs no device I/O until prior LIVE cleanup/release permits acquisition
+- **AND** no Audio meter cycle overlaps the Local Refresh owner
+
+#### Scenario: Reconciliation excludes Audio LIVE
+
+- **GIVEN** an accepted Matrix video mutation has entered mandatory reconciliation
+- **WHEN** the IN1808 row remains expanded
+- **THEN** Audio polling does not start/resume during reconciliation
+- **AND** eligible LIVE may resume only after reconciliation is terminal and cleanup permits it
 
 ### Requirement: Audio read failure does not authorize credential or routing mutation
 
