@@ -689,15 +689,14 @@ Dark and light themes SHALL preserve equivalent geometry, channel order, evidenc
 
 ### Requirement: Expanded Matrix redesign targets the current room exact-row presentation surface
 
-MIH-11 SHALL render modern Matrix/IN1804 content inside the current room-mode exact-row presentation owned by `RoomDiagnosticTreeWidget`. A focused presentation-only Matrix dashboard component MAY consume accepted exact-row evidence and emit safe non-secret local intents, but SHALL NOT own room identity, target-search, request generation/currentness, credentials, handler/session lifecycle, polling/live ownership, mutation delivery, reconciliation authority, or device network I/O.
+The modern Matrix presentation SHALL render inside the current room-mode exact-row presentation owned by `RoomDiagnosticTreeWidget` for every exact Extron Matrix registration approved by `device-diagnostics-and-control`, including the existing `Extron IN1804` baseline and approved IN1806, IN1808, IN1608 xi, and DTP CrossPoint profiles. XTP/XTP II are deferred and are not supported production Matrix rows in this change.
 
-The standalone `MatrixScreen` SHALL remain a separate presentation/lifecycle surface. It SHALL NOT be selected, embedded, promoted, or navigated to from the MIH-11 room Matrix dashboard.
+A focused presentation-only Matrix dashboard component MAY consume accepted exact-row evidence and emit safe non-secret local intents, but SHALL NOT own room identity, target-search, request generation/currentness, credentials, handler/session lifecycle, polling/live ownership, mutation delivery, reconciliation authority, profile selection, SIS syntax, or device network I/O.
 
-MIH-11 renders Matrix below the common accordion header. This change also owns the user-approved presentation-only refinement of the common upper cards and compact accordion header; Matrix family interior redesign remains bounded to the expanded exact-row content.
+The standalone `MatrixScreen` remains a separate presentation/lifecycle surface and SHALL NOT become room authority merely because more Matrix models are supported.
 
 #### Scenario: Expanded Matrix room row uses the modern presentation
-
-- **GIVEN** the current room session contains an expandable exact `Extron IN1804` row
+- **GIVEN** the current room session contains an expandable exact supported Extron Matrix row
 - **WHEN** the operator expands that row
 - **THEN** the modern Matrix presentation renders inside the exact-row room content
 - **AND** room/record authority remains the current exact row
@@ -742,169 +741,196 @@ MAC-адрес
 Серийный номер
 Версия прошивки
 Температура
-Время работы
 ```
 
-Each row SHALL use only accepted current exact-row evidence through deterministic presentation mapping. Presentation SHALL NOT infer a value from unrelated fields, model text, reference artwork, logs, prior snapshots, or widget state.
+For every exact Extron Matrix model supported by this change, a room Matrix full
+refresh MAY be classified as complete and successful only when accepted current
+evidence establishes an authoritative non-empty value for all five rows.
 
-If accepted evidence does not establish a field, the row SHALL display `Нет данных` or the foundation safe no-data equivalent. On the current change base, absence of authoritative Matrix MAC, serial, firmware, or uptime evidence is expected and SHALL NOT cause new protocol reads under MIH-11.
+Source authority SHALL be:
 
-For existing model/temperature reads, normalized absent/`None` is no-data. A local `Unknown` model sentinel is not display evidence. Numeric temperature `0` is displayable only when successful current device evidence actually established zero; a failed/missing/malformed read normalized to `None` SHALL display `Нет данных` rather than `0`.
+- `Модель`: accepted exact Matrix identity/canonical model for the current operation;
+- `MAC-адрес`: mandatory current canonical room/inventory evidence;
+- `Серийный номер`: mandatory current canonical room/inventory evidence;
+- `Версия прошивки`: authoritative current exact-profile SIS read;
+- `Температура`: authoritative current exact-profile SIS read;
+
+Presentation and acquisition SHALL NOT infer or synthesize a required value from
+another field, model text, reference artwork, logs, a prior snapshot, widget state,
+default zero, placeholder text, or a command copied speculatively from another
+family. An unproven authoritative read for a required row is a blocking capability
+gap for that supported profile.
+
+`Нет данных` (or the foundation safe no-data equivalent) remains truthful only
+for a failed, incomplete, stale, or otherwise non-successful current acquisition.
+Such a state SHALL NOT be classified as a complete successful full refresh.
+A prior accepted value SHALL clear rather than survive into a current incomplete
+snapshot.
+
+Numeric temperature `0` remains a valid value only when successful current
+device evidence explicitly establishes zero.
 
 #### Scenario: Current Matrix snapshot lacks reference-only information fields
 
-- **GIVEN** accepted current Matrix evidence contains model and temperature but no MAC, serial, firmware, or uptime
-- **WHEN** the General information card renders
-- **THEN** model and temperature render from accepted evidence
-- **AND** MAC, serial, firmware, and uptime render truthful no-data values
-- **AND** presentation issues no additional Matrix request to fill them
+- **GIVEN** a current Matrix acquisition lacks one or more authoritative General-information values
+- **AND** canonical room/inventory evidence cannot supply MAC/serial or another mandatory current read did not establish its value
+- **WHEN** the General information card renders and the acquisition is classified
+- **THEN** each missing row renders truthful no-data
+- **AND** the acquisition is not classified as a complete successful full refresh
+- **AND** no unrelated or synthetic value is inserted to make the card look complete
 
 #### Scenario: Failed model and temperature evidence remains no-data
 
-- **GIVEN** current Matrix normalization has no accepted model evidence and no accepted temperature evidence
+- **GIVEN** current Matrix normalization has no accepted exact model evidence or no authoritative current temperature evidence
 - **WHEN** the General information card renders
-- **THEN** both `Модель` and `Температура` show `Нет данных`
-- **AND** local `Unknown` or synthetic numeric zero is not rendered as device evidence
+- **THEN** the missing field shows `Нет данных`
+- **AND** local `Unknown`, stale prior evidence, or synthetic numeric zero is not rendered as device evidence
+- **AND** the refresh is not classified as complete successful
 
 #### Scenario: Real zero temperature remains visible
 
-- **GIVEN** accepted current Matrix evidence contains temperature numeric zero from a successful current device response
+- **GIVEN** accepted current Matrix evidence contains temperature numeric zero from a successful authoritative device response
 - **WHEN** the General information card renders
 - **THEN** `Температура` renders that zero value
 - **AND** it is not replaced with `Нет данных`
+
+#### Scenario: Successful full refresh fills all five rows
+
+- **GIVEN** an exact supported Matrix model completes its authoritative current full-refresh acquisition
+- **WHEN** that refresh is accepted as complete successful
+- **THEN** all five General-information rows contain authoritative values
+- **AND** none renders `Нет данных`, a placeholder, or stale prior evidence
+
+#### Scenario: Missing inventory MAC or serial blocks complete success
+
+- **GIVEN** the current exact Matrix row lacks canonical room/inventory MAC or serial evidence
+- **WHEN** a complete full refresh is attempted
+- **THEN** no device fallback is guessed or sent for that field
+- **AND** complete-success classification is prevented
+- **AND** no guessed MAC or serial is synthesized
 
 ### Requirement: Matrix input table uses proven data-driven rows and the approved column order
 
 The central Matrix table SHALL use this semantic order:
 
 ```text
-[input ordinal] | Сигнал | HDCP | Входы | [accepted output-1 name or Main Output]
+[input ordinal] | Сигнал | HDCP | Входы | [one route column per authoritative available logical output]
 ```
 
-The leading ordinal column SHALL remain compact and MAY use an empty visual header with accessible `№` meaning. `Входы` displays accepted input name. The output column uses the first accepted output name when present/non-empty and otherwise `Main Output`.
+The leading ordinal column remains compact. `Входы` displays accepted input name when supported/current evidence exists. Route columns SHALL be generated from authoritative `available_output_ids`; they SHALL NOT be hard-coded to output 1 and SHALL NOT be generated from raw physical connector count.
 
-At baseline, approximate table-width allocation SHALL preserve this hierarchy:
+If authoritative output-name evidence exists for an output ID, that name SHOULD be used as the route-column heading. Otherwise the deterministic fallback SHALL be `Output <id>`; the existing single-output IN1804 compatibility presentation MAY retain its accepted `Main Output` fallback for output 1.
 
-```text
-input ordinal    8%
-Сигнал          19%
-HDCP            17%
-Входы           27%
-output           29%
-```
+Rows SHALL follow a proven accepted current input topology. The presentation SHALL NOT fabricate eight rows, compress gaps in available IDs, or make an unproven ordinal actionable.
 
-Rows SHALL follow a **proven accepted current input count/order** from fail-closed Matrix normalization. MIH-11 SHALL NOT hard-code the eight rows visible in the design example and SHALL NOT accept a legacy constructor/parser default of eight as device evidence when input count/model capability is unproven.
-
-If accepted input count is UNKNOWN, the Matrix presentation SHALL NOT fabricate eight rows and SHALL NOT expose route intents for unproven input ordinals. A no-data/unknown table state MAY be shown until current accepted evidence establishes the count.
+A device exposing several physical connectors that share one logical route SHALL still create one route column for that logical route. A multi-output CrossPoint creates one column per authoritative available logical output. Deferred XTP/XTP II board topology does not create production route columns in this change.
 
 #### Scenario: Four-input accepted Matrix is not rendered as eight inputs
-
 - **GIVEN** accepted current Matrix evidence establishes four inputs
 - **WHEN** the modern table renders
-- **THEN** exactly four input rows are presented in accepted order
+- **THEN** exactly four authoritative input rows are presented in accepted order
 - **AND** no additional rows are fabricated from visual reference or legacy defaults
 
 #### Scenario: Input count is unproven
-
-- **GIVEN** current Matrix normalization cannot establish input count/model capability
+- **GIVEN** current Matrix normalization cannot establish authoritative input topology/model capability
 - **WHEN** the modern table renders
 - **THEN** eight rows are not fabricated
 - **AND** no unproven input ordinal is actionable for routing
 
+#### Scenario: Multi-output Matrix preserves output identity
+- **GIVEN** accepted current topology exposes available outputs `[1, 2, 5, 6]`
+- **WHEN** the modern table renders
+- **THEN** four route columns are rendered with identities `1`, `2`, `5`, and `6`
+- **AND** outputs `5` and `6` are not relabeled as `3` and `4`
+
+#### Scenario: Duplicate physical connector does not become another route column
+- **GIVEN** multiple physical output connectors share one logical route
+- **WHEN** the Matrix table renders
+- **THEN** exactly one route column represents that logical route
+
 ### Requirement: Matrix signal, HDCP presence, and route presentation remains meaningful without color
 
-For each accepted input row, signal state SHALL distinguish confirmed presence, confirmed absence, and UNKNOWN. The accepted compact cell projects confirmed presence as a positive filled `●`, confirmed absence as a neutral/open `○`, and UNKNOWN as a neutral filled `●`. Color reinforces the positive/neutral distinction, while the accepted semantic value (`есть`, `нет сигнала`, or `Нет данных`) SHALL remain available through a tooltip, accessibility value, or data role. Visible words are not required inside Signal cells, and UNKNOWN remains fail-closed rather than false.
+For each accepted input row, signal state SHALL distinguish confirmed presence, confirmed absence, and UNKNOWN. Existing compact signal indicators and their non-color semantic/tool-tip/accessibility meaning remain unchanged.
 
-The `HDCP` column SHALL represent only the normalized **current input HDCP-presence flag**. Its raw existing input-HDCP-status mapping is owned by `device-diagnostics-and-control` and is deterministic (`2 -> True`, `1 -> False`, `0 -> False`, unusable evidence -> `None`). Presentation SHALL map only that normalized value:
+The `HDCP` column SHALL represent only normalized **current input HDCP presence/state** produced by the active approved profile. Presentation SHALL NOT decode raw SIS `1/2` values itself. It SHALL NOT display HDCP version, input authorization/configuration, or output HDCP state in the input HDCP column. Failed/malformed/unrecognized/missing input-HDCP evidence remains UNKNOWN rather than fabricated `нет`.
+
+HDCP cells SHALL use compact centered indicators rather than `есть`, `нет`,
+`да`, or `Нет данных` as their primary visible text: `PRESENT_HDCP` is a
+filled green indicator; `PRESENT_NO_HDCP` and `ABSENT` are neutral empty
+indicators; `UNKNOWN` is neutral and non-positive. Qt semantic data, tooltips,
+and accessibility SHALL retain the four distinct canonical states. Signal
+UNKNOWN SHALL likewise never render as a green positive indicator. Input-name
+and HDCP cell contents SHALL be horizontally centered.
+
+For every authoritative available logical output, route state SHALL derive only from fail-closed accepted `routes[output_id]` evidence:
 
 ```text
-hdcp_present == True  -> non-color cue + `есть`
-hdcp_present == False -> distinct non-color cue + `нет`
-hdcp_present == None  -> neutral cue + `Нет данных`
+routes[output_id] == this input  -> positive/active semantic
+known different routed input    -> neutral/not-selected semantic
+explicit untied output          -> no input cell active for that output
+missing/unknown route evidence  -> neutral UNKNOWN semantic
 ```
 
-The room `HDCP` column SHALL NOT display HDCP version (`2.2`, `1.4`, or any other version token), input HDCP authorization/configuration value, or output HDCP state. Failed, malformed, unrecognized, or missing input HDCP-status evidence SHALL remain UNKNOWN and SHALL NOT be presented as `нет`.
-
-Output-1 route state SHALL derive only from fail-closed accepted `current_connection` evidence and use compact cells:
-
-```text
-current_connection == this input -> positive filled `●`; semantic `активен` retained
-known different current input     -> neutral/open `○`; semantic `не выбран` retained
-missing/unknown connection        -> neutral filled `●`; semantic `Нет данных` retained
-```
-
-The retained semantic route state SHALL be available through a tooltip, accessibility value, or data role; visible words are not required inside route cells. Local hover/click/confirmation/ACK state SHALL NOT change the visible authoritative route to `активен` before reconciliation accepts a confirming snapshot.
+For existing IN1804 compatibility state, accepted `current_connection` MAY project to `routes[1]`; it remains valid only through the existing fail-closed IN1804 normalization contract. Route ACK/local click state SHALL NOT become accepted active-route authority before reconciliation.
 
 #### Scenario: Compact Signal and HDCP remain semantically explicit
-
-- **GIVEN** accepted signal evidence is present, absent, and UNKNOWN and three accepted input rows respectively have normalized `hdcp_present` values True, False, and None
+- **GIVEN** accepted signal evidence is present, absent, and UNKNOWN and accepted normalized input HDCP evidence is present, absent, and unknown for corresponding rows
 - **WHEN** the Matrix table renders
-- **THEN** Signal cells show the accepted filled/open/neutral indicators with retained semantic values
-- **AND** their HDCP cells show `есть`, `нет`, and `Нет данных` respectively
+- **THEN** Signal cells retain explicit non-color semantic meaning
+- **AND** HDCP cells present the corresponding accepted normalized meanings
 - **AND** no HDCP version token is displayed
 
 #### Scenario: Route ACK does not optimistically recolor the table
-
 - **GIVEN** a route mutation has received apparent send success but reconciliation is not yet accepted
 - **WHEN** the Matrix table is rendered
-- **THEN** accepted `current_connection` remains route-state authority
-- **AND** the requested row is not shown as authoritative `активен` solely because of the ACK
+- **THEN** the previously accepted `routes[target_output_id]` remains route-state authority
+- **AND** the requested cell is not shown as authoritative `активен` solely because of the ACK
+
+#### Scenario: One input may be active on multiple outputs
+- **GIVEN** accepted routes are `{1: 3, 2: 3, 3: 6}`
+- **WHEN** the Matrix table renders
+- **THEN** input `3` is active in output columns `1` and `2`
+- **AND** input `6` is active in output column `3`
+
+#### Scenario: Untied output has no active input
+- **GIVEN** accepted route state for output `4` is explicitly untied
+- **WHEN** output `4` is rendered
+- **THEN** no input cell in output `4` is presented as active
 
 ### Requirement: Matrix output cells emit only approved exact-row route intent
 
-A non-active output-1 cell SHALL be actionable only when the exact current expanded row is `Extron IN1804`, has usable connected accepted state, is not stale/degraded/blocked/unconfirmed, the unified model registration advertises approved Matrix mutation/reconciliation capability, the serialized room interaction lane currently permits mutation, and the input ordinal is within the proven accepted input authority.
+A non-active route cell SHALL be actionable only when the exact current expanded row is an approved supported Extron Matrix exact model/profile, has usable connected accepted state, is not stale/degraded/blocked/unconfirmed, the unified registration advertises approved Matrix mutation/reconciliation capability, the serialized room interaction lane permits mutation, and both the input ID and output ID are authoritative available IDs in the current topology.
 
-Presentation SHALL emit only a non-secret immutable route intent equivalent to `output_num = 1` plus accepted `input_num = N`, together with existing exact-row presentation signal identity required by composition. It SHALL NOT contain credentials, handler/session references, raw target-search text, initial source record, standalone screen selection, or global Matrix target state.
+Presentation SHALL emit only a non-secret immutable route intent containing accepted `input_id` and `output_id` plus the existing exact-row identity needed by composition. It SHALL NOT contain credentials, handler/session references, raw target-search text, raw SIS command strings, standalone screen selection, or global Matrix target state.
 
-The currently active output cell SHALL be non-actionable/no-op. A stale, degraded, failed, blocked, non-current, unsupported, unproven-input, or otherwise unauthorized row SHALL expose no route intent.
+The currently active cell remains no-op/non-actionable. Stale, degraded, failed, blocked, non-current, unsupported, unproven-input, unavailable-output, or otherwise unauthorized cells expose no route intent.
 
-Presentation SHALL NOT call `ExtronIN1804Handler`, `MatrixController.request_route`, socket/transport methods, or other device I/O directly. Composition SHALL revalidate current exact-row authority and obtain **explicit operator confirmation** before passing the intent into `RoomInteractionCoordinator.confirm_mutation()`.
+Presentation SHALL NOT call `ExtronIN1804Handler`, any CrossPoint handler, `MatrixController.request_route`, socket/transport methods, or other device I/O directly. Composition SHALL revalidate exact-row authority and require the existing explicit operator confirmation before the mutation lifecycle begins.
 
 #### Scenario: Operator selects another current input
-
-- **GIVEN** a connected current exact Matrix row has input 1 authoritative as active
-- **AND** input 2 is proven, authorized, and non-active
-- **WHEN** the operator activates input 2's output cell
-- **THEN** presentation emits one safe output-1/input-2 route intent
+- **GIVEN** a connected current exact Matrix row has one authoritative current route on output `1`
+- **AND** another input is proven, authorized, and non-active for that output
+- **WHEN** the operator activates that input/output cell
+- **THEN** presentation emits one safe route intent containing the selected input ID and output `1`
 - **AND** no Matrix device I/O occurs from the widget
 - **AND** composition requires explicit confirmation before mutation lifecycle begins
 
 #### Scenario: Current active route is clicked
-
-- **GIVEN** input N is already authoritative as active
-- **WHEN** the operator clicks its output cell
+- **GIVEN** input N is already authoritative as active for output O
+- **WHEN** the operator clicks that exact active cell
 - **THEN** no route mutation intent is submitted
 - **AND** no device I/O starts
 
-### Requirement: Matrix Quick actions remain truthful to approved capabilities
+#### Scenario: Multi-output route intent preserves target output
+- **GIVEN** supported CrossPoint output `7` and input `3` are current authoritative available IDs
+- **WHEN** the operator activates input `3` in output `7`
+- **THEN** presentation emits `input_id=3` and `output_id=7`
+- **AND** it does not collapse the intent to output `1`
 
-The Matrix `Быстрые действия` card SHALL contain only `Обновить статус` and `Перезагрузить устройство` for MIH-11.
-
-`Обновить статус` SHALL map only to existing exact-row Local Refresh intent and SHALL be enabled only under existing room interaction authorization. It SHALL NOT create a second Matrix refresh/polling path.
-
-`Перезагрузить устройство` SHALL be visible but disabled/non-actionable because no approved Extron IN1804 reboot mutation capability exists. It SHALL emit no application intent, worker start, handler/session acquisition, protocol command, or device request.
-
-`Открыть расширенный экран` SHALL NOT be rendered in MIH-11. There SHALL be no enabled control, disabled placeholder, navigation intent, or acceptance requirement for that affordance. Standalone `MatrixScreen` remains a separate existing surface only.
-
-#### Scenario: Quick Refresh uses the existing room lifecycle
-
-- **GIVEN** the exact connected Matrix row currently permits Local Refresh
-- **WHEN** the operator selects `Обновить статус`
-- **THEN** existing exact-row Local Refresh intent is requested
-- **AND** no parallel Matrix refresh controller/lane is created
-
-#### Scenario: Reboot remains a disabled placeholder
-
-- **GIVEN** the Matrix Quick actions card is visible
-- **WHEN** `Перезагрузить устройство` is rendered
-- **THEN** it is clearly disabled/non-actionable
-- **AND** interacting with it performs no Matrix device I/O
-
-#### Scenario: Expanded-screen affordance is absent
-
-- **WHEN** the MIH-11 Matrix room dashboard renders
-- **THEN** `Открыть расширенный экран` is not present
-- **AND** no navigation intent to standalone `MatrixScreen` is exposed
+#### Scenario: Unavailable output exposes no route intent
+- **GIVEN** a future supported multi-output profile marks output `13` unavailable
+- **WHEN** the table renders
+- **THEN** presentation exposes no actionable route cell for output `13`
 
 ### Requirement: Expanded room codec presentation uses one self-contained five-card dashboard contract
 
@@ -1657,3 +1683,102 @@ This requirement changes neither vendor protocol command/request semantics nor t
 - **WHEN** exact `CloudLink Box 310`, `Polycom RPG 310`, Matrix, DMP, PDU, general refresh, call-log, authentication, cleanup, application-time-update, or another unrelated timer is active
 - **THEN** this requirement starts no new microphone LIVE context for unsupported codecs
 - **AND** it changes no unrelated timer cadence or network behavior
+
+### Requirement: Matrix dashboard uses compact information and routing surfaces
+
+The room Matrix dashboard SHALL contain no separate `Быстрые действия` card,
+large refresh button, reboot placeholder, replacement action card, production
+`Отладка` affordance, or Matrix-specific footer/action strip. The routing-table
+card SHALL occupy the released horizontal dashboard area while the information
+card remains compact.
+
+The Matrix information card SHALL NOT contain an `IP-адрес` row. It SHALL NOT
+contain an embedded circular refresh control, `!`/warning button, unlabeled
+action button, debug button, or trailing action/footer area below the approved
+information fields. Existing room/global refresh lifecycle and currentness
+authority remain outside this information card; removing these controls SHALL
+NOT create a replacement Matrix-specific polling lane.
+
+The routing-table card retains its border/background framework but SHALL hide
+its SectionCard title/header completely, so its first visible content is the
+horizontal table header.
+
+#### Scenario: Information card has no IP/action footer
+- **WHEN** the Matrix information card renders
+- **THEN** it has no `IP-адрес` field
+- **AND** it has no embedded refresh/debug/warning/action button
+- **AND** its visible content ends with the approved diagnostic information rows
+
+#### Scenario: Existing refresh lifecycle is not duplicated
+- **GIVEN** room/global refresh is available through an already-approved affordance outside the Matrix information card
+- **WHEN** the Matrix dashboard renders
+- **THEN** that existing application lifecycle remains authoritative
+- **AND** the Matrix information card adds no local refresh controller or network path
+
+#### Scenario: Matrix action card is absent
+- **WHEN** the room Matrix dashboard renders
+- **THEN** `Быстрые действия`, production `Отладка`, `Обновить статус` as a large action,
+  `Перезагрузить устройство`, and embedded `!`/warning actions are absent
+- **AND** no replacement action/footer card or standalone-screen affordance is exposed
+
+#### Scenario: Table begins without a card title gap
+- **WHEN** the room Matrix routing card renders
+- **THEN** its first visible content is the horizontal table header
+- **AND** no title, icon, or former header spacing appears above that header
+
+### Requirement: Matrix route-column headings are capability-driven
+
+Route-column headings SHALL use authoritative output-name evidence only when the active profile proves and successfully returns it. An unproven output-name command SHALL cause deterministic fallback heading `Output <id>` rather than speculative SIS I/O or a fabricated configured name.
+
+#### Scenario: XTP output naming is unproven
+- **GIVEN** the active approved profile has no authoritative output-name read
+- **WHEN** the Matrix table renders output `5`
+- **THEN** the heading uses deterministic fallback `Output 5`
+- **AND** presentation does not imply that an empty configured name was returned
+
+### Requirement: Matrix route columns are equal-width and compact
+
+The route-column count SHALL be determined only by authoritative
+`available_output_ids`. Every visible route column SHALL receive the same
+fixed layout width (within one pixel of rounding); no output number, first
+output, or physical duplicate connector may receive individual stretch or a
+legacy special width. The columns SHALL be materially narrower than the former
+single-output 29% route allocation while leaving static input-information
+columns readable.
+
+#### Scenario: Multi-output columns share one width
+- **GIVEN** authoritative available outputs `[1, 2, 5]`
+- **WHEN** the Matrix table is laid out
+- **THEN** its three route columns have equal widths within one pixel
+- **AND** output `1` has no privileged 29%/stretch allocation
+
+### Requirement: Matrix information card projects canonical row facts
+
+The Matrix information card SHALL use the same five-field completeness and
+authority contract as `Matrix General information preserves approved field order
+without fabricating evidence`. The row's canonical `ip_address` remains
+application/target authority but SHALL NOT be duplicated inside this card.
+
+Canonical current room/inventory MAC and serial are mandatory prerequisites.
+Their absence SHALL NOT activate a device fallback in this change. Firmware and
+temperature SHALL come only from authoritative current exact-profile SIS reads. Model SHALL
+come from the accepted exact Matrix identity/canonical model.
+
+The card MAY show truthful no-data during incomplete/failed acquisition, but a
+snapshot with any missing required General-information value SHALL NOT be treated
+as a complete successful full refresh. Missing current evidence SHALL clear old
+presentation values.
+
+#### Scenario: Canonical inventory facts survive a device snapshot without them
+- **GIVEN** an exact Matrix room row has current canonical MAC and serial values
+- **AND** its accepted device snapshot does not repeat those two values
+- **WHEN** the information card renders
+- **THEN** it displays canonical MAC and serial values without an extra device read for those already-authoritative fields
+- **AND** it does not duplicate the exact row IP inside the card
+- **AND** firmware and temperature still require authoritative current device evidence
+
+#### Scenario: Missing canonical MAC or serial keeps the refresh incomplete
+- **GIVEN** the current exact Matrix row lacks canonical MAC or serial evidence
+- **WHEN** a complete full refresh is attempted
+- **THEN** the refresh remains incomplete
+- **AND** no device fallback or fabricated presentation value is used

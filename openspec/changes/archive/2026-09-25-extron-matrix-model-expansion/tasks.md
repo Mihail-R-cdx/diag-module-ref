@@ -116,10 +116,10 @@
 
 ## 11. Archive and merge
 
-- [ ] 11.1 Reconcile task state against implementation evidence and explicitly deferred follow-up work.
-- [ ] 11.2 Prove disposable archive applicability again before real archive.
-- [ ] 11.3 Archive only after strict validation passes.
-- [ ] 11.4 Re-run strict validation after archive.
+- [x] 11.1 Reconcile task state against implementation evidence and explicitly deferred follow-up work.
+- [x] 11.2 Prove disposable archive applicability again before real archive.
+- [x] 11.3 Archive only after strict validation passes.
+- [x] 11.4 Re-run strict validation after archive.
 - [ ] 11.5 Merge only after final post-archive review and tests pass.
 
 ## 12. Inventory converter handoff remediation
@@ -248,7 +248,7 @@
 - [x] 26.6 Add focused regression coverage for IN1806 topology/identity/dispatch, IN1608 xi IPCP SA identity, DTP `60-1381-12`, DTP video-only `%` read/set/untie plus `E13` old-query rejection and no-audio-mutation semantics, IN1806/IN1808 `1%` video-only breakaway-safe routing, IN1608 xi `&` video-only routing, and the cleaned Matrix information/dashboard presentation.
 - [x] 26.7 Run focused tests, full offline tests, Git diff checks, and repository-local strict OpenSpec validation; create and push one focused implementation remediation commit only after architecture approval.
 - [x] 26.8 Re-run read-only hardware QA on available Matrix fixtures, including IN1806, IN1608 xi IPCP SA, DTP CrossPoint 86 4K, and DTP CrossPoint 108 4K evidence; no route mutation, no fabricated PASS, and no model receives hardware PASS unless all five `Общая информация` fields are authoritative and non-empty.
-- [ ] 26.9 After implementation, perform fresh independent validation on the published remote HEAD, including disposable archive-applicability check because this change still uses MODIFIED/REMOVED Requirements; archive remains forbidden until a permitting verdict.
+- [x] 26.9 After implementation, perform fresh independent validation on the published remote HEAD, including disposable archive-applicability check because this change still uses MODIFIED/REMOVED Requirements; archive remains forbidden until a permitting verdict.
 - [x] 26.10 Implement video-only canonical routing for the newly added presentation-switcher profiles: IN1806/IN1808 read `1%`, set `<I>*1%`; IN1608 xi read `&`, set `<I>&`; combined AV commands are not used for polling/mutation and audio ties remain unchanged. Preserve the separate hardware-confirmed IN1804 compatibility profile.
 - [x] 26.11 Add breakaway-focused regressions proving IN1806/IN1808 polling does not use `1!`, IN1608 xi polling does not use `!`, and successful route reconciliation validates only the requested video state without changing hidden audio state.
 - [x] 26.12 **PRE-IMPLEMENTATION ARCHITECTURE GATE:** protocol research resolved the supported scope without guessed commands. Matrix General information contains five required fields: model, MAC, serial, firmware, and temperature. MAC/serial are mandatory canonical inventory prerequisites; firmware/temperature have exact SIS sources. No SNMP acquisition is part of the Matrix contract. XTP/XTP II remain explicitly deferred by scope. No unresolved blocking acquisition cell remains for the resulting supported scope.
