@@ -270,6 +270,18 @@ hardware-cross-checked discovery.
 The mapping-basis disclosure SHALL not reintroduce per-cell
 `ACTIVE`/`INACTIVE` text or meter `VALID`/`INVALID` captions.
 
+#### Scenario: Mapping basis remains disclosed in compact routing view
+
+- **GIVEN** the current exact IN1808 Audio routing grid is rendered
+- **WHEN** the operator inspects the routing metadata
+- **THEN** the surface exposes safe non-interactive metadata equivalent to
+  `Карта каналов: профиль IN1808`
+- **AND** the disclosure identifies the adopted
+  `IN1808_PRODSP_PROFILE_MAPPING` basis without claiming hardware-discovered
+  channel identity
+- **AND** it does not add per-cell `ACTIVE`/`INACTIVE` text or meter
+  `VALID`/`INVALID` captions
+
 ### Requirement: IN1808 stable grid identities and Audio Names have separate authority
 
 The logical row/column identity is the stable semantic key that owns grid

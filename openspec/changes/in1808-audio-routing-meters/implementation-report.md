@@ -1,4 +1,4 @@
-> **SUPERSEDED FOR CURRENT HEAD**  
+> **SUPERSEDED FOR CURRENT HEAD**
 > This report records implementation evidence for feature HEAD
 > `012ba60c225dee4411126b71859b5b19cda7250d`. Hardware GUI QA subsequently
 > changed the OpenSpec architecture beginning with commit
