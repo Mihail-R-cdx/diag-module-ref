@@ -19,8 +19,8 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 
 - Add an IN1808-only Audio mode to the expanded room Matrix row.
 - Keep `Общая информация` unchanged while swapping only the right-hand tile.
-- Use the approved modern DMP visual language for compact vertical segmented
-  dBFS meters.
+- Use the approved modern DMP segmented dBFS visual language: horizontal
+  meters for logical inputs and vertical meters for logical outputs.
 - Show all relevant IN1808 audio meter points, including DP/HDMI/TP inputs,
   Aux, Mic/Line inputs, File Player, HDMI/DTP/analog/line outputs, and
   model-applicable amplifier outputs.

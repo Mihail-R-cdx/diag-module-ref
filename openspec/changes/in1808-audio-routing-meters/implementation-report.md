@@ -1,3 +1,14 @@
+> **SUPERSEDED FOR CURRENT HEAD**  
+> This report records implementation evidence for feature HEAD
+> `012ba60c225dee4411126b71859b5b19cda7250d`. Hardware GUI QA subsequently
+> changed the OpenSpec architecture beginning with commit
+> `8f53042b06a11ba9ae3e5bd0807e96e0e67cc712` and later architecture-review
+> corrections. Therefore the `READY FOR INDEPENDENT REVALIDATION` status at
+> the end of this report applies only to the older implementation and is not the
+> status of the current feature HEAD. Do not rewrite or reuse the test counts
+> below as evidence for the refined GUI. New implementation evidence must be
+> produced after the GUI refinement is implemented and revalidated.
+
 # Implementation Evidence
 
 This is implementation evidence, not an independent validation verdict. It

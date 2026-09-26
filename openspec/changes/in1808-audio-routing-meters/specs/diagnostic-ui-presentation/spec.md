@@ -43,7 +43,7 @@ The IN1808 Audio right tile SHALL use the hardware-QA-refined Variant B
 presentation: one compact logical routing grid with meters physically aligned to
 the same row/column geometry.
 
-The visible input rows SHALL be exactly:
+The stable logical input-row identities SHALL be exactly:
 
 ```text
 Program L/R
@@ -54,7 +54,7 @@ Line In 4
 File Player L/R
 ```
 
-The visible output columns SHALL be exactly the applicable subset of:
+The stable logical output-column identities SHALL be exactly the applicable subset of:
 
 ```text
 HDMI 1A
@@ -84,23 +84,31 @@ Mic/Line 1/2, Line In 3/4 and Line Out 1..4 remain one raw row/column each.
 The underlying channel-accurate 8 x 12 routing snapshot SHALL remain available
 unchanged. Grouping SHALL be presentation-only.
 
-For one grouped logical routing cell:
+For one grouped logical routing cell, evaluate every applicable underlying
+crosspoint in this order:
 
-- at least one applicable ACTIVE component -> filled dot;
-- all applicable components known INACTIVE -> hollow dot;
-- no ACTIVE component plus one or more UNKNOWN components -> neutral UNKNOWN
-  marker.
+- if any applicable component is UNKNOWN/unavailable -> neutral UNKNOWN marker
+  `—`;
+- otherwise if all applicable components are ACTIVE -> filled dot `●`;
+- otherwise if all applicable components are INACTIVE -> hollow dot `○`;
+- otherwise -> MIXED/partial marker `◐`.
 
-The visible grid SHALL NOT render the words `ACTIVE`, `INACTIVE`, `VALID`
-or `INVALID`. Route cells remain read-only/non-actionable. Tooltip or
-accessibility metadata SHOULD expose component states for a grouped cell.
+A filled dot is therefore permitted only for a fully active logical route; a
+one-sided or otherwise partial stereo route cannot be presented as fully active.
+
+The visible grid SHALL NOT render the words `ACTIVE`, `INACTIVE`, `MIXED`,
+`VALID` or `INVALID`. Route cells remain read-only/non-actionable.
+Tooltip/accessibility metadata SHALL expose the applicable raw component states
+and SHALL identify fully-active, fully-inactive, mixed/partial, or unknown
+meaning for the marker.
 
 #### Scenario: Stereo route evidence is compacted without rewriting raw evidence
 
 - **GIVEN** a logical stereo row or column contains multiple raw crosspoints
 - **WHEN** the Audio routing surface renders
-- **THEN** the visible intersection is one grouped dot/unknown marker
-- **AND** its state follows the grouped semantics above
+- **THEN** the visible intersection is one grouped `●` / `○` / `◐` /
+  `—` marker
+- **AND** its state follows the fail-safe grouped semantics above
 - **AND** the original per-channel routing evidence remains unchanged
 - **AND** no click can emit an Audio mutation
 
@@ -184,16 +192,56 @@ hardware-cross-checked discovery.
 The mapping-basis disclosure SHALL not reintroduce per-cell
 `ACTIVE`/`INACTIVE` text or meter `VALID`/`INVALID` captions.
 
-### Requirement: IN1808 Audio names and variant capability remain truthful
+### Requirement: IN1808 stable grid identities and Audio Names have separate authority
 
-Where accepted Audio Name evidence is available, the Audio presentation SHALL
-use it for the corresponding stable logical channel. Missing names use
-deterministic semantic fallback labels.
+The logical row/column identity is the stable semantic key that owns grid
+position and the primary visible axis label. Accepted ANAM evidence is
+secondary diagnostic metadata and SHALL NOT replace that structural label,
+create another row/column, or change grid geometry.
+
+Examples of stable primary labels include `Mic/Line 1`, `File Player L/R`,
+`HDMI 1A`, and `TP/DTP 1B`.
+
+For a single-channel logical identity, an accepted ANAM value SHALL be exposed
+in tooltip/accessibility metadata for that identity.
+
+For a stereo logical group:
+
+- equal accepted L/R names are exposed once;
+- different accepted L/R names are exposed deterministically as
+  `L: <left>; R: <right>`;
+- one accepted component name is exposed with its L/R identity;
+- no accepted names means no custom-name metadata; the stable primary label
+  remains sufficient.
+
+`Program L/R` always remains the primary row label. The physical source from
+mandatory `1$` is separate Program-source metadata. Accepted ANAM evidence for
+that selected physical source MAY be exposed in the same Program-source
+tooltip/accessibility metadata but SHALL NOT replace `Program L/R`.
+
+Missing/blank/malformed Audio Name evidence therefore never shifts channel IDs,
+changes the grid, or invents a visible label.
 
 Variant-dependent amplifier channels SHALL be shown only when exact current
 IN1808 wire-variant evidence establishes the capability. The GUI SHALL not
 infer amplifier channels from available width, a prior row, a generic IN1808
 substring, or a stale snapshot.
+
+#### Scenario: Custom Mic/Line name does not replace structural identity
+
+- **GIVEN** stable logical row `Mic/Line 1`
+- **AND** accepted ANAM evidence is `Table Mic`
+- **WHEN** the Audio grid renders
+- **THEN** the primary row label remains `Mic/Line 1`
+- **AND** `Table Mic` is available as secondary tooltip/accessibility metadata
+- **AND** row geometry/order is unchanged
+
+#### Scenario: Stereo component names differ
+
+- **GIVEN** one stereo logical group has accepted names `Left Feed` and `Right Feed`
+- **WHEN** its naming metadata is rendered
+- **THEN** the stable primary group label remains unchanged
+- **AND** secondary metadata exposes `L: Left Feed; R: Right Feed`
 
 #### Scenario: Base IN1808 has no amplifier capability
 

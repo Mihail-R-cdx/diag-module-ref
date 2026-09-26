@@ -622,19 +622,60 @@ The underlying 8 x 12 `routing.cells` snapshot SHALL remain unchanged and
 channel-accurate. Grouping is presentation-only; it SHALL NOT rewrite, discard,
 or fabricate raw crosspoint evidence.
 
-For one logical input-row/output-column intersection:
+For one logical input-row/output-column intersection, aggregation is
+fail-safe and evaluates all applicable underlying crosspoints:
 
-- a **filled dot** means at least one applicable underlying crosspoint is ACTIVE;
-- a **hollow dot** means all applicable underlying crosspoints are known INACTIVE;
-- an **UNKNOWN neutral marker** (for example `—` or `?`) means there is no
-  known ACTIVE crosspoint and at least one applicable underlying crosspoint is
-  UNKNOWN/unavailable.
+1. if any applicable component is UNKNOWN/unavailable -> **UNKNOWN** neutral
+   marker `—`;
+2. otherwise, if every applicable component is ACTIVE -> **fully active**
+   filled dot `●`;
+3. otherwise, if every applicable component is INACTIVE -> **fully inactive**
+   hollow dot `○`;
+4. otherwise -> **MIXED / partial** marker `◐`.
 
-No visible cell contains the words `ACTIVE`, `INACTIVE`, `VALID` or
-`INVALID`. The grouped cell tooltip/accessibility text SHOULD expose the
-component channel states so the compact dot does not erase diagnostic detail.
+A single ACTIVE raw crosspoint therefore SHALL NOT make a grouped stereo cell
+look fully active when another known component is INACTIVE.
+
+No visible cell contains the words `ACTIVE`, `INACTIVE`, `MIXED`,
+`VALID` or `INVALID`. The grouped cell tooltip/accessibility metadata SHALL
+expose every applicable component channel state and SHALL distinguish fully
+active, fully inactive, mixed/partial, and unknown outcomes so the compact
+marker cannot hide a one-sided routing fault.
 
 Cells remain non-interactive and cannot emit an Audio routing mutation.
+
+#### Stable identities and Audio Name presentation
+
+The logical row/column identities above are structural layout keys and do not
+change when the device reports custom Audio Names.
+
+Their primary grid labels remain the stable semantic labels used by this design
+(`Program L/R`, `Mic/Line 1`, `HDMI 1A`, and so on). Accepted ANAM values
+SHALL be used as secondary diagnostic metadata through tooltip/accessibility
+text and SHALL NOT replace the structural label, add a new routing row/column,
+or change row/column sizing.
+
+For a single-channel logical identity, expose its accepted ANAM value directly
+as secondary metadata.
+
+For a stereo logical group:
+
+- if both accepted component ANAM values are equal, expose that value once;
+- if both are accepted and differ, expose deterministic component metadata
+  `L: <left>; R: <right>`;
+- if only one component name is accepted, expose only that component with its
+  L/R identity;
+- if neither is accepted, expose no custom-name metadata and retain only the
+  stable semantic label.
+
+`Program L/R` always keeps the structural label `Program L/R`. The physical
+source selected by `1$` is exposed separately as Program-source metadata; if
+that physical source has accepted ANAM evidence, that custom name is secondary
+metadata for the selected source and never replaces the `Program L/R` row
+label.
+
+This keeps the hardware-QA-approved grid geometry deterministic while still
+using accepted device-provided names.
 
 #### Alignment invariants
 
@@ -715,11 +756,14 @@ Implementation requires focused coverage for:
   Local Refresh/mutation/reconciliation exclusion, and no GUI-thread network I/O;
 - immediate first-click Audio presentation before device I/O/controller
   availability, including busy-controller retry without a second click;
-- presentation-only L/R grouping over unchanged channel-accurate 8 x 12 route evidence;
+- presentation-only L/R grouping over unchanged channel-accurate 8 x 12 route
+  evidence, including fully-active/fully-inactive/MIXED/UNKNOWN aggregation;
 - Program L/R meter binding to the physical source selected by `1$`;
+- stable semantic grid labels plus deterministic ANAM secondary metadata,
+  including stereo-pair and Program-source naming rules;
 - shared row/column sizing that aligns horizontal input meters and vertical
   output meters exactly with logical routing rows/columns;
-- compact dot-only route cells and removal of duplicate labels and
+- compact marker-only route cells and removal of duplicate labels and
   `VALID`/`INVALID` captions;
 - mode toggle/collapse/context-replacement cleanup and stale callback rejection;
 - Audio failure isolation from accepted Matrix/General-information state;

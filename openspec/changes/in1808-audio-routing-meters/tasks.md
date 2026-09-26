@@ -137,36 +137,47 @@
   horizontal input meters aligned to routing rows and vertical output meters
   aligned to routing columns, with an empty top-left spacer.
 - [x] 7.3 Define presentation-only L/R grouping while retaining the raw
-  channel-accurate 8 x 12 routing evidence.
+  channel-accurate 8 x 12 routing evidence; grouped routes use fail-safe
+  fully-active / fully-inactive / MIXED / UNKNOWN semantics.
 - [x] 7.4 Define Program L/R meter binding to the physical DP/HDMI/TP/Aux source
   selected by mandatory `1$`.
 - [x] 7.5 Remove duplicate meter labels plus visible
-  `ACTIVE`/`INACTIVE`/`VALID`/`INVALID` text; retain dot states,
-  UNKNOWN marker and numeric dBFS.
-- [ ] 7.6 Run repository-local
+  `ACTIVE`/`INACTIVE`/`MIXED`/`VALID`/`INVALID` text; retain compact
+  `●`/`○`/`◐`/`—` markers and numeric dBFS.
+- [x] 7.6 Separate stable semantic row/column identity from accepted ANAM:
+  structural labels stay fixed, while device names are deterministic secondary
+  tooltip/accessibility metadata, including stereo and Program-source rules.
+- [x] 7.7 Correct the proposal to state horizontal logical-input meters and
+  vertical logical-output meters.
+- [x] 7.8 Mark the previous implementation report as superseded by the
+  hardware-QA GUI-refinement architecture without rewriting its old evidence.
+- [ ] 7.9 Run repository-local
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
   `.\openspec.cmd validate --all --strict`, and `git diff --check` on the
   published GUI-refinement architecture HEAD.
-- [ ] 7.7 Perform architecture review of the GUI refinement and obtain
+- [ ] 7.10 Perform architecture review of the GUI refinement and obtain
   `APPROVE` before changing production GUI/tests.
-- [ ] 7.8 Implement immediate first-click Audio layout rendering before I/O and
+- [ ] 7.11 Implement immediate first-click Audio layout rendering before I/O and
   keep it visible through temporary controller-busy retry.
-- [ ] 7.9 Implement the six logical input rows and exact variant-filtered
-  seven/eight logical output columns using the approved grouping semantics.
-- [ ] 7.10 Implement shared row/column geometry so meter centerlines and routing
+- [ ] 7.12 Implement the six logical input rows and exact variant-filtered
+  seven/eight logical output columns using the approved fail-safe grouping
+  semantics.
+- [ ] 7.13 Implement shared row/column geometry so meter centerlines and routing
   row/column centerlines are exactly aligned; compact row height and allow
   narrower meters as needed.
-- [ ] 7.11 Implement Program L/R meter projection from the `1$`-selected
+- [ ] 7.14 Implement Program L/R meter projection from the `1$`-selected
   physical source while keeping all normalized raw meter evidence unchanged.
-- [ ] 7.12 Add GUI/lifecycle regression coverage for immediate switching,
-  grouping semantics, exact alignment/sizing ownership, no duplicate labels,
-  no status words, Program-source meter projection, and variant Amplifier
-  presence/absence.
-- [ ] 7.13 Re-run focused/full offline tests, strict change/all OpenSpec
+- [ ] 7.15 Implement stable primary semantic labels plus deterministic ANAM
+  tooltip/accessibility metadata without changing grid geometry.
+- [ ] 7.16 Add GUI/lifecycle regression coverage for immediate switching,
+  fully-active/fully-inactive/MIXED/UNKNOWN grouping, exact alignment/sizing
+  ownership, naming authority, no duplicate labels/status words, Program-source
+  meter projection, and variant Amplifier presence/absence.
+- [ ] 7.17 Re-run focused/full offline tests, strict change/all OpenSpec
   validation, `git diff --check`, and `git diff --cached --check`.
-- [ ] 7.14 Create and push one focused GUI-refinement implementation commit; the
+- [ ] 7.18 Create and push one focused GUI-refinement implementation commit; the
   implementation session must not issue its own independent `APPROVE`.
-- [ ] 7.15 Repeat hardware QA on the final published GUI-refinement HEAD before
+- [ ] 7.19 Repeat hardware QA on the final published GUI-refinement HEAD before
   independent validation; record any new blocking UX/protocol finding before
   proceeding.
 
