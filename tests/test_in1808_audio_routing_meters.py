@@ -634,21 +634,52 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         session, row = self.make_session(audio=False)
         window.room_diagnostic_session = session
         window.room_interaction_coordinator.bind_session(session)
+        window.room_diagnostic_tree.render(session)
+        original_button = window.room_diagnostic_tree.findChild(
+            QPushButton, "roomMatrixAudioModeButton"
+        )
+        original_render = window.room_diagnostic_tree.render
+        transition = {}
 
-        window._on_room_matrix_mode_requested(row.record_id, "audio")
+        def render_and_observe(current_session):
+            transition["old_control_disabled"] = not original_button.isEnabled()
+            original_render(current_session)
+            transition["target_control_disabled"] = not window.room_diagnostic_tree.matrix_mode_control(
+                row.record_id
+            ).isEnabled()
+            transition["layout_present"] = window.room_diagnostic_tree.findChild(
+                QWidget, "roomIN1808SharedGridSurface"
+            ) is not None
+
+        with patch.object(
+            window.room_diagnostic_tree, "render", side_effect=render_and_observe
+        ):
+            window._on_room_matrix_mode_requested(row.record_id, "audio")
 
         self.assertEqual("audio", row.matrix_view_mode)
         self.assertIsNone(row.matrix_audio_snapshot)
         self.assertEqual(
-            "Видео",
-            window.room_diagnostic_tree.findChild(QPushButton, "roomMatrixAudioModeButton").text(),
+            {
+                "old_control_disabled": True,
+                "target_control_disabled": True,
+                "layout_present": True,
+            },
+            transition,
         )
+        button = window.room_diagnostic_tree.matrix_mode_control(row.record_id)
+        self.assertEqual(
+            "Видео",
+            button.text(),
+        )
+        self.assertTrue(button.isEnabled())
         self.assertIsNotNone(window.room_diagnostic_tree.findChild(QWidget, "roomIN1808SharedGridSurface"))
         self.assertEqual(6, len(window.room_diagnostic_tree.findChildren(QLabel, "roomIN1808InputHeader")))
         self.assertEqual(7, len(window.room_diagnostic_tree.findChildren(QLabel, "roomIN1808OutputHeader")))
+        self.assertEqual({}, window._room_matrix_mode_acknowledgements)
 
     def test_first_audio_click_stays_visible_while_serialized_controller_is_busy(self):
         window, _session, row, context, controller = self.make_live_window(audio=False)
+        window.room_diagnostic_tree.render(_session)
         controller.request_in1808_audio_entry.return_value = False
         window._schedule_room_matrix_audio_operation = Mock()
 
@@ -658,7 +689,10 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         self.assertEqual("audio", row.matrix_view_mode)
         self.assertEqual(
             "Видео",
-            window.room_diagnostic_tree.findChild(QPushButton, "roomMatrixAudioModeButton").text(),
+            window.room_diagnostic_tree.matrix_mode_control(row.record_id).text(),
+        )
+        self.assertTrue(
+            window.room_diagnostic_tree.matrix_mode_control(row.record_id).isEnabled()
         )
         self.assertIsNotNone(window.room_diagnostic_tree.findChild(QWidget, "roomIN1808SharedGridSurface"))
         window._schedule_room_matrix_audio_operation.assert_called_once_with(
@@ -752,6 +786,50 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         self.assertNotIn("0 dBFS", values)
         self.assertEqual([], widget.findChildren(QLabel, "roomIN1808MeterLabel"))
         self.assertEqual([], widget.findChildren(QLabel, "roomIN1808MeterOutcome"))
+
+    def test_in1808_meter_tracks_keep_actual_orientation_geometry_after_show(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+        from gui.theme import apply_theme
+
+        session, _row = self.make_session()
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.close)
+        apply_theme(widget)
+        widget.resize(1800, 1000)
+        widget.render(session)
+        widget.show()
+        self.app.processEvents()
+
+        meters = widget.findChildren(QFrame, "roomIN1808LogicalMeter")
+        horizontal_meter = next(
+            meter for meter in meters
+            if meter.property("meterOrientation") == "horizontal"
+        )
+        vertical_meter = next(
+            meter for meter in meters
+            if meter.property("meterOrientation") == "vertical"
+        )
+        horizontal = horizontal_meter.findChild(QWidget, "roomIN1808MeterTrack")
+        vertical = vertical_meter.findChild(QWidget, "roomIN1808MeterTrack")
+
+        self.assertEqual("horizontal", horizontal.property("meterOrientation"))
+        self.assertGreaterEqual(horizontal.width(), 20 * 4 + 19)
+        self.assertLessEqual(horizontal.height(), 12)
+        self.assertNotEqual(22, horizontal.width())
+        self.assertGreaterEqual(vertical.height(), 20 * 4 + 19)
+        self.assertLessEqual(vertical.width(), 16)
+        self.assertTrue(horizontal_meter.rect().contains(horizontal.geometry().topLeft()))
+        self.assertTrue(horizontal_meter.rect().contains(horizontal.geometry().bottomRight()))
+        self.assertTrue(vertical_meter.rect().contains(vertical.geometry().topLeft()))
+        self.assertTrue(vertical_meter.rect().contains(vertical.geometry().bottomRight()))
+
+        for track in (horizontal, vertical):
+            segments = track.findChildren(QFrame, "roomAudioDspMeterSegment")
+            self.assertEqual(20, len(segments))
+            self.assertTrue(all(segment.isVisible() for segment in segments))
+            self.assertTrue(all(segment.width() > 0 and segment.height() > 0 for segment in segments))
+            self.assertTrue(all(track.rect().contains(segment.geometry().topLeft()) for segment in segments))
+            self.assertTrue(all(track.rect().contains(segment.geometry().bottomRight()) for segment in segments))
 
     def test_program_meter_uses_one_dollar_source_and_names_remain_secondary(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
@@ -906,6 +984,9 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         window._on_room_matrix_mode_requested(row.record_id, "video")
 
         controller.cancel_in1808_audio_subcontext.assert_called_once_with()
+        controller.request_full_refresh.assert_not_called()
+        controller.request_in1808_audio_entry.assert_not_called()
+        controller.request_in1808_audio_meters.assert_not_called()
         self.assertFalse(row.matrix_audio_quiescent)
         self.assertFalse(row.network_actions_enabled)
 
@@ -913,6 +994,123 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         window._finish_room_matrix_audio_operation(context, handle)
         self.assertTrue(row.matrix_audio_quiescent)
         self.assertTrue(row.network_actions_enabled)
+
+    def test_audio_ack_fail_safe_is_deterministic_and_does_not_fabricate_evidence(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        session, row = self.make_session(audio=False)
+        window.room_diagnostic_session = session
+        window.room_interaction_coordinator.bind_session(session)
+        window.room_diagnostic_tree.render(session)
+        button = window.room_diagnostic_tree.findChild(
+            QPushButton, "roomMatrixAudioModeButton"
+        )
+
+        with patch.object(window.room_diagnostic_tree, "render", return_value=None):
+            window._on_room_matrix_mode_requested(row.record_id, "audio")
+
+        acknowledgement = window._room_matrix_mode_acknowledgements[row.record_id]
+        timer = window._room_matrix_mode_ack_timers[row.record_id]
+        self.assertFalse(button.isEnabled())
+        self.assertEqual(10000, timer.interval())
+        self.assertTrue(timer.isActive())
+        self.assertIsNone(row.matrix_audio_snapshot)
+        self.assertIsNone(
+            window.room_diagnostic_tree.findChild(
+                QWidget, "roomIN1808SharedGridSurface"
+            )
+        )
+
+        self.assertTrue(
+            window._expire_room_matrix_mode_acknowledgement(acknowledgement)
+        )
+
+        self.assertTrue(button.isEnabled())
+        self.assertIsNone(row.matrix_audio_snapshot)
+        self.assertEqual({}, window._room_matrix_mode_acknowledgements)
+        self.assertEqual({}, window._room_matrix_mode_ack_timers)
+        self.assertIsNone(
+            window.room_diagnostic_tree.findChild(
+                QWidget, "roomIN1808SharedGridSurface"
+            )
+        )
+
+    def test_stale_audio_ack_fail_safe_cannot_mutate_replacement_control(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        old_session, old_row = self.make_session(audio=False)
+        window.room_diagnostic_session = old_session
+        window.room_interaction_coordinator.bind_session(old_session)
+        window.room_diagnostic_tree.render(old_session)
+        with patch.object(window.room_diagnostic_tree, "render", return_value=None):
+            window._on_room_matrix_mode_requested(old_row.record_id, "audio")
+        acknowledgement = window._room_matrix_mode_acknowledgements[old_row.record_id]
+        old_generation = acknowledgement.audio_generation
+        old_button = window.room_diagnostic_tree.matrix_mode_control(
+            old_row.record_id
+        )
+
+        with patch.object(window.room_diagnostic_tree, "render", return_value=None):
+            window._on_room_matrix_mode_requested(old_row.record_id, "audio")
+        newer_acknowledgement = window._room_matrix_mode_acknowledgements[
+            old_row.record_id
+        ]
+        self.assertGreater(
+            newer_acknowledgement.audio_generation, old_generation
+        )
+        self.assertFalse(
+            window._expire_room_matrix_mode_acknowledgement(acknowledgement)
+        )
+        self.assertFalse(old_button.isEnabled())
+        self.assertIs(
+            newer_acknowledgement,
+            window._room_matrix_mode_acknowledgements[old_row.record_id],
+        )
+
+        replacement, _replacement_row = self.make_session(audio=False)
+        window.room_diagnostic_session = replacement
+        window.room_interaction_coordinator.bind_session(replacement)
+        window.room_diagnostic_tree.render(replacement)
+        replacement_button = window.room_diagnostic_tree.matrix_mode_control(
+            old_row.record_id
+        )
+        replacement_button.setEnabled(False)
+
+        self.assertFalse(
+            window._expire_room_matrix_mode_acknowledgement(
+                newer_acknowledgement
+            )
+        )
+        self.assertFalse(replacement_button.isEnabled())
+        self.assertEqual({}, window._room_matrix_mode_acknowledgements)
+
+    def test_collapsed_audio_ack_cannot_reenable_hidden_control(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        session, row = self.make_session(audio=False)
+        window.room_diagnostic_session = session
+        window.room_interaction_coordinator.bind_session(session)
+        window.room_diagnostic_tree.render(session)
+        button = window.room_diagnostic_tree.findChild(
+            QPushButton, "roomMatrixAudioModeButton"
+        )
+        with patch.object(window.room_diagnostic_tree, "render", return_value=None):
+            window._on_room_matrix_mode_requested(row.record_id, "audio")
+        acknowledgement = window._room_matrix_mode_acknowledgements[row.record_id]
+
+        session.expanded_record_id = None
+        window._on_room_row_collapsed(row.record_id)
+        self.assertFalse(button.isEnabled())
+        self.assertFalse(
+            window._expire_room_matrix_mode_acknowledgement(acknowledgement)
+        )
+        self.assertFalse(button.isEnabled())
 
     def test_stale_audio_callback_cannot_replace_current_audio_evidence(self):
         window, _session, row, context, _controller = self.make_live_window(audio=True)

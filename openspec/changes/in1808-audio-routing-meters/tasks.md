@@ -188,17 +188,17 @@
   disable the same mode control until the complete Audio layout is committed,
   never wait for network/device completion, and enforce a currentness-safe
   10-second fail-safe maximum.
-- [ ] 7.21 Re-run repository-local strict change/all validation and Git
+- [x] 7.21 Re-run repository-local strict change/all validation and Git
   whitespace checks on the published acknowledgement amendment, then obtain
   architecture review `APPROVE` before production remediation.
-- [ ] 7.22 Fix IN1808 orientation-specific meter-track sizing so horizontal
+- [x] 7.22 Fix IN1808 orientation-specific meter-track sizing so horizontal
   input and vertical output 20-segment scales are visibly compatible with the
   shared-grid geometry; add geometry regression coverage that can catch legacy
   vertical-QSS clipping.
-- [ ] 7.23 Implement the bounded Audio-toggle disabled state and stale-safe
+- [x] 7.23 Implement the bounded Audio-toggle disabled state and stale-safe
   10-second fail-safe, with regression coverage proving re-enable on committed
   layout and no dependency on controller/device completion.
-- [ ] 7.24 Re-run focused/full offline tests, strict change/all OpenSpec
+- [x] 7.24 Re-run focused/full offline tests, strict change/all OpenSpec
   validation, Git checks, then create and push one focused remediation commit.
 - [ ] 7.25 Repeat hardware QA on the final published remediation HEAD before
   independent validation; record any new blocking UX/protocol finding before

@@ -164,6 +164,20 @@ class DiagnosticCredentialSnapshot:
         )
 
 
+@dataclass(frozen=True, eq=False)
+class RoomMatrixModeAcknowledgement:
+    """Application-owned identity for one local IN1808 mode transition."""
+
+    session: object
+    session_identity: object
+    row: object
+    record_id: str
+    row_operation_token: int
+    audio_generation: int
+    interaction_context: object
+    credential_context_revision: int
+
+
 class RightAlignHeaderDelegate(QStyledItemDelegate):
     """Делегат для выравнивания заголовков по правому краю"""
     def __init__(self, parent=None, header_list=None):
@@ -407,6 +421,9 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_matrix_audio_started = {}
         self._room_matrix_audio_inflight = set()
         self._room_matrix_audio_failed_requests = set()
+        self._room_matrix_mode_acknowledgements = {}
+        self._room_matrix_mode_ack_timers = {}
+        self.room_matrix_mode_ack_timeout_ms = 10000
         self._room_dmp_live = {}
         self._room_live_retirements = {}
         self._room_live_cleanup_timers = {}
@@ -730,6 +747,7 @@ class VCSDiagnosticApp(QMainWindow):
         self.__dict__.setdefault("_current_action_dialog_bindings", {}).clear()
 
     def _clear_room_diagnostic_session(self, _reason="context_changed"):
+        VCSDiagnosticApp._discard_room_matrix_mode_acknowledgements(self)
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
             coordinator.bind_session(None)
@@ -941,6 +959,7 @@ class VCSDiagnosticApp(QMainWindow):
         return bindings
 
     def _on_room_row_expanded(self, record_id):
+        self._discard_room_matrix_mode_acknowledgements(except_record_id=record_id)
         coordinator = self.__dict__.get("room_interaction_coordinator")
         # The widget updates ``expanded_record_id`` before publishing this
         # signal and suppresses the programmatic collapse signal for the old
@@ -952,6 +971,7 @@ class VCSDiagnosticApp(QMainWindow):
             coordinator.request_codec_preview()
 
     def _on_room_row_collapsed(self, record_id):
+        self._discard_room_matrix_mode_acknowledgements(record_id=record_id)
         self._close_room_child_presentations(record_id=record_id)
         coordinator = self.__dict__.get("room_interaction_coordinator")
         if coordinator is not None:
@@ -977,7 +997,15 @@ class VCSDiagnosticApp(QMainWindow):
             or row.stale
         ):
             return
-        row.matrix_audio_generation += 1
+        if mode == "audio":
+            acknowledgement = self._begin_room_matrix_mode_acknowledgement(
+                session, row, coordinator.active_context
+            )
+            row.matrix_audio_generation = acknowledgement.audio_generation
+        else:
+            self._discard_room_matrix_mode_acknowledgements(record_id=record_id)
+            acknowledgement = None
+            row.matrix_audio_generation += 1
         row.matrix_view_mode = mode
         row.matrix_audio_error = None
         active = coordinator.active_context
@@ -995,7 +1023,14 @@ class VCSDiagnosticApp(QMainWindow):
             # Presentation owns the first click.  Render the complete neutral
             # grid before controller availability or any background result.
             self.room_diagnostic_tree.render(session)
-            if current_live and self._room_matrix_live.get(active) is not None:
+            committed = self._complete_room_matrix_mode_acknowledgement(
+                acknowledgement
+            )
+            if (
+                committed
+                and current_live
+                and self._room_matrix_live.get(active) is not None
+            ):
                 QTimer.singleShot(0, lambda current=active: self._start_room_matrix_audio_entry(current))
             return
         controller = self._room_matrix_live.get(active) if current_live else None
@@ -1008,6 +1043,131 @@ class VCSDiagnosticApp(QMainWindow):
         row.matrix_audio_quiescent = not cancelled and active not in self._room_matrix_audio_inflight
         row.network_actions_enabled = row.matrix_audio_quiescent
         self.room_diagnostic_tree.render(session)
+
+    def _begin_room_matrix_mode_acknowledgement(self, session, row, interaction_context):
+        """Disable the current control before the synchronous Audio render."""
+        self._discard_room_matrix_mode_acknowledgements(record_id=row.record_id)
+        acknowledgement = RoomMatrixModeAcknowledgement(
+            session=session,
+            session_identity=session.identity,
+            row=row,
+            record_id=row.record_id,
+            row_operation_token=row.operation_token,
+            audio_generation=row.matrix_audio_generation + 1,
+            interaction_context=interaction_context,
+            credential_context_revision=self.__dict__.get(
+                "_equipment_room_credential_context_revision", 0
+            ),
+        )
+        self._room_matrix_mode_acknowledgements[row.record_id] = acknowledgement
+        self.room_diagnostic_tree.begin_matrix_mode_transition(acknowledgement)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(self.room_matrix_mode_ack_timeout_ms)
+        timer.timeout.connect(
+            lambda current=acknowledgement:
+            self._expire_room_matrix_mode_acknowledgement(current)
+        )
+        self._room_matrix_mode_ack_timers[row.record_id] = timer
+        timer.start()
+        return acknowledgement
+
+    def _room_matrix_mode_acknowledgement_is_current(self, acknowledgement):
+        if acknowledgement is None:
+            return False
+        if self._room_matrix_mode_acknowledgements.get(
+            acknowledgement.record_id
+        ) is not acknowledgement:
+            return False
+        session = self.__dict__.get("room_diagnostic_session")
+        coordinator = self.__dict__.get("room_interaction_coordinator")
+        if (
+            session is not acknowledgement.session
+            or session.identity != acknowledgement.session_identity
+            or session.invalidated
+            or session.expanded_record_id != acknowledgement.record_id
+            or coordinator is None
+            or self.__dict__.get("_equipment_room_credential_context_revision", 0)
+            != acknowledgement.credential_context_revision
+        ):
+            return False
+        try:
+            row = session.row_for(acknowledgement.record_id)
+        except KeyError:
+            return False
+        if (
+            row is not acknowledgement.row
+            or row.operation_token != acknowledgement.row_operation_token
+            or row.matrix_audio_generation != acknowledgement.audio_generation
+            or row.matrix_view_mode != "audio"
+        ):
+            return False
+        interaction_context = acknowledgement.interaction_context
+        if coordinator.active_context is not interaction_context:
+            return False
+        if interaction_context is not None and coordinator.is_retiring(
+            interaction_context
+        ):
+            return False
+        return True
+
+    def _complete_room_matrix_mode_acknowledgement(self, acknowledgement):
+        """Enable Video only after the same-current Audio layout exists."""
+        if not self._room_matrix_mode_acknowledgement_is_current(acknowledgement):
+            self._discard_room_matrix_mode_acknowledgement(acknowledgement)
+            return False
+        if not self.room_diagnostic_tree.in1808_audio_layout_committed(
+            acknowledgement
+        ):
+            return False
+        self._discard_room_matrix_mode_acknowledgement(
+            acknowledgement, reenable=True
+        )
+        return True
+
+    def _expire_room_matrix_mode_acknowledgement(self, acknowledgement):
+        """Bound a failed local transition without rendering or starting I/O."""
+        if not self._room_matrix_mode_acknowledgement_is_current(acknowledgement):
+            self._discard_room_matrix_mode_acknowledgement(acknowledgement)
+            return False
+        self._discard_room_matrix_mode_acknowledgement(
+            acknowledgement, reenable=True
+        )
+        return True
+
+    def _discard_room_matrix_mode_acknowledgement(
+        self, acknowledgement, *, reenable=False
+    ):
+        if acknowledgement is None:
+            return
+        if self._room_matrix_mode_acknowledgements.get(
+            acknowledgement.record_id
+        ) is not acknowledgement:
+            return
+        self._room_matrix_mode_acknowledgements.pop(
+            acknowledgement.record_id, None
+        )
+        timer = self._room_matrix_mode_ack_timers.pop(
+            acknowledgement.record_id, None
+        )
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self.room_diagnostic_tree.end_matrix_mode_transition(
+            acknowledgement, reenable=reenable
+        )
+
+    def _discard_room_matrix_mode_acknowledgements(
+        self, *, record_id=None, except_record_id=None
+    ):
+        for current_record_id, acknowledgement in tuple(
+            self.__dict__.get("_room_matrix_mode_acknowledgements", {}).items()
+        ):
+            if record_id is not None and current_record_id != record_id:
+                continue
+            if except_record_id is not None and current_record_id == except_record_id:
+                continue
+            self._discard_room_matrix_mode_acknowledgement(acknowledgement)
 
     def _room_matrix_audio_row(self, context):
         session = self.__dict__.get("room_diagnostic_session")
@@ -1952,6 +2112,9 @@ class VCSDiagnosticApp(QMainWindow):
         )
         self._room_live_cleanup_timers[context] = timer
         timer.start(self.room_live_cleanup_timeout_ms)
+        self._discard_room_matrix_mode_acknowledgements(
+            record_id=context.record_id
+        )
         self._stop_room_matrix_audio_timer(context)
         session = self.__dict__.get("room_diagnostic_session")
         if session is not None:
@@ -6545,6 +6708,7 @@ class VCSDiagnosticApp(QMainWindow):
             if decision != QMessageBox.Yes:
                 event.ignore()
                 return
+        self._discard_room_matrix_mode_acknowledgements()
         self._supersede_model_actions("shutdown")
         self._stop_cloudlink_microphone_meter()
         session = self.__dict__.get("cloudlink_meter_session")

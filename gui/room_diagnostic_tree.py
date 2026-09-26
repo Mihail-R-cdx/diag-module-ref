@@ -190,6 +190,7 @@ class RoomDiagnosticTreeWidget(QWidget):
         # disposable exact-row child widgets because render() rebuilds them.
         self._audio_selection_context = None
         self._audio_selection: tuple[str, str, str] | None = None
+        self._matrix_mode_transition = None
         self._presentation_identity = None
         self._network_expanded_switches: set[str] = set()
         self._network_restoring = False
@@ -281,10 +282,24 @@ class RoomDiagnosticTreeWidget(QWidget):
                         self.tree,
                     )
                     mode_button.setObjectName("roomMatrixAudioModeButton")
+                    mode_button.setProperty("recordId", row.record_id)
+                    mode_button.setProperty("rowOperationToken", row.operation_token)
+                    mode_button.setProperty("audioGeneration", row.matrix_audio_generation)
+                    mode_button.setProperty("matrixViewMode", row.matrix_view_mode)
                     mode_button.setFixedHeight(28)
+                    transition = self._matrix_mode_transition
+                    transition_pending = bool(
+                        transition is not None
+                        and transition.session is session
+                        and transition.row is row
+                        and transition.record_id == row.record_id
+                        and transition.row_operation_token == row.operation_token
+                        and transition.audio_generation == row.matrix_audio_generation
+                    )
                     mode_button.setEnabled(
                         row.status is DeviceRowStatus.CONNECTED
                         and not row.stale
+                        and not transition_pending
                         and (
                             row.matrix_view_mode == "audio"
                             or (row.network_actions_enabled and row.matrix_audio_quiescent)
@@ -360,6 +375,60 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._changing = False
         self._audio_popup.finish_render(session)
         self.tree.setEnabled(not self._interaction_locked)
+
+    def begin_matrix_mode_transition(self, acknowledgement) -> None:
+        """Mirror an application-owned token only for disabled-state rendering."""
+        self._matrix_mode_transition = acknowledgement
+        self._set_matrix_mode_control_enabled(
+            acknowledgement.record_id, False
+        )
+
+    def end_matrix_mode_transition(self, acknowledgement, *, reenable=False) -> None:
+        if self._matrix_mode_transition is not acknowledgement:
+            return
+        self._matrix_mode_transition = None
+        if reenable:
+            self._set_matrix_mode_control_enabled(
+                acknowledgement.record_id, True
+            )
+
+    def _set_matrix_mode_control_enabled(self, record_id: str, enabled: bool) -> bool:
+        button = self.matrix_mode_control(record_id)
+        if button is None:
+            return False
+        button.setEnabled(enabled)
+        return True
+
+    def matrix_mode_control(self, record_id: str):
+        """Return the control installed on the current tree item, never a retired child."""
+        item = self._by_record.get(record_id)
+        if item is None:
+            return None
+        button = self.tree.itemWidget(item, 4)
+        if (
+            isinstance(button, QPushButton)
+            and button.objectName() == "roomMatrixAudioModeButton"
+            and button.property("recordId") == record_id
+        ):
+            return button
+        return None
+
+    def in1808_audio_layout_committed(self, acknowledgement) -> bool:
+        """Confirm structural commit without treating visible button text as authority."""
+        if (
+            self._matrix_mode_transition is not acknowledgement
+            or self._session is not acknowledgement.session
+            or self._presentation_identity != acknowledgement.session_identity
+        ):
+            return False
+        for surface in self.findChildren(QWidget, "roomIN1808SharedGridSurface"):
+            if (
+                surface.property("recordId") == acknowledgement.record_id
+                and surface.property("audioGeneration")
+                == acknowledgement.audio_generation
+            ):
+                return True
+        return False
 
     def _render_network(self, session: RoomDiagnosticSession) -> None:
         self._network_restoring = True
@@ -449,6 +518,7 @@ class RoomDiagnosticTreeWidget(QWidget):
             self.global_status.clear()
             self._by_record.clear()
             self._session = None
+            self._matrix_mode_transition = None
             self._audio_selection_context = None
             self._audio_selection = None
             self._active_interaction = None
@@ -1293,9 +1363,14 @@ class IN1808LogicalMeter(QFrame):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(3)
         track = QWidget(self)
-        track.setObjectName("roomAudioDspMeterTrack")
+        track.setObjectName("roomIN1808MeterTrack")
+        track.setProperty("meterOrientation", orientation)
         track.setProperty("meterAvailable", available)
         track.setProperty("numericMeterValid", available)
+        if orientation == "horizontal":
+            track.setFixedSize(99, 8)
+        else:
+            track.setFixedSize(12, 99)
         track_layout = QHBoxLayout(track) if orientation == "horizontal" else QVBoxLayout(track)
         track_layout.setContentsMargins(0, 0, 0, 0)
         track_layout.setSpacing(1)
@@ -2440,6 +2515,8 @@ class RoomReadOnlyPresentation(QWidget):
 
         surface = QWidget(card)
         surface.setObjectName("roomIN1808SharedGridSurface")
+        surface.setProperty("recordId", row.record_id)
+        surface.setProperty("audioGeneration", row.matrix_audio_generation)
         surface.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         shared_grid = QGridLayout(surface)
         shared_grid.setObjectName("roomIN1808SharedGrid")

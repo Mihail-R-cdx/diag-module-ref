@@ -1,3 +1,109 @@
+> **CURRENT REMEDIATION EVIDENCE**
+> This section supersedes the implementation evidence below for the current
+> implementation-review handoff. Historical evidence remains unchanged.
+
+# IN1808 Meter Layout and Mode Acknowledgement Remediation
+
+This remediation was implemented from approved amendment HEAD
+`ecaf2c4268ae44294ed56e184395ebb0d2b2ca79`. The publication revision is the
+single focused remediation commit containing this report and is verified by
+the post-push local/remote SHA comparison. This is implementation evidence,
+not an independent validation verdict.
+
+## Remediated Behavior
+
+- The IN1808 logical-meter track now has an IN1808-specific object/style
+  contract. Horizontal tracks are 99 x 8 pixels and vertical tracks are
+  12 x 99 pixels, which fits all twenty fixed segments plus nineteen one-pixel
+  gaps. The unchanged legacy DMP `roomAudioDspMeterTrack` vertical QSS can no
+  longer constrain or clip the IN1808 horizontal scale.
+- An actual-layout regression applies the application theme, shows the widget,
+  processes Qt events, and verifies orientation-specific track/parent bounds,
+  non-zero visible segment geometry, all twenty segments within each track,
+  compact horizontal height, and the absence of the legacy 22-pixel width.
+- An accepted `Аудио` request now creates an application-owned acknowledgement
+  token, immediately disables the current exact-row control, changes local
+  Audio state, and renders the complete neutral Audio grid synchronously.
+  Structural layout properties, rather than button text, prove that the same
+  session/row/operation-token/Audio-generation layout was committed before the
+  current control is re-enabled as `Видео`.
+- The acknowledgement has a single-shot 10-second hard maximum. Its callback
+  is guarded by exact session object/identity, record and row identity, row
+  operation token, Audio generation, interaction context/retirement state, and
+  credential-context revision. Collapse, replacement, invalidation, shutdown,
+  and newer requests discard stale acknowledgement authority.
+- Normal acknowledgement completion does not wait for a Matrix controller,
+  controller-busy retry, metadata, routing, meters, device I/O, or any network
+  result. A fail-safe expiry only re-enables the same-current control; it does
+  not render a layout, create Audio evidence, change protocol state, or start
+  I/O.
+- Audio -> Video remains an immediate presentation switch followed by the
+  existing Audio cleanup/quiescence gate. It adds no `request_full_refresh`,
+  video query, or new Video polling.
+
+## Current Changed Files
+
+- `gui/main_window.py`: application-owned acknowledgement token/timer,
+  same-current commit verification, bounded expiry, and lifecycle revocation.
+- `gui/room_diagnostic_tree.py`: current-item mode-control lookup, pending-state
+  rendering, structural Audio-layout commit markers, and orientation-specific
+  IN1808 meter-track geometry.
+- `gui/theme.py`: distinct horizontal/vertical IN1808 track selectors while
+  preserving generic DMP meter styling unchanged.
+- `tests/test_in1808_audio_routing_meters.py`: actual Qt geometry, synchronous
+  disabled/commit/re-enable, controller-absent/busy, deterministic fail-safe,
+  replacement/collapse staleness, and Audio -> Video no-refresh regressions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: factual completion
+  state through remediation validation/publication; real hardware QA remains
+  open.
+
+## Fresh Automated Evidence
+
+Focused IN1808 regression command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters -v
+```
+
+- 58 tests run; 58 passed; 0 failed; 0 errors; 0 skipped.
+
+Related Matrix/room/lifecycle regression command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+```
+
+- 374 tests run; 374 passed; 0 failed; 0 errors; 0 skipped.
+
+Full offline suite:
+
+```powershell
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+- 1068 tests run; 1068 passed; 0 failed; 0 errors; 0 skipped.
+
+Repository-local OpenSpec validation on Node v20.19.0 / npm 10.8.2:
+
+- `./openspec.cmd validate in1808-audio-routing-meters --strict`: PASS.
+- `./openspec.cmd validate --all --strict`: PASS, 18/18 items.
+
+Git validation:
+
+- `git diff --check`: PASS.
+- `git diff --cached --check`: PASS.
+- The final local/remote remediation SHA is checked after the ordinary push.
+
+## Hardware Status
+
+Hardware QA: **NOT PERFORMED** in this remediation session.
+
+Real IN1808 hardware QA remains required on the remediation HEAD.
+
+Implementation handoff status: **READY FOR REVIEW**. This does not claim
+independent revalidation, archive readiness, merge readiness, or hardware-QA
+completion.
+
 > **SUPERSEDED BY CURRENT HARDWARE-QA FOLLOW-UP**
 > This implementation evidence applies to feature HEAD `6810359dbdd9c033a4745357b47e843f30bc723b`.
 > Subsequent hardware QA found that the horizontal logical input-meter scale can
