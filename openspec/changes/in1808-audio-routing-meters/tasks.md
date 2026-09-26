@@ -120,9 +120,14 @@
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`.
 - [x] 6.4 Run `.\openspec.cmd validate --all --strict`.
 - [x] 6.5 Run `git diff --check` and `git diff --cached --check`.
-- [ ] 6.6 Create and push one focused implementation commit after architecture
+- [x] 6.6 Create and push one focused implementation commit after architecture
   approval; the implementation session must not issue its own final
   independent `APPROVE`.
+- [x] 6.7 Correct independent-review findings: batch production Audio reads on
+  the existing Matrix session, preserve literal `1$`, and retry a temporarily
+  busy serialized Audio entry/meter request without overlap or backlog.
+- [x] 6.8 Re-run focused and full offline tests, strict change/all OpenSpec
+  validation, and Git whitespace validation after the review corrections.
 
 ## 7. Independent validation and completion
 

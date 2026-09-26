@@ -11,6 +11,7 @@ import random
 import platform
 import subprocess
 import threading
+import time
 import traceback
 from types import MappingProxyType
 
@@ -403,6 +404,7 @@ class VCSDiagnosticApp(QMainWindow):
         self._room_matrix_live = {}
         self._room_matrix_audio_timers = {}
         self._room_matrix_audio_requests = {}
+        self._room_matrix_audio_started = {}
         self._room_matrix_audio_inflight = set()
         self._room_matrix_audio_failed_requests = set()
         self._room_dmp_live = {}
@@ -1034,9 +1036,16 @@ class VCSDiagnosticApp(QMainWindow):
             else controller.request_in1808_audio_meters()
         )
         if not operation:
+            # A keepalive or another short Matrix operation may temporarily
+            # own the serialized controller. Keep exactly one retry timer so
+            # Audio LIVE cannot silently stall or build a backlog.
+            self._schedule_room_matrix_audio_operation(
+                context, kind, interval_ms=100
+            )
             return False
         key = (context, operation.operation_id)
         self._room_matrix_audio_requests[key] = (row.matrix_audio_generation, kind)
+        self._room_matrix_audio_started[key] = time.monotonic()
         self._room_matrix_audio_inflight.add(context)
         row.matrix_audio_quiescent = False
         row.network_actions_enabled = False
@@ -1091,6 +1100,7 @@ class VCSDiagnosticApp(QMainWindow):
         operation = getattr(handle, "matrix_context", None)
         key = (context, getattr(operation, "operation_id", None))
         request = self._room_matrix_audio_requests.pop(key, None)
+        started = self._room_matrix_audio_started.pop(key, None)
         failed = key in self._room_matrix_audio_failed_requests
         self._room_matrix_audio_failed_requests.discard(key)
         if not any(current == context for current, _operation_id in self._room_matrix_audio_requests):
@@ -1108,25 +1118,41 @@ class VCSDiagnosticApp(QMainWindow):
             and row.matrix_view_mode == "audio"
             and row.matrix_audio_generation == generation
         ):
-            self._schedule_room_matrix_audio_meter(context)
+            elapsed_ms = int(max(0.0, time.monotonic() - started) * 1000) if started is not None else 0
+            self._schedule_room_matrix_audio_meter(
+                context, interval_ms=max(0, 1000 - elapsed_ms)
+            )
         if session is not None:
             self.room_diagnostic_tree.render(session)
 
-    def _schedule_room_matrix_audio_meter(self, context):
+    def _schedule_room_matrix_audio_meter(self, context, *, interval_ms=1000):
+        self._schedule_room_matrix_audio_operation(
+            context, "audio_meters", interval_ms=interval_ms
+        )
+
+    def _schedule_room_matrix_audio_operation(self, context, kind, *, interval_ms):
         self._stop_room_matrix_audio_timer(context)
         timer = QTimer(self)
         timer.setSingleShot(True)
-        timer.setInterval(1000)
-        timer.timeout.connect(lambda current=context: self._run_room_matrix_audio_meter(current))
+        timer.setInterval(interval_ms)
+        timer.timeout.connect(
+            lambda current=context, operation_kind=kind:
+            self._run_room_matrix_audio_operation(current, operation_kind)
+        )
         self._room_matrix_audio_timers[context] = timer
         timer.start()
 
     def _run_room_matrix_audio_meter(self, context):
-        self._room_matrix_audio_timers.pop(context, None)
+        self._run_room_matrix_audio_operation(context, "audio_meters")
+
+    def _run_room_matrix_audio_operation(self, context, kind):
+        timer = self._room_matrix_audio_timers.pop(context, None)
+        if timer is not None:
+            timer.deleteLater()
         _session, row = self._room_matrix_audio_row(context)
         if row is None or row.matrix_view_mode != "audio":
             return
-        self._submit_room_matrix_audio(context, row, "audio_meters")
+        self._submit_room_matrix_audio(context, row, kind)
 
     def _stop_room_matrix_audio_timer(self, context):
         timer = self._room_matrix_audio_timers.pop(context, None)
@@ -1956,6 +1982,14 @@ class VCSDiagnosticApp(QMainWindow):
                 retired_row = None
             if retired_row is not None and retired_row.diagnostic_model == "Extron IN1808":
                 retired_row.matrix_audio_quiescent = True
+        retired_audio_keys = [
+            key for key in self._room_matrix_audio_requests if key[0] == context
+        ]
+        for key in retired_audio_keys:
+            self._room_matrix_audio_requests.pop(key, None)
+            self._room_matrix_audio_started.pop(key, None)
+            self._room_matrix_audio_failed_requests.discard(key)
+        self._room_matrix_audio_inflight.discard(context)
         after_cleanup = self._room_live_retirements.pop(context)
         timer = self._room_live_cleanup_timers.pop(context, None)
         if timer is not None:

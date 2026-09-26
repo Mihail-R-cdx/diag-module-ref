@@ -2,7 +2,7 @@ import os
 import re
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from core.exceptions import CommandOutcomeUnknownError, ProtocolError
 from core.parser import ExtronMatrixDataParser
@@ -287,13 +287,107 @@ class IN1808IdentityAndCapabilityTests(unittest.TestCase):
         handler.model = "IN1808"
         handler.capabilities = resolve_matrix_capabilities("IN1808")
         handler.wire_identity = "IN1808"
+        handler._read_in1808_audio("1$")
         handler._read_in1808_audio("WI1ANAM")
         handler._read_in1808_audio("V30000AU")
         handler._read_in1808_audio("M20000AU")
         self.assertEqual(
-            ["WI1ANAM", "WV30000AU", "WM20000AU"],
+            ["1$", "WI1ANAM", "WV30000AU", "WM20000AU"],
             [command for command, _safe in handler.commands],
         )
+
+    def test_production_meter_snapshot_uses_one_read_only_batch(self):
+        handler = RecordingIN1808("IN1808")
+        handler.model = "IN1808"
+        handler.capabilities = resolve_matrix_capabilities("IN1808")
+        handler.wire_identity = "IN1808"
+        handler.send_command = Mock(return_value={
+            "success": True,
+            "response": "\n".join("1*500" for _ in range(34)),
+        })
+
+        snapshot = handler.get_in1808_audio_meter_snapshot(is_current=lambda: True)
+
+        handler.send_command.assert_called_once()
+        wire_batch = handler.send_command.call_args.args[0]
+        self.assertEqual(34, len(wire_batch.split("\r")))
+        self.assertTrue(all(command.startswith("WV") for command in wire_batch.split("\r")))
+        self.assertEqual(14, len(snapshot["input_meters"]))
+        self.assertEqual(7, len(snapshot["output_meters"]))
+
+    def test_production_audio_entry_batches_each_read_only_family(self):
+        handler = RecordingIN1808("IN1808")
+        handler.model = "IN1808"
+        handler.capabilities = resolve_matrix_capabilities("IN1808")
+        handler.wire_identity = "IN1808"
+
+        def response_for_batch(command, **_kwargs):
+            commands = command.split("\r")
+            if commands == ["1$"]:
+                payloads = ["3"]
+            elif all(re.fullmatch(r"WI\d+ANAM", item) for item in commands):
+                payloads = [f"Input {index}" for index in range(1, len(commands) + 1)]
+            elif all(re.fullmatch(r"WO\d+ANAM", item) for item in commands):
+                payloads = [f"Output {index}" for index in range(1, len(commands) + 1)]
+            elif all(re.fullmatch(r"WM\d+AU", item) for item in commands):
+                payloads = ["0"] * len(commands)
+            else:
+                self.assertTrue(all(re.fullmatch(r"WV\d+AU", item) for item in commands))
+                payloads = ["1*500"] * len(commands)
+            return {"success": True, "response": "\n".join(payloads)}
+
+        handler.send_command = Mock(side_effect=response_for_batch)
+
+        snapshot = handler.get_in1808_audio_entry_snapshot(is_current=lambda: True)
+
+        batch_sizes = [len(call.args[0].split("\r")) for call in handler.send_command.call_args_list]
+        self.assertEqual([15, 7, 1, 80, 34], batch_sizes)
+        self.assertEqual("HDMI 3", snapshot["program_source"]["label"])
+        self.assertEqual(80, len(snapshot["routing"]["cells"]))
+
+    def test_production_inactive_meters_use_bounded_enable_and_read_batches(self):
+        handler = RecordingIN1808("IN1808")
+        handler.model = "IN1808"
+        handler.capabilities = resolve_matrix_capabilities("IN1808")
+        handler.wire_identity = "IN1808"
+        handler.send_command = Mock(side_effect=(
+            {"success": True, "response": "\n".join("0*900" for _ in range(34))},
+            {"success": True, "response": "\n".join(
+                f"DsV{oid}*1" for oid in (
+                    list(range(30000, 30018))
+                    + list(range(40000, 40006))
+                    + list(range(60000, 60010))
+                )
+            )},
+            {"success": True, "response": "\n".join("1*400" for _ in range(34))},
+        ))
+
+        snapshot = handler.get_in1808_audio_meter_snapshot(is_current=lambda: True)
+
+        self.assertEqual(3, handler.send_command.call_count)
+        self.assertFalse(handler.send_command.call_args_list[1].kwargs["replay_safe"])
+        sent = "\n".join(call.args[0] for call in handler.send_command.call_args_list)
+        self.assertNotIn("*2AU", sent)
+        self.assertNotIn("*0AU", sent)
+        self.assertTrue(all(meter["available"] for meter in snapshot["input_meters"]))
+
+    def test_batch_correlates_echoes_and_fails_closed_on_incomplete_cardinality(self):
+        handler = RecordingIN1808("IN1808")
+        commands = ("V30000AU", "V30001AU")
+        handler.send_command = Mock(return_value={
+            "success": True,
+            "response": "WV30000AU\n1*400\nWV30001AU\n1*500",
+        })
+        results = handler._read_in1808_audio_batch(commands)
+        self.assertEqual(["1*400", "1*500"], [item["response"] for item in results])
+
+        handler.send_command = Mock(return_value={"success": True, "response": "1*400"})
+        results = handler._read_in1808_audio_batch(commands)
+        self.assertEqual([False, False], [item["success"] for item in results])
+        with self.assertRaises(CommandOutcomeUnknownError):
+            handler._read_in1808_audio_batch(
+                ("V30000*1AU", "V30001*1AU"), replay_safe=False
+            )
 
     def test_dispatch_capability_is_exact_application_owned(self):
         from gui.diagnostic_dispatch import dispatch_entry_for_model
@@ -627,6 +721,50 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         )
 
         self.assertEqual("DP 1", row.matrix_audio_snapshot["program_source"]["label"])
+
+    def test_temporary_matrix_busy_state_retries_entry_and_meter_without_backlog(self):
+        for kind in ("audio_entry", "audio_meters"):
+            with self.subTest(kind=kind):
+                window, _session, row, context, controller = self.make_live_window(audio=True)
+                operation = SimpleNamespace(operation_id=101 if kind == "audio_entry" else 102)
+                request = (
+                    controller.request_in1808_audio_entry
+                    if kind == "audio_entry"
+                    else controller.request_in1808_audio_meters
+                )
+                request.side_effect = [False, operation]
+                window._schedule_room_matrix_audio_operation = Mock()
+
+                self.assertFalse(window._submit_room_matrix_audio(context, row, kind))
+                window._schedule_room_matrix_audio_operation.assert_called_once_with(
+                    context, kind, interval_ms=100
+                )
+                self.assertNotIn(context, window._room_matrix_audio_inflight)
+
+                window._run_room_matrix_audio_operation(context, kind)
+                self.assertIn(context, window._room_matrix_audio_inflight)
+                self.assertEqual(
+                    (row.matrix_audio_generation, kind),
+                    window._room_matrix_audio_requests[(context, operation.operation_id)],
+                )
+                self.assertEqual(2, request.call_count)
+
+    def test_meter_cadence_accounts_for_completed_cycle_duration(self):
+        window, _session, row, context, controller = self.make_live_window(audio=True)
+        operation = SimpleNamespace(operation_id=103)
+        controller.request_in1808_audio_meters.return_value = operation
+        window._schedule_room_matrix_audio_meter = Mock()
+        handle = SimpleNamespace(matrix_context=operation)
+
+        with patch("gui.main_window.time.monotonic", side_effect=(10.0, 10.25)):
+            self.assertTrue(
+                window._submit_room_matrix_audio(context, row, "audio_meters")
+            )
+            window._finish_room_matrix_audio_operation(context, handle)
+
+        window._schedule_room_matrix_audio_meter.assert_called_once_with(
+            context, interval_ms=750
+        )
 
 
 if __name__ == "__main__":

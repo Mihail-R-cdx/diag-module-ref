@@ -410,17 +410,52 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         return self._in1808_audio_profile
     def _read_in1808_audio(self, command, *, replay_safe=True):
         # The profile owns canonical DSP commands while the Matrix transport
-        # owns Extron's web/SIS Escape form. ANAM already carries its leading
-        # W; V/M DSP commands need it only at this production boundary.
-        wire_command = command if command.startswith("W") else f"W{command}"
+        # owns Extron's web/SIS Escape form. The ordinary ``1$`` query must
+        # remain literal; only extended DSP commands gain a leading W.
+        wire_command = self._in1808_audio_wire_command(command)
         return self._read(wire_command, replay_safe=replay_safe)
+    @staticmethod
+    def _in1808_audio_wire_command(command):
+        if command == "1$" or re.fullmatch(r"W[IO]\d+ANAM", command):
+            return command
+        if re.fullmatch(r"[VM]\d+(?:\*1)?AU", command):
+            return f"W{command}"
+        raise ProtocolError("Command is outside the approved IN1808 Audio profile")
+    def _read_in1808_audio_batch(self, commands, *, replay_safe=True):
+        """Pipeline an ordered IN1808 Audio batch through this Matrix session."""
+        commands = tuple(commands)
+        if not commands:
+            return []
+        wire_commands = tuple(self._in1808_audio_wire_command(command) for command in commands)
+        result = self._read("\r".join(wire_commands), replay_safe=replay_safe)
+        if not result or not result.get("success"):
+            return [{"success": False, "response": ""} for _ in commands]
+        response = result.get("response", "")
+        lines = [
+            line.strip()
+            for line in str(response).replace("\r", "\n").split("\n")
+            if line.strip()
+        ]
+        echoes = set(commands) | set(wire_commands)
+        payloads = [line for line in lines if line not in echoes]
+        if len(payloads) != len(commands):
+            if not replay_safe:
+                raise CommandOutcomeUnknownError(
+                    "IN1808 Audio instrumentation batch outcome is ambiguous"
+                )
+            return [{"success": False, "response": ""} for _ in commands]
+        return [{"success": True, "response": payload} for payload in payloads]
     def get_in1808_audio_entry_snapshot(self, *, is_current=lambda: True):
         return self._audio_profile().acquire_entry_snapshot(
-            self._read_in1808_audio, is_current=is_current
+            self._read_in1808_audio,
+            read_many=self._read_in1808_audio_batch,
+            is_current=is_current,
         )
     def get_in1808_audio_meter_snapshot(self, *, is_current=lambda: True):
         return self._audio_profile().poll_meters(
-            self._read_in1808_audio, is_current=is_current
+            self._read_in1808_audio,
+            read_many=self._read_in1808_audio_batch,
+            is_current=is_current,
         )
     def cleanup_in1808_audio_subcontext(self):
         # Unknown meter-update ownership forbids all production ``*0`` I/O.

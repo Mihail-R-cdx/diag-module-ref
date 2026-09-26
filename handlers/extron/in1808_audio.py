@@ -245,16 +245,27 @@ class IN1808AudioProfile:
         read: Callable[..., Mapping[str, Any]],
         *,
         is_current: Callable[[], bool],
+        read_many: Callable[..., list[Mapping[str, Any]]] | None = None,
     ) -> dict[str, Any]:
         self.begin_subcontext()
-        input_names = self._read_names(read, "input", range(1, 16), INPUT_METER_GROUPS, is_current)
-        output_names = self._read_names(read, "output", range(1, 8), _BASE_OUTPUT_METER_GROUPS, is_current)
+        input_names = self._read_names(
+            read, read_many, "input", range(1, 16), INPUT_METER_GROUPS, is_current
+        )
+        output_names = self._read_names(
+            read, read_many, "output", range(1, 8), _BASE_OUTPUT_METER_GROUPS, is_current
+        )
         if not is_current():
             raise ProtocolError("IN1808 Audio subcontext was superseded")
         source_response = read("1$")
         program_source = parse_program_source(_response(source_response))
-        routing = self._read_routing(read, is_current)
-        meters = self.poll_meters(read, is_current=is_current, input_names=input_names, output_names=output_names)
+        routing = self._read_routing(read, read_many, is_current)
+        meters = self.poll_meters(
+            read,
+            read_many=read_many,
+            is_current=is_current,
+            input_names=input_names,
+            output_names=output_names,
+        )
         return {
             "wire_identity": self.wire_identity,
             "variant": self.variant,
@@ -271,6 +282,7 @@ class IN1808AudioProfile:
         read: Callable[..., Mapping[str, Any]],
         *,
         is_current: Callable[[], bool],
+        read_many: Callable[..., list[Mapping[str, Any]]] | None = None,
         input_names: Mapping[int, Mapping[str, Any]] | None = None,
         output_names: Mapping[int, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -278,20 +290,29 @@ class IN1808AudioProfile:
         output_names = output_names or {}
         component_results: dict[int, dict[str, Any]] = {}
         groups = INPUT_METER_GROUPS + output_meter_groups(self.wire_identity)
-        for group in groups:
-            for _channel, oid in group.components:
-                if oid in component_results:
-                    continue
-                if not is_current():
-                    component_results[oid] = _unavailable_meter(oid, "SUPERSEDED")
-                    continue
-                command = meter_read_command(oid)
-                parsed = parse_meter_response(_response(read(command)), command)
+        meter_oids = tuple(
+            dict.fromkeys(oid for group in groups for _channel, oid in group.components)
+        )
+        if not is_current():
+            component_results.update(
+                (oid, _unavailable_meter(oid, "SUPERSEDED")) for oid in meter_oids
+            )
+        else:
+            read_commands = tuple(meter_read_command(oid) for oid in meter_oids)
+            responses = _read_many_results(read, read_many, read_commands)
+            for oid, command, response in zip(meter_oids, read_commands, responses):
+                parsed = parse_meter_response(_response(response), command)
                 parsed["oid"] = oid
-                if parsed.get("state") == 0 and oid not in self._activation_attempted:
-                    self._activation_attempted.add(oid)
-                    parsed = self._activate_meter(read, oid, parsed, is_current)
                 component_results[oid] = parsed
+            activation_oids = tuple(
+                oid for oid in meter_oids
+                if component_results[oid].get("state") == 0
+                and oid not in self._activation_attempted
+            )
+            if activation_oids and is_current():
+                self._activate_meters(
+                    read, read_many, activation_oids, component_results, is_current
+                )
         return {
             "input_meters": [
                 _combine_group(group, component_results, input_names) for group in INPUT_METER_GROUPS
@@ -302,46 +323,67 @@ class IN1808AudioProfile:
             ],
         }
 
-    def _activate_meter(self, read, oid, inactive, is_current):
-        command = meter_enable_command(oid)
+    def _activate_meters(self, read, read_many, oids, component_results, is_current):
+        commands = tuple(meter_enable_command(oid) for oid in oids)
+        self._activation_attempted.update(oids)
         try:
-            enabled = parse_meter_enable_response(
-                _response(read(command, replay_safe=False)), oid, command
+            responses = _read_many_results(
+                read, read_many, commands, replay_safe=False
             )
         except CommandOutcomeUnknownError:
             if not is_current():
-                return _unavailable_meter(oid, "AMBIGUOUS_ENABLE")
-            # Reconcile once on the exact same current session.  The mutating
-            # command itself is never replayed.
-            reconcile_command = meter_read_command(oid)
-            reconciled = parse_meter_response(
-                _response(read(reconcile_command)), reconcile_command
+                for oid in oids:
+                    component_results[oid] = _unavailable_meter(oid, "AMBIGUOUS_ENABLE")
+                return
+            # Reconcile the entire possible-send set once on the exact same
+            # current session. The mutating batch itself is never replayed.
+            reconcile_commands = tuple(meter_read_command(oid) for oid in oids)
+            reconciled = _read_many_results(
+                read, read_many, reconcile_commands
             )
-            reconciled["oid"] = oid
-            if reconciled.get("state") == 1:
-                return reconciled
-            return _unavailable_meter(oid, "AMBIGUOUS_ENABLE", reconciled)
-        if not enabled or not is_current():
-            return _unavailable_meter(oid, "ENABLE_UNCONFIRMED", inactive)
-        follow_up = meter_read_command(oid)
-        parsed = parse_meter_response(_response(read(follow_up)), follow_up)
-        parsed["oid"] = oid
-        return parsed
+            for oid, command, response in zip(oids, reconcile_commands, reconciled):
+                parsed = parse_meter_response(_response(response), command)
+                parsed["oid"] = oid
+                component_results[oid] = (
+                    parsed if parsed.get("state") == 1
+                    else _unavailable_meter(oid, "AMBIGUOUS_ENABLE", parsed)
+                )
+            return
 
-    def _read_names(self, read, kind, ids, groups, is_current):
+        confirmed = []
+        for oid, command, response in zip(oids, commands, responses):
+            if parse_meter_enable_response(_response(response), oid, command) and is_current():
+                confirmed.append(oid)
+            else:
+                component_results[oid] = _unavailable_meter(
+                    oid, "ENABLE_UNCONFIRMED", component_results[oid]
+                )
+        if not confirmed or not is_current():
+            return
+        follow_up_commands = tuple(meter_read_command(oid) for oid in confirmed)
+        follow_ups = _read_many_results(read, read_many, follow_up_commands)
+        for oid, command, response in zip(confirmed, follow_up_commands, follow_ups):
+            parsed = parse_meter_response(_response(response), command)
+            parsed["oid"] = oid
+            component_results[oid] = parsed
+
+    def _read_names(self, read, read_many, kind, ids, groups, is_current):
         fallbacks: dict[int, str] = {}
         for group in groups:
             for name_id in group.name_ids:
                 fallbacks[name_id] = group.fallback_label
+        ids = tuple(ids)
+        commands = tuple(audio_name_command(kind, name_id) for name_id in ids)
+        responses = (
+            _read_many_results(read, read_many, commands)
+            if is_current() else tuple()
+        )
         names = {}
-        for name_id in ids:
-            if not is_current():
-                break
-            command = audio_name_command(kind, name_id)
+        for name_id, command, response in zip(ids, commands, responses):
             fallback = fallbacks.get(name_id, f"{'Input' if kind == 'input' else 'Output'} {name_id}")
             names[name_id] = {
                 "id": name_id,
-                **parse_audio_name(_response(read(command)), command=command, fallback=fallback),
+                **parse_audio_name(_response(response), command=command, fallback=fallback),
             }
         for name_id in ids:
             names.setdefault(name_id, {
@@ -352,25 +394,31 @@ class IN1808AudioProfile:
             })
         return names
 
-    def _read_routing(self, read, is_current):
+    def _read_routing(self, read, read_many, is_current):
         columns = routing_columns(self.wire_identity)
+        coordinates = tuple(
+            (row, row_label, column, column_label)
+            for row, row_label in enumerate(ROUTING_ROWS)
+            for column, column_label in enumerate(columns)
+        )
+        commands = tuple(mixpoint_read_command(row, column) for row, _, column, _ in coordinates)
+        responses = (
+            _read_many_results(read, read_many, commands)
+            if is_current() else tuple()
+        )
         cells = []
-        for row, row_label in enumerate(ROUTING_ROWS):
-            for column, column_label in enumerate(columns):
-                oid = mixpoint_oid(row, column)
-                state = "UNKNOWN"
-                if is_current():
-                    command = mixpoint_read_command(row, column)
-                    state = parse_mixpoint_response(_response(read(command)), command)
-                cells.append({
-                    "row": row,
-                    "column": column,
-                    "oid": oid,
-                    "row_label": row_label,
-                    "column_label": column_label,
-                    "state": state,
-                    "mapping_basis": IN1808_PRODSP_PROFILE_MAPPING,
-                })
+        for index, (row, row_label, column, column_label) in enumerate(coordinates):
+            response = responses[index] if index < len(responses) else None
+            command = commands[index]
+            cells.append({
+                "row": row,
+                "column": column,
+                "oid": mixpoint_oid(row, column),
+                "row_label": row_label,
+                "column_label": column_label,
+                "state": parse_mixpoint_response(_response(response), command),
+                "mapping_basis": IN1808_PRODSP_PROFILE_MAPPING,
+            })
         return {
             "mapping_basis": IN1808_PRODSP_PROFILE_MAPPING,
             "rows": tuple(ROUTING_ROWS),
@@ -388,6 +436,20 @@ def _approved_meter_oid(oid: Any) -> int:
     if isinstance(oid, bool) or not isinstance(oid, int) or oid not in approved:
         raise ValueError("Meter OID is outside the approved IN1808 topology")
     return oid
+
+
+def _read_many_results(read, read_many, commands, *, replay_safe=True):
+    """Return one ordered result per command without inventing missing data."""
+    commands = tuple(commands)
+    if not commands:
+        return tuple()
+    if read_many is not None:
+        results = tuple(read_many(commands, replay_safe=replay_safe) or ())
+    else:
+        results = tuple(read(command, replay_safe=replay_safe) for command in commands)
+    if len(results) < len(commands):
+        results += tuple({"success": False, "response": ""} for _ in range(len(commands) - len(results)))
+    return results[:len(commands)]
 
 
 def _response(result: Any) -> Any:

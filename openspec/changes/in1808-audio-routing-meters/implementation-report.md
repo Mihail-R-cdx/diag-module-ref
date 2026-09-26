@@ -22,6 +22,18 @@ does not approve, archive, merge, close, or delete the change.
 - Added IN1808 meter-state handling with initial read, bounded `*1` activation,
   no DMP `*2`, no production cleanup `*0`, and no blind replay after an
   ambiguous possible send.
+- Batched each production Audio read family through the existing Matrix
+  transport/session. A normal meter snapshot now uses one transport call; an
+  entry snapshot uses five bounded calls, and inactive-meter activation uses
+  bounded initial/enable/follow-up batches rather than one delayed call per OID.
+- Preserved `1$` as a literal ordinary SIS command while applying the leading
+  `W` only to the approved extended `V...AU` and `M...AU` commands; `ANAM`
+  commands retain their already-complete wire form.
+- Added one bounded retry timer when the serialized Matrix controller is
+  temporarily busy. Entry and meter work therefore resumes after keepalive or
+  another short operation without overlapping requests or accumulating a
+  backlog. Meter scheduling accounts for operation duration to retain an
+  approximately one-second cadence.
 - Preserved canonical `Extron IN1808` application identity while retaining the
   exact accepted `1I` wire identity for amplifier filtering.
 - Reused the existing MatrixController, persistent Matrix session, credential
@@ -58,7 +70,8 @@ Focused offline regression command:
 py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
 ```
 
-- Result: 357 tests run; 357 passed; 0 failed; 0 errors; 0 skipped.
+- Result after review corrections: 363 tests run; 363 passed; 0 failed;
+  0 errors; 0 skipped.
 
 Full offline suite:
 
@@ -66,7 +79,8 @@ Full offline suite:
 py -3.12 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-- Result: 1051 tests run; 1051 passed; 0 failed; 0 errors; 0 skipped.
+- Result after review corrections: 1057 tests run; 1057 passed; 0 failed;
+  0 errors; 0 skipped.
 
 Dependency and OpenSpec validation:
 
@@ -87,10 +101,10 @@ git diff --cached --check                                         -> passed
 
 ## Pending Independent Work
 
-- Task 6.6 remains unchecked in this implementation commit because commit and
-  push occur after the tracked task snapshot is created.
 - Independent clean-worktree validation and archive applicability were not
   performed in this implementation session.
+- The review corrections require a new independent validation against their
+  exact published HEAD; this report is implementation evidence only.
 - The change was not archived or merged, and PR #42 remains Draft.
 
 ## Implementation Status
