@@ -81,6 +81,7 @@ class RoomDiagnosticTreeWidget(QWidget):
     pduMutationRequested = pyqtSignal(str, int, str)
     pduBulkMutationRequested = pyqtSignal(str, str)
     matrixRouteRequested = pyqtSignal(str, int, int)
+    matrixModeRequested = pyqtSignal(str, str)
     debugRequested = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -189,6 +190,7 @@ class RoomDiagnosticTreeWidget(QWidget):
         # disposable exact-row child widgets because render() rebuilds them.
         self._audio_selection_context = None
         self._audio_selection: tuple[str, str, str] | None = None
+        self._matrix_mode_transition = None
         self._presentation_identity = None
         self._network_expanded_switches: set[str] = set()
         self._network_restoring = False
@@ -212,7 +214,11 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._audio_selection = None
         self._prune_audio_selection(session)
         expanded_record_id = session.expanded_record_id
-        self.tree.header().resizeSection(4, 0)
+        has_in1808_audio = any(
+            row.capability is not None and row.capability.in1808_audio_capability
+            for row in session.rows
+        )
+        self.tree.header().resizeSection(4, 92 if has_in1808_audio else 0)
         self._changing = True
         try:
             self.room_name_label.setText(f"Название комнаты:  {session.room_name or '—'}")
@@ -270,6 +276,41 @@ class RoomDiagnosticTreeWidget(QWidget):
                     projection.setFlags(projection.flags() & ~Qt.ItemIsSelectable)
                     item.addChild(projection)
                 self.tree.addTopLevelItem(item)
+                if row.capability is not None and row.capability.in1808_audio_capability:
+                    mode_button = QPushButton(
+                        "Видео" if row.matrix_view_mode == "audio" else "Аудио",
+                        self.tree,
+                    )
+                    mode_button.setObjectName("roomMatrixAudioModeButton")
+                    mode_button.setProperty("recordId", row.record_id)
+                    mode_button.setProperty("rowOperationToken", row.operation_token)
+                    mode_button.setProperty("audioGeneration", row.matrix_audio_generation)
+                    mode_button.setProperty("matrixViewMode", row.matrix_view_mode)
+                    mode_button.setFixedHeight(28)
+                    transition = self._matrix_mode_transition
+                    transition_pending = bool(
+                        transition is not None
+                        and transition.session is session
+                        and transition.row is row
+                        and transition.record_id == row.record_id
+                        and transition.row_operation_token == row.operation_token
+                        and transition.audio_generation == row.matrix_audio_generation
+                    )
+                    mode_button.setEnabled(
+                        row.status is DeviceRowStatus.CONNECTED
+                        and not row.stale
+                        and not transition_pending
+                        and (
+                            row.matrix_view_mode == "audio"
+                            or (row.network_actions_enabled and row.matrix_audio_quiescent)
+                        )
+                    )
+                    target_mode = "video" if row.matrix_view_mode == "audio" else "audio"
+                    mode_button.clicked.connect(
+                        lambda _checked=False, record_id=row.record_id, mode=target_mode:
+                        self.matrixModeRequested.emit(record_id, mode)
+                    )
+                    self.tree.setItemWidget(item, 4, mode_button)
                 if self._is_expandable(row):
                     # Qt applies first-column spanning only after the item has
                     # joined its view; otherwise an item widget may remain
@@ -334,6 +375,60 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._changing = False
         self._audio_popup.finish_render(session)
         self.tree.setEnabled(not self._interaction_locked)
+
+    def begin_matrix_mode_transition(self, acknowledgement) -> None:
+        """Mirror an application-owned token only for disabled-state rendering."""
+        self._matrix_mode_transition = acknowledgement
+        self._set_matrix_mode_control_enabled(
+            acknowledgement.record_id, False
+        )
+
+    def end_matrix_mode_transition(self, acknowledgement, *, reenable=False) -> None:
+        if self._matrix_mode_transition is not acknowledgement:
+            return
+        self._matrix_mode_transition = None
+        if reenable:
+            self._set_matrix_mode_control_enabled(
+                acknowledgement.record_id, True
+            )
+
+    def _set_matrix_mode_control_enabled(self, record_id: str, enabled: bool) -> bool:
+        button = self.matrix_mode_control(record_id)
+        if button is None:
+            return False
+        button.setEnabled(enabled)
+        return True
+
+    def matrix_mode_control(self, record_id: str):
+        """Return the control installed on the current tree item, never a retired child."""
+        item = self._by_record.get(record_id)
+        if item is None:
+            return None
+        button = self.tree.itemWidget(item, 4)
+        if (
+            isinstance(button, QPushButton)
+            and button.objectName() == "roomMatrixAudioModeButton"
+            and button.property("recordId") == record_id
+        ):
+            return button
+        return None
+
+    def in1808_audio_layout_committed(self, acknowledgement) -> bool:
+        """Confirm structural commit without treating visible button text as authority."""
+        if (
+            self._matrix_mode_transition is not acknowledgement
+            or self._session is not acknowledgement.session
+            or self._presentation_identity != acknowledgement.session_identity
+        ):
+            return False
+        for surface in self.findChildren(QWidget, "roomIN1808SharedGridSurface"):
+            if (
+                surface.property("recordId") == acknowledgement.record_id
+                and surface.property("audioGeneration")
+                == acknowledgement.audio_generation
+            ):
+                return True
+        return False
 
     def _render_network(self, session: RoomDiagnosticSession) -> None:
         self._network_restoring = True
@@ -423,6 +518,7 @@ class RoomDiagnosticTreeWidget(QWidget):
             self.global_status.clear()
             self._by_record.clear()
             self._session = None
+            self._matrix_mode_transition = None
             self._audio_selection_context = None
             self._audio_selection = None
             self._active_interaction = None
@@ -1061,6 +1157,242 @@ class AudioDspChannelColumn(QFrame):
             event.accept()
             return
         super().mousePressEvent(event)
+
+
+_IN1808_LOGICAL_ROWS = (
+    ("Program L/R", (0, 1), None, ()),
+    ("Mic/Line 1", (2,), "mic_line_1", (10,)),
+    ("Mic/Line 2", (3,), "mic_line_2", (11,)),
+    ("Line In 3", (4,), "line_in_3", (12,)),
+    ("Line In 4", (5,), "line_in_4", (13,)),
+    ("File Player L/R", (6, 7), "file_player", (14, 15)),
+)
+
+_IN1808_BASE_LOGICAL_COLUMNS = (
+    ("HDMI 1A", (0, 1), "hdmi_1a", (1,)),
+    ("TP/DTP 1B", (2, 3), "tp_dtp_1b", (2,)),
+    ("DTP Analog", (4, 5), "dtp_analog", (3,)),
+    ("Line Out 1", (6,), "line_out_1", (4,)),
+    ("Line Out 2", (7,), "line_out_2", (5,)),
+    ("Line Out 3", (8,), "line_out_3", (6,)),
+    ("Line Out 4", (9,), "line_out_4", (7,)),
+)
+
+_IN1808_PROGRAM_METER_KEYS = {
+    1: "dp_1", 2: "hdmi_2", 3: "hdmi_3", 4: "hdmi_4", 5: "hdmi_5",
+    6: "hdmi_6", 7: "tp_7", 8: "tp_8", 9: "aux_in",
+}
+
+
+def _in1808_variant(snapshot: Mapping[str, Any], matrix_snapshot: Mapping[str, Any]) -> str:
+    """Resolve only closed, already-normalized variant evidence for presentation."""
+    variant = snapshot.get("variant")
+    if variant in {"base", "stereo_amplifier", "mono_amplifier"}:
+        return str(variant)
+    identity = " ".join(str(
+        snapshot.get("wire_identity") or matrix_snapshot.get("wire_identity") or "IN1808"
+    ).strip().upper().split())
+    if identity.startswith("EXTRON "):
+        identity = identity[7:]
+    if identity in {"IN1808 IPCP SA", "IN1808 IPCP Q SA"}:
+        return "stereo_amplifier"
+    if identity in {"IN1808 IPCP MA 70", "IN1808 IPCP Q MA 70"}:
+        return "mono_amplifier"
+    return "base"
+
+
+def _in1808_logical_columns(variant: str):
+    columns = list(_IN1808_BASE_LOGICAL_COLUMNS)
+    if variant == "stereo_amplifier":
+        columns.append(("Amplifier", (10, 11), "amplifier", ()))
+    elif variant == "mono_amplifier":
+        columns.append(("Amplifier", (10,), "amplifier", ()))
+    return tuple(columns)
+
+
+def _in1808_meter_by_key(snapshot: Mapping[str, Any], section: str) -> dict[str, Mapping[str, Any]]:
+    meters = snapshot.get(section)
+    if not isinstance(meters, (tuple, list)):
+        return {}
+    return {
+        str(meter.get("key")): meter
+        for meter in meters
+        if isinstance(meter, Mapping) and meter.get("key")
+    }
+
+
+def _in1808_empty_meter(label: str, key: str | None = None) -> dict[str, Any]:
+    return {
+        "key": key,
+        "fallback_label": label,
+        "available": False,
+        "outcome": "UNAVAILABLE",
+        "display_dbfs": None,
+        "normalized": None,
+        "components": (),
+    }
+
+
+def _in1808_name_record(names: Any, name_id: int) -> Mapping[str, Any] | None:
+    if not isinstance(names, Mapping):
+        return None
+    record = names.get(name_id, names.get(str(name_id)))
+    return record if isinstance(record, Mapping) else None
+
+
+def _in1808_anam_metadata(names: Any, name_ids: tuple[int, ...]) -> str | None:
+    accepted = []
+    for ordinal, name_id in enumerate(name_ids):
+        record = _in1808_name_record(names, name_id)
+        if record is not None and record.get("outcome") == "VALID" and str(record.get("value") or "").strip():
+            accepted.append((ordinal, str(record["value"]).strip()))
+    if not accepted:
+        return None
+    if len(name_ids) == 1:
+        return accepted[0][1]
+    if len(accepted) == 2 and accepted[0][1] == accepted[1][1]:
+        return accepted[0][1]
+    channel_names = ("L", "R")
+    return "; ".join(f"{channel_names[index]}: {value}" for index, value in accepted)
+
+
+def _in1808_logical_input_meters(snapshot: Mapping[str, Any]):
+    meters = _in1808_meter_by_key(snapshot, "input_meters")
+    source = snapshot.get("program_source")
+    source = source if isinstance(source, Mapping) else {}
+    input_names = snapshot.get("input_names")
+    logical = []
+    for label, raw_rows, meter_key, name_ids in _IN1808_LOGICAL_ROWS:
+        selected_name_ids = name_ids
+        if meter_key is None:
+            input_id = source.get("input_id")
+            meter_key = _IN1808_PROGRAM_METER_KEYS.get(input_id)
+            selected_name_ids = (input_id,) if isinstance(input_id, int) and input_id in _IN1808_PROGRAM_METER_KEYS else ()
+        meter = dict(meters.get(meter_key) or _in1808_empty_meter(label, meter_key))
+        meter["structural_label"] = label
+        logical.append({
+            "label": label,
+            "raw_indices": raw_rows,
+            "meter": meter,
+            "anam": _in1808_anam_metadata(input_names, selected_name_ids),
+        })
+    return tuple(logical)
+
+
+def _in1808_logical_output_meters(snapshot: Mapping[str, Any], variant: str):
+    meters = _in1808_meter_by_key(snapshot, "output_meters")
+    output_names = snapshot.get("output_names")
+    logical = []
+    for label, raw_columns, meter_key, name_ids in _in1808_logical_columns(variant):
+        meter = dict(meters.get(meter_key) or _in1808_empty_meter(label, meter_key))
+        meter["structural_label"] = label
+        logical.append({
+            "label": label,
+            "raw_indices": raw_columns,
+            "meter": meter,
+            "anam": _in1808_anam_metadata(output_names, name_ids),
+        })
+    return tuple(logical)
+
+
+def project_in1808_logical_routes(snapshot: Mapping[str, Any], variant: str):
+    """Group raw route evidence for display without mutating the 8x12 snapshot."""
+    routing = snapshot.get("routing") if isinstance(snapshot.get("routing"), Mapping) else {}
+    cells = routing.get("cells") if isinstance(routing.get("cells"), (tuple, list)) else ()
+    raw_cells = {
+        (cell.get("row"), cell.get("column")): cell
+        for cell in cells if isinstance(cell, Mapping)
+    }
+    projected = []
+    for row_label, raw_rows, _meter_key, _name_ids in _IN1808_LOGICAL_ROWS:
+        for column_label, raw_columns, _output_key, _output_name_ids in _in1808_logical_columns(variant):
+            components = []
+            states = []
+            for raw_row in raw_rows:
+                for raw_column in raw_columns:
+                    cell = raw_cells.get((raw_row, raw_column))
+                    state = cell.get("state") if isinstance(cell, Mapping) else "UNKNOWN"
+                    state = state if state in {"ACTIVE", "INACTIVE"} else "UNKNOWN"
+                    states.append(state)
+                    components.append({"row": raw_row, "column": raw_column, "state": state})
+            if "UNKNOWN" in states:
+                outcome = "UNKNOWN"
+            elif len(raw_rows) == 2 and len(raw_columns) == 2:
+                diagonal = (
+                    raw_cells.get((raw_rows[0], raw_columns[0]), {}).get("state") == "ACTIVE"
+                    and raw_cells.get((raw_rows[1], raw_columns[1]), {}).get("state") == "ACTIVE"
+                    and raw_cells.get((raw_rows[0], raw_columns[1]), {}).get("state") == "INACTIVE"
+                    and raw_cells.get((raw_rows[1], raw_columns[0]), {}).get("state") == "INACTIVE"
+                )
+                outcome = "FULL" if diagonal else "INACTIVE" if all(state == "INACTIVE" for state in states) else "MIXED"
+            elif len(states) == 1:
+                outcome = "FULL" if states[0] == "ACTIVE" else "INACTIVE"
+            else:
+                outcome = "FULL" if all(state == "ACTIVE" for state in states) else "INACTIVE" if all(state == "INACTIVE" for state in states) else "MIXED"
+            projected.append({
+                "row_label": row_label,
+                "column_label": column_label,
+                "outcome": outcome,
+                "components": tuple(components),
+            })
+    return tuple(projected)
+
+
+class IN1808LogicalMeter(QFrame):
+    """One label-free logical meter aligned by its owning shared grid."""
+
+    def __init__(self, meter: Mapping[str, Any], orientation: str, anam: str | None = None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("roomIN1808LogicalMeter")
+        self.setProperty("presentationOnly", True)
+        self.setProperty("meterOrientation", orientation)
+        self.setProperty("structuralLabel", str(meter.get("structural_label") or ""))
+        if orientation == "horizontal":
+            self.setFixedHeight(28)
+        else:
+            self.setMinimumHeight(122)
+            self.setMaximumHeight(126)
+        available = meter.get("available") is True and _is_finite_real(meter.get("display_dbfs"))
+        outcome = str(meter.get("outcome") or "UNAVAILABLE")
+        accessible = f"{meter.get('structural_label') or 'Канал'}: {outcome}"
+        if anam:
+            accessible += f"; ANAM: {anam}"
+        self.setAccessibleName(accessible)
+        self.setToolTip(accessible)
+        layout = QHBoxLayout(self) if orientation == "horizontal" else QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(3)
+        track = QWidget(self)
+        track.setObjectName("roomIN1808MeterTrack")
+        track.setProperty("meterOrientation", orientation)
+        track.setProperty("meterAvailable", available)
+        track.setProperty("numericMeterValid", available)
+        if orientation == "horizontal":
+            track.setFixedSize(99, 8)
+        else:
+            track.setFixedSize(12, 99)
+        track_layout = QHBoxLayout(track) if orientation == "horizontal" else QVBoxLayout(track)
+        track_layout.setContentsMargins(0, 0, 0, 0)
+        track_layout.setSpacing(1)
+        filled = quantize_meter_segments(meter.get("normalized")) if available else 0
+        indices = range(METER_SEGMENT_COUNT) if orientation == "horizontal" else range(METER_SEGMENT_COUNT - 1, -1, -1)
+        for index in indices:
+            segment = QFrame(track)
+            segment.setObjectName("roomAudioDspMeterSegment")
+            if orientation == "horizontal":
+                segment.setFixedSize(4, 8)
+            else:
+                segment.setFixedSize(12, 4)
+            segment.setProperty("meterFilled", index < filled)
+            segment.setProperty("meterZone", meter_segment_zone(index))
+            segment.setProperty("segmentIndex", index)
+            track_layout.addWidget(segment)
+        layout.addWidget(track, 1, Qt.AlignCenter)
+        value = QLabel(f"{meter['display_dbfs']:.1f} dBFS" if available else "— dBFS", self)
+        value.setObjectName("roomIN1808MeterDbfs")
+        value.setAlignment(Qt.AlignCenter)
+        value.setMinimumWidth(58)
+        layout.addWidget(value, 0, Qt.AlignCenter)
 
 
 class AudioDspLocalControls(QFrame):
@@ -1954,6 +2286,16 @@ class RoomReadOnlyPresentation(QWidget):
         # Keep the compact facts directly below the heading.  The additional
         # room-dashboard height belongs beneath the data, not between rows.
         info.body_layout.addStretch(1)
+        if (
+            row.capability is not None
+            and row.capability.in1808_audio_capability
+            and row.matrix_view_mode == "audio"
+        ):
+            audio_card = self._build_in1808_audio_card(row, dashboard)
+            dashboard_layout.addWidget(info, 20)
+            dashboard_layout.addWidget(audio_card, 80)
+            layout.addWidget(dashboard)
+            return
         card = SectionCard("", "", dashboard)
         card.setObjectName("roomMatrixRoutingCard")
         card.header_widget.setObjectName("roomMatrixRoutingHeader")
@@ -1971,6 +2313,8 @@ class RoomReadOnlyPresentation(QWidget):
             bool(request_matrix_route)
             and row.status is DeviceRowStatus.CONNECTED
             and (row.network_actions_enabled or live_here)
+            and row.matrix_view_mode == "video"
+            and row.matrix_audio_quiescent
             and not row.interaction_blocked
             and not row.unconfirmed_after_command
             and not row.stale
@@ -2123,6 +2467,134 @@ class RoomReadOnlyPresentation(QWidget):
         dashboard_layout.addWidget(info, 25)
         dashboard_layout.addWidget(card, 75)
         layout.addWidget(dashboard)
+
+    def _build_in1808_audio_card(self, row, parent):
+        card = SectionCard("Аудио DSP", "∿", parent)
+        card.setObjectName("roomIN1808AudioCard")
+        snapshot = row.matrix_audio_snapshot if isinstance(row.matrix_audio_snapshot, Mapping) else {}
+        matrix_snapshot = row.accepted_snapshot if isinstance(row.accepted_snapshot, Mapping) else {}
+        variant = _in1808_variant(snapshot, matrix_snapshot)
+        if row.matrix_audio_error:
+            error = QLabel(row.matrix_audio_error, card)
+            error.setObjectName("roomIN1808AudioError")
+            error.setWordWrap(True)
+            card.body_layout.addWidget(error)
+        elif not snapshot:
+            loading = QLabel("Опрос аудио…", card)
+            loading.setObjectName("roomIN1808AudioLoading")
+            card.body_layout.addWidget(loading)
+
+        source_label = QLabel(card)
+        source_label.setObjectName("roomIN1808ProgramSource")
+        program = snapshot.get("program_source") if isinstance(snapshot.get("program_source"), Mapping) else {}
+        program_name_ids = (program.get("input_id"),) if program.get("input_id") in _IN1808_PROGRAM_METER_KEYS else ()
+        program_anam = _in1808_anam_metadata(snapshot.get("input_names"), program_name_ids)
+        source_label.setText(f"Источник Program: {program.get('label') or 'UNKNOWN'}")
+        source_tooltip = "Источник прочитан отдельной командой 1$; видеомаршрут 1% не используется."
+        if program_anam:
+            source_tooltip += f" ANAM: {program_anam}."
+        source_label.setToolTip(source_tooltip)
+        source_label.setAccessibleDescription(source_tooltip)
+        card.body_layout.addWidget(source_label)
+
+        caption = QLabel("Карта каналов: профиль IN1808", card)
+        caption.setObjectName("roomIN1808MappingBasis")
+        caption.setAccessibleDescription("IN1808_PRODSP_PROFILE_MAPPING; профиль принят архитектурой, не обнаружен аппаратно по ячейкам")
+        caption.setToolTip("Профиль IN1808 принят архитектурой; ответы 0/1 не подтверждают семантику осей аппаратно.")
+        card.body_layout.addWidget(caption)
+
+        input_rows = _in1808_logical_input_meters(snapshot)
+        output_columns = _in1808_logical_output_meters(snapshot, variant)
+        route_projection = {
+            (cell["row_label"], cell["column_label"]): cell
+            for cell in project_in1808_logical_routes(snapshot, variant)
+        }
+        routing = snapshot.get("routing") if isinstance(snapshot.get("routing"), Mapping) else {}
+        raw_rows = tuple(routing.get("rows") or ())
+        raw_columns = tuple(routing.get("columns") or ())
+
+        surface = QWidget(card)
+        surface.setObjectName("roomIN1808SharedGridSurface")
+        surface.setProperty("recordId", row.record_id)
+        surface.setProperty("audioGeneration", row.matrix_audio_generation)
+        surface.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        shared_grid = QGridLayout(surface)
+        shared_grid.setObjectName("roomIN1808SharedGrid")
+        shared_grid.setContentsMargins(0, 0, 0, 0)
+        shared_grid.setHorizontalSpacing(4)
+        shared_grid.setVerticalSpacing(2)
+        shared_grid.setColumnMinimumWidth(0, 176)
+        shared_grid.setColumnMinimumWidth(1, 96)
+
+        top_left = QWidget(surface)
+        top_left.setObjectName("roomIN1808TopLeftSpacer")
+        top_left.setProperty("outputMeterSlot", False)
+        shared_grid.addWidget(top_left, 0, 0, 2, 2)
+
+        for column_index, column in enumerate(output_columns):
+            grid_column = column_index + 2
+            shared_grid.setColumnMinimumWidth(grid_column, 66)
+            shared_grid.setColumnStretch(grid_column, 1)
+            meter = IN1808LogicalMeter(column["meter"], "vertical", column["anam"], surface)
+            meter.setProperty("logicalColumn", column_index)
+            shared_grid.addWidget(meter, 0, grid_column, Qt.AlignHCenter | Qt.AlignBottom)
+            header = QLabel(column["label"], surface)
+            header.setObjectName("roomIN1808OutputHeader")
+            header.setProperty("logicalColumn", column_index)
+            header.setAlignment(Qt.AlignCenter)
+            header.setWordWrap(True)
+            header.setFixedHeight(36)
+            header_metadata = f"{column['label']}"
+            if column["anam"]:
+                header_metadata += f"; ANAM: {column['anam']}"
+            header.setToolTip(header_metadata)
+            header.setAccessibleName(header_metadata)
+            shared_grid.addWidget(header, 1, grid_column)
+
+        marker_by_outcome = {"FULL": "●", "INACTIVE": "○", "MIXED": "◐", "UNKNOWN": "—"}
+        for row_index, logical_row in enumerate(input_rows):
+            grid_row = row_index + 2
+            shared_grid.setRowMinimumHeight(grid_row, 30)
+            meter = IN1808LogicalMeter(logical_row["meter"], "horizontal", logical_row["anam"], surface)
+            meter.setProperty("logicalRow", row_index)
+            shared_grid.addWidget(meter, grid_row, 0, Qt.AlignVCenter)
+            header = QLabel(logical_row["label"], surface)
+            header.setObjectName("roomIN1808InputHeader")
+            header.setProperty("logicalRow", row_index)
+            header.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            header.setFixedHeight(30)
+            header_metadata = logical_row["label"]
+            if logical_row["anam"]:
+                header_metadata += f"; ANAM: {logical_row['anam']}"
+            if logical_row["label"] == "Program L/R":
+                header_metadata += f"; источник: {program.get('label') or 'UNKNOWN'}"
+            header.setToolTip(header_metadata)
+            header.setAccessibleName(header_metadata)
+            shared_grid.addWidget(header, grid_row, 1)
+            for column_index, logical_column in enumerate(output_columns):
+                projected = route_projection[(logical_row["label"], logical_column["label"])]
+                outcome = projected["outcome"]
+                cell = QLabel(marker_by_outcome[outcome], surface)
+                cell.setObjectName("roomIN1808RouteCell")
+                cell.setProperty("routeOutcome", outcome)
+                cell.setProperty("logicalRow", row_index)
+                cell.setProperty("logicalColumn", column_index)
+                cell.setAlignment(Qt.AlignCenter)
+                cell.setFixedHeight(30)
+                details = []
+                for component in projected["components"]:
+                    raw_row = component["row"]
+                    raw_column = component["column"]
+                    row_name = raw_rows[raw_row] if raw_row < len(raw_rows) else f"row {raw_row}"
+                    column_name = raw_columns[raw_column] if raw_column < len(raw_columns) else f"column {raw_column}"
+                    details.append(f"{row_name} → {column_name}: {component['state']}")
+                detail_text = f"{outcome}; " + "; ".join(details)
+                cell.setToolTip(detail_text)
+                cell.setAccessibleName(detail_text)
+                shared_grid.addWidget(cell, grid_row, column_index + 2)
+        shared_grid.setRowStretch(len(input_rows) + 2, 1)
+        card.body_layout.addWidget(surface)
+        return card
 
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_popup=None, record_id=None, audio_actions=(), **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data

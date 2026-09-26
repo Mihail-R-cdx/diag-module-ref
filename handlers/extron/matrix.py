@@ -13,6 +13,7 @@ from typing import Tuple
 
 from core.base_handler import BaseExtronMatrixHandler
 from core.exceptions import AuthenticationError, CommandOutcomeUnknownError, ConnectionError, ProtocolError
+from handlers.extron.in1808_audio import IN1808AudioProfile, variant_for_identity
 
 HDCP_ABSENT = "ABSENT"
 HDCP_PRESENT_HDCP = "PRESENT_HDCP"
@@ -287,7 +288,7 @@ def parse_xtp_topology(dimensions, board_evidence, family="XTP", expected_part_n
 class ExtronMatrixHandler(BaseExtronMatrixHandler):
     """Exact-profile Matrix handler. Topology probes are read-only."""
     def __init__(self, ip_address, port=22023, username=None, password=None, expected_model=None):
-        super().__init__(ip_address, port, username, password); self.model = None; self.part_number = None; self.expected_model = expected_model; self.capabilities = None; self.inputs_num = None; self.outputs_num = None; self.strict_session_failures = True
+        super().__init__(ip_address, port, username, password); self.model = None; self.part_number = None; self.wire_identity = None; self.expected_model = expected_model; self.capabilities = None; self.inputs_num = None; self.outputs_num = None; self.strict_session_failures = True; self._in1808_audio_profile = None
     def send_command(self, command, data=None, **kwargs): kwargs.setdefault("response_required", True); return super().send_command(command, data, **kwargs)
     def get_status(self): return self.get_full_status()
     def _read(self, command, *, replay_safe=True): return self.send_command(command, replay_safe=replay_safe)
@@ -308,13 +309,15 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         if requested is not None and profile.exact_model != requested.exact_model:
             raise ProtocolError("Extron Matrix identity does not match expected model")
         self.model, self.part_number, self.capabilities = profile.exact_model, identity.upper() if family != "IN" else None, profile
+        self.wire_identity = identity.upper()
+        self._in1808_audio_profile = None
         self.inputs_num, self.outputs_num = len(self.capabilities.available_input_ids), len(self.capabilities.available_output_ids)
         firmware = self._parse_firmware(self._read("Q").get("response", ""))
         temp = None
         if self.capabilities.supports_temperature:
             command = "S" if self.capabilities.family == "DTP" else "w20STAT"
             temp = self._parse_temperature(self._read(command).get("response", ""), self.capabilities.family)
-        return {"model": self.model, "firmware": firmware, "temperature": temp}
+        return {"model": self.model, "firmware": firmware, "temperature": temp, "wire_identity": self.wire_identity}
 
     @staticmethod
     def _parse_firmware(response):
@@ -395,6 +398,69 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
     def get_full_status(self):
         info = self.get_device_info(); profile = self._profile(); hdcp = self.get_hdcp_info()
         return {"device_info": info, "capabilities": profile, "input_names": self.get_input_names(), "output_names": self.get_output_names(), "signal_status": self.get_signal_status(), "input_hdcp_auth": hdcp["input_auth"], "input_hdcp_status": hdcp["input_status"], "output_hdcp": hdcp["output_status"], "routes": self.get_routes(), "inputs_num": len(profile.available_input_ids), "outputs_num": len(profile.available_output_ids), "connection_protocol": self.connection_protocol}
+    def _audio_profile(self):
+        profile = self._profile()
+        if profile.exact_model != "IN1808" or variant_for_identity(self.wire_identity) is None:
+            raise ProtocolError("IN1808 Audio capability is unavailable for this exact Matrix identity")
+        if (
+            self._in1808_audio_profile is None
+            or self._in1808_audio_profile.wire_identity != self.wire_identity
+        ):
+            self._in1808_audio_profile = IN1808AudioProfile(self.wire_identity)
+        return self._in1808_audio_profile
+    def _read_in1808_audio(self, command, *, replay_safe=True):
+        # The profile owns canonical DSP commands while the Matrix transport
+        # owns Extron's web/SIS Escape form. The ordinary ``1$`` query must
+        # remain literal; only extended DSP commands gain a leading W.
+        wire_command = self._in1808_audio_wire_command(command)
+        return self._read(wire_command, replay_safe=replay_safe)
+    @staticmethod
+    def _in1808_audio_wire_command(command):
+        if command == "1$" or re.fullmatch(r"W[IO]\d+ANAM", command):
+            return command
+        if re.fullmatch(r"[VM]\d+(?:\*1)?AU", command):
+            return f"W{command}"
+        raise ProtocolError("Command is outside the approved IN1808 Audio profile")
+    def _read_in1808_audio_batch(self, commands, *, replay_safe=True):
+        """Pipeline an ordered IN1808 Audio batch through this Matrix session."""
+        commands = tuple(commands)
+        if not commands:
+            return []
+        wire_commands = tuple(self._in1808_audio_wire_command(command) for command in commands)
+        result = self._read("\r".join(wire_commands), replay_safe=replay_safe)
+        if not result or not result.get("success"):
+            return [{"success": False, "response": ""} for _ in commands]
+        response = result.get("response", "")
+        lines = [
+            line.strip()
+            for line in str(response).replace("\r", "\n").split("\n")
+            if line.strip()
+        ]
+        echoes = set(commands) | set(wire_commands)
+        payloads = [line for line in lines if line not in echoes]
+        if len(payloads) != len(commands):
+            if not replay_safe:
+                raise CommandOutcomeUnknownError(
+                    "IN1808 Audio instrumentation batch outcome is ambiguous"
+                )
+            return [{"success": False, "response": ""} for _ in commands]
+        return [{"success": True, "response": payload} for payload in payloads]
+    def get_in1808_audio_entry_snapshot(self, *, is_current=lambda: True):
+        return self._audio_profile().acquire_entry_snapshot(
+            self._read_in1808_audio,
+            read_many=self._read_in1808_audio_batch,
+            is_current=is_current,
+        )
+    def get_in1808_audio_meter_snapshot(self, *, is_current=lambda: True):
+        return self._audio_profile().poll_meters(
+            self._read_in1808_audio,
+            read_many=self._read_in1808_audio_batch,
+            is_current=is_current,
+        )
+    def cleanup_in1808_audio_subcontext(self):
+        # Unknown meter-update ownership forbids all production ``*0`` I/O.
+        if self._in1808_audio_profile is not None:
+            self._in1808_audio_profile.cleanup_subcontext()
     def set_connection(self, output_num, input_num):
         profile = self._profile()
         if output_num not in profile.available_output_ids or input_num not in profile.available_input_ids: raise ValueError("Input or output number is outside Matrix capability")
