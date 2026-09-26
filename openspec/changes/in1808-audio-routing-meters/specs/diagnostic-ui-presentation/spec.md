@@ -21,8 +21,13 @@ Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
 - **GIVEN** exact current row is `Extron IN1808` and is expanded in Video mode
 - **WHEN** the operator activates `Аудио`
 - **THEN** `Общая информация` remains the same left card
-- **AND** only the right tile changes to the IN1808 Audio presentation
-- **AND** the same header control now reads `Видео`
+- **AND** the same synchronous UI action changes the right tile to the complete
+  IN1808 Audio layout before any controller/device result is required
+- **AND** unavailable meters initially show neutral `— dBFS` evidence and
+  route cells show neutral/unknown placeholders rather than the old Video tile
+- **AND** the same header control immediately reads `Видео`
+- **AND** temporary Matrix-controller busy state is handled in the background
+  without requiring a second operator click
 
 #### Scenario: Operator returns to Video
 
@@ -32,53 +37,152 @@ Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
 - **AND** the mode control returns to `Аудио`
 - **AND** the left General-information presentation is unchanged
 
-### Requirement: IN1808 Audio presentation uses Variant B routing with modern segmented meters
+### Requirement: IN1808 Audio presentation uses one aligned logical routing grid
 
-The IN1808 Audio right tile SHALL use Variant B: the primary diagnostic
-presentation combines read-only DSP routing with compact live meters.
+The IN1808 Audio right tile SHALL use the hardware-QA-refined Variant B
+presentation: one compact logical routing grid with meters physically aligned to
+the same row/column geometry.
 
-It SHALL expose all approved input/source meter groups (DP/HDMI/TP, Aux,
-Mic/Line and File Player) and all approved output meter groups
-(HDMI/TP-DTP/DTP-analog/Line Out and exact-variant amplifier outputs).
+The visible input rows SHALL be exactly:
 
-The tile SHALL also show the current physical Program source from mandatory
-read-only `1$` metadata. Accepted input 1..9 evidence binds that named
-DP/HDMI/TP/Aux source to both `Program L` and `Program R`; unavailable
-evidence is shown as UNKNOWN and is not guessed from video `1%`.
+```text
+Program L/R
+Mic/Line 1
+Mic/Line 2
+Line In 3
+Line In 4
+File Player L/R
+```
 
-Numeric meters SHALL use the same modern vertical 20-segment dBFS visual
-language already approved for room Audio DSP meters. The legacy standalone
-horizontal Audio DSP presentation is not the visual authority.
+The visible output columns SHALL be exactly the applicable subset of:
 
-Stereo meter groups SHALL show one meter using the louder L/R level while
-routing remains channel-accurate: L/R route subchannels are not collapsed into
-one boolean cell.
+```text
+HDMI 1A
+TP/DTP 1B
+DTP Analog
+Line Out 1
+Line Out 2
+Line Out 3
+Line Out 4
+Amplifier
+```
 
-The routing grid SHALL visibly distinguish ACTIVE, INACTIVE and UNKNOWN with a
-non-color semantic/accessibility representation. Audio route cells are
-read-only and non-actionable.
+`Amplifier` appears only for an exact amplifier-capable IN1808 variant.
 
-The source/output labels for the 200xx grid come from the adopted
-`IN1808_PRODSP_PROFILE_MAPPING`, not runtime-discovered identity. The surface
-SHALL expose safe non-interactive metadata equivalent to
-`Карта каналов: профиль IN1808` through caption/tooltip/accessibility text so
-the mapping basis is not represented as cell-by-cell hardware discovery.
+The UI SHALL group raw L/R route evidence only for presentation:
 
-#### Scenario: Stereo meter and routing evidence coexist
+- Program L/R uses raw routing rows 0 and 1;
+- File Player L/R uses raw routing rows 6 and 7;
+- HDMI 1A uses raw columns 0 and 1;
+- TP/DTP 1B uses raw columns 2 and 3;
+- DTP Analog uses raw columns 4 and 5;
+- SA Amplifier uses raw columns 10 and 11;
+- MA70 Amplifier uses raw column 10.
 
-- **GIVEN** one stereo audio group has two current component meter values
-- **AND** its L/R route crosspoints are independently available
-- **WHEN** the Audio tile renders
-- **THEN** one combined logical meter shows the louder component level
-- **AND** routing remains represented by the independent channel/crosspoint evidence
-- **AND** no click on a route cell emits a routing mutation intent
+Mic/Line 1/2, Line In 3/4 and Line Out 1..4 remain one raw row/column each.
 
-#### Scenario: Route evidence is unknown
+The underlying channel-accurate 8 x 12 routing snapshot SHALL remain available
+unchanged. Grouping SHALL be presentation-only.
 
-- **GIVEN** one current Audio route cell is UNKNOWN
-- **WHEN** the grid renders
-- **THEN** the cell is visibly non-authoritative and distinct from ACTIVE/INACTIVE
-- **AND** it cannot be used as mutation authority
+For one grouped logical routing cell:
+
+- at least one applicable ACTIVE component -> filled dot;
+- all applicable components known INACTIVE -> hollow dot;
+- no ACTIVE component plus one or more UNKNOWN components -> neutral UNKNOWN
+  marker.
+
+The visible grid SHALL NOT render the words `ACTIVE`, `INACTIVE`, `VALID`
+or `INVALID`. Route cells remain read-only/non-actionable. Tooltip or
+accessibility metadata SHOULD expose component states for a grouped cell.
+
+#### Scenario: Stereo route evidence is compacted without rewriting raw evidence
+
+- **GIVEN** a logical stereo row or column contains multiple raw crosspoints
+- **WHEN** the Audio routing surface renders
+- **THEN** the visible intersection is one grouped dot/unknown marker
+- **AND** its state follows the grouped semantics above
+- **AND** the original per-channel routing evidence remains unchanged
+- **AND** no click can emit an Audio mutation
+
+### Requirement: IN1808 Audio meters align exactly with logical routing rows and columns
+
+The input-meter rail, routing grid and output-meter header SHALL share one
+logical sizing model rather than independent visual layouts.
+
+Input meters SHALL be horizontal and SHALL be placed to the left of the
+corresponding logical routing row. Their vertical center SHALL match the row
+center.
+
+Output meters SHALL be vertical and SHALL be placed above the corresponding
+logical routing column. Their horizontal center SHALL match the column center.
+
+The top-left region above the input/row-label rail SHALL remain empty because it
+does not correspond to an output column.
+
+Input/output names SHALL be rendered once in the routing row/column headers.
+Meter widgets SHALL NOT repeat those names. Numeric dBFS SHALL remain visible;
+`VALID`/`INVALID` captions SHALL not be shown.
+
+Routing data rows SHALL be compact and uniform; the target is approximately
+half the vertical size of the hardware-tested pre-refinement implementation,
+subject to font/accessibility minimums. Meter bars MAY become narrower to keep
+the alignment exact.
+
+All meter widgets retain the modern 20-segment Audio DSP visual language.
+Stereo logical meters continue to display max(L,R) while preserving component
+evidence internally.
+
+#### Scenario: Output meter aligns to its routing column
+
+- **GIVEN** an applicable logical output column
+- **WHEN** the Audio tile lays out its output meter and routing grid
+- **THEN** the meter centerline equals the routing-column centerline
+- **AND** no duplicate output label is rendered below or beside the meter
+
+#### Scenario: Input meter aligns to its routing row
+
+- **GIVEN** an applicable logical input row
+- **WHEN** the Audio tile lays out its input meter and routing grid
+- **THEN** the horizontal meter centerline equals the routing-row centerline
+- **AND** no duplicate input label is rendered by the meter widget
+
+### Requirement: Program L/R meter follows the current physical audio source
+
+The visible `Program L/R` input meter SHALL use the approved physical source
+selected by mandatory read-only `1$`.
+
+For `1$ = 1..9`, the Program meter uses the corresponding DP/HDMI/TP/Aux
+300xx meter group and applies the approved stereo max(L,R) display rule.
+If the Program source or its meter evidence is unavailable, the Program meter
+SHALL show `— dBFS` and SHALL NOT infer a source from video `1%`.
+
+The physical DP/HDMI/TP/Aux groups remain normalized evidence; they are not
+rendered as separate routing rows in this compact matrix view.
+
+#### Scenario: Program source is known
+
+- **GIVEN** `1$` identifies HDMI 3
+- **AND** current HDMI 3 left/right meter evidence is available
+- **WHEN** the Audio tile renders Program L/R
+- **THEN** its horizontal meter uses the HDMI 3 logical meter level
+- **AND** the row remains labelled `Program L/R`
+- **AND** video `1%` is not consulted for this choice
+
+#### Scenario: Program source is unknown
+
+- **WHEN** `1$` is UNKNOWN or the selected source meter is unavailable
+- **THEN** Program L/R shows `— dBFS`
+- **AND** the UI does not guess another physical input
+
+### Requirement: IN1808 Audio presentation discloses mapping basis without visual noise
+
+The routing surface SHALL expose safe non-interactive metadata equivalent to
+`Карта каналов: профиль IN1808` through caption, tooltip, or accessibility
+text so the adopted `IN1808_PRODSP_PROFILE_MAPPING` is not presented as
+hardware-cross-checked discovery.
+
+The mapping-basis disclosure SHALL not reintroduce per-cell
+`ACTIVE`/`INACTIVE` text or meter `VALID`/`INVALID` captions.
 
 ### Requirement: IN1808 Audio names and variant capability remain truthful
 

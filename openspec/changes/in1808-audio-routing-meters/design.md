@@ -444,12 +444,22 @@ Default expanded IN1808 mode is Video.
 
 Selecting `Аудио`:
 
-1. changes local row mode to Audio and the same control text to `Видео`;
-2. composition revalidates current room identity + exact record + exact
+1. synchronously changes local row mode to Audio, changes the same control text
+   to `Видео`, and rerenders the right tile as the complete Audio layout
+   before controller availability or device I/O is required;
+2. the first Audio frame uses the known exact-model/variant topology with
+   neutral route/meter placeholders (`— dBFS` for unavailable numeric
+   evidence) and may show a compact `Опрос аудио…` loading state;
+3. composition revalidates current room identity + exact record + exact
    `Extron IN1808` capability;
-3. starts the IN1808 audio subcontext on the existing Matrix owner;
-4. acquires names/routing metadata and then live meter snapshots;
-5. accepts callbacks only for the exact current room/record/audio generation.
+4. starts/retries the IN1808 audio subcontext on the existing Matrix owner;
+5. acquires names/routing metadata and then live meter snapshots;
+6. accepts callbacks only for the exact current room/record/audio generation.
+
+A temporarily busy Matrix controller SHALL NOT leave the Video tile visible,
+revert the local Audio mode, or require a second operator click. Busy handling
+remains background retry/serialization work while the already-rendered Audio
+layout stays visible.
 
 Selecting `Видео` changes presentation immediately but requests orderly
 Audio-subcontext quiescence. It does not refresh or mutate video routing merely
@@ -529,36 +539,133 @@ video route authority/actions.
 
 ### Audio mode
 
-The right tile contains:
+Hardware QA of the first implementation showed that the original free-standing
+meter bands were visually ambiguous: meters did not align with their routing
+rows/columns, duplicate labels competed with matrix headers, row heights were
+too large, and the first Audio click could appear to do nothing while
+acquisition was pending. The refined UI contract is therefore grid-first.
 
-1. a compact all-source meter band exposing every input/source meter group;
-2. a current Program-source indicator from mandatory `1$` metadata, binding
-   DP/HDMI/TP/Aux input 1..9 to the `Program L/R` DSP rows;
-3. a read-only DSP routing matrix using the 8 x variant-filtered output-channel
-   domain;
-4. compact output meters associated with output header groups.
+The right tile SHALL use one shared logical grid for the routing surface and its
+meters.
 
-Routing axes stay channel-accurate. Stereo routing channels therefore remain
-L/R subchannels; stereo meter presentation is combined to one meter per logical
-stereo group. Presentation must not collapse four possible L/R crosspoints into
-one boolean route cell.
+#### Logical presentation rows
 
-The meter visual language reuses the modern room Audio DSP segmented dBFS
-presentation, not the legacy standalone horizontal `AudioDSPScreen` bars.
-
-Audio route cells are non-interactive. They visibly distinguish at least:
+The visible input rows are:
 
 ```text
-ACTIVE
-INACTIVE
-UNKNOWN
+Program L/R
+Mic/Line 1
+Mic/Line 2
+Line In 3
+Line In 4
+File Player L/R
 ```
 
-Color alone is not sufficient; accessible/non-color state must remain present.
-The Audio routing surface SHALL also expose safe non-interactive metadata
-equivalent to `Карта каналов: профиль IN1808` (for example caption/tooltip or
-accessibility description) so the adopted profile mapping is not presented as
-hardware-cross-checked discovery.
+Raw routing evidence remains 8 rows. The presentation grouping is:
+
+```text
+Program L/R    <- raw rows 0,1
+Mic/Line 1     <- raw row 2
+Mic/Line 2     <- raw row 3
+Line In 3      <- raw row 4
+Line In 4      <- raw row 5
+File Player L/R<- raw rows 6,7
+```
+
+The Program L/R meter SHALL use the currently selected physical Program source
+from mandatory `1$`: its corresponding DP/HDMI/TP/Aux 300xx stereo meter group
+is presented as the Program L/R level. If `1$` is UNKNOWN or the selected
+source meter evidence is unavailable, Program L/R shows `— dBFS` rather than
+guessing from video `1%`.
+
+Mic/Line, Line In and File Player use their existing approved 400xx evidence.
+Stereo Program/File Player meters remain one logical meter using the approved
+max(L,R) display rule while retaining component evidence internally.
+
+#### Logical presentation columns
+
+Visible output columns are:
+
+```text
+HDMI 1A
+TP/DTP 1B
+DTP Analog
+Line Out 1
+Line Out 2
+Line Out 3
+Line Out 4
+Amplifier      (only for an exact amplifier-capable variant)
+```
+
+Raw routing evidence remains channel-accurate. Presentation grouping is:
+
+```text
+HDMI 1A        <- raw columns 0,1
+TP/DTP 1B      <- raw columns 2,3
+DTP Analog     <- raw columns 4,5
+Line Out 1     <- raw column 6
+Line Out 2     <- raw column 7
+Line Out 3     <- raw column 8
+Line Out 4     <- raw column 9
+Amplifier SA   <- raw columns 10,11
+Amplifier MA70 <- raw column 10
+base IN1808    <- no Amplifier column
+```
+
+Each visible output group has one vertical segmented meter using the approved
+logical output meter group. Stereo output meters use max(L,R) while component
+evidence remains available internally.
+
+#### Grouped routing-cell semantics
+
+The underlying 8 x 12 `routing.cells` snapshot SHALL remain unchanged and
+channel-accurate. Grouping is presentation-only; it SHALL NOT rewrite, discard,
+or fabricate raw crosspoint evidence.
+
+For one logical input-row/output-column intersection:
+
+- a **filled dot** means at least one applicable underlying crosspoint is ACTIVE;
+- a **hollow dot** means all applicable underlying crosspoints are known INACTIVE;
+- an **UNKNOWN neutral marker** (for example `—` or `?`) means there is no
+  known ACTIVE crosspoint and at least one applicable underlying crosspoint is
+  UNKNOWN/unavailable.
+
+No visible cell contains the words `ACTIVE`, `INACTIVE`, `VALID` or
+`INVALID`. The grouped cell tooltip/accessibility text SHOULD expose the
+component channel states so the compact dot does not erase diagnostic detail.
+
+Cells remain non-interactive and cannot emit an Audio routing mutation.
+
+#### Alignment invariants
+
+Meters and routing MUST NOT be built as visually independent bands.
+
+- The routing matrix and output-meter header SHALL use the same logical column
+  sizing model.
+- The area above the row-label/input-meter rail is an intentionally empty
+  top-left spacer; no output meter may occupy it.
+- Each vertical output meter centerline SHALL match the centerline of its
+  logical routing column.
+- The routing matrix and input-meter rail SHALL use the same logical row sizing
+  model.
+- Each horizontal input meter centerline SHALL match the centerline of its
+  logical routing row.
+- Routing data rows SHALL be compact and uniform, approximately half the
+  vertical size of the hardware-tested pre-refinement implementation, subject
+  to font/accessibility minimums.
+- Meter bars MAY be narrowed to preserve these alignment invariants.
+- Output and input names SHALL appear only in the matrix column/row headers;
+  the meter widgets SHALL NOT repeat the same labels.
+- Numeric dBFS remains visible. `VALID`/`INVALID` status captions are removed.
+
+Input meters are horizontal. Output meters are vertical. Both reuse the modern
+20-segment room Audio DSP visual language; the legacy standalone
+`AudioDSPScreen` remains non-authoritative.
+
+The Audio routing surface SHALL continue to expose safe non-interactive metadata
+equivalent to `Карта каналов: профиль IN1808` so the adopted
+`IN1808_PRODSP_PROFILE_MAPPING` is not presented as hardware-cross-checked
+discovery.
 
 ## Failure isolation
 
@@ -606,6 +713,14 @@ Implementation requires focused coverage for:
 - one-shot routing acquisition versus meter live cadence;
 - shared Matrix session serialization, RoomInteractionKind.LIVE handoff,
   Local Refresh/mutation/reconciliation exclusion, and no GUI-thread network I/O;
+- immediate first-click Audio presentation before device I/O/controller
+  availability, including busy-controller retry without a second click;
+- presentation-only L/R grouping over unchanged channel-accurate 8 x 12 route evidence;
+- Program L/R meter binding to the physical source selected by `1$`;
+- shared row/column sizing that aligns horizontal input meters and vertical
+  output meters exactly with logical routing rows/columns;
+- compact dot-only route cells and removal of duplicate labels and
+  `VALID`/`INVALID` captions;
 - mode toggle/collapse/context-replacement cleanup and stale callback rejection;
 - Audio failure isolation from accepted Matrix/General-information state;
 - unchanged existing video route read/mutation behavior.

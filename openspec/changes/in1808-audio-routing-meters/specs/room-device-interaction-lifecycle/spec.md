@@ -30,10 +30,12 @@ after the current exact row enters Audio mode and composition revalidates room
 identity, record identity, exact IN1808 capability, Matrix context and current
 generation.
 
-On Audio entry, the application SHALL acquire Audio names/routing metadata as
-a diagnostic snapshot and SHALL then poll approved meter OIDs at a target
-cadence of approximately one completed snapshot per second where transport
-throughput permits.
+On Audio entry, the GUI SHALL first commit/render the local Audio presentation
+state synchronously. Controller acquisition, temporary-busy retry, metadata
+reads and meter polling occur only after that visible transition. The
+application SHALL then acquire Audio names/routing metadata as a diagnostic
+snapshot and SHALL poll approved meter OIDs at a target cadence of approximately
+one completed snapshot per second where transport throughput permits.
 
 Only one meter cycle may be outstanding. If a cycle takes longer than the
 target cadence, another cycle SHALL NOT overlap or build an unbounded queue.
@@ -41,6 +43,15 @@ target cadence, another cycle SHALL NOT overlap or build an unbounded queue.
 DSP routing SHALL not be re-read on every meter tick. A new routing snapshot
 may be acquired on a new Audio-mode entry or an explicit accepted current
 refresh.
+
+#### Scenario: First Audio click is visible before I/O
+
+- **GIVEN** exact current IN1808 row is in Video mode
+- **WHEN** the operator activates `Аудио`
+- **THEN** the row enters/render Audio mode immediately with neutral placeholders
+- **AND** the control immediately reads `Видео`
+- **AND** controller busy state may delay background acquisition but cannot
+  keep the old Video tile visible or require another click
 
 #### Scenario: Video mode does not poll audio meters
 

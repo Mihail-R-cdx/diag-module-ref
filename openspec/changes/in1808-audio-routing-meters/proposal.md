@@ -26,12 +26,20 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   model-applicable amplifier outputs.
 - Combine a stereo pair into one displayed meter using the louder channel
   (`max(left_dbfs, right_dbfs)`) while retaining left/right component evidence.
-- Show DSP routing as a read-only matrix (Variant B): routing remains channel
-  accurate, while stereo groups receive one combined meter.
+- Show DSP routing as a read-only matrix (Variant B): underlying 8 x 12
+  routing evidence remains channel-accurate, while the room UI groups stereo
+  L/R rows and columns into one compact logical matrix cell.
 - Read the current physical audio source with the documented read-only `1$`
   command so `Program L/R` is explicitly linked to DP/HDMI/TP/Aux input 1..9.
 - Read audio channel names through the IN1808 Audio Name SIS family and preserve
   deterministic fallback labels when a name is unavailable.
+- Switch the right tile to the Audio layout immediately on the first
+  `Аудио` click, before waiting for controller availability or device I/O;
+  neutral placeholders make the mode change visible while Audio acquisition
+  starts in the background.
+- Align horizontal input meters to logical routing rows and vertical output
+  meters to logical routing columns in one shared grid; remove duplicated
+  meter labels and `VALID`/`INVALID` text.
 - Start IN1808 audio live metering only when Audio mode is active; stop it on
   return to Video, row collapse, room/search/context replacement, or shutdown.
 - Because meter-update state scope is not documented as connection-local,
@@ -61,7 +69,9 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 ## Expected Result
 
 An operator expands an IN1808 row and initially sees the existing video Matrix
-dashboard. The row offers `Аудио`; selecting it changes that same control to
-`Видео`, leaves General information intact, and replaces only the right-hand
-tile with live audio meters plus a read-only DSP routing matrix. Returning to
-Video restores the existing video tile and retires the Audio live subcontext.
+dashboard. The first `Аудио` click immediately changes that same control to
+`Видео`, leaves General information intact, and renders the complete Audio
+layout with neutral/loading evidence before any device result is required.
+Background acquisition then fills the aligned horizontal input meters,
+vertical output meters, and compact read-only logical routing matrix. Returning
+to Video restores the existing video tile and retires the Audio live subcontext.
