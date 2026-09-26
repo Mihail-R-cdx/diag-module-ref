@@ -137,8 +137,10 @@
   horizontal input meters aligned to routing rows and vertical output meters
   aligned to routing columns, with an empty top-left spacer.
 - [x] 7.3 Define presentation-only L/R grouping while retaining the raw
-  channel-accurate 8 x 12 routing evidence; grouped routes use fail-safe
-  fully-active / fully-inactive / MIXED / UNKNOWN semantics.
+  channel-accurate 8 x 12 routing evidence; grouped routes use topology-aware
+  stereo->stereo, stereo->mono, mono->stereo and mono->mono
+  FULL/INACTIVE/MIXED/UNKNOWN semantics, with normal diagonal stereo routing
+  classified as FULL.
 - [x] 7.4 Define Program L/R meter binding to the physical DP/HDMI/TP/Aux source
   selected by mandatory `1$`.
 - [x] 7.5 Remove duplicate meter labels plus visible
@@ -170,9 +172,11 @@
 - [ ] 7.15 Implement stable primary semantic labels plus deterministic ANAM
   tooltip/accessibility metadata without changing grid geometry.
 - [ ] 7.16 Add GUI/lifecycle regression coverage for immediate switching,
-  fully-active/fully-inactive/MIXED/UNKNOWN grouping, exact alignment/sizing
-  ownership, naming authority, no duplicate labels/status words, Program-source
-  meter projection, and variant Amplifier presence/absence.
+  topology-aware stereo->stereo/stereo->mono/mono->stereo/mono->mono
+  FULL/INACTIVE/MIXED/UNKNOWN grouping (including normal diagonal stereo FULL,
+  crossed/partial MIXED and UNKNOWN fail-safe), exact alignment/sizing ownership,
+  naming authority, no duplicate labels/status words, Program-source meter
+  projection, and variant Amplifier presence/absence.
 - [ ] 7.17 Re-run focused/full offline tests, strict change/all OpenSpec
   validation, `git diff --check`, and `git diff --cached --check`.
 - [ ] 7.18 Create and push one focused GUI-refinement implementation commit; the

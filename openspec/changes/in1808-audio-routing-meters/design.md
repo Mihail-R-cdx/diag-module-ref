@@ -623,24 +623,79 @@ channel-accurate. Grouping is presentation-only; it SHALL NOT rewrite, discard,
 or fabricate raw crosspoint evidence.
 
 For one logical input-row/output-column intersection, aggregation is
-fail-safe and evaluates all applicable underlying crosspoints:
+fail-safe and topology-aware. The logical row/column type determines which raw
+crosspoint pattern counts as a healthy FULL route.
 
-1. if any applicable component is UNKNOWN/unavailable -> **UNKNOWN** neutral
-   marker `—`;
-2. otherwise, if every applicable component is ACTIVE -> **fully active**
-   filled dot `●`;
-3. otherwise, if every applicable component is INACTIVE -> **fully inactive**
-   hollow dot `○`;
-4. otherwise -> **MIXED / partial** marker `◐`.
+Logical row types:
 
-A single ACTIVE raw crosspoint therefore SHALL NOT make a grouped stereo cell
-look fully active when another known component is INACTIVE.
+```text
+stereo rows: Program L/R, File Player L/R
+mono rows:   Mic/Line 1, Mic/Line 2, Line In 3, Line In 4
+```
+
+Logical column types:
+
+```text
+stereo columns: HDMI 1A, TP/DTP 1B, DTP Analog, Amplifier on SA variants
+mono columns:   Line Out 1..4, Amplifier on MA70 variants
+```
+
+For every topology, if any required/applicable raw crosspoint is
+UNKNOWN/unavailable, the visible state is **UNKNOWN** `—`. Known partial
+evidence SHALL NOT be promoted to `●` or `○`.
+
+For **stereo -> stereo**, the four applicable raw crosspoints are interpreted by
+channel identity, not by counting ACTIVE values:
+
+```text
+FULL ●:
+L -> L = ACTIVE
+R -> R = ACTIVE
+L -> R = INACTIVE
+R -> L = INACTIVE
+
+INACTIVE ○:
+all four = INACTIVE
+
+MIXED/PARTIAL ◐:
+any other fully-known combination
+```
+
+Therefore the normal diagonal stereo route is FULL, while one-sided routing,
+crossed routing, all-four-active crossfeed, or any other fully-known
+non-diagonal/non-off pattern is MIXED/PARTIAL.
+
+For **stereo -> mono**:
+
+```text
+FULL ●:       L -> mono = ACTIVE and R -> mono = ACTIVE
+INACTIVE ○:   both are INACTIVE
+MIXED ◐:      one ACTIVE and one INACTIVE
+UNKNOWN —:    either component is UNKNOWN/unavailable
+```
+
+For **mono -> stereo**:
+
+```text
+FULL ●:       mono -> L = ACTIVE and mono -> R = ACTIVE
+INACTIVE ○:   both are INACTIVE
+MIXED ◐:      one ACTIVE and one INACTIVE
+UNKNOWN —:    either component is UNKNOWN/unavailable
+```
+
+For **mono -> mono**, the one raw crosspoint maps directly:
+
+```text
+ACTIVE   -> ●
+INACTIVE -> ○
+UNKNOWN  -> —
+```
 
 No visible cell contains the words `ACTIVE`, `INACTIVE`, `MIXED`,
 `VALID` or `INVALID`. The grouped cell tooltip/accessibility metadata SHALL
-expose every applicable component channel state and SHALL distinguish fully
-active, fully inactive, mixed/partial, and unknown outcomes so the compact
-marker cannot hide a one-sided routing fault.
+expose every applicable component channel state and SHALL distinguish FULL,
+INACTIVE, MIXED/PARTIAL, and UNKNOWN outcomes so the compact marker cannot hide
+a one-sided, crossed, or otherwise anomalous routing pattern.
 
 Cells remain non-interactive and cannot emit an Audio routing mutation.
 
@@ -757,7 +812,8 @@ Implementation requires focused coverage for:
 - immediate first-click Audio presentation before device I/O/controller
   availability, including busy-controller retry without a second click;
 - presentation-only L/R grouping over unchanged channel-accurate 8 x 12 route
-  evidence, including fully-active/fully-inactive/MIXED/UNKNOWN aggregation;
+  evidence, including topology-aware stereo->stereo, stereo->mono,
+  mono->stereo and mono->mono FULL/INACTIVE/MIXED/UNKNOWN aggregation;
 - Program L/R meter binding to the physical source selected by `1$`;
 - stable semantic grid labels plus deterministic ANAM secondary metadata,
   including stereo-pair and Program-source naming rules;

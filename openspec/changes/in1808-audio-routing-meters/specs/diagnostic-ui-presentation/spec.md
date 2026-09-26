@@ -84,32 +84,110 @@ Mic/Line 1/2, Line In 3/4 and Line Out 1..4 remain one raw row/column each.
 The underlying channel-accurate 8 x 12 routing snapshot SHALL remain available
 unchanged. Grouping SHALL be presentation-only.
 
-For one grouped logical routing cell, evaluate every applicable underlying
-crosspoint in this order:
+For one grouped logical routing cell, classification SHALL be
+topology-aware rather than based on a count of ACTIVE raw crosspoints.
 
-- if any applicable component is UNKNOWN/unavailable -> neutral UNKNOWN marker
-  `—`;
-- otherwise if all applicable components are ACTIVE -> filled dot `●`;
-- otherwise if all applicable components are INACTIVE -> hollow dot `○`;
-- otherwise -> MIXED/partial marker `◐`.
+The logical routing types are:
 
-A filled dot is therefore permitted only for a fully active logical route; a
-one-sided or otherwise partial stereo route cannot be presented as fully active.
+```text
+stereo rows:
+Program L/R
+File Player L/R
+
+mono rows:
+Mic/Line 1
+Mic/Line 2
+Line In 3
+Line In 4
+
+stereo columns:
+HDMI 1A
+TP/DTP 1B
+DTP Analog
+Amplifier on SA variants
+
+mono columns:
+Line Out 1
+Line Out 2
+Line Out 3
+Line Out 4
+Amplifier on MA70 variants
+```
+
+If any required/applicable raw crosspoint is UNKNOWN/unavailable, the grouped
+cell SHALL render UNKNOWN `—`.
+
+For **stereo -> stereo**:
+
+```text
+● FULL:
+L->L ACTIVE, R->R ACTIVE,
+L->R INACTIVE, R->L INACTIVE
+
+○ INACTIVE:
+all four crosspoints INACTIVE
+
+◐ MIXED/PARTIAL:
+any other fully-known combination
+```
+
+For **stereo -> mono**:
+
+```text
+● FULL:      L->mono and R->mono both ACTIVE
+○ INACTIVE:  both INACTIVE
+◐ MIXED:     one ACTIVE and one INACTIVE
+— UNKNOWN:   either unknown/unavailable
+```
+
+For **mono -> stereo**:
+
+```text
+● FULL:      mono->L and mono->R both ACTIVE
+○ INACTIVE:  both INACTIVE
+◐ MIXED:     one ACTIVE and one INACTIVE
+— UNKNOWN:   either unknown/unavailable
+```
+
+For **mono -> mono**, the single raw state maps directly:
+ACTIVE -> `●`, INACTIVE -> `○`, UNKNOWN -> `—`.
 
 The visible grid SHALL NOT render the words `ACTIVE`, `INACTIVE`, `MIXED`,
 `VALID` or `INVALID`. Route cells remain read-only/non-actionable.
-Tooltip/accessibility metadata SHALL expose the applicable raw component states
-and SHALL identify fully-active, fully-inactive, mixed/partial, or unknown
-meaning for the marker.
+Tooltip/accessibility metadata SHALL expose every applicable raw component state
+and SHALL identify FULL, INACTIVE, MIXED/PARTIAL or UNKNOWN meaning for the
+compact marker.
 
-#### Scenario: Stereo route evidence is compacted without rewriting raw evidence
+#### Scenario: Normal stereo diagonal route renders as FULL
 
-- **GIVEN** a logical stereo row or column contains multiple raw crosspoints
+- **GIVEN** one stereo input group routes to one stereo output group
+- **AND** L->L and R->R are ACTIVE
+- **AND** L->R and R->L are INACTIVE
+- **WHEN** the Audio routing surface renders that logical intersection
+- **THEN** it renders `●`
+- **AND** the original four raw crosspoints remain unchanged
+
+#### Scenario: Partial or crossed stereo route does not render as FULL
+
+- **GIVEN** all four stereo-to-stereo raw crosspoints are known
+- **AND** their pattern is neither the approved diagonal FULL pattern nor all-INACTIVE
 - **WHEN** the Audio routing surface renders
-- **THEN** the visible intersection is one grouped `●` / `○` / `◐` /
-  `—` marker
-- **AND** its state follows the fail-safe grouped semantics above
-- **AND** the original per-channel routing evidence remains unchanged
+- **THEN** the logical intersection renders `◐`
+- **AND** tooltip/accessibility metadata exposes the four raw component states
+
+#### Scenario: Unknown component prevents confident grouped state
+
+- **GIVEN** one required raw component of a grouped logical route is UNKNOWN
+- **WHEN** the Audio routing surface renders
+- **THEN** the logical intersection renders `—`
+- **AND** it does not render `●` or `○`
+
+#### Scenario: Grouping does not rewrite raw evidence
+
+- **GIVEN** a logical row or column contains multiple raw crosspoints
+- **WHEN** the Audio routing surface renders one `●` / `○` / `◐` / `—`
+  marker
+- **THEN** the original per-channel routing evidence remains unchanged
 - **AND** no click can emit an Audio mutation
 
 ### Requirement: IN1808 Audio meters align exactly with logical routing rows and columns
