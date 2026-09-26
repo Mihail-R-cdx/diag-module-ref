@@ -1,3 +1,12 @@
+> **SUPERSEDED BY CURRENT HARDWARE-QA FOLLOW-UP**
+> This implementation evidence applies to feature HEAD `6810359dbdd9c033a4745357b47e843f30bc723b`.
+> Subsequent hardware QA found that the horizontal logical input-meter scale can
+> be clipped by the legacy vertical meter-track QSS, and the approved change was
+> amended to require a bounded disabled-state acknowledgement on the `Аудио`
+> mode control. Do not treat the `READY FOR REVIEW` status below as evidence for
+> the amended architecture. New implementation/test evidence is required after
+> those follow-up items are implemented.
+
 # GUI Refinement Implementation Evidence
 
 This section records the hardware-QA GUI refinement implemented from approved

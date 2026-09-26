@@ -29,6 +29,21 @@ Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
 - **AND** temporary Matrix-controller busy state is handled in the background
   without requiring a second operator click
 
+#### Scenario: Audio click has bounded local acknowledgement
+
+- **GIVEN** exact current row is `Extron IN1808` and is expanded in Video mode
+- **WHEN** the operator activates `Аудио`
+- **THEN** the same mode control becomes disabled for the local presentation
+  transition
+- **AND** the disabled state does not wait for controller availability, Audio
+  metadata, meter evidence, or any other device/network result
+- **AND** when the complete Audio layout is committed for the same current
+  row/session/mode generation, the control is enabled again and reads `Видео`
+- **AND** if that layout is not committed, the disabled interval ends no later
+  than 10 seconds without fabricating successful Audio evidence
+- **AND** a stale timeout from a superseded/collapsed/replaced context cannot
+  change the state of the current mode control
+
 #### Scenario: Operator returns to Video
 
 - **GIVEN** an expanded IN1808 row is in Audio mode

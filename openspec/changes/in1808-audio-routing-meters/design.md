@@ -456,6 +456,22 @@ Selecting `Аудио`:
 5. acquires names/routing metadata and then live meter snapshots;
 6. accepts callbacks only for the exact current room/record/audio generation.
 
+The accepted `Аудио` click SHALL also have an explicit local transition
+acknowledgement. The same row-header mode control becomes disabled immediately
+for the presentation transition and remains disabled only until the complete
+target Audio layout has been committed for the same current row/session/mode
+generation. Once that layout is committed, the control is enabled again and
+reads `Видео`; it SHALL NOT wait for Matrix-controller availability, Audio
+metadata, a meter sample, or any other device/network completion.
+
+The disabled interval has a hard 10-second fail-safe maximum. If the target
+layout has not been committed by that boundary, the control is re-enabled
+without fabricating a successful mode transition or accepted Audio evidence.
+Any delayed re-enable callback is bound to the exact row/session/mode
+generation and SHALL be discarded after collapse, replacement, invalidation,
+or a newer mode request; a stale timer cannot enable/disable a replacement
+control.
+
 A temporarily busy Matrix controller SHALL NOT leave the Video tile visible,
 revert the local Audio mode, or require a second operator click. Busy handling
 remains background retry/serialization work while the already-rendered Audio

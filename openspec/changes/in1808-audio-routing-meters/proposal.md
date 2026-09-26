@@ -37,6 +37,10 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   `Аудио` click, before waiting for controller availability or device I/O;
   neutral placeholders make the mode change visible while Audio acquisition
   starts in the background.
+- Acknowledge that accepted click locally by disabling the same mode control
+  while the target Audio layout is being committed. Re-enable it as soon as
+  the Audio layout is visibly committed, with a 10-second fail-safe maximum;
+  controller/device completion is not part of this UI acknowledgement.
 - Align horizontal input meters to logical routing rows and vertical output
   meters to logical routing columns in one shared grid; remove duplicated
   meter labels and `VALID`/`INVALID` text.
@@ -69,9 +73,13 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 ## Expected Result
 
 An operator expands an IN1808 row and initially sees the existing video Matrix
-dashboard. The first `Аудио` click immediately changes that same control to
-`Видео`, leaves General information intact, and renders the complete Audio
-layout with neutral/loading evidence before any device result is required.
-Background acquisition then fills the aligned horizontal input meters,
-vertical output meters, and compact read-only logical routing matrix. Returning
-to Video restores the existing video tile and retires the Audio live subcontext.
+dashboard. The first `Аудио` click is acknowledged locally by temporarily
+disabling that same mode control while the target presentation is committed.
+The same interaction changes the control to `Видео`, leaves General information
+intact, and renders the complete Audio layout with neutral/loading evidence
+before any device result is required. Once that Audio layout is visibly
+committed the control is enabled again; a 10-second fail-safe prevents a stuck
+disabled control if the presentation transition cannot complete. Background
+acquisition then fills the aligned horizontal input meters, vertical output
+meters, and compact read-only logical routing matrix. Returning to Video
+restores the existing video tile and retires the Audio live subcontext.

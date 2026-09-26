@@ -181,7 +181,26 @@
   validation, `git diff --check`, and `git diff --cached --check`.
 - [x] 7.18 Create and push one focused GUI-refinement implementation commit; the
   implementation session must not issue its own independent `APPROVE`.
-- [ ] 7.19 Repeat hardware QA on the final published GUI-refinement HEAD before
+- [x] 7.19 Record hardware-QA follow-up that the horizontal logical input meter
+  reuses legacy vertical-track QSS and can render the 20-segment scale clipped
+  while the dBFS number remains visible.
+- [x] 7.20 Define bounded local acknowledgement for an accepted `Аудио` click:
+  disable the same mode control until the complete Audio layout is committed,
+  never wait for network/device completion, and enforce a currentness-safe
+  10-second fail-safe maximum.
+- [ ] 7.21 Re-run repository-local strict change/all validation and Git
+  whitespace checks on the published acknowledgement amendment, then obtain
+  architecture review `APPROVE` before production remediation.
+- [ ] 7.22 Fix IN1808 orientation-specific meter-track sizing so horizontal
+  input and vertical output 20-segment scales are visibly compatible with the
+  shared-grid geometry; add geometry regression coverage that can catch legacy
+  vertical-QSS clipping.
+- [ ] 7.23 Implement the bounded Audio-toggle disabled state and stale-safe
+  10-second fail-safe, with regression coverage proving re-enable on committed
+  layout and no dependency on controller/device completion.
+- [ ] 7.24 Re-run focused/full offline tests, strict change/all OpenSpec
+  validation, Git checks, then create and push one focused remediation commit.
+- [ ] 7.25 Repeat hardware QA on the final published remediation HEAD before
   independent validation; record any new blocking UX/protocol finding before
   proceeding.
 
