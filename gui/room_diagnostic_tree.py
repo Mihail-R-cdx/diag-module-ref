@@ -1089,54 +1089,235 @@ class AudioDspChannelColumn(QFrame):
         super().mousePressEvent(event)
 
 
-class IN1808MeterColumn(QFrame):
-    """Non-interactive logical meter using the approved 20-segment language."""
+_IN1808_LOGICAL_ROWS = (
+    ("Program L/R", (0, 1), None, ()),
+    ("Mic/Line 1", (2,), "mic_line_1", (10,)),
+    ("Mic/Line 2", (3,), "mic_line_2", (11,)),
+    ("Line In 3", (4,), "line_in_3", (12,)),
+    ("Line In 4", (5,), "line_in_4", (13,)),
+    ("File Player L/R", (6, 7), "file_player", (14, 15)),
+)
 
-    def __init__(self, meter: Mapping[str, Any], parent=None):
+_IN1808_BASE_LOGICAL_COLUMNS = (
+    ("HDMI 1A", (0, 1), "hdmi_1a", (1,)),
+    ("TP/DTP 1B", (2, 3), "tp_dtp_1b", (2,)),
+    ("DTP Analog", (4, 5), "dtp_analog", (3,)),
+    ("Line Out 1", (6,), "line_out_1", (4,)),
+    ("Line Out 2", (7,), "line_out_2", (5,)),
+    ("Line Out 3", (8,), "line_out_3", (6,)),
+    ("Line Out 4", (9,), "line_out_4", (7,)),
+)
+
+_IN1808_PROGRAM_METER_KEYS = {
+    1: "dp_1", 2: "hdmi_2", 3: "hdmi_3", 4: "hdmi_4", 5: "hdmi_5",
+    6: "hdmi_6", 7: "tp_7", 8: "tp_8", 9: "aux_in",
+}
+
+
+def _in1808_variant(snapshot: Mapping[str, Any], matrix_snapshot: Mapping[str, Any]) -> str:
+    """Resolve only closed, already-normalized variant evidence for presentation."""
+    variant = snapshot.get("variant")
+    if variant in {"base", "stereo_amplifier", "mono_amplifier"}:
+        return str(variant)
+    identity = " ".join(str(
+        snapshot.get("wire_identity") or matrix_snapshot.get("wire_identity") or "IN1808"
+    ).strip().upper().split())
+    if identity.startswith("EXTRON "):
+        identity = identity[7:]
+    if identity in {"IN1808 IPCP SA", "IN1808 IPCP Q SA"}:
+        return "stereo_amplifier"
+    if identity in {"IN1808 IPCP MA 70", "IN1808 IPCP Q MA 70"}:
+        return "mono_amplifier"
+    return "base"
+
+
+def _in1808_logical_columns(variant: str):
+    columns = list(_IN1808_BASE_LOGICAL_COLUMNS)
+    if variant == "stereo_amplifier":
+        columns.append(("Amplifier", (10, 11), "amplifier", ()))
+    elif variant == "mono_amplifier":
+        columns.append(("Amplifier", (10,), "amplifier", ()))
+    return tuple(columns)
+
+
+def _in1808_meter_by_key(snapshot: Mapping[str, Any], section: str) -> dict[str, Mapping[str, Any]]:
+    meters = snapshot.get(section)
+    if not isinstance(meters, (tuple, list)):
+        return {}
+    return {
+        str(meter.get("key")): meter
+        for meter in meters
+        if isinstance(meter, Mapping) and meter.get("key")
+    }
+
+
+def _in1808_empty_meter(label: str, key: str | None = None) -> dict[str, Any]:
+    return {
+        "key": key,
+        "fallback_label": label,
+        "available": False,
+        "outcome": "UNAVAILABLE",
+        "display_dbfs": None,
+        "normalized": None,
+        "components": (),
+    }
+
+
+def _in1808_name_record(names: Any, name_id: int) -> Mapping[str, Any] | None:
+    if not isinstance(names, Mapping):
+        return None
+    record = names.get(name_id, names.get(str(name_id)))
+    return record if isinstance(record, Mapping) else None
+
+
+def _in1808_anam_metadata(names: Any, name_ids: tuple[int, ...]) -> str | None:
+    accepted = []
+    for ordinal, name_id in enumerate(name_ids):
+        record = _in1808_name_record(names, name_id)
+        if record is not None and record.get("outcome") == "VALID" and str(record.get("value") or "").strip():
+            accepted.append((ordinal, str(record["value"]).strip()))
+    if not accepted:
+        return None
+    if len(name_ids) == 1:
+        return accepted[0][1]
+    if len(accepted) == 2 and accepted[0][1] == accepted[1][1]:
+        return accepted[0][1]
+    channel_names = ("L", "R")
+    return "; ".join(f"{channel_names[index]}: {value}" for index, value in accepted)
+
+
+def _in1808_logical_input_meters(snapshot: Mapping[str, Any]):
+    meters = _in1808_meter_by_key(snapshot, "input_meters")
+    source = snapshot.get("program_source")
+    source = source if isinstance(source, Mapping) else {}
+    input_names = snapshot.get("input_names")
+    logical = []
+    for label, raw_rows, meter_key, name_ids in _IN1808_LOGICAL_ROWS:
+        selected_name_ids = name_ids
+        if meter_key is None:
+            input_id = source.get("input_id")
+            meter_key = _IN1808_PROGRAM_METER_KEYS.get(input_id)
+            selected_name_ids = (input_id,) if isinstance(input_id, int) and input_id in _IN1808_PROGRAM_METER_KEYS else ()
+        meter = dict(meters.get(meter_key) or _in1808_empty_meter(label, meter_key))
+        meter["structural_label"] = label
+        logical.append({
+            "label": label,
+            "raw_indices": raw_rows,
+            "meter": meter,
+            "anam": _in1808_anam_metadata(input_names, selected_name_ids),
+        })
+    return tuple(logical)
+
+
+def _in1808_logical_output_meters(snapshot: Mapping[str, Any], variant: str):
+    meters = _in1808_meter_by_key(snapshot, "output_meters")
+    output_names = snapshot.get("output_names")
+    logical = []
+    for label, raw_columns, meter_key, name_ids in _in1808_logical_columns(variant):
+        meter = dict(meters.get(meter_key) or _in1808_empty_meter(label, meter_key))
+        meter["structural_label"] = label
+        logical.append({
+            "label": label,
+            "raw_indices": raw_columns,
+            "meter": meter,
+            "anam": _in1808_anam_metadata(output_names, name_ids),
+        })
+    return tuple(logical)
+
+
+def project_in1808_logical_routes(snapshot: Mapping[str, Any], variant: str):
+    """Group raw route evidence for display without mutating the 8x12 snapshot."""
+    routing = snapshot.get("routing") if isinstance(snapshot.get("routing"), Mapping) else {}
+    cells = routing.get("cells") if isinstance(routing.get("cells"), (tuple, list)) else ()
+    raw_cells = {
+        (cell.get("row"), cell.get("column")): cell
+        for cell in cells if isinstance(cell, Mapping)
+    }
+    projected = []
+    for row_label, raw_rows, _meter_key, _name_ids in _IN1808_LOGICAL_ROWS:
+        for column_label, raw_columns, _output_key, _output_name_ids in _in1808_logical_columns(variant):
+            components = []
+            states = []
+            for raw_row in raw_rows:
+                for raw_column in raw_columns:
+                    cell = raw_cells.get((raw_row, raw_column))
+                    state = cell.get("state") if isinstance(cell, Mapping) else "UNKNOWN"
+                    state = state if state in {"ACTIVE", "INACTIVE"} else "UNKNOWN"
+                    states.append(state)
+                    components.append({"row": raw_row, "column": raw_column, "state": state})
+            if "UNKNOWN" in states:
+                outcome = "UNKNOWN"
+            elif len(raw_rows) == 2 and len(raw_columns) == 2:
+                diagonal = (
+                    raw_cells.get((raw_rows[0], raw_columns[0]), {}).get("state") == "ACTIVE"
+                    and raw_cells.get((raw_rows[1], raw_columns[1]), {}).get("state") == "ACTIVE"
+                    and raw_cells.get((raw_rows[0], raw_columns[1]), {}).get("state") == "INACTIVE"
+                    and raw_cells.get((raw_rows[1], raw_columns[0]), {}).get("state") == "INACTIVE"
+                )
+                outcome = "FULL" if diagonal else "INACTIVE" if all(state == "INACTIVE" for state in states) else "MIXED"
+            elif len(states) == 1:
+                outcome = "FULL" if states[0] == "ACTIVE" else "INACTIVE"
+            else:
+                outcome = "FULL" if all(state == "ACTIVE" for state in states) else "INACTIVE" if all(state == "INACTIVE" for state in states) else "MIXED"
+            projected.append({
+                "row_label": row_label,
+                "column_label": column_label,
+                "outcome": outcome,
+                "components": tuple(components),
+            })
+    return tuple(projected)
+
+
+class IN1808LogicalMeter(QFrame):
+    """One label-free logical meter aligned by its owning shared grid."""
+
+    def __init__(self, meter: Mapping[str, Any], orientation: str, anam: str | None = None, parent=None):
         super().__init__(parent)
-        self.setObjectName("roomIN1808MeterColumn")
+        self.setObjectName("roomIN1808LogicalMeter")
         self.setProperty("presentationOnly", True)
-        self.setMinimumWidth(54)
-        self.setMaximumWidth(76)
+        self.setProperty("meterOrientation", orientation)
+        self.setProperty("structuralLabel", str(meter.get("structural_label") or ""))
+        if orientation == "horizontal":
+            self.setFixedHeight(28)
+        else:
+            self.setMinimumHeight(122)
+            self.setMaximumHeight(126)
         available = meter.get("available") is True and _is_finite_real(meter.get("display_dbfs"))
         outcome = str(meter.get("outcome") or "UNAVAILABLE")
-        self.setAccessibleName(f"{meter.get('label') or 'Канал'}: {outcome}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(2)
-        label = QLabel(str(meter.get("label") or meter.get("fallback_label") or "Канал"), self)
-        label.setObjectName("roomIN1808MeterLabel")
-        label.setAlignment(Qt.AlignHCenter)
-        label.setWordWrap(True)
-        layout.addWidget(label)
+        accessible = f"{meter.get('structural_label') or 'Канал'}: {outcome}"
+        if anam:
+            accessible += f"; ANAM: {anam}"
+        self.setAccessibleName(accessible)
+        self.setToolTip(accessible)
+        layout = QHBoxLayout(self) if orientation == "horizontal" else QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(3)
         track = QWidget(self)
         track.setObjectName("roomAudioDspMeterTrack")
         track.setProperty("meterAvailable", available)
         track.setProperty("numericMeterValid", available)
-        track_layout = QVBoxLayout(track)
+        track_layout = QHBoxLayout(track) if orientation == "horizontal" else QVBoxLayout(track)
         track_layout.setContentsMargins(0, 0, 0, 0)
-        track_layout.setSpacing(2)
+        track_layout.setSpacing(1)
         filled = quantize_meter_segments(meter.get("normalized")) if available else 0
-        for index in range(METER_SEGMENT_COUNT - 1, -1, -1):
+        indices = range(METER_SEGMENT_COUNT) if orientation == "horizontal" else range(METER_SEGMENT_COUNT - 1, -1, -1)
+        for index in indices:
             segment = QFrame(track)
             segment.setObjectName("roomAudioDspMeterSegment")
-            segment.setFixedHeight(5)
+            if orientation == "horizontal":
+                segment.setFixedSize(4, 8)
+            else:
+                segment.setFixedSize(12, 4)
             segment.setProperty("meterFilled", index < filled)
             segment.setProperty("meterZone", meter_segment_zone(index))
             segment.setProperty("segmentIndex", index)
             track_layout.addWidget(segment)
-        layout.addWidget(track, 1, Qt.AlignHCenter)
-        value = QLabel(
-            f"{meter['display_dbfs']:.1f} dBFS" if available else "— dBFS",
-            self,
-        )
+        layout.addWidget(track, 1, Qt.AlignCenter)
+        value = QLabel(f"{meter['display_dbfs']:.1f} dBFS" if available else "— dBFS", self)
         value.setObjectName("roomIN1808MeterDbfs")
-        value.setAlignment(Qt.AlignHCenter)
-        layout.addWidget(value)
-        state = QLabel(outcome, self)
-        state.setObjectName("roomIN1808MeterOutcome")
-        state.setAlignment(Qt.AlignHCenter)
-        layout.addWidget(state)
+        value.setAlignment(Qt.AlignCenter)
+        value.setMinimumWidth(58)
+        layout.addWidget(value, 0, Qt.AlignCenter)
 
 
 class AudioDspLocalControls(QFrame):
@@ -2036,8 +2217,8 @@ class RoomReadOnlyPresentation(QWidget):
             and row.matrix_view_mode == "audio"
         ):
             audio_card = self._build_in1808_audio_card(row, dashboard)
-            dashboard_layout.addWidget(info, 25)
-            dashboard_layout.addWidget(audio_card, 75)
+            dashboard_layout.addWidget(info, 20)
+            dashboard_layout.addWidget(audio_card, 80)
             layout.addWidget(dashboard)
             return
         card = SectionCard("", "", dashboard)
@@ -2216,80 +2397,126 @@ class RoomReadOnlyPresentation(QWidget):
         card = SectionCard("Аудио DSP", "∿", parent)
         card.setObjectName("roomIN1808AudioCard")
         snapshot = row.matrix_audio_snapshot if isinstance(row.matrix_audio_snapshot, Mapping) else {}
+        matrix_snapshot = row.accepted_snapshot if isinstance(row.accepted_snapshot, Mapping) else {}
+        variant = _in1808_variant(snapshot, matrix_snapshot)
         if row.matrix_audio_error:
             error = QLabel(row.matrix_audio_error, card)
             error.setObjectName("roomIN1808AudioError")
             error.setWordWrap(True)
             card.body_layout.addWidget(error)
+        elif not snapshot:
+            loading = QLabel("Опрос аудио…", card)
+            loading.setObjectName("roomIN1808AudioLoading")
+            card.body_layout.addWidget(loading)
 
         source_label = QLabel(card)
         source_label.setObjectName("roomIN1808ProgramSource")
         program = snapshot.get("program_source") if isinstance(snapshot.get("program_source"), Mapping) else {}
-        source_label.setText(f"Program L/R: {program.get('label') or 'UNKNOWN'}")
-        source_label.setToolTip("Источник прочитан отдельной командой 1$; видеомаршрут 1% не используется.")
+        program_name_ids = (program.get("input_id"),) if program.get("input_id") in _IN1808_PROGRAM_METER_KEYS else ()
+        program_anam = _in1808_anam_metadata(snapshot.get("input_names"), program_name_ids)
+        source_label.setText(f"Источник Program: {program.get('label') or 'UNKNOWN'}")
+        source_tooltip = "Источник прочитан отдельной командой 1$; видеомаршрут 1% не используется."
+        if program_anam:
+            source_tooltip += f" ANAM: {program_anam}."
+        source_label.setToolTip(source_tooltip)
+        source_label.setAccessibleDescription(source_tooltip)
         card.body_layout.addWidget(source_label)
 
-        input_meters = snapshot.get("input_meters") if isinstance(snapshot.get("input_meters"), (list, tuple)) else ()
-        input_area = QWidget(card)
-        input_area.setObjectName("roomIN1808InputMeters")
-        input_grid = QGridLayout(input_area)
-        input_grid.setContentsMargins(0, 0, 0, 0)
-        input_grid.setSpacing(4)
-        for index, meter in enumerate(input_meters):
-            if isinstance(meter, Mapping):
-                input_grid.addWidget(IN1808MeterColumn(meter, input_area), index // 7, index % 7)
-        card.body_layout.addWidget(input_area)
-
-        routing = snapshot.get("routing") if isinstance(snapshot.get("routing"), Mapping) else {}
-        rows = tuple(routing.get("rows") or ())
-        columns = tuple(routing.get("columns") or ())
-        table = QTableWidget(len(rows), len(columns), card)
-        table.setObjectName("roomIN1808Routing")
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionMode(QTableWidget.NoSelection)
-        table.setHorizontalHeaderLabels([str(value) for value in columns])
-        table.setVerticalHeaderLabels([str(value) for value in rows])
-        cells = routing.get("cells") if isinstance(routing.get("cells"), (list, tuple)) else ()
-        by_coordinate = {
-            (cell.get("row"), cell.get("column")): cell
-            for cell in cells if isinstance(cell, Mapping)
-        }
-        state_text = {
-            "ACTIVE": "● ACTIVE",
-            "INACTIVE": "○ INACTIVE",
-            "UNKNOWN": "? UNKNOWN",
-        }
-        for row_index in range(len(rows)):
-            for column_index in range(len(columns)):
-                cell = by_coordinate.get((row_index, column_index), {})
-                state = cell.get("state") if isinstance(cell, Mapping) else None
-                state = state if state in state_text else "UNKNOWN"
-                item = QTableWidgetItem(state_text[state])
-                item.setData(Qt.UserRole, state)
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setToolTip(f"{state}; только чтение")
-                table.setItem(row_index, column_index, item)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        table.setMinimumHeight(184)
-        table.setMaximumHeight(230)
         caption = QLabel("Карта каналов: профиль IN1808", card)
         caption.setObjectName("roomIN1808MappingBasis")
         caption.setAccessibleDescription("IN1808_PRODSP_PROFILE_MAPPING; профиль принят архитектурой, не обнаружен аппаратно по ячейкам")
         caption.setToolTip("Профиль IN1808 принят архитектурой; ответы 0/1 не подтверждают семантику осей аппаратно.")
         card.body_layout.addWidget(caption)
-        card.body_layout.addWidget(table)
 
-        output_meters = snapshot.get("output_meters") if isinstance(snapshot.get("output_meters"), (list, tuple)) else ()
-        output_area = QWidget(card)
-        output_area.setObjectName("roomIN1808OutputMeters")
-        output_layout = QHBoxLayout(output_area)
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.setSpacing(4)
-        for meter in output_meters:
-            if isinstance(meter, Mapping):
-                output_layout.addWidget(IN1808MeterColumn(meter, output_area))
-        output_layout.addStretch(1)
-        card.body_layout.addWidget(output_area)
+        input_rows = _in1808_logical_input_meters(snapshot)
+        output_columns = _in1808_logical_output_meters(snapshot, variant)
+        route_projection = {
+            (cell["row_label"], cell["column_label"]): cell
+            for cell in project_in1808_logical_routes(snapshot, variant)
+        }
+        routing = snapshot.get("routing") if isinstance(snapshot.get("routing"), Mapping) else {}
+        raw_rows = tuple(routing.get("rows") or ())
+        raw_columns = tuple(routing.get("columns") or ())
+
+        surface = QWidget(card)
+        surface.setObjectName("roomIN1808SharedGridSurface")
+        surface.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        shared_grid = QGridLayout(surface)
+        shared_grid.setObjectName("roomIN1808SharedGrid")
+        shared_grid.setContentsMargins(0, 0, 0, 0)
+        shared_grid.setHorizontalSpacing(4)
+        shared_grid.setVerticalSpacing(2)
+        shared_grid.setColumnMinimumWidth(0, 176)
+        shared_grid.setColumnMinimumWidth(1, 96)
+
+        top_left = QWidget(surface)
+        top_left.setObjectName("roomIN1808TopLeftSpacer")
+        top_left.setProperty("outputMeterSlot", False)
+        shared_grid.addWidget(top_left, 0, 0, 2, 2)
+
+        for column_index, column in enumerate(output_columns):
+            grid_column = column_index + 2
+            shared_grid.setColumnMinimumWidth(grid_column, 66)
+            shared_grid.setColumnStretch(grid_column, 1)
+            meter = IN1808LogicalMeter(column["meter"], "vertical", column["anam"], surface)
+            meter.setProperty("logicalColumn", column_index)
+            shared_grid.addWidget(meter, 0, grid_column, Qt.AlignHCenter | Qt.AlignBottom)
+            header = QLabel(column["label"], surface)
+            header.setObjectName("roomIN1808OutputHeader")
+            header.setProperty("logicalColumn", column_index)
+            header.setAlignment(Qt.AlignCenter)
+            header.setWordWrap(True)
+            header.setFixedHeight(36)
+            header_metadata = f"{column['label']}"
+            if column["anam"]:
+                header_metadata += f"; ANAM: {column['anam']}"
+            header.setToolTip(header_metadata)
+            header.setAccessibleName(header_metadata)
+            shared_grid.addWidget(header, 1, grid_column)
+
+        marker_by_outcome = {"FULL": "●", "INACTIVE": "○", "MIXED": "◐", "UNKNOWN": "—"}
+        for row_index, logical_row in enumerate(input_rows):
+            grid_row = row_index + 2
+            shared_grid.setRowMinimumHeight(grid_row, 30)
+            meter = IN1808LogicalMeter(logical_row["meter"], "horizontal", logical_row["anam"], surface)
+            meter.setProperty("logicalRow", row_index)
+            shared_grid.addWidget(meter, grid_row, 0, Qt.AlignVCenter)
+            header = QLabel(logical_row["label"], surface)
+            header.setObjectName("roomIN1808InputHeader")
+            header.setProperty("logicalRow", row_index)
+            header.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            header.setFixedHeight(30)
+            header_metadata = logical_row["label"]
+            if logical_row["anam"]:
+                header_metadata += f"; ANAM: {logical_row['anam']}"
+            if logical_row["label"] == "Program L/R":
+                header_metadata += f"; источник: {program.get('label') or 'UNKNOWN'}"
+            header.setToolTip(header_metadata)
+            header.setAccessibleName(header_metadata)
+            shared_grid.addWidget(header, grid_row, 1)
+            for column_index, logical_column in enumerate(output_columns):
+                projected = route_projection[(logical_row["label"], logical_column["label"])]
+                outcome = projected["outcome"]
+                cell = QLabel(marker_by_outcome[outcome], surface)
+                cell.setObjectName("roomIN1808RouteCell")
+                cell.setProperty("routeOutcome", outcome)
+                cell.setProperty("logicalRow", row_index)
+                cell.setProperty("logicalColumn", column_index)
+                cell.setAlignment(Qt.AlignCenter)
+                cell.setFixedHeight(30)
+                details = []
+                for component in projected["components"]:
+                    raw_row = component["row"]
+                    raw_column = component["column"]
+                    row_name = raw_rows[raw_row] if raw_row < len(raw_rows) else f"row {raw_row}"
+                    column_name = raw_columns[raw_column] if raw_column < len(raw_columns) else f"column {raw_column}"
+                    details.append(f"{row_name} → {column_name}: {component['state']}")
+                detail_text = f"{outcome}; " + "; ".join(details)
+                cell.setToolTip(detail_text)
+                cell.setAccessibleName(detail_text)
+                shared_grid.addWidget(cell, grid_row, column_index + 2)
+        shared_grid.setRowStretch(len(input_rows) + 2, 1)
+        card.body_layout.addWidget(surface)
         return card
 
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_popup=None, record_id=None, audio_actions=(), **_unused) -> None:

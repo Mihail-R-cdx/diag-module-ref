@@ -977,22 +977,32 @@ class VCSDiagnosticApp(QMainWindow):
             or row.stale
         ):
             return
-        active = coordinator.active_context
-        if active is None or active.kind is not RoomInteractionKind.LIVE or active.record_id != record_id:
-            return
-        controller = self._room_matrix_live.get(active)
-        if controller is None:
-            return
         row.matrix_audio_generation += 1
         row.matrix_view_mode = mode
         row.matrix_audio_error = None
-        self._stop_room_matrix_audio_timer(active)
+        active = coordinator.active_context
+        current_live = bool(
+            active is not None
+            and active.kind is RoomInteractionKind.LIVE
+            and active.record_id == record_id
+        )
+        if current_live:
+            self._stop_room_matrix_audio_timer(active)
         if mode == "audio":
             row.matrix_audio_snapshot = None
             row.matrix_audio_quiescent = False
             row.network_actions_enabled = False
+            # Presentation owns the first click.  Render the complete neutral
+            # grid before controller availability or any background result.
             self.room_diagnostic_tree.render(session)
-            QTimer.singleShot(0, lambda current=active: self._start_room_matrix_audio_entry(current))
+            if current_live and self._room_matrix_live.get(active) is not None:
+                QTimer.singleShot(0, lambda current=active: self._start_room_matrix_audio_entry(current))
+            return
+        controller = self._room_matrix_live.get(active) if current_live else None
+        if controller is None:
+            row.matrix_audio_quiescent = True
+            row.network_actions_enabled = True
+            self.room_diagnostic_tree.render(session)
             return
         cancelled = controller.cancel_in1808_audio_subcontext()
         row.matrix_audio_quiescent = not cancelled and active not in self._room_matrix_audio_inflight

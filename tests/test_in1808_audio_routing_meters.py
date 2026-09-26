@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 from types import SimpleNamespace
@@ -403,7 +404,7 @@ class IN1808IdentityAndCapabilityTests(unittest.TestCase):
 
 try:
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QTableWidget
+    from PyQt5.QtWidgets import QApplication, QFrame, QGridLayout, QLabel, QPushButton, QTableWidget, QWidget
 except ImportError:
     QApplication = None
 
@@ -496,7 +497,7 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     @staticmethod
-    def make_session(*, model="Extron IN1808", audio=True):
+    def make_session(*, model="Extron IN1808", audio=True, wire_identity="IN1808"):
         from core.room_diagnostic_tree import (
             DeviceRowState,
             DeviceRowStatus,
@@ -518,6 +519,7 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
                 "model": model.removeprefix("Extron "),
                 "firmware": "1.0",
                 "temperature": 42,
+                "wire_identity": wire_identity,
                 "inputs_num": 8,
                 "available_input_ids": list(range(1, 9)),
                 "available_output_ids": [1],
@@ -529,27 +531,57 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         )
         if audio:
             row.matrix_view_mode = "audio"
+            raw_rows = (
+                "Program L", "Program R", "Mic/Line 1", "Mic/Line 2",
+                "Line In 3", "Line In 4", "File Player L", "File Player R",
+            )
+            raw_columns = routing_columns(wire_identity)
+            route_cells = [
+                {
+                    "row": raw_row,
+                    "column": raw_column,
+                    "state": (
+                        "ACTIVE"
+                        if (raw_row, raw_column) in {(0, 0), (1, 1)}
+                        else "INACTIVE"
+                    ),
+                }
+                for raw_row in range(8)
+                for raw_column in range(len(raw_columns))
+            ]
             row.matrix_audio_snapshot = {
+                "wire_identity": wire_identity,
+                "variant": variant_for_identity(wire_identity),
                 "mapping_basis": IN1808_PRODSP_PROFILE_MAPPING,
-                "program_source": {"label": "HDMI 3", "outcome": "VALID"},
+                "program_source": {"input_id": 3, "label": "HDMI 3", "outcome": "VALID"},
+                "input_names": {
+                    3: {"id": 3, "value": "Lectern HDMI", "outcome": "VALID"},
+                    10: {"id": 10, "value": "Table Mic", "outcome": "VALID"},
+                    14: {"id": 14, "value": "Left Feed", "outcome": "VALID"},
+                    15: {"id": 15, "value": "Right Feed", "outcome": "VALID"},
+                },
+                "output_names": {
+                    1: {"id": 1, "value": "Main HDMI", "outcome": "VALID"},
+                },
                 "input_meters": [{
-                    "label": "DP 1", "display_dbfs": -20.0, "normalized": 0.5,
-                    "available": True, "outcome": "PARTIAL",
+                    "key": "hdmi_3", "fallback_label": "HDMI 3",
+                    "display_dbfs": -20.0, "normalized": 0.5,
+                    "available": True, "outcome": "VALID",
+                    "components": (
+                        {"channel": "L", "oid": 30004, "dbfs": -20.0, "available": True},
+                        {"channel": "R", "oid": 30005, "dbfs": -28.0, "available": True},
+                    ),
                 }],
                 "output_meters": [{
-                    "label": "HDMI 1A", "display_dbfs": None, "normalized": None,
+                    "key": "hdmi_1a", "fallback_label": "HDMI 1A",
+                    "display_dbfs": None, "normalized": None,
                     "available": False, "outcome": "UNAVAILABLE",
                 }],
                 "routing": {
                     "mapping_basis": IN1808_PRODSP_PROFILE_MAPPING,
-                    "rows": ("Program L", "Program R"),
-                    "columns": ("HDMI L", "HDMI R"),
-                    "cells": [
-                        {"row": 0, "column": 0, "state": "ACTIVE"},
-                        {"row": 0, "column": 1, "state": "INACTIVE"},
-                        {"row": 1, "column": 0, "state": "UNKNOWN"},
-                        {"row": 1, "column": 1, "state": "ACTIVE"},
-                    ],
+                    "rows": raw_rows,
+                    "columns": raw_columns,
+                    "cells": route_cells,
                 },
             }
         identity = RoomDiagnosticSessionIdentity("SNAP", 1, row.ip_address, row.record_id, "ROOM")
@@ -594,6 +626,45 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         button.click()
         self.assertEqual([("RID-1", "audio")], emitted)
 
+    def test_first_audio_click_renders_complete_neutral_grid_before_controller_exists(self):
+        from gui.main_window import VCSDiagnosticApp
+
+        window = VCSDiagnosticApp()
+        self.addCleanup(window.close)
+        session, row = self.make_session(audio=False)
+        window.room_diagnostic_session = session
+        window.room_interaction_coordinator.bind_session(session)
+
+        window._on_room_matrix_mode_requested(row.record_id, "audio")
+
+        self.assertEqual("audio", row.matrix_view_mode)
+        self.assertIsNone(row.matrix_audio_snapshot)
+        self.assertEqual(
+            "Видео",
+            window.room_diagnostic_tree.findChild(QPushButton, "roomMatrixAudioModeButton").text(),
+        )
+        self.assertIsNotNone(window.room_diagnostic_tree.findChild(QWidget, "roomIN1808SharedGridSurface"))
+        self.assertEqual(6, len(window.room_diagnostic_tree.findChildren(QLabel, "roomIN1808InputHeader")))
+        self.assertEqual(7, len(window.room_diagnostic_tree.findChildren(QLabel, "roomIN1808OutputHeader")))
+
+    def test_first_audio_click_stays_visible_while_serialized_controller_is_busy(self):
+        window, _session, row, context, controller = self.make_live_window(audio=False)
+        controller.request_in1808_audio_entry.return_value = False
+        window._schedule_room_matrix_audio_operation = Mock()
+
+        window._on_room_matrix_mode_requested(row.record_id, "audio")
+        self.app.processEvents()
+
+        self.assertEqual("audio", row.matrix_view_mode)
+        self.assertEqual(
+            "Видео",
+            window.room_diagnostic_tree.findChild(QPushButton, "roomMatrixAudioModeButton").text(),
+        )
+        self.assertIsNotNone(window.room_diagnostic_tree.findChild(QWidget, "roomIN1808SharedGridSurface"))
+        window._schedule_room_matrix_audio_operation.assert_called_once_with(
+            context, "audio_entry", interval_ms=100
+        )
+
     def test_other_matrix_header_has_no_audio_toggle(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
@@ -613,33 +684,169 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         self.assertIsNotNone(widget.findChild(QLabel, "roomIN1808ProgramSource"))
         self.assertIsNone(widget.findChild(QTableWidget, "roomMatrixRouting"))
 
-    def test_audio_grid_is_noninteractive_and_has_non_color_states_and_basis(self):
+    def test_audio_grid_is_marker_only_read_only_and_discloses_mapping_basis(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
         session, _row = self.make_session()
         widget = RoomDiagnosticTreeWidget()
         widget.render(session)
-        table = widget.findChild(QTableWidget, "roomIN1808Routing")
-        self.assertEqual(QTableWidget.NoEditTriggers, table.editTriggers())
-        self.assertEqual(QTableWidget.NoSelection, table.selectionMode())
-        self.assertEqual(
-            {"● ACTIVE", "○ INACTIVE", "? UNKNOWN"},
-            {table.item(row, column).text() for row in range(2) for column in range(2)},
-        )
+        self.assertIsNone(widget.findChild(QTableWidget, "roomIN1808Routing"))
+        cells = widget.findChildren(QLabel, "roomIN1808RouteCell")
+        self.assertEqual(6 * 7, len(cells))
+        self.assertTrue({cell.text() for cell in cells} <= {"●", "○", "◐", "—"})
+        self.assertEqual("FULL", cells[0].property("routeOutcome"))
+        visible_text = " ".join(label.text() for label in widget.findChildren(QLabel))
+        for forbidden in ("ACTIVE", "INACTIVE", "MIXED", "VALID", "INVALID"):
+            self.assertNotIn(forbidden, visible_text)
+        self.assertIn("Program L → HDMI L: ACTIVE", cells[0].toolTip())
         self.assertEqual("Карта каналов: профиль IN1808", widget.findChild(QLabel, "roomIN1808MappingBasis").text())
 
-    def test_meter_uses_twenty_segments_and_unavailable_is_not_zero_dbfs(self):
+    def test_shared_grid_owns_meter_and_route_alignment(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
         session, _row = self.make_session()
         widget = RoomDiagnosticTreeWidget()
         widget.render(session)
+        surface = widget.findChild(QWidget, "roomIN1808SharedGridSurface")
+        grid = surface.layout()
+        self.assertIsInstance(grid, QGridLayout)
+        self.assertEqual("roomIN1808SharedGrid", grid.objectName())
+        spacer = widget.findChild(QWidget, "roomIN1808TopLeftSpacer")
+        self.assertEqual((0, 0, 2, 2), grid.getItemPosition(grid.indexOf(spacer)))
+
+        input_header = widget.findChildren(QLabel, "roomIN1808InputHeader")[0]
+        input_meter = next(
+            meter for meter in widget.findChildren(QFrame, "roomIN1808LogicalMeter")
+            if meter.property("meterOrientation") == "horizontal" and meter.property("logicalRow") == 0
+        )
+        first_cell = next(
+            cell for cell in widget.findChildren(QLabel, "roomIN1808RouteCell")
+            if cell.property("logicalRow") == 0 and cell.property("logicalColumn") == 0
+        )
+        self.assertEqual(grid.getItemPosition(grid.indexOf(input_header))[0], grid.getItemPosition(grid.indexOf(input_meter))[0])
+        self.assertEqual(grid.getItemPosition(grid.indexOf(input_header))[0], grid.getItemPosition(grid.indexOf(first_cell))[0])
+
+        output_header = widget.findChildren(QLabel, "roomIN1808OutputHeader")[0]
+        output_meter = next(
+            meter for meter in widget.findChildren(QFrame, "roomIN1808LogicalMeter")
+            if meter.property("meterOrientation") == "vertical" and meter.property("logicalColumn") == 0
+        )
+        self.assertEqual(grid.getItemPosition(grid.indexOf(output_header))[1], grid.getItemPosition(grid.indexOf(output_meter))[1])
+        self.assertEqual(grid.getItemPosition(grid.indexOf(output_header))[1], grid.getItemPosition(grid.indexOf(first_cell))[1])
+
+    def test_logical_meters_use_twenty_segments_orientations_and_no_duplicate_labels(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        session, _row = self.make_session()
+        widget = RoomDiagnosticTreeWidget()
+        widget.render(session)
+        meters = widget.findChildren(QFrame, "roomIN1808LogicalMeter")
+        self.assertEqual(13, len(meters))
+        self.assertEqual(6, sum(meter.property("meterOrientation") == "horizontal" for meter in meters))
+        self.assertEqual(7, sum(meter.property("meterOrientation") == "vertical" for meter in meters))
         segments = widget.findChildren(QFrame, "roomAudioDspMeterSegment")
-        self.assertEqual(40, len(segments))
+        self.assertEqual(13 * 20, len(segments))
         values = [label.text() for label in widget.findChildren(QLabel, "roomIN1808MeterDbfs")]
         self.assertIn("-20.0 dBFS", values)
         self.assertIn("— dBFS", values)
         self.assertNotIn("0 dBFS", values)
+        self.assertEqual([], widget.findChildren(QLabel, "roomIN1808MeterLabel"))
+        self.assertEqual([], widget.findChildren(QLabel, "roomIN1808MeterOutcome"))
+
+    def test_program_meter_uses_one_dollar_source_and_names_remain_secondary(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        session, row = self.make_session()
+        original_snapshot = copy.deepcopy(row.matrix_audio_snapshot)
+        widget = RoomDiagnosticTreeWidget()
+        widget.render(session)
+        program_header = next(
+            header for header in widget.findChildren(QLabel, "roomIN1808InputHeader")
+            if header.text() == "Program L/R"
+        )
+        program_meter = next(
+            meter for meter in widget.findChildren(QFrame, "roomIN1808LogicalMeter")
+            if meter.property("structuralLabel") == "Program L/R"
+        )
+        mic_header = next(
+            header for header in widget.findChildren(QLabel, "roomIN1808InputHeader")
+            if header.text() == "Mic/Line 1"
+        )
+        file_header = next(
+            header for header in widget.findChildren(QLabel, "roomIN1808InputHeader")
+            if header.text() == "File Player L/R"
+        )
+        self.assertIn("источник: HDMI 3", program_header.toolTip())
+        self.assertIn("ANAM: Lectern HDMI", program_header.toolTip())
+        self.assertIn("-20.0 dBFS", [label.text() for label in program_meter.findChildren(QLabel, "roomIN1808MeterDbfs")])
+        self.assertEqual("Mic/Line 1", mic_header.text())
+        self.assertIn("ANAM: Table Mic", mic_header.toolTip())
+        self.assertIn("ANAM: L: Left Feed; R: Right Feed", file_header.toolTip())
+        self.assertEqual(original_snapshot, row.matrix_audio_snapshot)
+
+    def test_program_unknown_never_uses_video_route_as_meter_fallback(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        session, row = self.make_session()
+        row.matrix_audio_snapshot["program_source"] = {"input_id": None, "label": "UNKNOWN", "outcome": "UNKNOWN"}
+        row.accepted_snapshot["routes"] = {1: 3}
+        widget = RoomDiagnosticTreeWidget()
+        widget.render(session)
+        program_meter = next(
+            meter for meter in widget.findChildren(QFrame, "roomIN1808LogicalMeter")
+            if meter.property("structuralLabel") == "Program L/R"
+        )
+        self.assertEqual("— dBFS", program_meter.findChild(QLabel, "roomIN1808MeterDbfs").text())
+
+    def test_variant_filters_amplifier_column_without_empty_base_slot(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        expected = (("IN1808", 7, False), ("IN1808 IPCP SA", 8, True), ("IN1808 IPCP MA 70", 8, True))
+        for wire_identity, count, has_amplifier in expected:
+            with self.subTest(wire_identity=wire_identity):
+                session, _row = self.make_session(wire_identity=wire_identity)
+                widget = RoomDiagnosticTreeWidget()
+                widget.render(session)
+                headers = [label.text() for label in widget.findChildren(QLabel, "roomIN1808OutputHeader")]
+                self.assertEqual(count, len(headers))
+                self.assertEqual(has_amplifier, "Amplifier" in headers)
+
+    def test_route_grouping_is_topology_aware_and_preserves_raw_evidence(self):
+        from gui.room_diagnostic_tree import project_in1808_logical_routes
+
+        def outcome(row_label, column_label, states):
+            cells = [
+                {"row": raw_row, "column": raw_column, "state": state}
+                for (raw_row, raw_column), state in states.items()
+            ]
+            snapshot = {"routing": {"cells": cells}}
+            original = copy.deepcopy(snapshot)
+            result = next(
+                cell for cell in project_in1808_logical_routes(snapshot, "base")
+                if cell["row_label"] == row_label and cell["column_label"] == column_label
+            )
+            self.assertEqual(original, snapshot)
+            return result["outcome"]
+
+        stereo_stereo = {(0, 0): "ACTIVE", (0, 1): "INACTIVE", (1, 0): "INACTIVE", (1, 1): "ACTIVE"}
+        self.assertEqual("FULL", outcome("Program L/R", "HDMI 1A", stereo_stereo))
+        self.assertEqual("INACTIVE", outcome("Program L/R", "HDMI 1A", {key: "INACTIVE" for key in stereo_stereo}))
+        self.assertEqual("MIXED", outcome("Program L/R", "HDMI 1A", {key: "ACTIVE" if key == (0, 0) else "INACTIVE" for key in stereo_stereo}))
+        self.assertEqual("MIXED", outcome("Program L/R", "HDMI 1A", {key: "ACTIVE" if key in {(0, 1), (1, 0)} else "INACTIVE" for key in stereo_stereo}))
+        self.assertEqual("MIXED", outcome("Program L/R", "HDMI 1A", {key: "ACTIVE" for key in stereo_stereo}))
+        self.assertEqual("UNKNOWN", outcome("Program L/R", "HDMI 1A", {**stereo_stereo, (1, 1): "UNKNOWN"}))
+
+        self.assertEqual("FULL", outcome("Program L/R", "Line Out 1", {(0, 6): "ACTIVE", (1, 6): "ACTIVE"}))
+        self.assertEqual("INACTIVE", outcome("Program L/R", "Line Out 1", {(0, 6): "INACTIVE", (1, 6): "INACTIVE"}))
+        self.assertEqual("MIXED", outcome("Program L/R", "Line Out 1", {(0, 6): "ACTIVE", (1, 6): "INACTIVE"}))
+        self.assertEqual("UNKNOWN", outcome("Program L/R", "Line Out 1", {(0, 6): "ACTIVE", (1, 6): "UNKNOWN"}))
+        self.assertEqual("FULL", outcome("Mic/Line 1", "HDMI 1A", {(2, 0): "ACTIVE", (2, 1): "ACTIVE"}))
+        self.assertEqual("INACTIVE", outcome("Mic/Line 1", "HDMI 1A", {(2, 0): "INACTIVE", (2, 1): "INACTIVE"}))
+        self.assertEqual("MIXED", outcome("Mic/Line 1", "HDMI 1A", {(2, 0): "ACTIVE", (2, 1): "INACTIVE"}))
+        self.assertEqual("UNKNOWN", outcome("Mic/Line 1", "HDMI 1A", {(2, 0): "ACTIVE", (2, 1): "UNKNOWN"}))
+        self.assertEqual("FULL", outcome("Mic/Line 1", "Line Out 1", {(2, 6): "ACTIVE"}))
+        self.assertEqual("INACTIVE", outcome("Mic/Line 1", "Line Out 1", {(2, 6): "INACTIVE"}))
+        self.assertEqual("UNKNOWN", outcome("Mic/Line 1", "Line Out 1", {(2, 6): "UNKNOWN"}))
 
     def test_audio_error_does_not_replace_general_or_video_snapshot(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget

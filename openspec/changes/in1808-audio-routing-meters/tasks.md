@@ -153,33 +153,33 @@
   vertical logical-output meters.
 - [x] 7.8 Mark the previous implementation report as superseded by the
   hardware-QA GUI-refinement architecture without rewriting its old evidence.
-- [ ] 7.9 Run repository-local
+- [x] 7.9 Run repository-local
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
   `.\openspec.cmd validate --all --strict`, and `git diff --check` on the
   published GUI-refinement architecture HEAD.
-- [ ] 7.10 Perform architecture review of the GUI refinement and obtain
+- [x] 7.10 Perform architecture review of the GUI refinement and obtain
   `APPROVE` before changing production GUI/tests.
-- [ ] 7.11 Implement immediate first-click Audio layout rendering before I/O and
+- [x] 7.11 Implement immediate first-click Audio layout rendering before I/O and
   keep it visible through temporary controller-busy retry.
-- [ ] 7.12 Implement the six logical input rows and exact variant-filtered
+- [x] 7.12 Implement the six logical input rows and exact variant-filtered
   seven/eight logical output columns using the approved fail-safe grouping
   semantics.
-- [ ] 7.13 Implement shared row/column geometry so meter centerlines and routing
+- [x] 7.13 Implement shared row/column geometry so meter centerlines and routing
   row/column centerlines are exactly aligned; compact row height and allow
   narrower meters as needed.
-- [ ] 7.14 Implement Program L/R meter projection from the `1$`-selected
+- [x] 7.14 Implement Program L/R meter projection from the `1$`-selected
   physical source while keeping all normalized raw meter evidence unchanged.
-- [ ] 7.15 Implement stable primary semantic labels plus deterministic ANAM
+- [x] 7.15 Implement stable primary semantic labels plus deterministic ANAM
   tooltip/accessibility metadata without changing grid geometry.
-- [ ] 7.16 Add GUI/lifecycle regression coverage for immediate switching,
+- [x] 7.16 Add GUI/lifecycle regression coverage for immediate switching,
   topology-aware stereo->stereo/stereo->mono/mono->stereo/mono->mono
   FULL/INACTIVE/MIXED/UNKNOWN grouping (including normal diagonal stereo FULL,
   crossed/partial MIXED and UNKNOWN fail-safe), exact alignment/sizing ownership,
   naming authority, no duplicate labels/status words, Program-source meter
   projection, and variant Amplifier presence/absence.
-- [ ] 7.17 Re-run focused/full offline tests, strict change/all OpenSpec
+- [x] 7.17 Re-run focused/full offline tests, strict change/all OpenSpec
   validation, `git diff --check`, and `git diff --cached --check`.
-- [ ] 7.18 Create and push one focused GUI-refinement implementation commit; the
+- [x] 7.18 Create and push one focused GUI-refinement implementation commit; the
   implementation session must not issue its own independent `APPROVE`.
 - [ ] 7.19 Repeat hardware QA on the final published GUI-refinement HEAD before
   independent validation; record any new blocking UX/protocol finding before

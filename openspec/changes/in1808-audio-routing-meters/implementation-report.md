@@ -1,3 +1,119 @@
+# GUI Refinement Implementation Evidence
+
+This section records the hardware-QA GUI refinement implemented from approved
+architecture HEAD `30aa120e9cd3dfd2931f8ec6635f651d4c3427e0`. The publication
+revision is the feature-branch commit containing this report and is verified by
+the post-push local/remote SHA comparison. This is implementation evidence, not
+an independent validation verdict.
+
+## Current Baseline
+
+- Repository: `Mihail-R-cdx/diag-module-ref`.
+- Branch: `agent/in1808-audio-routing-meters`.
+- PR: `#42` (OPEN, Draft).
+- `origin/master`: `5d2d44298334fc77741dab50652ca7e8472a7d76`.
+- Implementation start / approved architecture HEAD:
+  `30aa120e9cd3dfd2931f8ec6635f651d4c3427e0`.
+- Runtime: Python 3.12; Node v20.19.0; npm 10.8.2.
+- Hardware access: none in this session.
+
+## Refined Behavior
+
+- The first `Аудио` click now synchronously commits Audio mode, changes the
+  control to `Видео`, and renders the complete neutral Audio grid before a
+  Matrix controller or device result is available. A temporarily busy
+  serialized controller retains the Audio presentation and uses the existing
+  bounded background retry.
+- One shared `QGridLayout` owns output meters, output headers, input meters,
+  input headers, and route cells. Horizontal input-meter and routing-row
+  centerlines therefore share a row; vertical output-meter and routing-column
+  centerlines share a column. The top-left rail area is an explicit empty
+  spacer, and routing rows are compact 30-pixel rows.
+- The visible grid has exactly six stable logical input rows and seven base
+  output columns. Exact SA/MA70 variants add one stereo/mono Amplifier column;
+  base IN1808 has no empty amplifier slot.
+- Raw channel-accurate routing evidence remains unchanged. Presentation-only
+  grouping applies topology-aware FULL/INACTIVE/MIXED/UNKNOWN semantics for
+  stereo-to-stereo, stereo-to-mono, mono-to-stereo, and mono-to-mono routes.
+  Cells show only `●`, `○`, `◐`, or `—`; complete component state evidence is
+  retained in tooltip/accessibility metadata.
+- `Program L/R` uses only the physical 300xx meter group selected by mandatory
+  `1$`. UNKNOWN source or unavailable selected-source evidence renders
+  `— dBFS`; video `1%` is never used as a fallback.
+- Input meters are horizontal, output meters are vertical, and every logical
+  meter retains the modern 20-segment language. Structural labels appear only
+  in row/column headers; meter labels and visible VALID/INVALID outcome text
+  were removed.
+- Stable semantic labels own grid geometry. Accepted ANAM values are exposed
+  only as deterministic tooltip/accessibility metadata, including different
+  stereo component names and selected Program-source metadata.
+- Existing Matrix session ownership, LIVE serialization, Audio cleanup gates,
+  stale callback rejection, video mutation authority, meter `*1/*0/*2`
+  policy, and read-only Audio routing contract remain unchanged.
+
+## Current Changed Files
+
+- `gui/main_window.py`: immediate local Audio presentation before controller
+  availability while preserving existing background serialization/cleanup.
+- `gui/room_diagnostic_tree.py`: shared aligned logical grid, meter
+  orientations, Program projection, topology-aware route grouping, stable
+  labels, ANAM metadata, variant filtering, and marker-only route cells.
+- `tests/test_in1808_audio_routing_meters.py`: immediate-switch, busy retry,
+  shared-geometry, topology, raw-evidence, naming, Program-source, meter, text
+  cleanup, and variant regressions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: factual completion
+  state for the GUI-refinement implementation and validation tasks.
+- `openspec/changes/in1808-audio-routing-meters/implementation-report.md`:
+  current evidence separated from the superseded implementation below.
+
+## Fresh Automated Evidence
+
+Focused regression command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+```
+
+- 370 tests run; 370 passed; 0 failed; 0 errors; 0 skipped.
+
+Full offline suite:
+
+```powershell
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+- 1064 tests run; 1064 passed; 0 failed; 0 errors; 0 skipped.
+
+Repository-local OpenSpec validation:
+
+```text
+node --version                                                    -> v20.19.0
+npm --version                                                     -> 10.8.2
+.\openspec.cmd validate in1808-audio-routing-meters --strict      -> valid
+.\openspec.cmd validate --all --strict                            -> 18 passed, 0 failed
+```
+
+Git validation is completed immediately before commit and repeated after the
+documentation update. The implementation worktree contains only the five files
+listed above relative to the approved architecture HEAD.
+
+## GUI and Hardware Evidence
+
+- A local offscreen Qt component smoke test rendered the Audio card without
+  hardware and verified the shared-grid ownership, six/eight logical topology,
+  compact 30-pixel route rows, complete 20-segment meters, and absence of
+  duplicate meter/status labels.
+- Real IN1808 hardware QA was **NOT PERFORMED** in this session.
+- Real IN1808 hardware QA remains required before independent validation.
+
+## Current Implementation Status
+
+`READY FOR REVIEW`
+
+---
+
+## Historical Superseded Implementation Evidence
+
 > **SUPERSEDED FOR CURRENT HEAD**
 > This report records implementation evidence for feature HEAD
 > `012ba60c225dee4411126b71859b5b19cda7250d`. Hardware GUI QA subsequently
