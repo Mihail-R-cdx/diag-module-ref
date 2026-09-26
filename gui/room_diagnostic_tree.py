@@ -81,6 +81,7 @@ class RoomDiagnosticTreeWidget(QWidget):
     pduMutationRequested = pyqtSignal(str, int, str)
     pduBulkMutationRequested = pyqtSignal(str, str)
     matrixRouteRequested = pyqtSignal(str, int, int)
+    matrixModeRequested = pyqtSignal(str, str)
     debugRequested = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -212,7 +213,11 @@ class RoomDiagnosticTreeWidget(QWidget):
             self._audio_selection = None
         self._prune_audio_selection(session)
         expanded_record_id = session.expanded_record_id
-        self.tree.header().resizeSection(4, 0)
+        has_in1808_audio = any(
+            row.capability is not None and row.capability.in1808_audio_capability
+            for row in session.rows
+        )
+        self.tree.header().resizeSection(4, 92 if has_in1808_audio else 0)
         self._changing = True
         try:
             self.room_name_label.setText(f"Название комнаты:  {session.room_name or '—'}")
@@ -270,6 +275,27 @@ class RoomDiagnosticTreeWidget(QWidget):
                     projection.setFlags(projection.flags() & ~Qt.ItemIsSelectable)
                     item.addChild(projection)
                 self.tree.addTopLevelItem(item)
+                if row.capability is not None and row.capability.in1808_audio_capability:
+                    mode_button = QPushButton(
+                        "Видео" if row.matrix_view_mode == "audio" else "Аудио",
+                        self.tree,
+                    )
+                    mode_button.setObjectName("roomMatrixAudioModeButton")
+                    mode_button.setFixedHeight(28)
+                    mode_button.setEnabled(
+                        row.status is DeviceRowStatus.CONNECTED
+                        and not row.stale
+                        and (
+                            row.matrix_view_mode == "audio"
+                            or (row.network_actions_enabled and row.matrix_audio_quiescent)
+                        )
+                    )
+                    target_mode = "video" if row.matrix_view_mode == "audio" else "audio"
+                    mode_button.clicked.connect(
+                        lambda _checked=False, record_id=row.record_id, mode=target_mode:
+                        self.matrixModeRequested.emit(record_id, mode)
+                    )
+                    self.tree.setItemWidget(item, 4, mode_button)
                 if self._is_expandable(row):
                     # Qt applies first-column spanning only after the item has
                     # joined its view; otherwise an item widget may remain
@@ -1061,6 +1087,56 @@ class AudioDspChannelColumn(QFrame):
             event.accept()
             return
         super().mousePressEvent(event)
+
+
+class IN1808MeterColumn(QFrame):
+    """Non-interactive logical meter using the approved 20-segment language."""
+
+    def __init__(self, meter: Mapping[str, Any], parent=None):
+        super().__init__(parent)
+        self.setObjectName("roomIN1808MeterColumn")
+        self.setProperty("presentationOnly", True)
+        self.setMinimumWidth(54)
+        self.setMaximumWidth(76)
+        available = meter.get("available") is True and _is_finite_real(meter.get("display_dbfs"))
+        outcome = str(meter.get("outcome") or "UNAVAILABLE")
+        self.setAccessibleName(f"{meter.get('label') or 'Канал'}: {outcome}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setSpacing(2)
+        label = QLabel(str(meter.get("label") or meter.get("fallback_label") or "Канал"), self)
+        label.setObjectName("roomIN1808MeterLabel")
+        label.setAlignment(Qt.AlignHCenter)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        track = QWidget(self)
+        track.setObjectName("roomAudioDspMeterTrack")
+        track.setProperty("meterAvailable", available)
+        track.setProperty("numericMeterValid", available)
+        track_layout = QVBoxLayout(track)
+        track_layout.setContentsMargins(0, 0, 0, 0)
+        track_layout.setSpacing(2)
+        filled = quantize_meter_segments(meter.get("normalized")) if available else 0
+        for index in range(METER_SEGMENT_COUNT - 1, -1, -1):
+            segment = QFrame(track)
+            segment.setObjectName("roomAudioDspMeterSegment")
+            segment.setFixedHeight(5)
+            segment.setProperty("meterFilled", index < filled)
+            segment.setProperty("meterZone", meter_segment_zone(index))
+            segment.setProperty("segmentIndex", index)
+            track_layout.addWidget(segment)
+        layout.addWidget(track, 1, Qt.AlignHCenter)
+        value = QLabel(
+            f"{meter['display_dbfs']:.1f} dBFS" if available else "— dBFS",
+            self,
+        )
+        value.setObjectName("roomIN1808MeterDbfs")
+        value.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(value)
+        state = QLabel(outcome, self)
+        state.setObjectName("roomIN1808MeterOutcome")
+        state.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(state)
 
 
 class AudioDspLocalControls(QFrame):
@@ -1954,6 +2030,16 @@ class RoomReadOnlyPresentation(QWidget):
         # Keep the compact facts directly below the heading.  The additional
         # room-dashboard height belongs beneath the data, not between rows.
         info.body_layout.addStretch(1)
+        if (
+            row.capability is not None
+            and row.capability.in1808_audio_capability
+            and row.matrix_view_mode == "audio"
+        ):
+            audio_card = self._build_in1808_audio_card(row, dashboard)
+            dashboard_layout.addWidget(info, 25)
+            dashboard_layout.addWidget(audio_card, 75)
+            layout.addWidget(dashboard)
+            return
         card = SectionCard("", "", dashboard)
         card.setObjectName("roomMatrixRoutingCard")
         card.header_widget.setObjectName("roomMatrixRoutingHeader")
@@ -1971,6 +2057,8 @@ class RoomReadOnlyPresentation(QWidget):
             bool(request_matrix_route)
             and row.status is DeviceRowStatus.CONNECTED
             and (row.network_actions_enabled or live_here)
+            and row.matrix_view_mode == "video"
+            and row.matrix_audio_quiescent
             and not row.interaction_blocked
             and not row.unconfirmed_after_command
             and not row.stale
@@ -2123,6 +2211,86 @@ class RoomReadOnlyPresentation(QWidget):
         dashboard_layout.addWidget(info, 25)
         dashboard_layout.addWidget(card, 75)
         layout.addWidget(dashboard)
+
+    def _build_in1808_audio_card(self, row, parent):
+        card = SectionCard("Аудио DSP", "∿", parent)
+        card.setObjectName("roomIN1808AudioCard")
+        snapshot = row.matrix_audio_snapshot if isinstance(row.matrix_audio_snapshot, Mapping) else {}
+        if row.matrix_audio_error:
+            error = QLabel(row.matrix_audio_error, card)
+            error.setObjectName("roomIN1808AudioError")
+            error.setWordWrap(True)
+            card.body_layout.addWidget(error)
+
+        source_label = QLabel(card)
+        source_label.setObjectName("roomIN1808ProgramSource")
+        program = snapshot.get("program_source") if isinstance(snapshot.get("program_source"), Mapping) else {}
+        source_label.setText(f"Program L/R: {program.get('label') or 'UNKNOWN'}")
+        source_label.setToolTip("Источник прочитан отдельной командой 1$; видеомаршрут 1% не используется.")
+        card.body_layout.addWidget(source_label)
+
+        input_meters = snapshot.get("input_meters") if isinstance(snapshot.get("input_meters"), (list, tuple)) else ()
+        input_area = QWidget(card)
+        input_area.setObjectName("roomIN1808InputMeters")
+        input_grid = QGridLayout(input_area)
+        input_grid.setContentsMargins(0, 0, 0, 0)
+        input_grid.setSpacing(4)
+        for index, meter in enumerate(input_meters):
+            if isinstance(meter, Mapping):
+                input_grid.addWidget(IN1808MeterColumn(meter, input_area), index // 7, index % 7)
+        card.body_layout.addWidget(input_area)
+
+        routing = snapshot.get("routing") if isinstance(snapshot.get("routing"), Mapping) else {}
+        rows = tuple(routing.get("rows") or ())
+        columns = tuple(routing.get("columns") or ())
+        table = QTableWidget(len(rows), len(columns), card)
+        table.setObjectName("roomIN1808Routing")
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.setHorizontalHeaderLabels([str(value) for value in columns])
+        table.setVerticalHeaderLabels([str(value) for value in rows])
+        cells = routing.get("cells") if isinstance(routing.get("cells"), (list, tuple)) else ()
+        by_coordinate = {
+            (cell.get("row"), cell.get("column")): cell
+            for cell in cells if isinstance(cell, Mapping)
+        }
+        state_text = {
+            "ACTIVE": "● ACTIVE",
+            "INACTIVE": "○ INACTIVE",
+            "UNKNOWN": "? UNKNOWN",
+        }
+        for row_index in range(len(rows)):
+            for column_index in range(len(columns)):
+                cell = by_coordinate.get((row_index, column_index), {})
+                state = cell.get("state") if isinstance(cell, Mapping) else None
+                state = state if state in state_text else "UNKNOWN"
+                item = QTableWidgetItem(state_text[state])
+                item.setData(Qt.UserRole, state)
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setToolTip(f"{state}; только чтение")
+                table.setItem(row_index, column_index, item)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.setMinimumHeight(184)
+        table.setMaximumHeight(230)
+        caption = QLabel("Карта каналов: профиль IN1808", card)
+        caption.setObjectName("roomIN1808MappingBasis")
+        caption.setAccessibleDescription("IN1808_PRODSP_PROFILE_MAPPING; профиль принят архитектурой, не обнаружен аппаратно по ячейкам")
+        caption.setToolTip("Профиль IN1808 принят архитектурой; ответы 0/1 не подтверждают семантику осей аппаратно.")
+        card.body_layout.addWidget(caption)
+        card.body_layout.addWidget(table)
+
+        output_meters = snapshot.get("output_meters") if isinstance(snapshot.get("output_meters"), (list, tuple)) else ()
+        output_area = QWidget(card)
+        output_area.setObjectName("roomIN1808OutputMeters")
+        output_layout = QHBoxLayout(output_area)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(4)
+        for meter in output_meters:
+            if isinstance(meter, Mapping):
+                output_layout.addWidget(IN1808MeterColumn(meter, output_area))
+        output_layout.addStretch(1)
+        card.body_layout.addWidget(output_area)
+        return card
 
     def _build_audio(self, layout, data, row, *, audio_selection=None, audio_channel_selected=None, audio_popup=None, record_id=None, audio_actions=(), **_unused) -> None:
         source = data.get("device_info", data) if isinstance(data, Mapping) else data

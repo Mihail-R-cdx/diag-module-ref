@@ -1041,6 +1041,7 @@ class ExtronMatrixDataParser:
         info = data.get("device_info") if isinstance(data.get("device_info"), Mapping) else {}
         parsed = {
             "model": info.get("model"), "firmware": info.get("firmware"), "temperature": info.get("temperature"),
+            "wire_identity": info.get("wire_identity"),
             "logical_input_ids": list(getattr(caps, "logical_input_ids", ())),
             "logical_output_ids": list(getattr(caps, "logical_output_ids", ())),
             "available_input_ids": list(inputs), "available_output_ids": list(outputs),

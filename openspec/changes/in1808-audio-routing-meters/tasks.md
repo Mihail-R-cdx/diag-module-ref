@@ -22,104 +22,104 @@
   cleanup `*0` until authoritative scope evidence exists.
 - [x] 1.9 Bind Audio polling to existing `RoomInteractionKind.LIVE` and retain
   bounded cleanup gates before Local Refresh, video mutation, and reconciliation.
-- [ ] 1.10 Run repository-local
+- [x] 1.10 Run repository-local
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
   `.\openspec.cmd validate --all --strict`, and `git diff --check` on the
   exact published architecture HEAD.
-- [ ] 1.11 Perform independent architecture review and obtain `APPROVE` before
+- [x] 1.11 Perform independent architecture review and obtain `APPROVE` before
   production implementation.
 
 ## 2. Protocol/domain implementation
 
-- [ ] 2.1 Add an exact IN1808 audio profile without changing other Matrix
+- [x] 2.1 Add an exact IN1808 audio profile without changing other Matrix
   profiles or DMP wire semantics.
-- [ ] 2.2 Preserve exact accepted IN1808 `1I` wire identity as variant evidence
+- [x] 2.2 Preserve exact accepted IN1808 `1I` wire identity as variant evidence
   while keeping canonical application model `Extron IN1808`.
-- [ ] 2.3 Implement audio-name reads for the approved input/output IDs with
+- [x] 2.3 Implement audio-name reads for the approved input/output IDs with
   deterministic fallback labels.
-- [ ] 2.4 Implement the approved 300xx/400xx/600xx meter topology and retain raw
+- [x] 2.4 Implement the approved 300xx/400xx/600xx meter topology and retain raw
   component evidence.
-- [ ] 2.5 Implement stereo meter aggregation as max available dBFS while
+- [x] 2.5 Implement stereo meter aggregation as max available dBFS while
   preserving partial-component outcomes.
-- [ ] 2.6 Implement IN1808 meter update lifecycle with initial-state read,
+- [x] 2.6 Implement IN1808 meter update lifecycle with initial-state read,
   `*1` activation when needed, no `*2`, no production cleanup `*0`, and
   no blind replay after ambiguous instrumentation send.
-- [ ] 2.7 Implement mandatory read-only `1$` current Program-source metadata
+- [x] 2.7 Implement mandatory read-only `1$` current Program-source metadata
   with 1..9/UNKNOWN normalization independent from video `1%`.
-- [ ] 2.8 Implement read-only 200xx mix-point snapshot parsing with the bounded
+- [x] 2.8 Implement read-only 200xx mix-point snapshot parsing with the bounded
   address formula, adopted `IN1808_PRODSP_PROFILE_MAPPING`, variant output
   filtering, and 0/1/UNKNOWN protocol semantics.
-- [ ] 2.9 Do not add any audio-route, gain, mute, volume, or DSP mutation API.
+- [x] 2.9 Do not add any audio-route, gain, mute, volume, or DSP mutation API.
 
 ## 3. Application/lifecycle implementation
 
-- [ ] 3.1 Publish exact IN1808 audio capability through unified application
+- [x] 3.1 Publish exact IN1808 audio capability through unified application
   registration/composition rather than a widget/model-substring allowlist.
-- [ ] 3.2 Extend existing Matrix owner/session serialization with an IN1808
+- [x] 3.2 Extend existing Matrix owner/session serialization with an IN1808
   audio subcontext; do not create a parallel persistent session.
-- [ ] 3.3 Schedule audio metadata/routing acquisition once on Audio entry and
+- [x] 3.3 Schedule audio metadata/routing acquisition once on Audio entry and
   meter polling approximately once per second without overlapping cycles.
-- [ ] 3.4 Stop/quiesce the Audio subcontext on Video toggle, collapse, another
+- [x] 3.4 Stop/quiesce the Audio subcontext on Video toggle, collapse, another
   expanded row, room/search/context replacement, credential revision,
   invalidation, and shutdown; cleanup sends no `*0` under current evidence.
-- [ ] 3.5 Bind Audio to existing LIVE authority and preserve bounded retirement
+- [x] 3.5 Bind Audio to existing LIVE authority and preserve bounded retirement
   gates before Local Refresh/video mutation plus reconciliation exclusivity.
-- [ ] 3.6 Reject stale audio work before acquisition/I/O where possible and
+- [x] 3.6 Reject stale audio work before acquisition/I/O where possible and
   before accepted GUI update in all cases.
-- [ ] 3.7 Keep application-owned credential selection/fallback authority and
+- [x] 3.7 Keep application-owned credential selection/fallback authority and
   prohibit handler/worker credential iteration.
 
 ## 4. Room GUI implementation
 
-- [ ] 4.1 Add the exact-IN1808 row-header `Аудио` control; in Audio mode the
+- [x] 4.1 Add the exact-IN1808 row-header `Аудио` control; in Audio mode the
   same control reads `Видео`.
-- [ ] 4.2 Preserve the left `Общая информация` card field semantics and swap
+- [x] 4.2 Preserve the left `Общая информация` card field semantics and swap
   only the right tile.
-- [ ] 4.3 Render the all-source meter band and output meters using the modern
+- [x] 4.3 Render the all-source meter band and output meters using the modern
   segmented DMP visual language.
-- [ ] 4.4 Render current Program source from `1$`, including explicit UNKNOWN.
-- [ ] 4.5 Render the DSP routing grid read-only with channel-accurate L/R axes,
+- [x] 4.4 Render current Program source from `1$`, including explicit UNKNOWN.
+- [x] 4.5 Render the DSP routing grid read-only with channel-accurate L/R axes,
   ACTIVE/INACTIVE/UNKNOWN non-color semantics, and safe profile-mapping basis metadata.
-- [ ] 4.6 Keep stereo meters combined without collapsing L/R route evidence.
-- [ ] 4.7 Keep Video network actions locked until Audio subcontext cleanup
+- [x] 4.6 Keep stereo meters combined without collapsing L/R route evidence.
+- [x] 4.7 Keep Video network actions locked until Audio subcontext cleanup
   reaches its permitted boundary.
-- [ ] 4.8 Isolate Audio no-data/error presentation from accepted Matrix row,
+- [x] 4.8 Isolate Audio no-data/error presentation from accepted Matrix row,
   General-information, and video-routing state.
-- [ ] 4.9 Leave standalone `MatrixScreen`, `AudioDSPScreen`, and
+- [x] 4.9 Leave standalone `MatrixScreen`, `AudioDSPScreen`, and
   `DMPPollingController` ownership unchanged.
 
 ## 5. Regression coverage
 
-- [ ] 5.1 Cover exact capability gating: IN1808 gets Audio mode; IN1804,
+- [x] 5.1 Cover exact capability gating: IN1808 gets Audio mode; IN1804,
   IN1806, IN1608 xi and DTP models do not.
-- [ ] 5.2 Cover accepted IN1808 wire variants and amplifier capability filtering.
-- [ ] 5.3 Cover ANAM parsing/fallback and stable IDs.
-- [ ] 5.4 Cover meter command generation, state transitions, raw parsing,
+- [x] 5.2 Cover accepted IN1808 wire variants and amplifier capability filtering.
+- [x] 5.3 Cover ANAM parsing/fallback and stable IDs.
+- [x] 5.4 Cover meter command generation, state transitions, raw parsing,
   derived dBFS, stereo aggregation and partial evidence.
-- [ ] 5.5 Prove no IN1808 path sends DMP `*2` and no cleanup path sends
+- [x] 5.5 Prove no IN1808 path sends DMP `*2` and no cleanup path sends
   `*0` under the unknown-scope contract.
-- [ ] 5.6 Cover mandatory `1$` Program-source mapping 1..9 and UNKNOWN
+- [x] 5.6 Cover mandatory `1$` Program-source mapping 1..9 and UNKNOWN
   independently from video `1%`.
-- [ ] 5.7 Cover 200xx boundaries/formula, adopted mapping-basis metadata, and
+- [x] 5.7 Cover 200xx boundaries/formula, adopted mapping-basis metadata, and
   prove no state-changing mix-point command is generated.
-- [ ] 5.8 Cover one routing snapshot per Audio entry and non-overlapping live
+- [x] 5.8 Cover one routing snapshot per Audio entry and non-overlapping live
   meter cycles.
-- [ ] 5.9 Cover Audio -> Video cleanup lock, Local Refresh/mutation retirement
+- [x] 5.9 Cover Audio -> Video cleanup lock, Local Refresh/mutation retirement
   gates, reconciliation exclusion, and cleanup-timeout fail-closed behavior.
-- [ ] 5.10 Cover mode-toggle/collapse/context replacement cleanup and stale
+- [x] 5.10 Cover mode-toggle/collapse/context replacement cleanup and stale
   callback rejection.
-- [ ] 5.11 Cover Audio-only failure isolation.
-- [ ] 5.12 Re-run existing Matrix video route/read/mutation regressions and DMP
+- [x] 5.11 Cover Audio-only failure isolation.
+- [x] 5.12 Re-run existing Matrix video route/read/mutation regressions and DMP
   meter regressions to prove protocol separation.
 
 ## 6. Implementation validation
 
-- [ ] 6.1 Run focused IN1808 audio/domain/controller/room GUI tests.
-- [ ] 6.2 Run the full required offline Python suite.
-- [ ] 6.3 Run
+- [x] 6.1 Run focused IN1808 audio/domain/controller/room GUI tests.
+- [x] 6.2 Run the full required offline Python suite.
+- [x] 6.3 Run
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`.
-- [ ] 6.4 Run `.\openspec.cmd validate --all --strict`.
-- [ ] 6.5 Run `git diff --check` and `git diff --cached --check`.
+- [x] 6.4 Run `.\openspec.cmd validate --all --strict`.
+- [x] 6.5 Run `git diff --check` and `git diff --cached --check`.
 - [ ] 6.6 Create and push one focused implementation commit after architecture
   approval; the implementation session must not issue its own final
   independent `APPROVE`.

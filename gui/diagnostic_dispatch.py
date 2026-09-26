@@ -184,6 +184,7 @@ class DiagnosticDispatchEntry:
     # binding is accidentally removed rather than silently dropping the model.
     call_activity_required: bool = False
     codec_controls: CodecControlDescriptor | None = None
+    in1808_audio_capability: bool = False
 
     def room_capability(self) -> RoomModelCapability:
         return RoomModelCapability(
@@ -195,6 +196,7 @@ class DiagnosticDispatchEntry:
             requires_credentials=self.requires_credentials,
             credentialless_allowed=self.credentialless_allowed,
             call_activity_binding_key=self.call_activity_binding_key,
+            in1808_audio_capability=self.in1808_audio_capability,
         )
 
 
@@ -243,6 +245,7 @@ def _room_entry(
     call_activity_binding_key: str | None = None,
     call_activity_required: bool = False,
     codec_controls: CodecControlDescriptor | None = None,
+    in1808_audio_capability: bool = False,
 ) -> DiagnosticDispatchEntry:
     """Build the one registry entry used by both room phases.
 
@@ -266,6 +269,7 @@ def _room_entry(
         call_activity_binding_key=call_activity_binding_key,
         call_activity_required=call_activity_required,
         codec_controls=codec_controls,
+        in1808_audio_capability=in1808_audio_capability,
     )
 
 
@@ -294,7 +298,7 @@ DISPATCH_REGISTRY: tuple[DiagnosticDispatchEntry, ...] = (
     _room_entry("Polycom RPG 310", "codec", "polycom_rpg_310", "polycom_one_shot", call_log=True, call_activity_binding_key="polycom_call_activity", call_activity_required=True, codec_controls=_codec_controls(microphone_mute=True, speaker_minimum=0, speaker_maximum=100, speaker_step=2)),
     _room_entry("Extron IN1804", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
     _room_entry("Extron IN1806", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
-    _room_entry("Extron IN1808", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
+    _room_entry("Extron IN1808", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True, in1808_audio_capability=True),
     _room_entry("Extron IN1608 xi", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
     _room_entry("Extron DTP CrossPoint 84", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
     _room_entry("Extron DTP CrossPoint 82 4K", "matrix", "matrix_controller", "matrix_one_shot", live_binding_key="matrix_room_live", matrix_mutation=True),
