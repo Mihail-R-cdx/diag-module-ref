@@ -442,10 +442,10 @@ fallback loop.
 
 Default expanded IN1808 mode is Video.
 
-Selecting `Аудио`:
+Selecting `Переключить на аудио`:
 
 1. synchronously changes local row mode to Audio, changes the same control text
-   to `Видео`, and rerenders the right tile as the complete Audio layout
+   to `Переключить на видео`, and rerenders the right tile as the complete Audio layout
    before controller availability or device I/O is required;
 2. the first Audio frame uses the known exact-model/variant topology with
    neutral route/meter placeholders (`— dBFS` for unavailable numeric
@@ -456,12 +456,12 @@ Selecting `Аудио`:
 5. acquires names/routing metadata and then live meter snapshots;
 6. accepts callbacks only for the exact current room/record/audio generation.
 
-The accepted `Аудио` click SHALL also have an explicit local transition
+The accepted `Переключить на аудио` click SHALL also have an explicit local transition
 acknowledgement. The same row-header mode control becomes disabled immediately
 for the presentation transition and remains disabled only until the complete
 target Audio layout has been committed for the same current row/session/mode
 generation. Once that layout is committed, the control is enabled again and
-reads `Видео`; it SHALL NOT wait for Matrix-controller availability, Audio
+reads `Переключить на видео`; it SHALL NOT wait for Matrix-controller availability, Audio
 metadata, a meter sample, or any other device/network completion.
 
 The disabled interval has a hard 10-second fail-safe maximum. If the target
@@ -477,7 +477,7 @@ revert the local Audio mode, or require a second operator click. Busy handling
 remains background retry/serialization work while the already-rendered Audio
 layout stays visible.
 
-Selecting `Видео` changes presentation immediately but requests orderly
+Selecting `Переключить на видео` changes presentation immediately but requests orderly
 Audio-subcontext quiescence. It does not refresh or mutate video routing merely
 because the mode changed. Until the Audio subcontext has no in-flight meter
 operation and has reached its cleanup boundary, network-backed Video actions

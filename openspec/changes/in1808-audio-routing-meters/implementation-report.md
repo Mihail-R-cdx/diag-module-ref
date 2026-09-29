@@ -1,3 +1,10 @@
+> **SUPERSEDED BY CURRENT HARDWARE-QA WORDING AMENDMENT**
+> The remediation evidence below applies to implementation HEAD `8798b2e59f7043bd94652dab52045628430bb557`.
+> Hardware QA subsequently changed the exact row-header mode-control text to
+> `Переключить на аудио` / `Переключить на видео`. Production/tests have not
+> yet implemented or validated that amended wording, so the older READY FOR REVIEW
+> handoff below is historical evidence only.
+
 > **CURRENT REMEDIATION EVIDENCE**
 > This section supersedes the implementation evidence below for the current
 > implementation-review handoff. Historical evidence remains unchanged.

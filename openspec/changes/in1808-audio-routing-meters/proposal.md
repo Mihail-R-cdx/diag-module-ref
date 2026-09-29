@@ -11,8 +11,9 @@ expected 200xx grid while rejecting addresses immediately outside the observed
 bounds.
 
 The product decision is to keep the existing IN1808 row and General information
-card, add an `Аудио` / `Видео` mode toggle in the expanded row header, and
-replace only the right-hand Matrix tile while Audio mode is active. Audio routing
+card, add an explicit action-labelled mode control in the expanded row header
+(`Переключить на аудио` / `Переключить на видео`), and replace only the
+right-hand Matrix tile while Audio mode is active. Audio routing
 is diagnostic/read-only; this change does not authorize audio-route mutation.
 
 ## What Changes
@@ -34,7 +35,7 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 - Read audio channel names through the IN1808 Audio Name SIS family and preserve
   deterministic fallback labels when a name is unavailable.
 - Switch the right tile to the Audio layout immediately on the first
-  `Аудио` click, before waiting for controller availability or device I/O;
+  `Переключить на аудио` click, before waiting for controller availability or device I/O;
   neutral placeholders make the mode change visible while Audio acquisition
   starts in the background.
 - Acknowledge that accepted click locally by disabling the same mode control
@@ -73,9 +74,10 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 ## Expected Result
 
 An operator expands an IN1808 row and initially sees the existing video Matrix
-dashboard. The first `Аудио` click is acknowledged locally by temporarily
-disabling that same mode control while the target presentation is committed.
-The same interaction changes the control to `Видео`, leaves General information
+dashboard. The first `Переключить на аудио` click is acknowledged locally by
+temporarily disabling that same mode control while the target presentation is
+committed. The same interaction changes the control to `Переключить на видео`,
+leaves General information
 intact, and renders the complete Audio layout with neutral/loading evidence
 before any device result is required. Once that Audio layout is visibly
 committed the control is enabled again; a 10-second fail-safe prevents a stuck

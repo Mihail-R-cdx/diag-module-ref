@@ -203,6 +203,12 @@
 - [ ] 7.25 Repeat hardware QA on the final published remediation HEAD before
   independent validation; record any new blocking UX/protocol finding before
   proceeding.
+- [x] 7.26 Record the hardware-QA wording decision: the mode control uses explicit
+  action labels `Переключить на аудио` in Video mode and `Переключить на видео`
+  in Audio mode so the label cannot be misread as the current mode.
+- [ ] 7.27 Re-run repository-local strict change/all validation and Git checks on
+  the published wording amendment, then obtain architecture review `APPROVE`
+  before changing production GUI/tests for these labels.
 
 ## 8. Independent validation and completion
 

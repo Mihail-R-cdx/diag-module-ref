@@ -6,9 +6,10 @@ For exact `Extron IN1808`, the expanded room Matrix row SHALL retain the
 existing `Общая информация` card unchanged and SHALL add one mode control in
 the row header aligned with the existing model/status content.
 
-The default expanded mode is Video and the control text is `Аудио`. Selecting
-it changes the local mode to Audio and the same control text to `Видео`.
-Selecting `Видео` returns to the existing video Matrix presentation.
+The default expanded mode is Video and the action-labelled control text is
+`Переключить на аудио`. Selecting it changes the local mode to Audio and the
+same control text to `Переключить на видео`. Selecting `Переключить на видео`
+returns to the existing video Matrix presentation.
 
 Only the right-hand expanded tile changes between modes. The mode switch SHALL
 not create another room row, another top-level screen, or another General
@@ -19,26 +20,27 @@ Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
 #### Scenario: Operator enters Audio mode
 
 - **GIVEN** exact current row is `Extron IN1808` and is expanded in Video mode
-- **WHEN** the operator activates `Аудио`
+- **WHEN** the operator activates `Переключить на аудио`
 - **THEN** `Общая информация` remains the same left card
 - **AND** the same synchronous UI action changes the right tile to the complete
   IN1808 Audio layout before any controller/device result is required
 - **AND** unavailable meters initially show neutral `— dBFS` evidence and
   route cells show neutral/unknown placeholders rather than the old Video tile
-- **AND** the same header control immediately reads `Видео`
+- **AND** the same header control immediately reads `Переключить на видео`
 - **AND** temporary Matrix-controller busy state is handled in the background
   without requiring a second operator click
 
 #### Scenario: Audio click has bounded local acknowledgement
 
 - **GIVEN** exact current row is `Extron IN1808` and is expanded in Video mode
-- **WHEN** the operator activates `Аудио`
+- **WHEN** the operator activates `Переключить на аудио`
 - **THEN** the same mode control becomes disabled for the local presentation
   transition
 - **AND** the disabled state does not wait for controller availability, Audio
   metadata, meter evidence, or any other device/network result
 - **AND** when the complete Audio layout is committed for the same current
-  row/session/mode generation, the control is enabled again and reads `Видео`
+  row/session/mode generation, the control is enabled again and reads
+  `Переключить на видео`
 - **AND** if that layout is not committed, the disabled interval ends no later
   than 10 seconds without fabricating successful Audio evidence
 - **AND** a stale timeout from a superseded/collapsed/replaced context cannot
@@ -47,9 +49,9 @@ Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
 #### Scenario: Operator returns to Video
 
 - **GIVEN** an expanded IN1808 row is in Audio mode
-- **WHEN** the operator activates `Видео`
+- **WHEN** the operator activates `Переключить на видео`
 - **THEN** the existing video Matrix right tile is restored
-- **AND** the mode control returns to `Аудио`
+- **AND** the mode control returns to `Переключить на аудио`
 - **AND** the left General-information presentation is unchanged
 
 ### Requirement: IN1808 Audio presentation uses one aligned logical routing grid
