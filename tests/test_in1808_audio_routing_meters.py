@@ -612,19 +612,106 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         window._room_matrix_live[context] = controller
         return window, session, row, context, controller
 
-    def test_exact_in1808_header_has_audio_video_toggle(self):
+    def test_exact_in1808_header_has_action_labelled_mode_toggle(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
 
         session, _row = self.make_session(audio=False)
         widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.close)
+        widget.resize(1400, 600)
         widget.render(session)
+        widget.show()
+        self.app.processEvents()
         button = widget.findChild(QPushButton, "roomMatrixAudioModeButton")
         self.assertIsNotNone(button)
-        self.assertEqual("Аудио", button.text())
+        self.assertEqual("Переключить на аудио", button.text())
+        self.assertGreaterEqual(button.width(), button.sizeHint().width())
         emitted = []
         widget.matrixModeRequested.connect(lambda record_id, mode: emitted.append((record_id, mode)))
         button.click()
         self.assertEqual([("RID-1", "audio")], emitted)
+
+    def test_real_button_accepts_first_click_during_same_row_non_retiring_live(self):
+        window, session, row, context, controller = self.make_live_window(audio=False)
+        row.network_actions_enabled = False
+        row.matrix_audio_quiescent = True
+        controller.request_in1808_audio_entry.return_value = False
+        window._schedule_room_matrix_audio_operation = Mock()
+        intents = []
+        window.room_diagnostic_tree.matrixModeRequested.connect(
+            lambda record_id, mode: intents.append((record_id, mode))
+        )
+        window._sync_room_interaction_controls()
+        window.room_diagnostic_tree.render(session)
+
+        button = window.room_diagnostic_tree.matrix_mode_control(row.record_id)
+        self.assertTrue(button.isEnabled())
+        self.assertEqual("Переключить на аудио", button.text())
+
+        button.click()
+
+        self.assertEqual([(row.record_id, "audio")], intents)
+        self.assertEqual("audio", row.matrix_view_mode)
+        self.assertIsNotNone(
+            window.room_diagnostic_tree.findChild(
+                QWidget, "roomIN1808SharedGridSurface"
+            )
+        )
+        current_item = window.room_diagnostic_tree._by_record[row.record_id]
+        current_presentation = window.room_diagnostic_tree.tree.itemWidget(
+            current_item.child(0), 0
+        )
+        self.assertIsNone(
+            current_presentation.findChild(
+                QTableWidget, "roomMatrixRouting"
+            )
+        )
+        replacement = window.room_diagnostic_tree.matrix_mode_control(
+            row.record_id
+        )
+        self.assertEqual("Переключить на видео", replacement.text())
+        self.assertTrue(replacement.isEnabled())
+        self.assertIs(context, window.room_interaction_coordinator.active_context)
+        self.assertEqual(1, len(window._room_matrix_live))
+
+        self.app.processEvents()
+
+        controller.request_in1808_audio_entry.assert_called_once_with()
+        window._schedule_room_matrix_audio_operation.assert_called_once_with(
+            context, "audio_entry", interval_ms=100
+        )
+
+    def test_mode_toggle_stays_blocked_for_retiring_live_and_exclusive_operation(self):
+        from core.room_interaction import RoomInteractionKind
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+
+        session, row = self.make_session(audio=False)
+        row.network_actions_enabled = False
+        row.matrix_audio_quiescent = True
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.close)
+
+        for kind, retiring in (
+            (RoomInteractionKind.LIVE, True),
+            (RoomInteractionKind.LOCAL_REFRESH, False),
+            (RoomInteractionKind.AUXILIARY_READ, False),
+            (RoomInteractionKind.MUTATION, False),
+            (RoomInteractionKind.RECONCILIATION, False),
+        ):
+            with self.subTest(kind=kind, retiring=retiring):
+                context = SimpleNamespace(record_id=row.record_id, kind=kind)
+                widget.set_active_interaction(context, retiring=retiring)
+                widget.set_interaction_locked(
+                    kind in {
+                        RoomInteractionKind.LOCAL_REFRESH,
+                        RoomInteractionKind.MUTATION,
+                        RoomInteractionKind.RECONCILIATION,
+                    }
+                )
+                widget.render(session)
+                self.assertFalse(
+                    widget.matrix_mode_control(row.record_id).isEnabled()
+                )
 
     def test_first_audio_click_renders_complete_neutral_grid_before_controller_exists(self):
         from gui.main_window import VCSDiagnosticApp
@@ -668,7 +755,7 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         )
         button = window.room_diagnostic_tree.matrix_mode_control(row.record_id)
         self.assertEqual(
-            "Видео",
+            "Переключить на видео",
             button.text(),
         )
         self.assertTrue(button.isEnabled())
@@ -688,7 +775,7 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
 
         self.assertEqual("audio", row.matrix_view_mode)
         self.assertEqual(
-            "Видео",
+            "Переключить на видео",
             window.room_diagnostic_tree.matrix_mode_control(row.record_id).text(),
         )
         self.assertTrue(
@@ -830,6 +917,54 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
             self.assertTrue(all(segment.width() > 0 and segment.height() > 0 for segment in segments))
             self.assertTrue(all(track.rect().contains(segment.geometry().topLeft()) for segment in segments))
             self.assertTrue(all(track.rect().contains(segment.geometry().bottomRight()) for segment in segments))
+
+    def test_route_markers_use_fifteen_point_font_without_changing_grid_geometry(self):
+        from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
+        from gui.theme import apply_theme
+
+        session, _row = self.make_session()
+        widget = RoomDiagnosticTreeWidget()
+        self.addCleanup(widget.close)
+        apply_theme(widget)
+        widget.resize(1800, 1000)
+        widget.render(session)
+        widget.show()
+        self.app.processEvents()
+
+        surface = widget.findChild(QWidget, "roomIN1808SharedGridSurface")
+        grid = surface.layout()
+        cell = next(
+            current
+            for current in widget.findChildren(QLabel, "roomIN1808RouteCell")
+            if current.property("logicalRow") == 0
+            and current.property("logicalColumn") == 0
+        )
+        input_header = next(
+            current
+            for current in widget.findChildren(QLabel, "roomIN1808InputHeader")
+            if current.property("logicalRow") == 0
+        )
+        output_header = next(
+            current
+            for current in widget.findChildren(QLabel, "roomIN1808OutputHeader")
+            if current.property("logicalColumn") == 0
+        )
+        marker_bounds = cell.fontMetrics().boundingRect(cell.text())
+
+        self.assertAlmostEqual(15.0, cell.font().pointSizeF(), delta=0.5)
+        self.assertEqual(30, cell.height())
+        self.assertGreaterEqual(cell.contentsRect().width(), marker_bounds.width())
+        self.assertGreaterEqual(cell.contentsRect().height(), marker_bounds.height())
+        self.assertTrue(surface.rect().contains(cell.geometry().topLeft()))
+        self.assertTrue(surface.rect().contains(cell.geometry().bottomRight()))
+        self.assertEqual(
+            grid.getItemPosition(grid.indexOf(input_header))[0],
+            grid.getItemPosition(grid.indexOf(cell))[0],
+        )
+        self.assertEqual(
+            grid.getItemPosition(grid.indexOf(output_header))[1],
+            grid.getItemPosition(grid.indexOf(cell))[1],
+        )
 
     def test_program_meter_uses_one_dollar_source_and_names_remain_secondary(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget
@@ -985,6 +1120,8 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
 
         controller.cancel_in1808_audio_subcontext.assert_called_once_with()
         controller.request_full_refresh.assert_not_called()
+        controller.request_status_refresh.assert_not_called()
+        controller.get_full_status.assert_not_called()
         controller.request_in1808_audio_entry.assert_not_called()
         controller.request_in1808_audio_meters.assert_not_called()
         self.assertFalse(row.matrix_audio_quiescent)

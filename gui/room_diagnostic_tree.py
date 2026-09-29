@@ -218,7 +218,7 @@ class RoomDiagnosticTreeWidget(QWidget):
             row.capability is not None and row.capability.in1808_audio_capability
             for row in session.rows
         )
-        self.tree.header().resizeSection(4, 92 if has_in1808_audio else 0)
+        self.tree.header().resizeSection(4, 190 if has_in1808_audio else 0)
         self._changing = True
         try:
             self.room_name_label.setText(f"Название комнаты:  {session.room_name or '—'}")
@@ -278,7 +278,11 @@ class RoomDiagnosticTreeWidget(QWidget):
                 self.tree.addTopLevelItem(item)
                 if row.capability is not None and row.capability.in1808_audio_capability:
                     mode_button = QPushButton(
-                        "Видео" if row.matrix_view_mode == "audio" else "Аудио",
+                        (
+                            "Переключить на видео"
+                            if row.matrix_view_mode == "audio"
+                            else "Переключить на аудио"
+                        ),
                         self.tree,
                     )
                     mode_button.setObjectName("roomMatrixAudioModeButton")
@@ -302,7 +306,10 @@ class RoomDiagnosticTreeWidget(QWidget):
                         and not transition_pending
                         and (
                             row.matrix_view_mode == "audio"
-                            or (row.network_actions_enabled and row.matrix_audio_quiescent)
+                            or (
+                                row.matrix_audio_quiescent
+                                and (row.network_actions_enabled or live_here)
+                            )
                         )
                     )
                     target_mode = "video" if row.matrix_view_mode == "audio" else "audio"

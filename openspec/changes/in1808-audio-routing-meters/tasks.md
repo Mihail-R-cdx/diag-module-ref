@@ -206,9 +206,18 @@
 - [x] 7.26 Record the hardware-QA wording decision: the mode control uses explicit
   action labels `Переключить на аудио` in Video mode and `Переключить на видео`
   in Audio mode so the label cannot be misread as the current mode.
-- [ ] 7.27 Re-run repository-local strict change/all validation and Git checks on
+- [x] 7.27 Re-run repository-local strict change/all validation and Git checks on
   the published wording amendment, then obtain architecture review `APPROVE`
   before changing production GUI/tests for these labels.
+- [x] 7.28 Admit the real rendered Video -> Audio mode control during the exact
+  same-row non-retiring Matrix LIVE owner, while retaining quiescence,
+  stale/currentness, retiring-LIVE, and unrelated-exclusive-operation gates.
+- [x] 7.29 Implement the approved exact action labels and scope 15 pt routing
+  markers only to the IN1808 route cells without changing compact grid geometry.
+- [x] 7.30 Add real-button, negative admission, exact-label, actual Qt marker
+  geometry, and Audio -> Video no-refresh regression coverage.
+- [x] 7.31 Re-run focused/related/full tests, repository-local strict change/all
+  validation, Git checks, then publish one focused hardware-QA follow-up commit.
 
 ## 8. Independent validation and completion
 

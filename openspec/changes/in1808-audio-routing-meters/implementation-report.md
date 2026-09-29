@@ -1,3 +1,109 @@
+> **CURRENT HARDWARE-QA FOLLOW-UP IMPLEMENTATION EVIDENCE**
+> This section supersedes the historical implementation evidence below for the
+> current implementation-review handoff. Earlier evidence remains unchanged.
+
+# IN1808 Audio Mode Hardware-QA Follow-up
+
+This implementation started from approved architecture HEAD
+`841ce680ee696d6615e96e1c61b19cfc03c9ffdd`. Previous real-hardware QA was
+performed on implementation HEAD `8798b2e59f7043bd94652dab52045628430bb557`.
+That session found that the first real Audio-button click could be discarded,
+the short `Аудио` / `Видео` target-action wording was ambiguous, and the route
+markers were too small. This section records implementation evidence, not an
+independent-validation verdict or a hardware PASS.
+
+The final implementation revision is the single focused commit containing this
+section. Its exact SHA is recorded after the ordinary push in the implementation
+handoff and is verified by the post-push local/remote SHA comparison.
+
+## Implemented Follow-up
+
+- The exact-IN1808 Video -> Audio control now admits the local presentation
+  action when the same current row owns a non-retiring `RoomInteractionKind.LIVE`,
+  even though that LIVE owner correctly keeps `row.network_actions_enabled`
+  false. Admission still requires CONNECTED, non-stale, quiescent Audio state,
+  and no pending acknowledgement. Retiring LIVE and unrelated exclusive
+  operations remain blocked.
+- The existing application-owned acknowledgement remains unchanged: the real
+  control is disabled first, row mode and the neutral Audio grid are committed
+  synchronously, the replacement control is re-enabled, and only then is Audio
+  acquisition started or queued on the existing serialized Matrix owner.
+- Video mode now reads exactly `Переключить на аудио`; Audio mode reads exactly
+  `Переключить на видео`. The dedicated header column was widened so the action
+  wording has presentation space; button text is not lifecycle authority.
+- `QLabel#roomIN1808RouteCell` alone now uses a 15 pt font. Routing row height
+  remains 30 px, alignment is unchanged, and no other Matrix, DMP, header,
+  meter, or generic label typography is enlarged.
+- Audio -> Video still performs the existing immediate presentation switch and
+  Audio retirement/quiescence path. It issues no `request_full_refresh`,
+  `request_status_refresh`, `get_full_status`, `1%`, or other automatic Video
+  read.
+- Video polling batching, full-refresh cancellation/preemption, transport
+  redesign, a second Matrix session, overlapping Audio/Video I/O, and new
+  lifecycle kinds were not implemented.
+
+## Changed Files
+
+- `gui/room_diagnostic_tree.py`: same-row non-retiring LIVE admission for the
+  local mode action, exact action labels, and label-column presentation width.
+- `gui/theme.py`: dedicated 15 pt IN1808 route-cell marker selector.
+- `tests/test_in1808_audio_routing_meters.py`: real-button integrated LIVE
+  regression, retiring/exclusive negative cases, exact labels, actual themed Qt
+  marker geometry, and explicit Audio -> Video no-refresh assertions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: factual architecture
+  review and follow-up implementation tracking while hardware task 7.25 stays
+  open.
+- `openspec/changes/in1808-audio-routing-meters/implementation-report.md`: this
+  current evidence section; historical evidence below is preserved.
+
+No normative proposal, design, or delta-spec file changed. No Matrix controller,
+handler, protocol, credential, Graphify, generated artifact, or log-capture file
+changed.
+
+## Fresh Automated Evidence
+
+Focused IN1808 command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters -v
+```
+
+- 61 tests run; 61 passed; 0 failed; 0 errors; 0 skipped.
+
+Related Matrix/room/lifecycle command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+```
+
+- 377 tests run; 377 passed; 0 failed; 0 errors; 0 skipped.
+
+Full offline suite:
+
+```powershell
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+- 1071 tests run; 1071 passed; 0 failed; 0 errors; 0 skipped.
+
+Repository-local OpenSpec validation on Node v20.19.0 / npm 10.8.2:
+
+- `.\openspec.cmd validate in1808-audio-routing-meters --strict`: PASS.
+- `.\openspec.cmd validate --all --strict`: PASS, 18/18 items.
+
+Git validation:
+
+- `git diff --check`: PASS.
+- `git diff --cached --check`: PASS.
+- Post-push local/remote implementation SHA equality: required and recorded in
+  the final handoff.
+
+## Hardware Status
+
+Hardware QA on the new final implementation HEAD: **NOT PERFORMED**.
+
+Implementation handoff status: **READY FOR REVIEW**.
+
 > **SUPERSEDED BY CURRENT HARDWARE-QA WORDING AMENDMENT**
 > The remediation evidence below applies to implementation HEAD `8798b2e59f7043bd94652dab52045628430bb557`.
 > Hardware QA subsequently changed the exact row-header mode-control text to

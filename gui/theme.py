@@ -738,6 +738,9 @@ def build_stylesheet() -> str:
             min-height: 99px;
             max-height: 99px;
         }}
+        QLabel#roomIN1808RouteCell {{
+            font-size: 15pt;
+        }}
         QFrame#roomAudioDspMeterSegment {{
             background-color: {c["surface"]};
             border: 1px solid {c["border"]};
