@@ -47,9 +47,9 @@ refresh.
 #### Scenario: First Audio click is visible before I/O
 
 - **GIVEN** exact current IN1808 row is in Video mode
-- **WHEN** the operator activates `Аудио`
+- **WHEN** the operator activates `Переключить на аудио`
 - **THEN** the row enters/render Audio mode immediately with neutral placeholders
-- **AND** the control immediately reads `Видео`
+- **AND** the control immediately reads `Переключить на видео`
 - **AND** controller busy state may delay background acquisition but cannot
   keep the old Video tile visible or require another click
 
