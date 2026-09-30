@@ -1395,7 +1395,7 @@ class IN1808LogicalMeter(QFrame):
             segment.setProperty("segmentIndex", index)
             track_layout.addWidget(segment)
         layout.addWidget(track, 1, Qt.AlignCenter)
-        value = QLabel(f"{meter['display_dbfs']:.1f} dBFS" if available else "— dBFS", self)
+        value = QLabel(f"{meter['display_dbfs']:.1f}" if available else "—", self)
         value.setObjectName("roomIN1808MeterDbfs")
         value.setAlignment(Qt.AlignCenter)
         value.setMinimumWidth(58)

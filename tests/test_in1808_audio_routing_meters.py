@@ -867,10 +867,11 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         self.assertEqual(7, sum(meter.property("meterOrientation") == "vertical" for meter in meters))
         segments = widget.findChildren(QFrame, "roomAudioDspMeterSegment")
         self.assertEqual(13 * 20, len(segments))
-        values = [label.text() for label in widget.findChildren(QLabel, "roomIN1808MeterDbfs")]
-        self.assertIn("-20.0 dBFS", values)
-        self.assertIn("— dBFS", values)
-        self.assertNotIn("0 dBFS", values)
+        audio_card = widget.findChild(QFrame, "roomIN1808AudioCard")
+        values = [label.text() for label in audio_card.findChildren(QLabel, "roomIN1808MeterDbfs")]
+        self.assertIn("-20.0", values)
+        self.assertIn("—", values)
+        self.assertFalse(any("dBFS" in label.text() for label in audio_card.findChildren(QLabel)))
         self.assertEqual([], widget.findChildren(QLabel, "roomIN1808MeterLabel"))
         self.assertEqual([], widget.findChildren(QLabel, "roomIN1808MeterOutcome"))
 
@@ -991,7 +992,7 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         )
         self.assertIn("источник: HDMI 3", program_header.toolTip())
         self.assertIn("ANAM: Lectern HDMI", program_header.toolTip())
-        self.assertIn("-20.0 dBFS", [label.text() for label in program_meter.findChildren(QLabel, "roomIN1808MeterDbfs")])
+        self.assertEqual("-20.0", program_meter.findChild(QLabel, "roomIN1808MeterDbfs").text())
         self.assertEqual("Mic/Line 1", mic_header.text())
         self.assertIn("ANAM: Table Mic", mic_header.toolTip())
         self.assertIn("ANAM: L: Left Feed; R: Right Feed", file_header.toolTip())
@@ -1009,7 +1010,7 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
             meter for meter in widget.findChildren(QFrame, "roomIN1808LogicalMeter")
             if meter.property("structuralLabel") == "Program L/R"
         )
-        self.assertEqual("— dBFS", program_meter.findChild(QLabel, "roomIN1808MeterDbfs").text())
+        self.assertEqual("—", program_meter.findChild(QLabel, "roomIN1808MeterDbfs").text())
 
     def test_variant_filters_amplifier_column_without_empty_base_slot(self):
         from gui.room_diagnostic_tree import RoomDiagnosticTreeWidget

@@ -1,3 +1,91 @@
+> **CURRENT VISIBLE METER-WORDING IMPLEMENTATION EVIDENCE**
+> This section supersedes the historical implementation evidence below for the
+> current implementation-review handoff. Earlier evidence remains unchanged.
+
+# IN1808 Visible Audio Meter Wording Follow-up
+
+This presentation-only follow-up started from approved architecture HEAD
+`ed2bccba634d4da5ed97f27991d2a108d2a8b25c` and the previously implemented and
+hardware-tested behavior at `a67857727dd2c08bf74b24641398e07fe59e7a29`.
+The final implementation revision is the single focused commit containing this
+section. Its exact SHA is recorded after the ordinary push in the implementation
+handoff and verified by the post-push local/remote SHA comparison.
+
+## Implemented Wording
+
+- Available visible IN1808 Audio meter text now renders the numeric value alone,
+  for example `-20.0` instead of `-20.0 dBFS`.
+- Unavailable IN1808 Audio meter text, including unavailable Program L/R,
+  renders exactly `—` instead of `— dBFS`.
+- Internal `dbfs`, `display_dbfs`, raw meter evidence, normalization,
+  conversion, segment fill, scale, orientation, and geometry are unchanged.
+- Generic DMP presentation remains unchanged and continues to render visible
+  values such as `-12.5 dBFS` and `— dBFS`.
+- Matrix controller/handler/protocol ownership, Audio lifecycle/currentness,
+  credentials, polling, mode switching, and route projection are unchanged.
+- Video batching, Video full-refresh cancellation/preemption, and transport
+  redesign were not implemented.
+
+## Changed Files
+
+- `gui/room_diagnostic_tree.py`: removed only the literal visible unit suffix
+  from the exact IN1808 logical-meter label.
+- `tests/test_in1808_audio_routing_meters.py`: exact available, unavailable,
+  Program-unknown, and card-scoped no-visible-`dBFS` regressions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: recorded completion
+  of the approved architecture gate; combined implementation/hardware task
+  7.34 remains open.
+- `openspec/changes/in1808-audio-routing-meters/implementation-report.md`: this
+  current evidence section; historical evidence below is preserved.
+
+No normative proposal, design, or delta-spec file changed. No theme,
+application/controller, handler, protocol, credential, Graphify, generated
+artifact, or log-capture file changed.
+
+## Fresh Automated Evidence
+
+Focused IN1808 command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters -v
+```
+
+- 61 tests run; 61 passed; 0 failed; 0 errors; 0 skipped.
+
+Related Matrix/room/lifecycle command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+```
+
+- 377 tests run; 377 passed; 0 failed; 0 errors; 0 skipped.
+
+Full offline suite:
+
+```powershell
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+- 1071 tests run; 1071 passed; 0 failed; 0 errors; 0 skipped.
+
+Repository-local OpenSpec validation on Node v20.19.0 / npm 10.8.2:
+
+- `.\openspec.cmd validate in1808-audio-routing-meters --strict`: PASS.
+- `.\openspec.cmd validate --all --strict`: PASS, 18/18 items.
+
+Git validation:
+
+- `git diff --check`: PASS.
+- `git diff --cached --check`: required before publication.
+- Post-push local/remote implementation SHA equality: required and recorded in
+  the final handoff.
+
+## Hardware Status
+
+Hardware QA on the new final implementation HEAD: **NOT PERFORMED**.
+
+Implementation handoff status: **READY FOR REVIEW**.
+
 > **SUPERSEDED FOR IN1808 VISIBLE METER-UNIT WORDING**
 > The current implementation evidence below applies to implementation HEAD
 > `a67857727dd2c08bf74b24641398e07fe59e7a29`, which still renders the literal `dBFS` suffix in visible

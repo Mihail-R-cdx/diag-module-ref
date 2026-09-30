@@ -222,7 +222,7 @@
   IN1808 Audio meter text omits the literal `dBFS` suffix while preserving the
   numeric value and the internal `dbfs`/raw evidence contract; unavailable
   numeric evidence renders as `—`.
-- [ ] 7.33 Re-run repository-local strict change/all validation and Git checks on
+- [x] 7.33 Re-run repository-local strict change/all validation and Git checks on
   the published no-unit-suffix architecture amendment, then obtain architecture
   review `APPROVE` before changing production GUI/tests.
 - [ ] 7.34 Implement the approved no-`dBFS` visible meter wording, update
