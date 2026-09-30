@@ -24,8 +24,8 @@ Other exact Matrix models SHALL not show this IN1808 Audio-mode control.
 - **THEN** `Общая информация` remains the same left card
 - **AND** the same synchronous UI action changes the right tile to the complete
   IN1808 Audio layout before any controller/device result is required
-- **AND** unavailable meters initially show neutral `— dBFS` evidence and
-  route cells show neutral/unknown placeholders rather than the old Video tile
+- **AND** unavailable meters initially show neutral `—` evidence and route
+  cells show neutral/unknown placeholders rather than the old Video tile
 - **AND** the same header control immediately reads `Переключить на видео`
 - **AND** temporary Matrix-controller busy state is handled in the background
   without requiring a second operator click
@@ -223,7 +223,11 @@ The top-left region above the input/row-label rail SHALL remain empty because it
 does not correspond to an output column.
 
 Input/output names SHALL be rendered once in the routing row/column headers.
-Meter widgets SHALL NOT repeat those names. Numeric dBFS SHALL remain visible;
+Meter widgets SHALL NOT repeat those names. Numeric meter evidence SHALL remain
+visible, but the literal `dBFS` unit suffix SHALL NOT appear in visible IN1808
+Audio meter text. Available values SHALL render as the decimal numeric value only
+(for example `-20.0`); unavailable numeric evidence SHALL render as `—`.
+Internal `dbfs` evidence and dBFS conversion remain unchanged.
 `VALID`/`INVALID` captions SHALL not be shown.
 
 Routing data rows SHALL be compact and uniform; the target is approximately
@@ -257,7 +261,7 @@ selected by mandatory read-only `1$`.
 For `1$ = 1..9`, the Program meter uses the corresponding DP/HDMI/TP/Aux
 300xx meter group and applies the approved stereo max(L,R) display rule.
 If the Program source or its meter evidence is unavailable, the Program meter
-SHALL show `— dBFS` and SHALL NOT infer a source from video `1%`.
+SHALL show `—` and SHALL NOT infer a source from video `1%`.
 
 The physical DP/HDMI/TP/Aux groups remain normalized evidence; they are not
 rendered as separate routing rows in this compact matrix view.
@@ -274,7 +278,7 @@ rendered as separate routing rows in this compact matrix view.
 #### Scenario: Program source is unknown
 
 - **WHEN** `1$` is UNKNOWN or the selected source meter is unavailable
-- **THEN** Program L/R shows `— dBFS`
+- **THEN** Program L/R shows `—`
 - **AND** the UI does not guess another physical input
 
 ### Requirement: IN1808 Audio presentation discloses mapping basis without visual noise

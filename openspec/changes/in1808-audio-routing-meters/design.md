@@ -19,7 +19,7 @@ read is `1%` and route mutation is `<I>*1%`; audio breakaway/DSP routing is
 not part of that video route map. This change preserves that separation.
 
 The modern Audio DSP room presentation already establishes the desired meter
-visual language (vertical segmented dBFS indicators), but its DMP handler,
+visual language (vertical segmented level indicators), but its DMP handler,
 polling controller, wire semantics, and screen identity are not IN1808
 authorities and must not be reused as such.
 
@@ -448,8 +448,8 @@ Selecting `Переключить на аудио`:
    to `Переключить на видео`, and rerenders the right tile as the complete Audio layout
    before controller availability or device I/O is required;
 2. the first Audio frame uses the known exact-model/variant topology with
-   neutral route/meter placeholders (`— dBFS` for unavailable numeric
-   evidence) and may show a compact `Опрос аудио…` loading state;
+   neutral route/meter placeholders (`—` for unavailable numeric evidence) and
+   may show a compact `Опрос аудио…` loading state;
 3. composition revalidates current room identity + exact record + exact
    `Extron IN1808` capability;
 4. starts/retries the IN1808 audio subcontext on the existing Matrix owner;
@@ -591,7 +591,7 @@ File Player L/R<- raw rows 6,7
 The Program L/R meter SHALL use the currently selected physical Program source
 from mandatory `1$`: its corresponding DP/HDMI/TP/Aux 300xx stereo meter group
 is presented as the Program L/R level. If `1$` is UNKNOWN or the selected
-source meter evidence is unavailable, Program L/R shows `— dBFS` rather than
+source meter evidence is unavailable, Program L/R shows `—` rather than
 guessing from video `1%`.
 
 Mic/Line, Line In and File Player use their existing approved 400xx evidence.
@@ -768,7 +768,11 @@ Meters and routing MUST NOT be built as visually independent bands.
 - Meter bars MAY be narrowed to preserve these alignment invariants.
 - Output and input names SHALL appear only in the matrix column/row headers;
   the meter widgets SHALL NOT repeat the same labels.
-- Numeric dBFS remains visible. `VALID`/`INVALID` status captions are removed.
+- Numeric meter evidence remains visible, but visible IN1808 Audio meter text
+  SHALL omit the literal `dBFS` unit suffix. An available value renders as the
+  decimal numeric value only (for example `-20.0`); unavailable numeric evidence
+  renders as `—`. Internal `dbfs` evidence and dBFS conversion remain unchanged.
+  `VALID`/`INVALID` status captions are removed.
 
 Input meters are horizontal. Output meters are vertical. Both reuse the modern
 20-segment room Audio DSP visual language; the legacy standalone

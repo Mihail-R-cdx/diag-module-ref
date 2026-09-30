@@ -1,3 +1,11 @@
+> **SUPERSEDED FOR IN1808 VISIBLE METER-UNIT WORDING**
+> The current implementation evidence below applies to implementation HEAD
+> `a67857727dd2c08bf74b24641398e07fe59e7a29`, which still renders the literal `dBFS` suffix in visible
+> IN1808 Audio meter values. A newer approved-direction architecture amendment
+> removes that visible suffix while preserving numeric/internal dBFS evidence.
+> Production/tests have not yet implemented or validated that amendment, so the
+> READY FOR REVIEW handoff below is historical for the superseded wording.
+
 > **CURRENT HARDWARE-QA FOLLOW-UP IMPLEMENTATION EVIDENCE**
 > This section supersedes the historical implementation evidence below for the
 > current implementation-review handoff. Earlier evidence remains unchanged.

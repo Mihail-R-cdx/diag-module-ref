@@ -218,6 +218,16 @@
   geometry, and Audio -> Video no-refresh regression coverage.
 - [x] 7.31 Re-run focused/related/full tests, repository-local strict change/all
   validation, Git checks, then publish one focused hardware-QA follow-up commit.
+- [x] 7.32 Record the post-hardware-QA presentation decision that all visible
+  IN1808 Audio meter text omits the literal `dBFS` suffix while preserving the
+  numeric value and the internal `dbfs`/raw evidence contract; unavailable
+  numeric evidence renders as `—`.
+- [ ] 7.33 Re-run repository-local strict change/all validation and Git checks on
+  the published no-unit-suffix architecture amendment, then obtain architecture
+  review `APPROVE` before changing production GUI/tests.
+- [ ] 7.34 Implement the approved no-`dBFS` visible meter wording, update
+  regressions, rerun focused/related/full validation, publish one focused
+  implementation commit, and repeat real-IN1808 hardware QA on that final HEAD.
 
 ## 8. Independent validation and completion
 
