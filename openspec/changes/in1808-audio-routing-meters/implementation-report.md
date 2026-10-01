@@ -1,3 +1,114 @@
+> **CURRENT GUARDED VIDEO BATCH / LAZY LIVE IMPLEMENTATION EVIDENCE**
+> This section is the current implementation handoff for tasks 7.38 and 7.39.
+> Historical hardware and implementation evidence below remains unchanged.
+
+# Exact-IN1808 Guarded Video Batch and Non-Duplicating LIVE Bootstrap
+
+This implementation started from the separately approved architecture HEAD
+`2898af6aed8cb892ede20e19703fbd6339c4bc2d`. The separate architecture review
+returned `APPROVE` for that exact SHA; this implementation session does not
+issue or repeat an independent validation verdict. The publication revision is
+the single focused commit containing this section, and its exact local/remote
+SHA equality is recorded in the implementation handoff after the ordinary
+push.
+
+## Implemented Behavior
+
+- Exact canonical `Extron IN1808` full Video status now performs standalone
+  authoritative `1I`, one serialized 31-command read-only guarded batch, and a
+  matching standalone post-batch `1I`.
+- The batch parser consumes the hardware-observed raw `\r\r\n` record framing,
+  removes only the exact aggregate submitted-command echo, requires exactly 30
+  useful `Q` through `1%` payloads, and rejects a returned guard, missing/extra
+  data, protocol errors, malformed framing, field-parser failures, and failed,
+  unsupported, or mismatching post identity.
+- Firmware, temperature, HDCP authorization/status, Video names, signal
+  presence, and route evidence pass their field-specific normalization before
+  the snapshot is accepted. Detectable positional mismatches are never repaired
+  by shifting later records.
+- The guarded transaction is read-only and does not alter existing Video route
+  mutation authority (`<I>*1%`), credential fallback, or state-changing replay
+  behavior. Other Matrix models retain their established sequential contract.
+- Exact-IN1808 room LIVE now reuses a complete accepted current
+  `matrix_one_shot` Video snapshot and creates its `MatrixController` without
+  automatically requesting another full Video refresh.
+- Audio entry on that transport-lazy LIVE owner acquires a session only when
+  Audio I/O is required. A fresh handler performs only standalone exact `1I`
+  identity/variant verification before Audio acquisition; it does not re-read
+  firmware, temperature, HDCP, VNAM, signal presence, or Video `1%`.
+- Existing Matrix operation serialization, Audio quiescence/currentness,
+  structured authentication fallback, and General-information ownership remain
+  unchanged.
+- The approved residual indistinguishable same-grammar stale/delayed/
+  duplicated substitution risk remains explicitly bounded to this read-only
+  diagnostic snapshot. Automated tests cover detectable failures and do not
+  claim universal exclusion of that residual case.
+
+## Changed Files
+
+- `handlers/extron/matrix.py`: exact-IN1808 guarded Video transaction, strict
+  framing/cardinality/field parsing, pre/post identity gates, and minimum Audio
+  identity establishment.
+- `gui/main_window.py`: accepted one-shot reuse and transport-lazy exact-IN1808
+  LIVE bootstrap.
+- `tests/test_in1808_audio_routing_meters.py`: deterministic guarded-batch,
+  exact-echo/fail-closed, profile-isolation, lazy LIVE, minimal Audio gate, and
+  serialization regressions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: factual completion of
+  the external architecture gate and implementation/test tasks 7.37-7.39.
+- `openspec/changes/in1808-audio-routing-meters/implementation-report.md`: this
+  current implementation evidence section.
+
+No normative proposal, design, or delta-spec file changed. No Graphify output,
+credential material, route-mutation contract, or generated hardware evidence
+changed.
+
+## Fresh Automated Evidence
+
+Focused IN1808 command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters -v
+```
+
+- 72 tests run; 72 passed; 0 failed; 0 errors; 0 skipped.
+
+Related Matrix/room/lifecycle command:
+
+```powershell
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+```
+
+- 388 tests run; 388 passed; 0 failed; 0 errors; 0 skipped.
+
+Full offline suite:
+
+```powershell
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+```
+
+- 1082 tests run; 1082 passed; 0 failed; 0 errors; 0 skipped.
+
+Repository-local dependency and OpenSpec validation used Node v20.19.0 / npm
+10.8.2. `npm ci` installed 79 packages with 0 vulnerabilities.
+
+- `.\openspec.cmd validate in1808-audio-routing-meters --strict`: PASS.
+- `.\openspec.cmd validate --all --strict`: PASS, 18/18 items.
+- `git diff --check`: PASS; rerun immediately before commit.
+- `git diff --check origin/master...HEAD`: required immediately before commit
+  and recorded in the final handoff.
+
+## Hardware Status
+
+Real-IN1808 hardware QA on the new implementation HEAD: **NOT PERFORMED**.
+
+Task 7.40 remains open for a separate hardware-QA session after publication.
+
+Implementation handoff status: **READY FOR REVIEW**. This is not an
+independent `APPROVE`, archive verdict, merge verdict, or hardware-QA result.
+
+---
+
 > **CURRENT HARDWARE EVIDENCE / BOUNDED GUARDED-BATCH ARCHITECTURE**
 > The third exact-IN1808 hardware probe completed the 31-command guarded batch
 > in **1.328 s** with `success=True`, `raw_length=490`, and 31 observed

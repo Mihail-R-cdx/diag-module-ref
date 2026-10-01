@@ -25,7 +25,13 @@ from handlers.extron.in1808_audio import (
     routing_columns,
     variant_for_identity,
 )
-from handlers.extron.matrix import ExtronMatrixHandler, resolve_matrix_capabilities
+from handlers.extron.matrix import (
+    IN1808_VIDEO_BATCH_COMMANDS,
+    IN1808_VIDEO_BATCH_RECORD_SEPARATOR,
+    IN1808_VIDEO_STATUS_COMMANDS,
+    ExtronMatrixHandler,
+    resolve_matrix_capabilities,
+)
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -256,6 +262,197 @@ class RecordingIN1808(ExtronMatrixHandler):
         self.commands.append((command, kwargs.get("replay_safe", True)))
         response = self.identity if command == "1I" else "1.0" if command == "Q" else "20Stat*42" if command == "w20STAT" else ""
         return {"success": True, "response": response}
+
+
+def _in1808_video_payloads():
+    payloads = ["1.09", "20Stat*52"]
+    for input_id in range(1, 9):
+        payloads.extend(("1", "1" if input_id % 2 else "0"))
+    payloads.append("1")
+    payloads.extend(f"Input {input_id}" for input_id in range(1, 9))
+    payloads.extend(("Main Output", "In00 1*0*1*0*1*0*1*0", "Vid3"))
+    assert len(payloads) == 30
+    return payloads
+
+
+class GuardedVideoIN1808(ExtronMatrixHandler):
+    def __init__(
+        self,
+        *,
+        identity="IN1808",
+        post_identity=None,
+        payloads=None,
+        aggregate_echo=None,
+        raw_response=None,
+    ):
+        super().__init__("192.0.2.21", expected_model="Extron IN1808")
+        self.identity = identity
+        self.post_identity = identity if post_identity is None else post_identity
+        self.payloads = list(_in1808_video_payloads() if payloads is None else payloads)
+        self.aggregate_echo = aggregate_echo
+        self.raw_response = raw_response
+        self.commands = []
+        self.identity_reads = 0
+
+    def send_command(self, command, data=None, **kwargs):
+        self.commands.append((command, kwargs.get("replay_safe", True)))
+        if command == "1I":
+            self.identity_reads += 1
+            response = self.identity if self.identity_reads == 1 else self.post_identity
+            return {"success": True, "response": response}
+        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        if command != submitted:
+            raise AssertionError(f"Unexpected IN1808 Video command: {command!r}")
+        if self.raw_response is None:
+            echo = submitted if self.aggregate_echo is None else self.aggregate_echo
+            records = [echo.encode("utf-8")]
+            records.extend(str(payload).encode("utf-8") for payload in self.payloads)
+            raw = IN1808_VIDEO_BATCH_RECORD_SEPARATOR.join(records)
+        else:
+            raw = self.raw_response
+        return {"success": True, "response": "transport-normalized", "raw_response": raw}
+
+
+class IN1808GuardedVideoBatchTests(unittest.TestCase):
+    def test_happy_path_uses_exact_guarded_batch_and_preserves_snapshot_shape(self):
+        handler = GuardedVideoIN1808(identity="IN1808 IPCP SA")
+
+        status = handler.get_full_status()
+        parsed = ExtronMatrixDataParser.parse(status)
+
+        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        self.assertEqual(["1I", submitted, "1I"], [item[0] for item in handler.commands])
+        self.assertEqual(31, len(submitted.split("\r")))
+        self.assertEqual("1I", submitted.split("\r")[0])
+        self.assertEqual(tuple(IN1808_VIDEO_STATUS_COMMANDS), tuple(submitted.split("\r")[1:]))
+        self.assertEqual("IN1808", status["device_info"]["model"])
+        self.assertEqual("IN1808 IPCP SA", status["device_info"]["wire_identity"])
+        self.assertEqual("1.09", status["device_info"]["firmware"])
+        self.assertEqual(52, status["device_info"]["temperature"])
+        self.assertEqual(3, status["routes"][1])
+        self.assertEqual(3, parsed["current_connection"])
+        self.assertEqual("Input 8", status["input_names"][8])
+        self.assertEqual("Main Output", status["output_names"][1])
+        self.assertEqual(8, len(status["signal_status"]))
+
+    def test_missing_extra_returned_guard_and_protocol_error_fail_whole_batch(self):
+        cases = {
+            "missing": _in1808_video_payloads()[:-1],
+            "extra": _in1808_video_payloads() + ["unknown-extra"],
+            "returned_guard": ["IN1808"] + _in1808_video_payloads(),
+            "protocol_error": [
+                "E13" if index == 7 else value
+                for index, value in enumerate(_in1808_video_payloads())
+            ],
+        }
+        for label, payloads in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaises(ProtocolError):
+                    GuardedVideoIN1808(payloads=payloads).get_full_status()
+
+    def test_malformed_framing_and_field_specific_parser_failure_fail_closed(self):
+        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS).encode("ascii")
+        malformed_raw = IN1808_VIDEO_BATCH_RECORD_SEPARATOR.join(
+            [submitted, b"\xff"]
+            + [value.encode("utf-8") for value in _in1808_video_payloads()[1:]]
+        )
+        with self.assertRaises(ProtocolError):
+            GuardedVideoIN1808(raw_response=malformed_raw).get_full_status()
+
+        payloads = _in1808_video_payloads()
+        payloads[1] = "52.5"
+        with self.assertRaises(ProtocolError):
+            GuardedVideoIN1808(payloads=payloads).get_full_status()
+
+    def test_post_batch_identity_must_be_present_supported_and_unchanged(self):
+        for post_identity in ("", "not an identity*", "IN1804", "IN1808 IPCP SA"):
+            with self.subTest(post_identity=post_identity):
+                with self.assertRaises(ProtocolError):
+                    GuardedVideoIN1808(
+                        identity="IN1808", post_identity=post_identity
+                    ).get_full_status()
+
+    def test_only_exact_aggregate_echo_is_removed_and_unknown_data_is_not_discarded(self):
+        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        for echo in (submitted.lower(), "prefix-" + submitted):
+            with self.subTest(echo=echo[:20]):
+                with self.assertRaises(ProtocolError):
+                    GuardedVideoIN1808(aggregate_echo=echo).get_full_status()
+
+        with self.assertRaises(ProtocolError):
+            GuardedVideoIN1808(
+                payloads=_in1808_video_payloads() + ["unsolicited"]
+            ).get_full_status()
+
+    def test_detectable_positional_mismatch_is_not_repaired_by_shifting(self):
+        payloads = _in1808_video_payloads()[1:] + ["1.09"]
+        self.assertEqual(30, len(payloads))
+        with self.assertRaises(ProtocolError):
+            GuardedVideoIN1808(payloads=payloads).get_full_status()
+
+    def test_guarded_video_transaction_is_read_only(self):
+        handler = GuardedVideoIN1808()
+        handler.get_full_status()
+        batch_commands = handler.commands[1][0].split("\r")
+        self.assertEqual(list(IN1808_VIDEO_BATCH_COMMANDS), batch_commands)
+        self.assertFalse(any(re.fullmatch(r"\d+\*1%", command) for command in batch_commands))
+        self.assertFalse(any("*1AU" in command for command in batch_commands))
+
+    def test_non_in1808_profiles_keep_sequential_acquisition(self):
+        class SequentialIN1806(ExtronMatrixHandler):
+            def __init__(self):
+                super().__init__("192.0.2.22", expected_model="Extron IN1806")
+                self.commands = []
+
+            def send_command(self, command, data=None, **kwargs):
+                self.commands.append(command)
+                responses = {
+                    "1I": "IN1806",
+                    "Q": "1.04",
+                    "w20STAT": "20Stat*41",
+                    "w0LS": "In00 1*1*1*1*1*1",
+                    "1%": "Vid2",
+                }
+                return {"success": True, "response": responses.get(command, "1")}
+
+        handler = SequentialIN1806()
+        status = handler.get_full_status()
+        self.assertEqual({1: 2}, status["routes"])
+        self.assertFalse(any("\r" in command for command in handler.commands))
+        self.assertIn("Q", handler.commands)
+        self.assertIn("w20STAT", handler.commands)
+
+    def test_fresh_audio_session_uses_only_minimum_identity_gate_before_audio(self):
+        handler = RecordingIN1808("IN1808 IPCP SA")
+
+        def response_for_command(command, **_kwargs):
+            handler.commands.append((command, _kwargs.get("replay_safe", True)))
+            if command == "1I":
+                return {"success": True, "response": "IN1808 IPCP SA"}
+            commands = command.split("\r")
+            if commands == ["1$"]:
+                payloads = ["3"]
+            elif all(re.fullmatch(r"WI\d+ANAM", item) for item in commands):
+                payloads = [f"Input {index}" for index in range(1, len(commands) + 1)]
+            elif all(re.fullmatch(r"WO\d+ANAM", item) for item in commands):
+                payloads = [f"Output {index}" for index in range(1, len(commands) + 1)]
+            elif all(re.fullmatch(r"WM\d+AU", item) for item in commands):
+                payloads = ["0"] * len(commands)
+            else:
+                payloads = ["1*500"] * len(commands)
+            return {"success": True, "response": "\n".join(payloads)}
+
+        handler.send_command = Mock(side_effect=response_for_command)
+        snapshot = handler.get_in1808_audio_entry_snapshot(is_current=lambda: True)
+
+        sent = [call.args[0] for call in handler.send_command.call_args_list]
+        self.assertEqual("1I", sent[0])
+        self.assertEqual("HDMI 3", snapshot["program_source"]["label"])
+        self.assertNotIn("Q", sent)
+        self.assertNotIn("w20STAT", sent)
+        self.assertNotIn("w0LS", sent)
+        self.assertNotIn("1%", sent)
+        self.assertFalse(any("HDCP" in command or "VNAM" in command for command in sent))
 
 
 class IN1808IdentityAndCapabilityTests(unittest.TestCase):
@@ -1110,6 +1307,50 @@ class IN1808AudioRoomPresentationTests(unittest.TestCase):
         self.app.processEvents()
         controller.request_in1808_audio_entry.assert_not_called()
         controller.request_in1808_audio_meters.assert_not_called()
+
+    def test_live_bootstrap_reuses_accepted_in1808_one_shot_without_video_refresh(self):
+        window, _session, row, context, _old_controller = self.make_live_window(
+            audio=False
+        )
+        controller = Mock()
+        original_snapshot = copy.deepcopy(row.accepted_snapshot)
+        window._room_matrix_live.clear()
+
+        with patch("gui.main_window.MatrixController", return_value=controller):
+            window._start_room_matrix_live_attempt(
+                context, {"username": "u", "password": "p"}, 0
+            )
+
+        controller.request_full_refresh.assert_not_called()
+        controller.request_status_refresh.assert_not_called()
+        controller.request_in1808_audio_entry.assert_not_called()
+        self.assertEqual(original_snapshot, row.accepted_snapshot)
+        self.assertTrue(row.network_actions_enabled)
+        self.assertIs(context, window.room_interaction_coordinator.active_context)
+
+    def test_audio_entry_on_lazy_live_owner_does_not_repoll_video_or_overlap(self):
+        window, _session, row, context, _old_controller = self.make_live_window(
+            audio=True
+        )
+        controller = Mock()
+        controller.request_in1808_audio_entry.return_value = SimpleNamespace(
+            operation_id=701
+        )
+        window._room_matrix_live.clear()
+
+        with patch("gui.main_window.MatrixController", return_value=controller):
+            window._start_room_matrix_live_attempt(
+                context, {"username": "u", "password": "p"}, 0
+            )
+        self.app.processEvents()
+
+        controller.request_full_refresh.assert_not_called()
+        controller.request_status_refresh.assert_not_called()
+        controller.request_in1808_audio_entry.assert_called_once_with()
+        self.assertFalse(window._start_room_matrix_audio_entry(context))
+        controller.request_in1808_audio_entry.assert_called_once_with()
+        self.assertIn(context, window._room_matrix_audio_inflight)
+        self.assertFalse(row.network_actions_enabled)
 
     def test_audio_to_video_waits_for_worker_quiescence(self):
         window, _session, row, context, controller = self.make_live_window(audio=True)

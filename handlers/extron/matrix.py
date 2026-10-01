@@ -69,6 +69,34 @@ IN1808_WIRE_IDENTITY_TO_CANONICAL = {
     "IN1808 IPCP Q SA": "IN1808",
     "IN1808 IPCP Q MA 70": "IN1808",
 }
+
+# Exact hardware-proven read-only transaction for a fresh IN1808 Video
+# snapshot.  The first command is deliberately sacrificial: real hardware
+# omits its payload when these commands are submitted in one CR-separated
+# write, while returning every later payload in order.
+IN1808_VIDEO_BATCH_GUARD_COMMAND = "1I"
+IN1808_VIDEO_STATUS_COMMANDS = (
+    "Q",
+    "w20STAT",
+    "wE1HDCP", "wI1HDCP",
+    "wE2HDCP", "wI2HDCP",
+    "wE3HDCP", "wI3HDCP",
+    "wE4HDCP", "wI4HDCP",
+    "wE5HDCP", "wI5HDCP",
+    "wE6HDCP", "wI6HDCP",
+    "wE7HDCP", "wI7HDCP",
+    "wE8HDCP", "wI8HDCP",
+    "wO1HDCP",
+    "wI1VNAM", "wI2VNAM", "wI3VNAM", "wI4VNAM",
+    "wI5VNAM", "wI6VNAM", "wI7VNAM", "wI8VNAM",
+    "wO1VNAM",
+    "w0LS",
+    "1%",
+)
+IN1808_VIDEO_BATCH_COMMANDS = (
+    IN1808_VIDEO_BATCH_GUARD_COMMAND,
+) + IN1808_VIDEO_STATUS_COMMANDS
+IN1808_VIDEO_BATCH_RECORD_SEPARATOR = b"\r\r\n"
 IN1608_XI_WIRE_IDENTITY_TO_CANONICAL = {
     "IN1608 XI": "IN1608 XI",
     "IN1608 XI IPCP SA": "IN1608 XI",
@@ -292,7 +320,8 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
     def send_command(self, command, data=None, **kwargs): kwargs.setdefault("response_required", True); return super().send_command(command, data, **kwargs)
     def get_status(self): return self.get_full_status()
     def _read(self, command, *, replay_safe=True): return self.send_command(command, replay_safe=replay_safe)
-    def get_device_info(self):
+    def _establish_identity(self):
+        """Read and retain only the exact Matrix identity/profile."""
         requested = resolve_matrix_capabilities(self.expected_model)
         family = requested.family if requested is not None else "IN"
         # The legacy DTP CP 84 guide documents its exact ``I`` token.  The
@@ -312,12 +341,21 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
         self.wire_identity = identity.upper()
         self._in1808_audio_profile = None
         self.inputs_num, self.outputs_num = len(self.capabilities.available_input_ids), len(self.capabilities.available_output_ids)
+        return profile
+
+    def _device_info_after_identity(self):
+        """Read ordinary firmware/temperature fields after an identity gate."""
+        profile = self._profile()
         firmware = self._parse_firmware(self._read("Q").get("response", ""))
         temp = None
-        if self.capabilities.supports_temperature:
-            command = "S" if self.capabilities.family == "DTP" else "w20STAT"
-            temp = self._parse_temperature(self._read(command).get("response", ""), self.capabilities.family)
+        if profile.supports_temperature:
+            command = "S" if profile.family == "DTP" else "w20STAT"
+            temp = self._parse_temperature(self._read(command).get("response", ""), profile.family)
         return {"model": self.model, "firmware": firmware, "temperature": temp, "wire_identity": self.wire_identity}
+
+    def get_device_info(self):
+        self._establish_identity()
+        return self._device_info_after_identity()
 
     @staticmethod
     def _parse_firmware(response):
@@ -396,9 +434,173 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
     def get_connections(self):
         routes = self.get_routes(); return [routes[1]] if self.capabilities.single_output and routes.get(1) is not None else []
     def get_full_status(self):
-        info = self.get_device_info(); profile = self._profile(); hdcp = self.get_hdcp_info()
+        profile = self._establish_identity()
+        if profile.exact_model == "IN1808":
+            return self._get_in1808_guarded_full_status()
+        info = self._device_info_after_identity(); hdcp = self.get_hdcp_info()
         return {"device_info": info, "capabilities": profile, "input_names": self.get_input_names(), "output_names": self.get_output_names(), "signal_status": self.get_signal_status(), "input_hdcp_auth": hdcp["input_auth"], "input_hdcp_status": hdcp["input_status"], "output_hdcp": hdcp["output_status"], "routes": self.get_routes(), "inputs_num": len(profile.available_input_ids), "outputs_num": len(profile.available_output_ids), "connection_protocol": self.connection_protocol}
+
+    @staticmethod
+    def _in1808_batch_payloads(raw_response, submitted_batch):
+        """Remove only the exact hardware-observed aggregate command echo."""
+        if not isinstance(raw_response, (bytes, bytearray)):
+            raise ProtocolError("IN1808 Video batch has no authoritative raw framing")
+        raw_response = bytes(raw_response)
+        records = raw_response.split(IN1808_VIDEO_BATCH_RECORD_SEPARATOR)
+        if records and records[-1] == b"":
+            records.pop()
+        if any(record == b"" for record in records):
+            raise ProtocolError("IN1808 Video batch framing contains an empty record")
+        expected_echo = submitted_batch.encode("ascii")
+        if not records or records[0] != expected_echo:
+            raise ProtocolError("IN1808 Video batch aggregate echo does not match exactly")
+        payload_records = records[1:]
+        if len(payload_records) != len(IN1808_VIDEO_STATUS_COMMANDS):
+            raise ProtocolError("IN1808 Video batch useful-payload count is not exactly 30")
+        payloads = []
+        for record in payload_records:
+            try:
+                payload = record.decode("utf-8", errors="strict")
+            except UnicodeDecodeError as error:
+                raise ProtocolError("IN1808 Video batch payload is not valid UTF-8") from error
+            if not payload or "\r" in payload or "\n" in payload:
+                raise ProtocolError("IN1808 Video batch payload framing is malformed")
+            if re.fullmatch(r"E\d+", payload.strip(), flags=re.IGNORECASE):
+                raise ProtocolError("IN1808 Video batch returned a protocol error")
+            payloads.append(payload)
+        return tuple(payloads)
+
+    @staticmethod
+    def _in1808_single_payload(payload, field):
+        lines = _response_lines(payload)
+        if len(lines) != 1:
+            raise ProtocolError("Malformed IN1808 Video %s payload" % field)
+        return lines[0]
+
+    def _get_in1808_guarded_full_status(self):
+        """Acquire one exact-IN1808 Video snapshot under the bounded contract."""
+        profile = self._profile()
+        pre_identity = self.wire_identity
+        if (
+            profile.exact_model != "IN1808"
+            or variant_for_identity(pre_identity) is None
+        ):
+            raise ProtocolError("Guarded Video batching requires an exact IN1808 identity")
+
+        submitted_batch = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        batch_result = self._read(submitted_batch)
+        if not batch_result or not batch_result.get("success"):
+            raise ProtocolError("IN1808 Video batch transport did not succeed")
+        payloads = self._in1808_batch_payloads(
+            batch_result.get("raw_response"), submitted_batch
+        )
+
+        firmware = self._parse_firmware(payloads[0])
+        if firmware is None:
+            raise ProtocolError("Malformed IN1808 Video firmware payload")
+        temperature = self._parse_temperature(payloads[1], profile.family)
+        if temperature is None:
+            raise ProtocolError("Malformed IN1808 Video temperature payload")
+
+        input_auth = {}
+        input_status = {}
+        payload_index = 2
+        for input_id in profile.available_input_ids:
+            auth_payload = self._in1808_single_payload(
+                payloads[payload_index], "HDCP authorization"
+            )
+            status_payload = self._in1808_single_payload(
+                payloads[payload_index + 1], "HDCP status"
+            )
+            payload_index += 2
+            if auth_payload not in {"0", "1"}:
+                raise ProtocolError("Malformed IN1808 Video HDCP authorization payload")
+            normalized_status = decode_hdcp(
+                status_payload, profile.input_hdcp_profile
+            )
+            if normalized_status == HDCP_UNKNOWN:
+                raise ProtocolError("Malformed IN1808 Video HDCP status payload")
+            input_auth[input_id] = int(auth_payload)
+            input_status[input_id] = normalized_status
+
+        output_hdcp_payload = self._in1808_single_payload(
+            payloads[payload_index], "output HDCP status"
+        )
+        payload_index += 1
+        if output_hdcp_payload not in {"0", "1", "2"}:
+            raise ProtocolError("Malformed IN1808 Video output HDCP payload")
+
+        input_names = {}
+        for input_id in profile.available_input_ids:
+            name = self._in1808_single_payload(
+                payloads[payload_index], "input name"
+            )
+            payload_index += 1
+            input_names[input_id] = name
+        output_name = self._in1808_single_payload(
+            payloads[payload_index], "output name"
+        )
+        payload_index += 1
+
+        signal_status = parse_signal_presence(
+            payloads[payload_index], profile, profile.available_input_ids
+        )
+        payload_index += 1
+        if (
+            set(signal_status) != set(profile.available_input_ids)
+            or any(value is not True and value is not False for value in signal_status.values())
+        ):
+            raise ProtocolError("Malformed IN1808 Video signal-presence payload")
+
+        route, route_valid = parse_route_response(
+            payloads[payload_index], 1, profile.available_input_ids, "1%"
+        )
+        payload_index += 1
+        if not route_valid or payload_index != len(payloads):
+            raise ProtocolError("Malformed IN1808 Video route payload")
+
+        post_result = self._read("1I")
+        post_identity = normalize_identity_response(
+            "1I",
+            post_result.get("response", "")
+            if post_result and post_result.get("success")
+            else "",
+        )
+        post_profile = resolve_matrix_capabilities(post_identity)
+        if (
+            post_profile is None
+            or post_profile.exact_model != "IN1808"
+            or variant_for_identity(post_identity) is None
+            or post_identity.upper() != pre_identity
+        ):
+            raise ProtocolError("IN1808 Video post-batch identity gate failed")
+
+        info = {
+            "model": self.model,
+            "firmware": firmware,
+            "temperature": temperature,
+            "wire_identity": pre_identity,
+        }
+        return {
+            "device_info": info,
+            "capabilities": profile,
+            "input_names": input_names,
+            "output_names": {1: output_name},
+            "signal_status": signal_status,
+            "input_hdcp_auth": input_auth,
+            "input_hdcp_status": input_status,
+            "output_hdcp": {1: output_hdcp_payload},
+            "routes": {1: route},
+            "inputs_num": len(profile.available_input_ids),
+            "outputs_num": len(profile.available_output_ids),
+            "connection_protocol": self.connection_protocol,
+        }
     def _audio_profile(self):
+        # A transport-lazy room LIVE owner needs only standalone exact identity
+        # authority before Audio commands.  Do not expand this gate into the
+        # firmware/temperature portion of get_device_info().
+        if self.capabilities is None or self.wire_identity is None:
+            self._establish_identity()
         profile = self._profile()
         if profile.exact_model != "IN1808" or variant_for_identity(self.wire_identity) is None:
             raise ProtocolError("IN1808 Audio capability is unavailable for this exact Matrix identity")

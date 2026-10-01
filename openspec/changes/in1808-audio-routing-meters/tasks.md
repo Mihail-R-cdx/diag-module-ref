@@ -272,15 +272,18 @@
 - [x] 7.36g Close the second hardware-QA remark normatively: an accepted
   `matrix_one_shot` snapshot is reused by `matrix_room_live` and Video ->
   Audio without any duplicate full Video refresh.
-- [ ] 7.37 On the exact published architecture HEAD containing the bounded
+- [x] 7.37 On the exact published architecture HEAD containing the bounded
   guarded-batch contract, perform fresh architecture review and repository-local
   validation before production implementation:
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
   `.\openspec.cmd validate --all --strict`, `git diff --check`, and
   `git diff --check origin/master...HEAD`. Record clean worktree and
   local/remote SHA equality. Do not begin production implementation before
-  architecture `APPROVE`.
-- [ ] 7.38 Implement only the approved exact-IN1808 guarded Video batch:
+  architecture `APPROVE`. A separate independent architecture-validation
+  session returned `APPROVE` for exact published SHA
+  `2898af6aed8cb892ede20e19703fbd6339c4bc2d`; this implementation session did
+  not issue that verdict.
+- [x] 7.38 Implement only the approved exact-IN1808 guarded Video batch:
   standalone authoritative `1I`, one serialized sacrificial-`1I` + 30-query
   read-only batch, then matching post-batch standalone `1I`; require the exact
   aggregate echo + 30 useful payload shape and field-specific parsing, and fail
@@ -288,7 +291,7 @@
   `matrix_room_live` transport-lazy bootstrap so accepted one-shot Video
   evidence is reused and Audio entry performs at most the minimum standalone
   identity/variant gate on a fresh session.
-- [ ] 7.39 Add regression coverage for the approved bounded batch contract:
+- [x] 7.39 Add regression coverage for the approved bounded batch contract:
   exact happy-path framing, echo handling, missing/extra/returned-guard/`E##`/
   malformed payloads, field-specific parser failures, post-batch identity
   mismatch, non-IN1808 isolation, no mutation batching, no duplicate IN1808

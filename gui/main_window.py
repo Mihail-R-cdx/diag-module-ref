@@ -2455,6 +2455,29 @@ class VCSDiagnosticApp(QMainWindow):
             lambda _cleanup_context, current=context:
             self._finish_room_live_owner_cleanup(current)
         )
+        if context.diagnostic_model == "Extron IN1808":
+            session, row = self._room_matrix_audio_row(context)
+            accepted_snapshot = (
+                dict(row.accepted_snapshot or {}) if row is not None else None
+            )
+            if (
+                accepted_snapshot is not None
+                and self._room_full_refresh_complete(context, accepted_snapshot)
+            ):
+                # The automatic one-shot already owns current Video evidence.
+                # Keep this LIVE owner transport-lazy; a later Audio operation
+                # will establish only its exact standalone identity gate when
+                # the controller first acquires a Matrix session.
+                self.room_interaction_coordinator.complete(
+                    context, success=True, data=accepted_snapshot
+                )
+                if row.matrix_view_mode == "audio":
+                    QTimer.singleShot(
+                        0,
+                        lambda current=context:
+                        self._start_room_matrix_audio_entry(current),
+                    )
+                return
         controller.request_full_refresh(context.ip_address, (credential,), 0)
 
     def _accept_room_matrix_result(self, context, data):
