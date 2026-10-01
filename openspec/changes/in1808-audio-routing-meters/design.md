@@ -450,64 +450,118 @@ for this rule.
 The production architecture compensates explicitly instead of pretending that
 the first payload exists.
 
-### Legitimate exact-IN1808 full Video refresh
+### Candidate guarded batch and remaining correlation authority
 
-A legitimate full Video refresh SHALL use this wire shape:
+The two completed probes prove only these facts for the observed exact
+`IN1808 IPCP SA` session:
+
+1. the first query in a CR-separated multi-query write can be echoed without
+   returning its payload;
+2. later returned payloads remained in query order in both captured probes;
+3. a standalone `1I` after each probe still succeeded.
+
+They do **not** prove that an arbitrary production transaction cannot also
+contain an unrelated, delayed, duplicated, stale, or unsolicited frame. The
+captured response contains one aggregate echo followed by untagged payloads, and
+several adjacent commands share the same grammar (for example HDCP `0/1`).
+Therefore payload count plus positional mapping alone cannot prove that one
+missing required payload plus one compensating extra frame will always be
+detected.
+
+The next hardware candidate remains:
 
 ```text
-1I
-1I\rQ\rw20STAT\rwE1HDCP\rwI1HDCP\r...\rwO1VNAM\rw0LS\r1%
+standalone authoritative 1I
+
+candidate batch:
+    1I
+    Q
+    w20STAT
+    wE1HDCP
+    wI1HDCP
+    ...
+    wO1VNAM
+    w0LS
+    1%
+
+post-batch standalone 1I
 ```
 
-The first standalone `1I` is authoritative identity/profile evidence. It SHALL
-normalize to canonical exact IN1808 and an accepted closed wire identity before
-the guarded status batch is sent.
+The first in-batch `1I` is only a candidate sacrificial framing guard intended
+to absorb the observed first-position omission. This exact wire shape is **not
+yet production-approved**.
 
-Inside the batch:
+Before production batching may be implemented, both gates below SHALL pass.
 
-- the first `1I` is a **sacrificial read-only framing guard**;
-- its response is never required as identity authority;
-- the 30 commands after the guard are the complete required Video status set:
-  firmware `Q`, temperature `w20STAT`, input HDCP authorization/status,
-  output HDCP status, eight input Video names, output Video name, signal
-  presence `w0LS`, and current route `1%`;
-- no state-changing route command, Audio meter instrumentation command, or Audio
-  DSP mutation is allowed in the batch.
+#### Gate A — exact candidate guard behavior
 
-The guard exists solely to absorb the observed first-in-batch payload loss.
-Task 7.36e remains the final hardware confirmation of this exact guarded shape
-before production implementation, not an unresolved product/architecture
-decision.
+On exact current hardware, the candidate shape SHALL demonstrate:
 
-### Strict response correlation
+- standalone pre-batch `1I` returns the accepted exact wire identity;
+- all 30 required status payloads `Q` through `1%` are present after the
+  candidate guard in exact order;
+- every status payload passes its existing field-specific parser;
+- post-batch standalone `1I` succeeds on the same session.
 
-The batch parser SHALL strip only exact submitted command echoes and then apply
-this fail-closed correlation contract:
+If the guard payload is returned as an additional payload, it SHALL itself parse
+as the same exact IN1808 identity. If the device treats in-batch `1I`
+differently, omits a required status payload, changes order, or leaves the
+session unusable, the candidate wire shape is rejected and OpenSpec SHALL be
+amended before implementation.
 
-1. If exactly 30 non-echo payloads remain, the guard payload is treated as
-   omitted and those payloads map positionally to `Q` through `1%`.
-2. If exactly 31 non-echo payloads remain, payload 1 MUST independently parse as
-   the same accepted exact IN1808 identity; it is then discarded as the optional
-   guard payload and payloads 2..31 map positionally to `Q` through `1%`.
-3. Any other payload count fails the complete Video batch closed.
-4. Any `E##`, malformed, truncated, missing, extra, or parser-invalid payload
-   fails the complete Video batch closed; no later payload may be shifted onto
-   another field.
-5. Every accepted payload is still parsed by the existing field-specific parser
-   for its command. Batching is not authority to weaken firmware, temperature,
-   HDCP, name, signal, or route validation.
-6. A batch failure never authorizes a route mutation or a blind replay of a
-   state-changing command.
+#### Gate B — transaction isolation / command-to-payload authority
 
-The batch leaves command ordering, normalized field authority, and existing
-Video route semantics unchanged. It is only a transport-efficiency mechanism.
+A production batch SHALL NOT rely only on payload count. Before positional
+mapping becomes authoritative, hardware or authoritative protocol evidence SHALL
+establish that, for the exact IN1808 SIS session mode used by this application
+during one serialized batch transaction:
 
-This guarded batching applies only to operations that genuinely require a fresh
-full Video snapshot, such as the automatic exact-IN1808 room one-shot or an
-explicitly admitted full refresh. It SHALL NOT be used as justification to
-create an extra refresh.
+- no unrelated/unsolicited application payload can be inserted into the batch
+  response window;
+- a delayed payload from an earlier command cannot enter that response window;
+- the device/transport does not duplicate a payload while still making the
+  transaction appear complete;
+- after the known first-position omission behavior, each remaining submitted
+  query contributes at most one ordered payload to that isolated transaction;
+- the pre/post transaction boundaries are sufficient to exclude stale response
+  bytes from the next Matrix operation.
 
-Other Matrix models keep their existing acquisition contracts in this change.
+Evidence MAY come from official protocol documentation, an already-proven exact
+transport property for this mode, or a purpose-built hardware probe that
+demonstrates the isolation boundary. Merely repeating a happy-path batch with
+the same payload count is insufficient.
+
+If Gate B cannot be established, this change SHALL NOT ship positional
+multi-query Video batching. The architecture must instead adopt a stronger
+framing/correlation mechanism or keep a non-batched read strategy until such a
+mechanism is approved.
+
+### Production batch contract after both gates pass
+
+Only after Gate A and Gate B are satisfied and the resulting exact remote HEAD
+receives architecture `APPROVE` may production use the proven batch wire shape.
+
+The final production parser SHALL then:
+
+- remove only exact submitted command echoes;
+- enforce the exact payload/framing rule demonstrated by the accepted hardware
+  evidence;
+- validate every payload with its existing command-specific parser;
+- reject `E##`, malformed, missing, extra, duplicated, unrelated, stale, or
+  otherwise uncorrelatable evidence;
+- fail the entire Video batch closed on any correlation ambiguity;
+- never shift a later payload onto another Video field;
+- never authorize route mutation or state-changing replay from a read-batch
+  failure.
+
+The exact accepted wire shape and correlation rule SHALL be copied from the
+actual Gate A/Gate B evidence into OpenSpec before implementation. The current
+candidate `1I` guard and 30/31 positional rule are intentionally not normative
+production authority.
+
+Batching remains scoped only to exact canonical `Extron IN1808` and only to
+operations that genuinely require a fresh full Video snapshot. Other Matrix
+models keep their existing acquisition contracts.
 
 ### LIVE bootstrap reuses accepted Video authority
 

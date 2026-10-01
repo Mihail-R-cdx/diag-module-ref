@@ -1,3 +1,18 @@
+> **CURRENT ARCHITECTURE REVIEW REMEDIATION — BATCH FRAMING STILL GATED**
+> Architecture review found that payload count plus positional parsing cannot
+> prove command-to-payload ownership for untagged batch responses: a missing
+> required payload plus a compensating unrelated/delayed/duplicated frame can
+> preserve the expected count. It also found that the exact in-batch-`1I` guard
+> shape had been made normative before task 7.36e tested it. Current OpenSpec
+> therefore demotes that guard shape to an evidence candidate and blocks
+> production batching until two gates pass: (A) exact guard-shape hardware
+> behavior, and (B) transaction-isolation/correlation authority excluding
+> unrelated/unsolicited/delayed/duplicated/stale frames from being accepted as
+> required payloads. The exact production wire/framing rule must be written back
+> into OpenSpec and freshly validated before implementation. The separate
+> no-duplicate-`matrix_room_live`/Video->Audio refresh contract remains
+> normative and unchanged.
+>
 > **NORMATIVE CONTRACT CLOSED FOR BOTH CURRENT HARDWARE-QA REMARKS**
 > The current OpenSpec now fixes both requested behaviors without changing
 > production code yet. First, a legitimate exact-IN1808 full Video refresh uses

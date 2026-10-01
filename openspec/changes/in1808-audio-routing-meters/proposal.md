@@ -56,13 +56,15 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 - Keep existing video Matrix routing semantics unchanged: IN1808 video route
   authority remains `1%` / `<I>*1%`.
 - For exact `Extron IN1808` only, replace the long sequential read-only Video
-  full-status fan-out with a guarded ordered SIS batch after a standalone exact
-  identity/profile gate. Real hardware shows that the first query inside a
-  CR-separated multi-query write may be echoed without returning its payload,
-  so the batch SHALL start with a sacrificial read-only `1I` framing guard;
-  the 30 required Video status queries (`Q` through `1%`) follow it and remain
-  the only authoritative batch payloads. The batch changes transport efficiency
-  only; normalized Video status authority and mutation syntax remain unchanged.
+  full-status fan-out with one hardware-proven correlated batch after a
+  standalone exact identity/profile gate. Real hardware already proves that a
+  naive CR-separated multi-query write can omit the first payload while later
+  untagged payloads remain ordered. The current in-batch `1I` guard is only a
+  candidate evidence shape, not production authority: production batching SHALL
+  remain blocked until exact hardware/protocol evidence proves both the chosen
+  guard behavior and a correlation/isolation rule that cannot silently accept
+  unrelated, unsolicited, delayed, duplicated, or stale frames as another
+  command's payload.
 - Reuse the already accepted current room `matrix_one_shot` Video snapshot when
   exact-IN1808 `matrix_room_live` starts. LIVE bootstrap SHALL NOT launch a
   second full Video refresh, and an accepted `Переключить на аудио` action
@@ -109,8 +111,10 @@ complete.
 
 The accepted Video snapshot from the completed room one-shot remains the Video
 authority. Starting IN1808 LIVE and selecting Audio do not poll that same Video
-snapshot again. A legitimate future full Video refresh uses the exact-IN1808
-guarded batch contract instead of the old sequential fan-out. Selecting Audio
+snapshot again. A legitimate future full Video refresh is required to use a hardware-proven
+exact-IN1808 correlated batch instead of the old sequential fan-out, but the
+current guard framing is not implementation authority until its remaining
+hardware correlation gates pass. Selecting Audio
 begins Audio acquisition directly on the lazy LIVE owner, with only a minimum
 standalone exact-identity/variant check if a new transport session must be
 established. Returning to Video restores the existing video tile and retires the
