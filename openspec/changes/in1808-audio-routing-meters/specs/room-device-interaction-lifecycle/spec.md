@@ -219,4 +219,3 @@ response on the same session.
 - **WHEN** the operator selects `Переключить на видео`
 - **THEN** the last accepted Video snapshot is presented immediately
 - **AND** no automatic full Video refresh is started solely by that mode switch
-
