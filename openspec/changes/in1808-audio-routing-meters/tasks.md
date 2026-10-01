@@ -232,77 +232,78 @@
   status is still sequential/slow, and after the already-completed room
   `matrix_one_shot` the `matrix_room_live` bootstrap starts an unnecessary
   second full Video refresh; Audio then waits behind that duplicate poll.
-- [ ] 7.36 Complete real-IN1808 evidence needed to finalize the production
-  Video-batch framing/correlation contract. Two probes already prove
-  first-in-batch payload loss, preserved ordering of later payloads, and
-  post-batch session usability; 7.36e and 7.36f remain mandatory before the
-  exact production rule may be written and approved. Do not treat Audio
-  batching as proof.
+- [x] 7.36 Complete the real-IN1808 evidence/architecture decision for the
+  production Video batch. The first two probes establish first-in-batch payload
+  loss and preserved later ordering; the third guarded probe establishes the
+  exact useful-payload wire shape. The remaining unprovable same-grammar
+  substitution case is explicitly bounded and accepted only for read-only
+  diagnostic evidence rather than being misrepresented as perfect correlation.
 - [x] 7.36a Add a repository-local read-only hardware probe helper that sends
-  standalone `1I`, one CR-separated 30-query Video status batch, then a
-  post-batch `1I`, and prints the complete raw response framing. This helper is
-  evidence tooling only; task 7.36 remains open until real hardware output is
-  captured and reviewed.
+  standalone `1I`, one CR-separated Video status batch, then a post-batch
+  `1I`, and prints complete raw response framing. Evidence tooling only.
 - [x] 7.36b Add a simple PyQt hardware-probe GUI that accepts only target IP/
-  port, resolves the existing `credentials.local.json` through
-  `JsonCredentialProvider`, keeps secrets out of the UI/output, and performs
-  credential fallback only after structured confirmed Matrix authentication
-  rejection. Hardware evidence task 7.36 remains open.
+  port, resolves `credentials.local.json` through `JsonCredentialProvider`,
+  keeps secrets out of UI/output, and performs credential fallback only after
+  structured confirmed Matrix authentication rejection.
 - [x] 7.36c Record first real-IN1808 batch probe: the 30-query batch completed
-  in 0.907 s and left the session usable, but the leading `Q` firmware query
-  produced no payload inside the batch. The aggregate command echo was followed
-  by exactly 29 ordered payloads matching `w20STAT` through `1%`; therefore
-  the original 30-query production batch is rejected and task 7.36 remains open
-  for the revised standalone-`Q` + 29-query batch probe.
+  in 0.907 s and left the session usable, but leading `Q` produced no payload.
+  The aggregate command echo was followed by 29 ordered payloads matching
+  `w20STAT` through `1%`.
 - [x] 7.36d Record second real-IN1808 batch probe: standalone `Q` returned
-  firmware `1.09`, while the following 29-query batch completed in 0.906 s
-  with `success=True`, `raw_length=459`, and a usable post-batch `1I`.
-  The leading `w20STAT` payload was now absent and the remaining 28 payloads
-  (`wE1HDCP` through `1%`) stayed ordered. Together with 7.36c this proves
-  the loss follows the first in-batch query rather than the `Q` command family.
-- [ ] 7.36e Run the candidate guard hardware check on exact published probe
-  HEAD: standalone authoritative `1I`, then sacrificial in-batch `1I`
-  followed by all 30 required Video status queries (`Q` through `1%`), then
-  post-batch `1I`. Require all 30 status payloads in exact order, accepted
-  field-specific parsing, and a usable session. Record whether the guard payload
-  is omitted or returned; do not promote the candidate to production authority
-  from this count/order check alone.
-- [ ] 7.36f Establish transaction-isolation/correlation authority for the exact
-  IN1808 SIS mode used by the batch: prove that unrelated/unsolicited, delayed,
-  duplicated, or stale frames cannot compensate for a missing required payload
-  inside the serialized batch response window. Evidence may be authoritative
-  protocol documentation, an already-proven exact transport property, or a
-  purpose-built hardware probe. Happy-path payload count alone is insufficient.
+  firmware `1.09`; the following 29-query batch completed in 0.906 s with
+  `success=True`, `raw_length=459`, and a usable post-batch `1I`.
+  Leading `w20STAT` produced no payload while `wE1HDCP` through `1%`
+  remained ordered, proving loss follows first batch position rather than the
+  `Q` command family.
+- [x] 7.36e Record the guarded third real-IN1808 probe: standalone authoritative
+  `1I` returned `IN1808 IPCP SA`; the 31-command guarded batch completed in
+  1.328 s with `success=True`, `raw_length=490`, and 31 observed chunks
+  consisting of one aggregate echo plus exactly 30 useful payloads. The
+  sacrificial in-batch `1I` payload was omitted; every required `Q` through
+  `1%` payload was present in expected order; post-batch `1I` again returned
+  `IN1808 IPCP SA`.
+- [x] 7.36f Replace the unattainable universal transaction-isolation proof with
+  the approved bounded correlation contract: one serialized Matrix owner
+  operation, no overlapping application Matrix I/O, exact aggregate-echo
+  removal, exactly 30 useful payloads, field-specific parsing, and matching
+  pre/post exact identity gates. Explicitly accept the residual undetectable
+  same-grammar delayed/unsolicited/duplicated/stale substitution risk only for
+  read-only diagnostic evidence; it grants no mutation authority.
 - [x] 7.36g Close the second hardware-QA remark normatively: an accepted
   `matrix_one_shot` snapshot is reused by `matrix_room_live` and Video ->
-  Audio without any duplicate full Video refresh. Record the first remark's
-  required outcome as hardware-proven correlated batching, while leaving its
-  exact production framing blocked on 7.36e/7.36f evidence.
-- [ ] 7.37 After 7.36e and 7.36f are satisfied, update OpenSpec with the exact
-  proven production wire/framing rule, then re-run architecture review and
-  repository-local strict change/all validation on that exact published HEAD.
-  Do not begin production implementation before `APPROVE`.
-- [ ] 7.38 Implement only the final batch wire/framing rule approved after
-  7.36e/7.36f; do not assume the current candidate 30/31 positional rule.
-  Independently implement exact-IN1808 `matrix_room_live` transport-lazy
-  bootstrap so accepted one-shot Video evidence is reused and Audio entry
-  performs at most the minimum standalone identity/variant gate on a fresh
-  session.
-- [ ] 7.39 Add regression coverage for the final approved batch framing,
-  including echo handling, exact accepted correlation cases, mismatched guard
-  where applicable, `E##`/malformed/missing/extra responses, and explicit
-  interleaved/unrelated/duplicated/stale-payload rejection even when total
-  payload count still looks valid. Also cover non-IN1808 isolation, no mutation
-  batching, no duplicate IN1808 LIVE full refresh after accepted one-shot,
-  minimal fresh-session identity gate before Audio, Audio-without-Video-repoll,
-  and no overlapping Matrix I/O; rerun focused/related/full tests and strict
-  validation.
+  Audio without any duplicate full Video refresh.
+- [ ] 7.37 On the exact published architecture HEAD containing the bounded
+  guarded-batch contract, perform fresh architecture review and repository-local
+  validation before production implementation:
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
+  `.\openspec.cmd validate --all --strict`, `git diff --check`, and
+  `git diff --check origin/master...HEAD`. Record clean worktree and
+  local/remote SHA equality. Do not begin production implementation before
+  architecture `APPROVE`.
+- [ ] 7.38 Implement only the approved exact-IN1808 guarded Video batch:
+  standalone authoritative `1I`, one serialized sacrificial-`1I` + 30-query
+  read-only batch, then matching post-batch standalone `1I`; require the exact
+  aggregate echo + 30 useful payload shape and field-specific parsing, and fail
+  closed on every detectable mismatch. Independently implement exact-IN1808
+  `matrix_room_live` transport-lazy bootstrap so accepted one-shot Video
+  evidence is reused and Audio entry performs at most the minimum standalone
+  identity/variant gate on a fresh session.
+- [ ] 7.39 Add regression coverage for the approved bounded batch contract:
+  exact happy-path framing, echo handling, missing/extra/returned-guard/`E##`/
+  malformed payloads, field-specific parser failures, post-batch identity
+  mismatch, non-IN1808 isolation, no mutation batching, no duplicate IN1808
+  LIVE full refresh after accepted one-shot, minimal fresh-session identity
+  gate before Audio, Audio-without-Video-repoll, and no overlapping Matrix I/O.
+  Tests SHALL NOT falsely claim they prove universal exclusion of an
+  indistinguishable same-grammar stale/delayed payload; that limitation remains
+  an explicit read-only residual risk. Rerun focused/related/full tests and
+  strict validation.
 - [ ] 7.40 Repeat real-IN1808 hardware QA on the final remediation HEAD,
-  including batched initial/full Video refresh, absence of a second Video poll
-  when LIVE starts, and direct Audio acquisition after `Переключить на аудио`,
-  before independent validation.
+  including guarded batched initial/full Video refresh, absence of a second
+  Video poll when LIVE starts, and direct Audio acquisition after
+  `Переключить на аудио`, before independent validation.
 
-## 8. Independent validation and completion
+## 8. Independent validation and completion## 8. Independent validation and completion
 
 - [ ] 8.1 Validate the exact current published feature HEAD in a separate clean
   detached worktree from `origin/<branch>`; verify local/remote SHA equality.

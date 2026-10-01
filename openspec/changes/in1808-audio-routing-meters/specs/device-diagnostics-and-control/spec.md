@@ -189,20 +189,16 @@ This change SHALL generate no state-changing `M<oid>*<value>AU` command.
 - **AND** its source/output labels come from `IN1808_PRODSP_PROFILE_MAPPING`
 - **AND** runtime does not claim to have hardware-verified those labels from the response
 
-### Requirement: Exact IN1808 Video batching requires proven frame correlation before production use
+### Requirement: Exact IN1808 Video batching uses a hardware-proven guard with bounded correlation
 
 For exact canonical `Extron IN1808`, a legitimate fresh full Video status
-operation SHALL eventually replace the legacy long sequential fan-out with one
-correlated read-only batch, but production SHALL NOT use positional batch
-mapping until the exact wire shape and transaction-isolation rule are proven on
-the target SIS mode and approved in OpenSpec.
-
-The current candidate evidence shape is:
+operation SHALL replace the legacy long sequential fan-out with the exact
+hardware-proven guarded read-only transaction below:
 
 ```text
 standalone authoritative 1I
 
-candidate batch:
+one serialized batch:
     1I
     Q
     w20STAT
@@ -219,65 +215,77 @@ candidate batch:
     w0LS
     1%
 
-post-batch standalone 1I
+standalone post-batch 1I
 ```
 
-The first in-batch `1I` is only a candidate sacrificial guard. It is not
-production authority until the hardware evidence gate passes.
+The first in-batch `1I` is a sacrificial read-only framing guard. Accepted
+hardware evidence on exact `IN1808 IPCP SA` shows that the first query payload
+is omitted in a CR-separated multi-query write while later payloads remain
+ordered; with the guard present, all 30 required `Q` through `1%` payloads
+were returned in order and the post-batch session remained usable.
 
-Before production implementation, evidence SHALL prove:
+The Matrix application owner SHALL execute this batch as one serialized
+operation with no overlapping application Matrix I/O on the same session.
+After removing only the exact aggregate submitted-command echo, the parser SHALL
+require exactly 30 useful payload records corresponding positionally to `Q`
+through `1%`. The accepted production shape expects the guard payload to be
+omitted.
 
-1. the candidate batch returns every required `Q` through `1%` payload in
-   exact order and leaves the session usable;
-2. if the in-batch guard payload is returned, it independently matches the same
-   exact accepted IN1808 identity;
-3. during the serialized batch response window, unrelated/unsolicited, delayed,
-   duplicated, or stale frames cannot be accepted as required payloads;
-4. after the known first-position omission behavior, each remaining submitted
-   query contributes at most one ordered payload to that isolated transaction;
-5. the adopted parser rejects any ambiguous, missing, extra, malformed, stale,
-   duplicated, unrelated, or otherwise uncorrelatable evidence as a failure of
-   the complete Video batch.
+Every useful payload SHALL pass its existing command-specific parser. Any
+detectable `E##`, malformed, missing, extra, guard-return, framing/order
+mismatch, parser failure, or mismatched/unavailable post-batch exact identity
+SHALL fail the complete Video batch closed. No later payload may be deliberately
+shifted to repair a detected mismatch.
 
-Payload count alone SHALL NOT establish command-to-payload authority.
+The response protocol is untagged and some adjacent fields share the same
+grammar. This change therefore does not claim that hardware testing can prove
+the universal absence of every possible delayed, unsolicited, duplicated, or
+stale same-grammar payload. The architecture explicitly accepts the bounded
+residual risk that such an undetectable payload could replace a missing
+positional payload while all detectable checks still pass.
 
-If transaction isolation cannot be proven, positional Video batching SHALL NOT
-be implemented under this change until a stronger framing/correlation mechanism
-is approved.
+That residual risk is accepted only for this read-only diagnostic snapshot. A
+batched Video result SHALL NOT authorize route mutation, state-changing replay,
+credential fallback, or any conclusion that a state-changing command succeeded.
+If future evidence demonstrates response contamination that defeats this
+bounded contract, exact-IN1808 batching SHALL be disabled or replaced by a
+stronger separately approved correlation mechanism.
 
-The production batch SHALL remain read-only and SHALL NOT contain route
-mutation, Audio meter instrumentation mutation, or another state-changing
-command. Batch support SHALL NOT be generalized to another Matrix model without
-separate protocol evidence.
+Batch support SHALL NOT be generalized to another Matrix model without separate
+protocol evidence.
 
-#### Scenario: Candidate guard probe succeeds but isolation is unproven
+#### Scenario: Guarded hardware-proven batch is accepted
 
-- **GIVEN** the candidate guarded batch returns all expected happy-path status values
-- **AND** no evidence establishes exclusion of unrelated/delayed/duplicated frames
-- **WHEN** production batching is considered
-- **THEN** positional batch mapping remains blocked
-- **AND** the implementation does not claim the candidate wire shape is approved
+- **GIVEN** standalone `1I` establishes the accepted exact IN1808 identity
+- **AND** the serialized guarded batch returns exactly 30 useful payload records after its exact aggregate echo
+- **AND** each record passes the parser for its corresponding `Q` through `1%` field
+- **AND** the post-batch standalone `1I` returns the same accepted exact IN1808 identity
+- **WHEN** the Video snapshot is normalized
+- **THEN** the 30 payloads may be accepted positionally for this read-only snapshot
+- **AND** no mutation authority is created
 
-#### Scenario: Compensating loss and extra frame must not be accepted by count alone
+#### Scenario: Detectable batch ambiguity fails closed
 
-- **GIVEN** one required batch payload is missing
-- **AND** one unrelated, delayed, duplicated, or stale payload is present
-- **AND** the total payload count still equals the expected count
-- **WHEN** correlation is evaluated
-- **THEN** payload count alone is insufficient authority
-- **AND** the complete batch fails closed unless the approved isolation/framing mechanism proves exact command ownership
-
-#### Scenario: Production batch evidence is ambiguous
-
-- **WHEN** a Video batch contains an `E##`, malformed, missing, extra,
-  duplicated, unrelated, stale, or otherwise uncorrelatable payload
-- **THEN** the complete batch fails closed
+- **WHEN** the guarded batch contains an `E##`, malformed, missing, extra,
+  returned-guard, framing/order mismatch, or field-specific parser failure
+- **OR** the post-batch exact identity check fails or mismatches
+- **THEN** the complete Video batch is rejected
 - **AND** no payload is shifted to a neighboring Video field
 - **AND** no route mutation is generated
+
+#### Scenario: Same-grammar substitution is an explicit residual limitation
+
+- **GIVEN** the SIS response stream is untagged
+- **AND** two distinct expected fields can share the same accepted wire grammar
+- **WHEN** a hypothetical delayed, unsolicited, duplicated, or stale payload is
+  indistinguishable from the missing positional payload by all available
+  count/framing/field-parser checks
+- **THEN** this change does not claim that the substitution is detectable
+- **AND** the accepted risk is limited to read-only diagnostic evidence
+- **AND** that evidence cannot authorize a state-changing operation
 
 #### Scenario: Another Matrix model keeps its existing acquisition contract
 
 - **GIVEN** the current exact Matrix model is not canonical `Extron IN1808`
 - **WHEN** full Video status is acquired
 - **THEN** this change does not infer IN1808 batch support from family similarity
-

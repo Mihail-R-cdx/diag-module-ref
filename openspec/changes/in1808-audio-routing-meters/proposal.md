@@ -56,16 +56,16 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 - Keep existing video Matrix routing semantics unchanged: IN1808 video route
   authority remains `1%` / `<I>*1%`.
 - For exact `Extron IN1808` only, replace the long sequential read-only Video
-  full-status fan-out with one hardware-proven correlated batch after a
-  standalone exact identity/profile gate. Real hardware already proves that a
-  naive CR-separated multi-query write can omit the first payload while later
-  untagged payloads remain ordered. The current in-batch `1I` guard is only a
-  candidate evidence shape, not production authority: production batching SHALL
-  remain blocked until exact hardware/protocol evidence proves both the chosen
-  guard behavior and a correlation/isolation rule that cannot silently accept
-  unrelated, unsolicited, delayed, duplicated, or stale frames as another
-  command's payload.
-- Reuse the already accepted current room `matrix_one_shot` Video snapshot when
+  full-status fan-out with the hardware-proven guarded batch: standalone exact
+  `1I`, then one serialized sacrificial-`1I` + 30-query read-only batch, then
+  a matching post-batch `1I`. Hardware evidence confirms that the first
+  in-batch payload is omitted while all 30 required payloads remain ordered.
+  Production requires the exact aggregate-echo + 30-useful-payload shape and
+  field-specific parsing. Because the SIS payloads are untagged, the change
+  explicitly accepts the residual possibility of an indistinguishable
+  same-grammar stale/delayed/duplicate payload only as a bounded risk for
+  read-only diagnostic evidence; the batch grants no mutation authority.
+- Reuse the already accepted current room `matrix_one_shot` Video snapshot- Reuse the already accepted current room `matrix_one_shot` Video snapshot when
   exact-IN1808 `matrix_room_live` starts. LIVE bootstrap SHALL NOT launch a
   second full Video refresh, and an accepted `Переключить на аудио` action
   SHALL NOT schedule one either. The Matrix LIVE controller may remain
@@ -111,10 +111,12 @@ complete.
 
 The accepted Video snapshot from the completed room one-shot remains the Video
 authority. Starting IN1808 LIVE and selecting Audio do not poll that same Video
-snapshot again. A legitimate future full Video refresh is required to use a hardware-proven
-exact-IN1808 correlated batch instead of the old sequential fan-out, but the
-current guard framing is not implementation authority until its remaining
-hardware correlation gates pass. Selecting Audio begins Audio acquisition
+snapshot again. A legitimate future full Video refresh uses the hardware-proven exact-IN1808
+guarded batch instead of the old sequential fan-out. Its correlation authority
+is deliberately bounded: all detectable count/framing/parser/identity ambiguity
+fails closed, while an indistinguishable same-grammar stale/delayed substitution
+remains an explicit read-only diagnostic limitation and grants no mutation
+authority. Selecting Audio begins Audio acquisition
 directly on the lazy LIVE owner, with only a minimum
 standalone exact-identity/variant check if a new transport session must be
 established. Returning to Video restores the existing video tile and retires the

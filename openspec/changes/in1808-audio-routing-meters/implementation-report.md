@@ -1,4 +1,25 @@
-> **CURRENT ARCHITECTURE REVIEW REMEDIATION — BATCH FRAMING STILL GATED**
+> **CURRENT HARDWARE EVIDENCE / BOUNDED GUARDED-BATCH ARCHITECTURE**
+> The third exact-IN1808 hardware probe completed the 31-command guarded batch
+> in **1.328 s** with `success=True`, `raw_length=490`, and 31 observed
+> chunks: one aggregate command echo plus exactly 30 useful Video payloads.
+> The sacrificial in-batch `1I` payload was omitted; `Q` through `1%`
+> were all present in expected order; the post-batch standalone `1I` again
+> returned `IN1808 IPCP SA`. Together with the two earlier probes, this closes
+> the guard-shape hardware question.
+>
+> Architecture now uses a bounded correlation contract rather than claiming an
+> unprovable universal isolation guarantee for untagged SIS payloads. Production
+> is constrained to one serialized Matrix owner operation, the exact aggregate
+> echo + 30 useful payload shape, command-specific parsers, and matching
+> standalone pre/post exact identity gates. Detectable ambiguity fails closed.
+> The residual possibility of an indistinguishable same-grammar
+> delayed/unsolicited/duplicated/stale substitution is explicitly accepted only
+> for this read-only diagnostic snapshot and grants no mutation authority.
+> Production implementation remains blocked until the resulting published
+> architecture HEAD receives fresh repository-local strict validation and
+> architecture `APPROVE`.
+>
+> **SUPERSEDED ARCHITECTURE REVIEW REMEDIATION — BATCH FRAMING GATE**
 > Architecture review found that payload count plus positional parsing cannot
 > prove command-to-payload ownership for untagged batch responses: a missing
 > required payload plus a compensating unrelated/delayed/duplicated frame can
