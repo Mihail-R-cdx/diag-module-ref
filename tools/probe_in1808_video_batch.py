@@ -4,7 +4,8 @@ This helper is intentionally not a production polling path.  It captures the
 wire evidence required by the active OpenSpec change:
 
     1I                    -- standalone exact-identity gate
-    <mixed Video batch>   -- one CR-separated read-only write
+    Q                     -- standalone firmware query
+    <29-query Video batch> -- one CR-separated read-only write
     1I                    -- post-batch session-usability check
 
 No route mutation, Audio meter activation, or other state-changing command is
@@ -31,8 +32,9 @@ from handlers.extron.matrix import (  # noqa: E402
 )
 
 
+FIRMWARE_COMMAND = "Q"
+
 VIDEO_STATUS_COMMANDS = (
-    "Q",
     "w20STAT",
     "wE1HDCP",
     "wI1HDCP",
@@ -132,6 +134,9 @@ def main() -> int:
             raise RuntimeError(
                 "Exact IN1808 identity gate failed; batch was NOT sent."
             )
+
+        firmware_result = handler.send_command(FIRMWARE_COMMAND)
+        _print_result("FIRMWARE BEFORE BATCH", firmware_result)
 
         batch = "\r".join(VIDEO_STATUS_COMMANDS)
         print("\n=== BATCH COMMAND LIST ===")

@@ -246,6 +246,12 @@
   `JsonCredentialProvider`, keeps secrets out of the UI/output, and performs
   credential fallback only after structured confirmed Matrix authentication
   rejection. Hardware evidence task 7.36 remains open.
+- [x] 7.36c Record first real-IN1808 batch probe: the 30-query batch completed
+  in 0.907 s and left the session usable, but the leading `Q` firmware query
+  produced no payload inside the batch. The aggregate command echo was followed
+  by exactly 29 ordered payloads matching `w20STAT` through `1%`; therefore
+  the original 30-query production batch is rejected and task 7.36 remains open
+  for the revised standalone-`Q` + 29-query batch probe.
 - [ ] 7.37 Re-run architecture review and repository-local strict validation on
   the Video-batching/non-duplicating-LIVE-bootstrap amendment after hardware
   batch evidence

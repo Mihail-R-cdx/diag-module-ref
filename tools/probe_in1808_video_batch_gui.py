@@ -44,7 +44,10 @@ from handlers.extron.matrix import (  # noqa: E402
     normalize_identity_response,
     resolve_matrix_capabilities,
 )
-from tools.probe_in1808_video_batch import VIDEO_STATUS_COMMANDS  # noqa: E402
+from tools.probe_in1808_video_batch import (  # noqa: E402
+    FIRMWARE_COMMAND,
+    VIDEO_STATUS_COMMANDS,
+)
 
 
 DEVICE_MODEL = "Extron IN1808"
@@ -154,6 +157,11 @@ class ProbeThread(QThread):
                         "Exact IN1808 identity gate failed; batch was NOT sent."
                     )
 
+                firmware_result = handler.send_command(FIRMWARE_COMMAND)
+                self.output.emit(
+                    _format_raw_section("FIRMWARE BEFORE BATCH", firmware_result)
+                )
+
                 self.output.emit("\n=== BATCH COMMAND LIST ===")
                 for command_index, command in enumerate(VIDEO_STATUS_COMMANDS, 1):
                     self.output.emit(f"{command_index:02d}: {command}")
@@ -216,7 +224,7 @@ class ProbeWindow(QMainWindow):
         layout = QVBoxLayout(root)
 
         intro = QLabel(
-            "Read-only probe: 1I → 30 Video queries одним batch → 1I.\n"
+            "Read-only probe: 1I → Q → 29 Video queries одним batch → 1I.\n"
             "Credentials берутся из credentials.local.json для Extron IN1808."
         )
         intro.setWordWrap(True)

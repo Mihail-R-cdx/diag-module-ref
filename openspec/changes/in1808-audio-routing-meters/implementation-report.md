@@ -1,3 +1,16 @@
+> **FIRST REAL VIDEO-BATCH PROBE RESULT**
+> Real exact-IN1808 hardware (`IN1808 IPCP SA`) completed the original
+> 30-query mixed Video batch in **0.907 s** with `success=True` and
+> `raw_length=469`. The response contained one aggregate echo block followed
+> by **29** payload chunks, not 30: the standalone baseline firmware value from
+> `Q` was absent, while payloads from `w20STAT` through `1%` remained in
+> expected order (temperature 52, HDCP fields, eight input names, output name,
+> signal bitmap, route 1). A following standalone `1I` returned
+> `IN1808 IPCP SA`, proving the session remained usable. Therefore `Q` is
+> not eligible for the mixed batch on this device. The probe has been revised
+> to test `1I` -> standalone `Q` -> 29-query batch -> `1I`; production
+> batching remains unapproved until that exact revised sequence is captured.
+>
 > **GUI LAUNCHER FOR VIDEO-BATCH PROBE ADDED**
 > `tools/probe_in1808_video_batch_gui.py` wraps the read-only batch probe in a
 > small PyQt GUI. The operator supplies only IP/port; the tool resolves the
