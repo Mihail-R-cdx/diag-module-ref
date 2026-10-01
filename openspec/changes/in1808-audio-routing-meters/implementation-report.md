@@ -1,3 +1,13 @@
+> **GUI LAUNCHER FOR VIDEO-BATCH PROBE ADDED**
+> `tools/probe_in1808_video_batch_gui.py` wraps the read-only batch probe in a
+> small PyQt GUI. The operator supplies only IP/port; the tool resolves the
+> ordered `Extron IN1808` credential candidates through the existing
+> `JsonCredentialProvider` / root-level ignored `credentials.local.json`.
+> Credential values are never displayed. Candidate fallback is allowed only
+> after a typed, confirmed, safe Matrix authentication rejection. Network I/O
+> runs on a worker thread rather than the Qt GUI thread. This remains hardware
+> evidence tooling, not production polling implementation.
+>
 > **READ-ONLY VIDEO-BATCH HARDWARE PROBE ADDED**
 > `tools/probe_in1808_video_batch.py` is hardware-evidence tooling for task
 > 7.36, not production polling implementation. It performs a standalone `1I`

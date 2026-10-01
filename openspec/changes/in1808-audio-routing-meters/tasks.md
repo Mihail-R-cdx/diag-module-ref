@@ -241,6 +241,11 @@
   post-batch `1I`, and prints the complete raw response framing. This helper is
   evidence tooling only; task 7.36 remains open until real hardware output is
   captured and reviewed.
+- [x] 7.36b Add a simple PyQt hardware-probe GUI that accepts only target IP/
+  port, resolves the existing `credentials.local.json` through
+  `JsonCredentialProvider`, keeps secrets out of the UI/output, and performs
+  credential fallback only after structured confirmed Matrix authentication
+  rejection. Hardware evidence task 7.36 remains open.
 - [ ] 7.37 Re-run architecture review and repository-local strict validation on
   the Video-batching/non-duplicating-LIVE-bootstrap amendment after hardware
   batch evidence
