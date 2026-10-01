@@ -159,20 +159,30 @@ gain/mute mutation, or blind replay of a possibly sent instrumentation command.
 - **AND** no audio-route mutation is generated
 - **AND** no credential candidate advances solely from an error string
 
-### Requirement: Exact IN1808 LIVE bootstrap does not duplicate the accepted Video full refresh
+### Requirement: Exact IN1808 LIVE bootstrap and Audio entry do not duplicate an accepted Video full refresh
 
 After the current room generation has accepted a usable exact-IN1808 automatic
-Video snapshot, starting the same-row `matrix_room_live` owner SHALL preserve
-that accepted snapshot and SHALL NOT immediately request another full Video
-refresh.
+`matrix_one_shot` Video snapshot, starting the same-row `matrix_room_live`
+owner SHALL preserve that accepted snapshot and SHALL NOT immediately request
+another full Video refresh.
 
-The LIVE owner MAY create the existing `MatrixController` without performing
-device I/O. Video presentation continues to consume the accepted room snapshot.
+The LIVE owner SHALL be allowed to exist in an I/O-idle, transport-lazy state.
+Creating it solely to own future Matrix LIVE work SHALL NOT emit firmware,
+temperature, HDCP, Video-name, signal-presence, or `1%` reads.
 
-An accepted `Переключить на аудио` intent SHALL start Audio acquisition
-directly on that existing LIVE owner. If the owner has no connected session, it
-MAY connect and perform the minimum exact-IN1808 identity/variant gate required
-for Audio, but SHALL NOT perform a complete Video status refresh first.
+An accepted `Переключить на аудио` intent SHALL also NOT request a full Video
+refresh. It SHALL commit the Audio layout immediately under the existing local
+acknowledgement contract and then begin Audio acquisition on the same LIVE
+owner.
+
+If the LIVE owner has no connected session, Audio entry MAY establish one and
+perform a standalone exact-IN1808 `1I` identity/variant gate before Audio
+commands. That fresh-session gate SHALL NOT expand into a complete Video status
+poll.
+
+A full Video refresh may occur only when separately admitted by an operation
+that genuinely requires fresh Video evidence; when it does, exact IN1808 uses
+the guarded batch contract in `device-diagnostics-and-control`.
 
 The existing serialization rules remain: Audio I/O cannot overlap mutation,
 reconciliation, Local Refresh, another Matrix operation, or an in-flight
@@ -184,17 +194,24 @@ response on the same session.
 - **WHEN** same-row `matrix_room_live` starts
 - **THEN** no second full Video refresh is requested
 - **AND** the accepted Video snapshot remains presentation authority
-- **AND** creating the LIVE owner alone performs no duplicate Video status I/O
+- **AND** creating the LIVE owner emits no duplicate Video status I/O
 
-#### Scenario: Audio is selected on an idle lazy LIVE owner
+#### Scenario: Audio is selected after the accepted Video snapshot
 
-- **GIVEN** the current exact-IN1808 LIVE owner exists without a connected Matrix session
-- **AND** the current Video snapshot was already accepted by the room one-shot
+- **GIVEN** the current exact-IN1808 row already has an accepted usable Video snapshot
+- **AND** no separate full Video refresh operation has been admitted
 - **WHEN** the operator selects `Переключить на аудио`
 - **THEN** the Audio layout is committed immediately
-- **AND** the LIVE owner may connect and verify exact IN1808 identity/variant
-- **AND** it does not re-read the complete Video status set before Audio acquisition
-- **AND** Audio acquisition follows the identity gate on the same serialized owner
+- **AND** no firmware, temperature, HDCP, Video-name, signal-presence, or `1%` query is scheduled for Video
+- **AND** Audio acquisition proceeds directly on the same LIVE owner
+
+#### Scenario: Audio opens a fresh lazy LIVE transport
+
+- **GIVEN** the current exact-IN1808 LIVE owner exists without a connected Matrix session
+- **WHEN** Audio acquisition needs device I/O
+- **THEN** the owner may connect and issue standalone `1I`
+- **AND** accepted exact identity/variant authorizes the IN1808 Audio profile
+- **AND** the owner does not re-read the complete Video status set before Audio acquisition
 
 #### Scenario: Returning to Video does not create a refresh
 

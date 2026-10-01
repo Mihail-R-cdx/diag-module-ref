@@ -56,14 +56,19 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
 - Keep existing video Matrix routing semantics unchanged: IN1808 video route
   authority remains `1%` / `<I>*1%`.
 - For exact `Extron IN1808` only, replace the long sequential read-only Video
-  full-status fan-out with an ordered hardware-proven SIS batch after exact
-  identity/profile establishment. The batch changes transport efficiency only;
-  normalized Video status authority and mutation syntax remain unchanged.
+  full-status fan-out with a guarded ordered SIS batch after a standalone exact
+  identity/profile gate. Real hardware shows that the first query inside a
+  CR-separated multi-query write may be echoed without returning its payload,
+  so the batch SHALL start with a sacrificial read-only `1I` framing guard;
+  the 30 required Video status queries (`Q` through `1%`) follow it and remain
+  the only authoritative batch payloads. The batch changes transport efficiency
+  only; normalized Video status authority and mutation syntax remain unchanged.
 - Reuse the already accepted current room `matrix_one_shot` Video snapshot when
-  exact-IN1808 `matrix_room_live` starts. LIVE bootstrap SHALL NOT immediately
-  launch a second full Video refresh. The Matrix LIVE controller may remain
-  transport-lazy until Audio or another admitted Matrix operation actually needs
-  I/O.
+  exact-IN1808 `matrix_room_live` starts. LIVE bootstrap SHALL NOT launch a
+  second full Video refresh, and an accepted `Переключить на аудио` action
+  SHALL NOT schedule one either. The Matrix LIVE controller may remain
+  transport-lazy until Audio or another independently admitted Matrix operation
+  actually needs I/O.
 - When Audio is selected and LIVE has no connected Matrix session yet, establish
   that session with only the minimum exact-IN1808 identity/variant verification
   required to authorize the Audio profile; do not re-read firmware, temperature,
@@ -96,14 +101,17 @@ An operator expands an IN1808 row and initially sees the existing video Matrix
 dashboard. The first `Переключить на аудио` click is acknowledged locally by
 temporarily disabling that same mode control while the target presentation is
 committed. The same interaction changes the control to `Переключить на видео`,
-leaves General information
-intact, and renders the complete Audio layout with neutral/loading evidence
-before any device result is required. Once that Audio layout is visibly
-committed the control is enabled again; a 10-second fail-safe prevents a stuck
-disabled control if the presentation transition cannot complete. The accepted
-Video snapshot from the completed room one-shot remains the Video authority;
-starting IN1808 LIVE does not poll that same Video snapshot again. Selecting
-Audio therefore begins Audio acquisition directly on the LIVE owner, with only
-a minimal exact-identity/variant check if a new transport session must be
-established. Returning to Video restores the existing video tile and retires
-the Audio live subcontext.
+leaves General information intact, and renders the complete Audio layout with
+neutral/loading evidence before any device result is required. Once that Audio
+layout is visibly committed the control is enabled again; a 10-second fail-safe
+prevents a stuck disabled control if the presentation transition cannot
+complete.
+
+The accepted Video snapshot from the completed room one-shot remains the Video
+authority. Starting IN1808 LIVE and selecting Audio do not poll that same Video
+snapshot again. A legitimate future full Video refresh uses the exact-IN1808
+guarded batch contract instead of the old sequential fan-out. Selecting Audio
+begins Audio acquisition directly on the lazy LIVE owner, with only a minimum
+standalone exact-identity/variant check if a new transport session must be
+established. Returning to Video restores the existing video tile and retires the
+Audio live subcontext.

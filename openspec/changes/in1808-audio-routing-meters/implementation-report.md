@@ -1,3 +1,18 @@
+> **NORMATIVE CONTRACT CLOSED FOR BOTH CURRENT HARDWARE-QA REMARKS**
+> The current OpenSpec now fixes both requested behaviors without changing
+> production code yet. First, a legitimate exact-IN1808 full Video refresh uses
+> one standalone authoritative `1I`, then a guarded batch whose first command
+> is sacrificial read-only `1I` followed by the 30 required Video status reads.
+> The parser accepts only 30 status payloads when the guard payload is omitted,
+> or 31 payloads when the first one independently matches the same exact IN1808
+> identity; all other framing fails closed. Second, an already accepted
+> `matrix_one_shot` Video snapshot is reused by `matrix_room_live` and by
+> Video -> Audio entry: neither path may schedule another full Video refresh.
+> A fresh lazy LIVE transport may perform only standalone `1I` before Audio
+> I/O. Task 7.36e remains the final hardware confirmation of the selected guard
+> shape before architecture validation/implementation; it is no longer an
+> unresolved architecture choice.
+>
 > **SECOND REAL VIDEO-BATCH PROBE RESULT / FIRST-QUERY LOSS CONFIRMED**
 > On the same exact `IN1808 IPCP SA`, standalone `Q` correctly returned
 > firmware `1.09`. The following 29-query batch completed in **0.906 s** with

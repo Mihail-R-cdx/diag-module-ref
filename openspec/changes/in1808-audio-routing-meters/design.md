@@ -417,99 +417,127 @@ route reads as separate `send_command()` calls. The shared Matrix transport
 waits after each send before reading its response, so a normal full Video
 snapshot takes many seconds.
 
-Hardware QA also established a distinct lifecycle defect: after the automatic
-room `matrix_one_shot` has already completed that full Video snapshot,
+Hardware QA established a separate lifecycle defect: after the automatic room
+`matrix_one_shot` has already completed that full Video snapshot,
 `matrix_room_live` constructs a new `MatrixController` and unconditionally
-calls `request_full_refresh()`. This launches a second full Video poll. Because
-the Audio control is available during same-row LIVE, an operator can press
-`Переключить на аудио` while this redundant second poll is starting/running,
-making Audio wait behind work that should never have been scheduled.
+calls `request_full_refresh()`. That second poll is redundant. An operator who
+selects `Переключить на аудио` around that time then waits behind duplicate
+Video work that should never have been scheduled.
 
-These are separate fixes:
+The two hardware-QA remarks are therefore closed by two independent normative
+contracts:
 
-1. batch legitimate exact-IN1808 full Video snapshots;
-2. do not create a duplicate full Video snapshot merely to bootstrap LIVE.
+1. legitimate exact-IN1808 full Video snapshots use guarded batching;
+2. same-row LIVE bootstrap reuses the already accepted one-shot snapshot and
+   never manufactures a second full Video refresh.
 
-### Hardware evidence gate for Video batching
+### Hardware evidence for guarded batching
 
-Existing Audio batching proves only that the current IN1808 transport can accept
-specific Audio command families in one CR-separated write. It does **not** prove
-that the mixed Video/status command set has identical response framing.
+Two real read-only probes on exact `IN1808 IPCP SA` establish a stable
+transport quirk:
 
-Before production implementation of Video batching, a read-only hardware probe
-on exact IN1808 SHALL capture the raw response for the intended mixed status
-batch and establish all of the following:
+- a 30-query batch beginning with `Q` completed in 0.907 s; the `Q` payload
+  was absent, while `w20STAT` through `1%` remained ordered and the following
+  standalone `1I` succeeded;
+- a 29-query batch beginning with `w20STAT` completed in 0.906 s; the
+  `w20STAT` payload was absent, while `wE1HDCP` through `1%` remained
+  ordered and the following standalone `1I` succeeded.
 
-1. one authoritative response payload is returned for every submitted query;
-2. payload order is stable and matches command order;
-3. command echo, if present, can be removed without deleting a legitimate
-   payload;
-4. line/frame boundaries are deterministic for the mixed command families;
-5. an inline `E##`, malformed, missing, extra, or truncated payload cannot
-   shift later responses onto the wrong query;
-6. the device continues returning later responses after a query-level error, or
-   the implementation otherwise fails the whole batch closed;
-7. the batch leaves the session usable for the next serialized operation.
+Therefore the loss follows the **first query position inside a CR-separated
+multi-query write**, not the `Q` command family. Audio batching is not evidence
+for this rule.
 
-Audio batching SHALL NOT be cited as substitute evidence for this probe.
+The production architecture compensates explicitly instead of pretending that
+the first payload exists.
 
-### Legitimate full Video batch boundary
+### Legitimate exact-IN1808 full Video refresh
 
-A legitimate exact-IN1808 full Video refresh keeps identity as a separate first
-query:
+A legitimate full Video refresh SHALL use this wire shape:
 
-`1I`
+```text
+1I
+1I\rQ\rw20STAT\rwE1HDCP\rwI1HDCP\r...\rwO1VNAM\rw0LS\r1%
+```
 
-The identity result SHALL be normalized and matched to the expected exact
-IN1808 profile before any model-specific Video batch is sent.
+The first standalone `1I` is authoritative identity/profile evidence. It SHALL
+normalize to canonical exact IN1808 and an accepted closed wire identity before
+the guarded status batch is sent.
 
-After exact identity is accepted, the remaining read-only Video status queries
-needed by the current normalized snapshot SHALL be generated from the existing
-IN1808 capability profile and sent as one ordered CR-separated batch through the
-same Matrix session. This includes only currently supported read-only families
-such as firmware, temperature, HDCP authorization/status, names, signal
-presence, and current video route.
+Inside the batch:
 
-The batch SHALL NOT contain state-changing route commands or Audio
-instrumentation/mutation commands. Response handling SHALL use strict
-command-to-payload correlation and fail closed on framing ambiguity.
+- the first `1I` is a **sacrificial read-only framing guard**;
+- its response is never required as identity authority;
+- the 30 commands after the guard are the complete required Video status set:
+  firmware `Q`, temperature `w20STAT`, input HDCP authorization/status,
+  output HDCP status, eight input Video names, output Video name, signal
+  presence `w0LS`, and current route `1%`;
+- no state-changing route command, Audio meter instrumentation command, or Audio
+  DSP mutation is allowed in the batch.
 
-This batching applies to operations that genuinely require a fresh full Video
-snapshot, including the automatic room one-shot and an explicit accepted full
-refresh. It is not authority to manufacture an extra full refresh.
+The guard exists solely to absorb the observed first-in-batch payload loss.
+Task 7.36e remains the final hardware confirmation of this exact guarded shape
+before production implementation, not an unresolved product/architecture
+decision.
+
+### Strict response correlation
+
+The batch parser SHALL strip only exact submitted command echoes and then apply
+this fail-closed correlation contract:
+
+1. If exactly 30 non-echo payloads remain, the guard payload is treated as
+   omitted and those payloads map positionally to `Q` through `1%`.
+2. If exactly 31 non-echo payloads remain, payload 1 MUST independently parse as
+   the same accepted exact IN1808 identity; it is then discarded as the optional
+   guard payload and payloads 2..31 map positionally to `Q` through `1%`.
+3. Any other payload count fails the complete Video batch closed.
+4. Any `E##`, malformed, truncated, missing, extra, or parser-invalid payload
+   fails the complete Video batch closed; no later payload may be shifted onto
+   another field.
+5. Every accepted payload is still parsed by the existing field-specific parser
+   for its command. Batching is not authority to weaken firmware, temperature,
+   HDCP, name, signal, or route validation.
+6. A batch failure never authorizes a route mutation or a blind replay of a
+   state-changing command.
+
+The batch leaves command ordering, normalized field authority, and existing
+Video route semantics unchanged. It is only a transport-efficiency mechanism.
+
+This guarded batching applies only to operations that genuinely require a fresh
+full Video snapshot, such as the automatic exact-IN1808 room one-shot or an
+explicitly admitted full refresh. It SHALL NOT be used as justification to
+create an extra refresh.
+
+Other Matrix models keep their existing acquisition contracts in this change.
 
 ### LIVE bootstrap reuses accepted Video authority
 
 Once the current room generation has accepted a usable exact-IN1808
 `matrix_one_shot` snapshot, that snapshot remains current Video presentation
-authority until an admitted refresh/reconciliation replaces it or the room
-context becomes stale/invalid.
+authority until an independently admitted refresh/reconciliation replaces it or
+the room context becomes stale/invalid.
 
 Starting same-row exact-IN1808 `matrix_room_live` after that accepted one-shot
 SHALL NOT call `request_full_refresh()` and SHALL NOT issue firmware,
 temperature, HDCP, Video-name, signal-presence, or `1%` reads solely to create
 the LIVE owner.
 
-The LIVE composition may create the existing `MatrixController` in an
-I/O-idle, transport-lazy state. No second Matrix session is opened merely for
-Video presentation.
+The LIVE composition SHALL create/reuse the existing `MatrixController` in an
+I/O-idle, transport-lazy state. No Matrix connection is required merely to keep
+the already accepted Video snapshot on screen.
 
-When the operator selects Audio:
+An accepted `Переключить на аудио` action also SHALL NOT schedule a Video
+refresh. It performs the existing synchronous Audio presentation transition
+first, then starts Audio acquisition on the same LIVE owner.
 
-- the Audio layout still commits synchronously before I/O;
-- if the LIVE controller already has a compatible connected session, Audio
-  reuses it;
-- if no session exists, the controller may connect at that point;
-- before sending IN1808-specific Audio commands on a fresh session, it SHALL
-  perform only the minimum exact identity/variant verification needed to
-  authorize the closed IN1808 Audio profile;
-- that minimal gate SHALL NOT expand into a complete Video full-status refresh.
+If that LIVE owner has no connected Matrix session, it MAY connect at Audio
+entry and perform only the minimum exact identity/variant verification needed to
+authorize the closed IN1808 Audio profile. On a fresh transport this verification
+SHALL be a standalone `1I`; a mismatch fails the Audio subcontext closed.
 
-For a fresh transport, the preferred verification is a standalone `1I`
-identity query. Its normalized result SHALL resolve to canonical IN1808 and an
-accepted closed wire identity before variant-dependent Audio behavior is
-allowed. A mismatch fails the Audio subcontext closed and does not fabricate a
-new Video snapshot.
+That minimal Audio gate SHALL NOT expand into firmware, temperature, HDCP,
+Video-name, signal-presence, or `1%` reads. Therefore no complete Video status
+poll appears between the accepted one-shot snapshot and Audio acquisition unless
+the operator or lifecycle separately admitted a real Video refresh.
 
 Returning Audio -> Video continues to show the last accepted Video snapshot and
 does not automatically refresh Video.

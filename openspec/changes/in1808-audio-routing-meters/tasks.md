@@ -232,10 +232,10 @@
   status is still sequential/slow, and after the already-completed room
   `matrix_one_shot` the `matrix_room_live` bootstrap starts an unnecessary
   second full Video refresh; Audio then waits behind that duplicate poll.
-- [ ] 7.36 Capture real-IN1808 raw protocol evidence for the intended mixed
-  read-only Video status batch: ordered response count, framing/delimiters,
-  command echoes, inline error behavior, partial/truncated handling, and
-  post-batch session usability. Do not treat Audio batching as proof.
+- [ ] 7.36 Complete real-IN1808 evidence for the finalized guarded Video batch
+  contract. Two probes already prove first-in-batch payload loss, preserved
+  ordering of later payloads, and post-batch session usability; 7.36e remains
+  the final exact-shape check. Do not treat Audio batching as proof.
 - [x] 7.36a Add a repository-local read-only hardware probe helper that sends
   standalone `1I`, one CR-separated 30-query Video status batch, then a
   post-batch `1I`, and prints the complete raw response framing. This helper is
@@ -258,25 +258,33 @@
   The leading `w20STAT` payload was now absent and the remaining 28 payloads
   (`wE1HDCP` through `1%`) stayed ordered. Together with 7.36c this proves
   the loss follows the first in-batch query rather than the `Q` command family.
-- [ ] 7.36e Run the revised framing-guard probe: standalone authoritative `1I`,
-  then one batch containing sacrificial read-only guard `1I` followed by all
-  30 required Video status queries (`Q` through `1%`), then post-batch
-  `1I`. Require all 30 status payloads in exact order and a usable session.
-- [ ] 7.37 Re-run architecture review and repository-local strict validation on
-  the Video-batching/non-duplicating-LIVE-bootstrap amendment after hardware
-  batch evidence
-  is recorded. Do not begin production implementation before `APPROVE`.
-- [ ] 7.38 Implement exact-IN1808 standalone identity + hardware-proven ordered
-  Video status batch for legitimate full refreshes; change exact-IN1808
-  `matrix_room_live` bootstrap so it does not request a duplicate full Video
-  refresh, and let Audio entry use the same lazy LIVE owner with only the
-  minimum exact identity/variant gate on a fresh session.
-- [ ] 7.39 Add regression coverage for strict batch correlation, malformed/
-  missing/extra response fail-closed behavior, non-IN1808 isolation, no mutation
-  batching, no duplicate IN1808 LIVE full refresh after accepted one-shot,
-  minimal fresh-session identity gate before Audio, Audio-without-Video-repoll,
-  and no overlapping Matrix I/O; rerun focused/related/full tests and strict
-  validation.
+- [ ] 7.36e Run the finalized guarded-batch hardware check: standalone
+  authoritative `1I`, then one batch containing sacrificial read-only guard
+  `1I` followed by all 30 required Video status queries (`Q` through `1%`),
+  then post-batch `1I`. Require either 30 payloads (guard omitted) or 31
+  payloads with a matching guard identity first, exact ordered correlation of
+  all 30 status payloads, and a usable session.
+- [x] 7.36f Close both hardware-QA remarks in normative OpenSpec: legitimate
+  exact-IN1808 full Video polling uses the guarded ordered batch contract, while
+  an accepted `matrix_one_shot` snapshot is reused by `matrix_room_live` and
+  Video -> Audio without any duplicate full Video refresh.
+- [ ] 7.37 After 7.36e records the final guard-shape evidence, re-run
+  architecture review and repository-local strict change/all validation on the
+  finalized guarded-batching/non-duplicating-LIVE-bootstrap contract. Do not
+  begin production implementation before `APPROVE`.
+- [ ] 7.38 Implement the approved exact-IN1808 full-refresh wire shape:
+  standalone authoritative `1I`, sacrificial in-batch `1I` framing guard,
+  then the 30 ordered Video status queries with strict 30/31-payload correlation.
+  Also make exact-IN1808 `matrix_room_live` transport-lazy so accepted one-shot
+  Video evidence is reused and Audio entry performs at most the minimum
+  standalone identity/variant gate on a fresh session.
+- [ ] 7.39 Add regression coverage for guarded-batch echo stripping, accepted
+  30-payload guard-omitted and 31-payload guard-returned cases, mismatched guard,
+  `E##`/malformed/missing/extra response fail-closed behavior, non-IN1808
+  isolation, no mutation batching, no duplicate IN1808 LIVE full refresh after
+  accepted one-shot, minimal fresh-session identity gate before Audio,
+  Audio-without-Video-repoll, and no overlapping Matrix I/O; rerun
+  focused/related/full tests and strict validation.
 - [ ] 7.40 Repeat real-IN1808 hardware QA on the final remediation HEAD,
   including batched initial/full Video refresh, absence of a second Video poll
   when LIVE starts, and direct Audio acquisition after `Переключить на аудио`,
