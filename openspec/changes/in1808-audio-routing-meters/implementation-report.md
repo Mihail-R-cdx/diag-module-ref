@@ -1,3 +1,13 @@
+> **READ-ONLY VIDEO-BATCH HARDWARE PROBE ADDED**
+> `tools/probe_in1808_video_batch.py` is hardware-evidence tooling for task
+> 7.36, not production polling implementation. It performs a standalone `1I`
+> exact-identity gate, sends the intended 30-command read-only Video status set
+> as one CR-separated write, prints the complete raw response bytes/framing and
+> elapsed time, then sends a second standalone `1I` to check post-batch session
+> usability. It contains no route mutation or Audio state-changing command.
+> Real hardware output has **NOT** yet been captured, so batching remains
+> unapproved for production use.
+>
 > **CORRECTED CURRENT HARDWARE-QA BATCHING/LIVE-BOOTSTRAP AMENDMENT**
 > Hardware QA on implementation HEAD `570902cb532d7028f3bb4402dc7f11930f0447c3`
 > confirmed the visible no-`dBFS` wording and clarified the remaining behavior.

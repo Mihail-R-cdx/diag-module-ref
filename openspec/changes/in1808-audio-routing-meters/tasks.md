@@ -236,6 +236,11 @@
   read-only Video status batch: ordered response count, framing/delimiters,
   command echoes, inline error behavior, partial/truncated handling, and
   post-batch session usability. Do not treat Audio batching as proof.
+- [x] 7.36a Add a repository-local read-only hardware probe helper that sends
+  standalone `1I`, one CR-separated 30-query Video status batch, then a
+  post-batch `1I`, and prints the complete raw response framing. This helper is
+  evidence tooling only; task 7.36 remains open until real hardware output is
+  captured and reviewed.
 - [ ] 7.37 Re-run architecture review and repository-local strict validation on
   the Video-batching/non-duplicating-LIVE-bootstrap amendment after hardware
   batch evidence
