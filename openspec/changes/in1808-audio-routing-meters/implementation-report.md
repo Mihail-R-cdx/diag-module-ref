@@ -1,3 +1,17 @@
+> **SUPERSEDED BY CURRENT HARDWARE-QA BATCHING/HANDOFF AMENDMENT**
+> Hardware QA on implementation HEAD `570902cb532d7028f3bb4402dc7f11930f0447c3` confirmed the visible
+> no-`dBFS` wording but exposed two remaining blocking behaviors: exact IN1808
+> Video full status still uses the legacy long sequential command fan-out, and a
+> Video -> Audio switch can wait behind the already-running monolithic Video
+> `full_refresh`. The current OpenSpec architecture now absorbs both follow-ups
+> into PR #42. The READY FOR REVIEW handoff below is therefore historical for
+> the superseded architecture and MUST NOT be used as independent-validation
+> evidence for the new batching/safe-supersession contract.
+>
+> Production code/tests for the new Video batching and handoff amendment have
+> **NOT** been implemented yet. Real mixed-Video-batch protocol evidence is also
+> still required before implementation.
+
 > **CURRENT VISIBLE METER-WORDING IMPLEMENTATION EVIDENCE**
 > This section supersedes the historical implementation evidence below for the
 > current implementation-review handoff. Earlier evidence remains unchanged.

@@ -188,3 +188,43 @@ This change SHALL generate no state-changing `M<oid>*<value>AU` command.
 - **THEN** ACTIVE/INACTIVE is authoritative for that queried OID
 - **AND** its source/output labels come from `IN1808_PRODSP_PROFILE_MAPPING`
 - **AND** runtime does not claim to have hardware-verified those labels from the response
+
+### Requirement: Exact IN1808 Video full status uses a hardware-proven ordered read batch
+
+For exact canonical `Extron IN1808`, the application SHALL keep `1I` as a
+standalone identity/profile gate and, only after exact identity is accepted,
+SHALL acquire the remaining supported read-only Video full-status fields through
+one ordered hardware-proven batch on the existing Matrix session.
+
+The batch SHALL preserve the same normalized field authority as the existing
+individual reads. It SHALL NOT contain a route mutation or another
+state-changing command. It SHALL NOT be generalized to another Matrix model
+without separate protocol evidence.
+
+Production implementation SHALL require real-IN1808 evidence that the mixed
+status query set has deterministic ordered response framing. Missing, extra,
+truncated, ambiguous, or otherwise uncorrelatable batch responses SHALL fail
+closed rather than shifting payloads between fields.
+
+#### Scenario: Exact identity gates the Video status batch
+
+- **GIVEN** the current expected model is exact canonical `Extron IN1808`
+- **WHEN** `1I` returns an accepted exact IN1808 wire identity
+- **THEN** the remaining supported read-only Video status queries may be sent as one ordered batch
+- **AND** the batch is parsed with exact command-to-response correlation
+- **AND** no state-changing route command is included
+
+#### Scenario: Batch framing is ambiguous
+
+- **GIVEN** an exact IN1808 Video status batch has been sent
+- **WHEN** its response is missing, extra, truncated, or cannot be correlated exactly to the submitted query order
+- **THEN** the batch fails closed
+- **AND** no later payload is silently reassigned to another Video field
+- **AND** no route mutation is generated
+
+#### Scenario: Another Matrix model keeps its existing acquisition contract
+
+- **GIVEN** the current exact Matrix model is not canonical `Extron IN1808`
+- **WHEN** full Video status is acquired
+- **THEN** this change does not infer IN1808 mixed-batch support from family similarity
+

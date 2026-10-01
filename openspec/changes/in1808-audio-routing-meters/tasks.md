@@ -228,6 +228,27 @@
 - [ ] 7.34 Implement the approved no-`dBFS` visible meter wording, update
   regressions, rerun focused/related/full validation, publish one focused
   implementation commit, and repeat real-IN1808 hardware QA on that final HEAD.
+- [x] 7.35 Record final-head hardware QA blockers: exact IN1808 Video full
+  status is still sequential/slow, and an accepted Video -> Audio switch waits
+  behind the already-running monolithic Video `full_refresh`.
+- [ ] 7.36 Capture real-IN1808 raw protocol evidence for the intended mixed
+  read-only Video status batch: ordered response count, framing/delimiters,
+  command echoes, inline error behavior, partial/truncated handling, and
+  post-batch session usability. Do not treat Audio batching as proof.
+- [ ] 7.37 Re-run architecture review and repository-local strict validation on
+  the Video-batching/safe-supersession amendment after hardware batch evidence
+  is recorded. Do not begin production implementation before `APPROVE`.
+- [ ] 7.38 Implement exact-IN1808 standalone identity + hardware-proven ordered
+  Video status batch and currentness checkpoints that skip an unsent stale batch
+  or drain an already-sent batch without stale publication before Audio owns I/O.
+- [ ] 7.39 Add regression coverage for strict batch correlation, malformed/
+  missing/extra response fail-closed behavior, non-IN1808 isolation, no mutation
+  batching, pre-send Video supersession, post-send drain/no-publication, and no
+  overlapping Video/Audio I/O; rerun focused/related/full tests and strict
+  validation.
+- [ ] 7.40 Repeat real-IN1808 hardware QA on the final remediation HEAD,
+  including Video refresh duration/command batching and immediate Video -> Audio
+  handoff behavior, before independent validation.
 
 ## 8. Independent validation and completion
 

@@ -158,3 +158,51 @@ gain/mute mutation, or blind replay of a possibly sent instrumentation command.
 - **THEN** the failure is classified through structured Matrix failure semantics
 - **AND** no audio-route mutation is generated
 - **AND** no credential candidate advances solely from an error string
+
+### Requirement: Audio intent supersedes an in-flight read-only IN1808 Video refresh at a safe response boundary
+
+For the same current exact IN1808 row, an accepted `Переключить на аудио`
+intent SHALL immediately supersede the publication authority of an in-progress
+read-only Video `full_refresh`.
+
+Supersession SHALL not create overlapping Matrix I/O. The existing serialized
+Matrix owner/session remains authoritative.
+
+If the exact-IN1808 Video status batch has not yet been sent, the stale Video
+operation SHALL send no further status batch and the queued Audio entry operation
+SHALL acquire the owner next.
+
+If the Video status batch has already been sent, the stale Video operation
+SHALL finish draining that already-issued read-only batch to its normal response
+boundary, SHALL NOT publish that stale Video result, and SHALL then release the
+owner to Audio. The implementation SHALL NOT hard-close or reconnect the session
+solely to accelerate this handoff.
+
+State-changing mutation, reconciliation, unrelated exclusive operations, and
+retiring-owner boundaries retain their existing stronger serialization rules;
+this requirement applies only to superseding the ordinary same-row read-only
+IN1808 Video full refresh.
+
+#### Scenario: Audio is selected before the Video status batch is sent
+
+- **GIVEN** the current IN1808 Video `full_refresh` has not yet sent its model-specific status batch
+- **WHEN** the operator selects `Переключить на аудио`
+- **THEN** the Audio layout is committed immediately under the existing presentation acknowledgement
+- **AND** no unsent Video status batch is issued
+- **AND** Audio acquisition is next on the same serialized Matrix owner
+
+#### Scenario: Audio is selected after the Video status batch was sent
+
+- **GIVEN** the current IN1808 Video `full_refresh` already sent its read-only status batch
+- **WHEN** the operator selects `Переключить на аудио`
+- **THEN** the in-flight Video response is drained to its normal boundary
+- **AND** no stale Video result is published
+- **AND** no Audio command overlaps that drain
+- **AND** Audio acquisition starts as soon as the serialized owner is released
+
+#### Scenario: Supersession does not abandon the SIS stream
+
+- **WHEN** a Video -> Audio handoff supersedes an in-flight read-only IN1808 refresh
+- **THEN** the application does not disconnect/reconnect solely to interrupt that read
+- **AND** unread Video response frames are not intentionally left in the session for a later Audio command
+

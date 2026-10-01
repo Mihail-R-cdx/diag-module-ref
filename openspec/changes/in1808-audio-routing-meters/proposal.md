@@ -55,6 +55,15 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   parallel handler/controller/session lane.
 - Keep existing video Matrix routing semantics unchanged: IN1808 video route
   authority remains `1%` / `<I>*1%`.
+- For exact `Extron IN1808` only, replace the long sequential read-only Video
+  full-status fan-out with an ordered hardware-proven SIS batch after exact
+  identity/profile establishment. The batch changes transport efficiency only;
+  normalized Video status authority and mutation syntax remain unchanged.
+- Treat an accepted `Переключить на аудио` intent as superseding an in-progress
+  read-only IN1808 Video full refresh at a safe command boundary. If the Video
+  status batch has not been sent, skip it; if it has already been sent, drain
+  that one response to preserve stream alignment, discard stale Video
+  publication, and hand the same serialized Matrix owner to Audio immediately.
 - Isolate audio failures from the accepted Matrix/General-information snapshot:
   an audio failure produces an Audio no-data/error state rather than relabeling
   the whole device as failed when current Matrix diagnostics remain accepted.
@@ -72,6 +81,10 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   identity does not establish that amplifier capability.
 - Adding a second room interaction lane, second persistent Matrix session, or
   handler-owned credential fallback.
+- Generalizing IN1808 Video batching to IN1804, IN1806, IN1608 xi, DTP
+  CrossPoint, or another Matrix profile without separate protocol evidence.
+- Hard-closing or abandoning an in-flight SIS response merely to accelerate a
+  Video -> Audio mode switch.
 
 ## Expected Result
 
@@ -85,5 +98,9 @@ before any device result is required. Once that Audio layout is visibly
 committed the control is enabled again; a 10-second fail-safe prevents a stuck
 disabled control if the presentation transition cannot complete. Background
 acquisition then fills the aligned horizontal input meters, vertical output
-meters, and compact read-only logical routing matrix. Returning to Video
-restores the existing video tile and retires the Audio live subcontext.
+meters, and compact read-only logical routing matrix. If the operator selects
+Audio while the initial IN1808 Video refresh is still running, unsent Video
+status work is superseded; an already-sent read-only batch is only drained to a
+clean response boundary and is never published as a newer Video snapshot before
+Audio acquisition starts. Returning to Video restores the existing video tile
+and retires the Audio live subcontext.

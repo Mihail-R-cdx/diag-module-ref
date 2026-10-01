@@ -408,6 +408,109 @@ as component evidence; presentation may use a deterministic combined label.
 Amplifier labeling is variant-derived because it is not part of the seven
 named output IDs.
 
+## IN1808 Video full-status batching and Audio supersession
+
+The current exact-IN1808 Video refresh is transport-inefficient because
+`get_full_status()` performs identity, firmware, temperature, per-input HDCP
+authorization/status, output HDCP, per-input/output names, signal presence, and
+route reads as separate `send_command()` calls. The shared Matrix transport
+waits after each send before reading its response, so the exact IN1808 refresh
+can remain in the serialized owner lane for many seconds.
+
+This change now treats that behavior as a hardware-QA blocker for exact
+`Extron IN1808`.
+
+### Hardware evidence gate for Video batching
+
+Existing Audio batching proves only that the current IN1808 transport can accept
+specific Audio command families in one CR-separated write. It does **not** prove
+that the mixed Video/status command set has identical response framing.
+
+Before production implementation of Video batching, a read-only hardware probe
+on exact IN1808 SHALL capture the raw response for the intended mixed status
+batch and establish all of the following:
+
+1. one authoritative response payload is returned for every submitted query;
+2. payload order is stable and matches command order;
+3. command echo, if present, can be removed without deleting a legitimate
+   payload;
+4. line/frame boundaries are deterministic for the mixed command families;
+5. an inline `E##`, malformed, missing, extra, or truncated payload cannot
+   shift later responses onto the wrong query;
+6. the device continues returning later responses after a query-level error, or
+   the implementation otherwise fails the whole batch closed;
+7. the batch leaves the existing session usable for the next serialized Audio
+   transaction.
+
+Audio batching SHALL NOT be cited as substitute evidence for this probe. If the
+probe does not establish deterministic correlation, implementation SHALL stop
+and the architecture SHALL be amended rather than silently retaining the long
+sequential IN1808 path under this requirement.
+
+### Video batch boundary
+
+Exact IN1808 identity remains a separate first query:
+
+`1I`
+
+The identity result SHALL be normalized and matched to the expected exact
+IN1808 profile before any model-specific Video batch is sent.
+
+After exact identity is accepted, the remaining read-only Video status queries
+needed by the current normalized snapshot SHALL be generated from the existing
+IN1808 capability profile and sent as one ordered CR-separated batch through the
+existing Matrix session. This includes only currently supported read-only
+families such as firmware, temperature, HDCP authorization/status, names, signal
+presence, and current video route.
+
+The batch SHALL NOT contain:
+
+- `<I>*1%` or any other state-changing route command;
+- Audio meter activation `*1`;
+- Audio mix-point mutation;
+- speculative queries outside the exact accepted IN1808 capability.
+
+Response handling SHALL use strict command-to-payload correlation. Framing
+ambiguity, missing/extra payloads, or any condition that could misassociate one
+response with another SHALL fail closed. Individual payload parsing continues
+to use the existing field-specific IN1808 parsers and normalized semantics; the
+batch is not authority to weaken parser validation.
+
+Other Matrix models keep their current command strategy in this change.
+
+### Video -> Audio supersession
+
+The existing `MatrixController` generation/currentness model already makes a
+new Audio operation logically newer than the previous read-only Video
+`full_refresh`. The current defect is that `handler.get_full_status()` is
+monolithic and does not observe that loss of authority while it continues
+issuing sequential commands.
+
+The exact-IN1808 full-status path SHALL therefore accept a currentness predicate
+owned by the existing Matrix operation context and check it at safe atomic
+boundaries:
+
+1. before acquiring/sending the identity query;
+2. after identity response and before sending the Video status batch;
+3. after the batch response has been completely drained and before parsing or
+   publishing the Video snapshot.
+
+If Audio supersedes Video **before** the status batch is sent, no further Video
+status commands are sent.
+
+If Audio supersedes Video **after** the status batch has been sent, the
+transport SHALL finish reading/draining that already-issued read-only batch to
+its normal response boundary. It SHALL then discard stale Video publication and
+release the serialized owner lane to the already-requested Audio operation.
+
+The implementation SHALL NOT close/reconnect the Matrix session merely to
+interrupt a read-only Video refresh, because abandoning an in-flight response
+could leave unread SIS frames and corrupt command/response correlation. It SHALL
+NOT start Audio I/O concurrently with the draining Video batch.
+
+No stale Video result may replace the previously accepted Video snapshot after
+Audio mode has superseded that operation.
+
 ## Application/session ownership
 
 The new Audio capability SHALL extend the existing IN1808 Matrix application
