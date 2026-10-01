@@ -408,17 +408,27 @@ as component evidence; presentation may use a deterministic combined label.
 Amplifier labeling is variant-derived because it is not part of the seven
 named output IDs.
 
-## IN1808 Video full-status batching and Audio supersession
+## IN1808 Video full-status batching and non-duplicating LIVE bootstrap
 
-The current exact-IN1808 Video refresh is transport-inefficient because
+The current exact-IN1808 Video acquisition is transport-inefficient because
 `get_full_status()` performs identity, firmware, temperature, per-input HDCP
 authorization/status, output HDCP, per-input/output names, signal presence, and
 route reads as separate `send_command()` calls. The shared Matrix transport
-waits after each send before reading its response, so the exact IN1808 refresh
-can remain in the serialized owner lane for many seconds.
+waits after each send before reading its response, so a normal full Video
+snapshot takes many seconds.
 
-This change now treats that behavior as a hardware-QA blocker for exact
-`Extron IN1808`.
+Hardware QA also established a distinct lifecycle defect: after the automatic
+room `matrix_one_shot` has already completed that full Video snapshot,
+`matrix_room_live` constructs a new `MatrixController` and unconditionally
+calls `request_full_refresh()`. This launches a second full Video poll. Because
+the Audio control is available during same-row LIVE, an operator can press
+`Переключить на аудио` while this redundant second poll is starting/running,
+making Audio wait behind work that should never have been scheduled.
+
+These are separate fixes:
+
+1. batch legitimate exact-IN1808 full Video snapshots;
+2. do not create a duplicate full Video snapshot merely to bootstrap LIVE.
 
 ### Hardware evidence gate for Video batching
 
@@ -439,17 +449,14 @@ batch and establish all of the following:
    shift later responses onto the wrong query;
 6. the device continues returning later responses after a query-level error, or
    the implementation otherwise fails the whole batch closed;
-7. the batch leaves the existing session usable for the next serialized Audio
-   transaction.
+7. the batch leaves the session usable for the next serialized operation.
 
-Audio batching SHALL NOT be cited as substitute evidence for this probe. If the
-probe does not establish deterministic correlation, implementation SHALL stop
-and the architecture SHALL be amended rather than silently retaining the long
-sequential IN1808 path under this requirement.
+Audio batching SHALL NOT be cited as substitute evidence for this probe.
 
-### Video batch boundary
+### Legitimate full Video batch boundary
 
-Exact IN1808 identity remains a separate first query:
+A legitimate exact-IN1808 full Video refresh keeps identity as a separate first
+query:
 
 `1I`
 
@@ -459,57 +466,53 @@ IN1808 profile before any model-specific Video batch is sent.
 After exact identity is accepted, the remaining read-only Video status queries
 needed by the current normalized snapshot SHALL be generated from the existing
 IN1808 capability profile and sent as one ordered CR-separated batch through the
-existing Matrix session. This includes only currently supported read-only
-families such as firmware, temperature, HDCP authorization/status, names, signal
+same Matrix session. This includes only currently supported read-only families
+such as firmware, temperature, HDCP authorization/status, names, signal
 presence, and current video route.
 
-The batch SHALL NOT contain:
+The batch SHALL NOT contain state-changing route commands or Audio
+instrumentation/mutation commands. Response handling SHALL use strict
+command-to-payload correlation and fail closed on framing ambiguity.
 
-- `<I>*1%` or any other state-changing route command;
-- Audio meter activation `*1`;
-- Audio mix-point mutation;
-- speculative queries outside the exact accepted IN1808 capability.
+This batching applies to operations that genuinely require a fresh full Video
+snapshot, including the automatic room one-shot and an explicit accepted full
+refresh. It is not authority to manufacture an extra full refresh.
 
-Response handling SHALL use strict command-to-payload correlation. Framing
-ambiguity, missing/extra payloads, or any condition that could misassociate one
-response with another SHALL fail closed. Individual payload parsing continues
-to use the existing field-specific IN1808 parsers and normalized semantics; the
-batch is not authority to weaken parser validation.
+### LIVE bootstrap reuses accepted Video authority
 
-Other Matrix models keep their current command strategy in this change.
+Once the current room generation has accepted a usable exact-IN1808
+`matrix_one_shot` snapshot, that snapshot remains current Video presentation
+authority until an admitted refresh/reconciliation replaces it or the room
+context becomes stale/invalid.
 
-### Video -> Audio supersession
+Starting same-row exact-IN1808 `matrix_room_live` after that accepted one-shot
+SHALL NOT call `request_full_refresh()` and SHALL NOT issue firmware,
+temperature, HDCP, Video-name, signal-presence, or `1%` reads solely to create
+the LIVE owner.
 
-The existing `MatrixController` generation/currentness model already makes a
-new Audio operation logically newer than the previous read-only Video
-`full_refresh`. The current defect is that `handler.get_full_status()` is
-monolithic and does not observe that loss of authority while it continues
-issuing sequential commands.
+The LIVE composition may create the existing `MatrixController` in an
+I/O-idle, transport-lazy state. No second Matrix session is opened merely for
+Video presentation.
 
-The exact-IN1808 full-status path SHALL therefore accept a currentness predicate
-owned by the existing Matrix operation context and check it at safe atomic
-boundaries:
+When the operator selects Audio:
 
-1. before acquiring/sending the identity query;
-2. after identity response and before sending the Video status batch;
-3. after the batch response has been completely drained and before parsing or
-   publishing the Video snapshot.
+- the Audio layout still commits synchronously before I/O;
+- if the LIVE controller already has a compatible connected session, Audio
+  reuses it;
+- if no session exists, the controller may connect at that point;
+- before sending IN1808-specific Audio commands on a fresh session, it SHALL
+  perform only the minimum exact identity/variant verification needed to
+  authorize the closed IN1808 Audio profile;
+- that minimal gate SHALL NOT expand into a complete Video full-status refresh.
 
-If Audio supersedes Video **before** the status batch is sent, no further Video
-status commands are sent.
+For a fresh transport, the preferred verification is a standalone `1I`
+identity query. Its normalized result SHALL resolve to canonical IN1808 and an
+accepted closed wire identity before variant-dependent Audio behavior is
+allowed. A mismatch fails the Audio subcontext closed and does not fabricate a
+new Video snapshot.
 
-If Audio supersedes Video **after** the status batch has been sent, the
-transport SHALL finish reading/draining that already-issued read-only batch to
-its normal response boundary. It SHALL then discard stale Video publication and
-release the serialized owner lane to the already-requested Audio operation.
-
-The implementation SHALL NOT close/reconnect the Matrix session merely to
-interrupt a read-only Video refresh, because abandoning an in-flight response
-could leave unread SIS frames and corrupt command/response correlation. It SHALL
-NOT start Audio I/O concurrently with the draining Video batch.
-
-No stale Video result may replace the previously accepted Video snapshot after
-Audio mode has superseded that operation.
+Returning Audio -> Video continues to show the last accepted Video snapshot and
+does not automatically refresh Video.
 
 ## Application/session ownership
 

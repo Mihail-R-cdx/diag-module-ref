@@ -1,16 +1,24 @@
-> **SUPERSEDED BY CURRENT HARDWARE-QA BATCHING/HANDOFF AMENDMENT**
-> Hardware QA on implementation HEAD `570902cb532d7028f3bb4402dc7f11930f0447c3` confirmed the visible
-> no-`dBFS` wording but exposed two remaining blocking behaviors: exact IN1808
-> Video full status still uses the legacy long sequential command fan-out, and a
-> Video -> Audio switch can wait behind the already-running monolithic Video
-> `full_refresh`. The current OpenSpec architecture now absorbs both follow-ups
-> into PR #42. The READY FOR REVIEW handoff below is therefore historical for
-> the superseded architecture and MUST NOT be used as independent-validation
-> evidence for the new batching/safe-supersession contract.
+> **CORRECTED CURRENT HARDWARE-QA BATCHING/LIVE-BOOTSTRAP AMENDMENT**
+> Hardware QA on implementation HEAD `570902cb532d7028f3bb4402dc7f11930f0447c3`
+> confirmed the visible no-`dBFS` wording and clarified the remaining behavior.
+> The initial room Video poll had already completed before the Audio click. The
+> repeated Video commands observed at the click were a **new duplicate full
+> refresh** started by exact-IN1808 `matrix_room_live` bootstrap, which currently
+> creates a new `MatrixController` and unconditionally calls
+> `request_full_refresh()`. Audio then waits behind that unnecessary second
+> poll. The previous amendment's description of this as merely an already-running
+> initial Video refresh was therefore inaccurate and is superseded by this
+> corrected architecture.
 >
-> Production code/tests for the new Video batching and handoff amendment have
-> **NOT** been implemented yet. Real mixed-Video-batch protocol evidence is also
-> still required before implementation.
+> The current architecture requires two fixes in PR #42: hardware-proven batching
+> for legitimate exact-IN1808 full Video snapshots, and elimination of the
+> duplicate full Video refresh when LIVE starts after an accepted room one-shot.
+> A fresh LIVE transport may perform only the minimum exact identity/variant gate
+> needed before Audio commands; it must not re-poll the complete Video status set.
+>
+> Production code/tests for these fixes have **NOT** been implemented yet. Real
+> mixed-Video-batch protocol evidence is still required before implementation.
+
 
 > **CURRENT VISIBLE METER-WORDING IMPLEMENTATION EVIDENCE**
 > This section supersedes the historical implementation evidence below for the

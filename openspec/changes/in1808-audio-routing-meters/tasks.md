@@ -229,8 +229,9 @@
   regressions, rerun focused/related/full validation, publish one focused
   implementation commit, and repeat real-IN1808 hardware QA on that final HEAD.
 - [x] 7.35 Record final-head hardware QA blockers: exact IN1808 Video full
-  status is still sequential/slow, and an accepted Video -> Audio switch waits
-  behind the already-running monolithic Video `full_refresh`.
+  status is still sequential/slow, and after the already-completed room
+  `matrix_one_shot` the `matrix_room_live` bootstrap starts an unnecessary
+  second full Video refresh; Audio then waits behind that duplicate poll.
 - [ ] 7.36 Capture real-IN1808 raw protocol evidence for the intended mixed
   read-only Video status batch: ordered response count, framing/delimiters,
   command echoes, inline error behavior, partial/truncated handling, and
@@ -239,16 +240,20 @@
   the Video-batching/safe-supersession amendment after hardware batch evidence
   is recorded. Do not begin production implementation before `APPROVE`.
 - [ ] 7.38 Implement exact-IN1808 standalone identity + hardware-proven ordered
-  Video status batch and currentness checkpoints that skip an unsent stale batch
-  or drain an already-sent batch without stale publication before Audio owns I/O.
+  Video status batch for legitimate full refreshes; change exact-IN1808
+  `matrix_room_live` bootstrap so it does not request a duplicate full Video
+  refresh, and let Audio entry use the same lazy LIVE owner with only the
+  minimum exact identity/variant gate on a fresh session.
 - [ ] 7.39 Add regression coverage for strict batch correlation, malformed/
   missing/extra response fail-closed behavior, non-IN1808 isolation, no mutation
-  batching, pre-send Video supersession, post-send drain/no-publication, and no
-  overlapping Video/Audio I/O; rerun focused/related/full tests and strict
+  batching, no duplicate IN1808 LIVE full refresh after accepted one-shot,
+  minimal fresh-session identity gate before Audio, Audio-without-Video-repoll,
+  and no overlapping Matrix I/O; rerun focused/related/full tests and strict
   validation.
 - [ ] 7.40 Repeat real-IN1808 hardware QA on the final remediation HEAD,
-  including Video refresh duration/command batching and immediate Video -> Audio
-  handoff behavior, before independent validation.
+  including batched initial/full Video refresh, absence of a second Video poll
+  when LIVE starts, and direct Audio acquisition after `Переключить на аудио`,
+  before independent validation.
 
 ## 8. Independent validation and completion
 
