@@ -237,7 +237,8 @@
   command echoes, inline error behavior, partial/truncated handling, and
   post-batch session usability. Do not treat Audio batching as proof.
 - [ ] 7.37 Re-run architecture review and repository-local strict validation on
-  the Video-batching/safe-supersession amendment after hardware batch evidence
+  the Video-batching/non-duplicating-LIVE-bootstrap amendment after hardware
+  batch evidence
   is recorded. Do not begin production implementation before `APPROVE`.
 - [ ] 7.38 Implement exact-IN1808 standalone identity + hardware-proven ordered
   Video status batch for legitimate full refreshes; change exact-IN1808
