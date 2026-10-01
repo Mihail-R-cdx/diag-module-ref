@@ -65,7 +65,7 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   explicitly accepts the residual possibility of an indistinguishable
   same-grammar stale/delayed/duplicate payload only as a bounded risk for
   read-only diagnostic evidence; the batch grants no mutation authority.
-- Reuse the already accepted current room `matrix_one_shot` Video snapshot- Reuse the already accepted current room `matrix_one_shot` Video snapshot when
+- Reuse the already accepted current room `matrix_one_shot` Video snapshot when
   exact-IN1808 `matrix_room_live` starts. LIVE bootstrap SHALL NOT launch a
   second full Video refresh, and an accepted `Переключить на аудио` action
   SHALL NOT schedule one either. The Matrix LIVE controller may remain
