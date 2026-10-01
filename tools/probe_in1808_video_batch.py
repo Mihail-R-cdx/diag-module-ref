@@ -3,10 +3,15 @@
 This helper is intentionally not a production polling path.  It captures the
 wire evidence required by the active OpenSpec change:
 
-    1I                    -- standalone exact-identity gate
-    Q                     -- standalone firmware query
-    <29-query Video batch> -- one CR-separated read-only write
-    1I                    -- post-batch session-usability check
+    1I                         -- standalone exact-identity gate
+    1I + <30 Video status reads> -- one CR-separated read-only write
+    1I                         -- post-batch session-usability check
+
+The leading in-batch 1I is a read-only framing guard.  Two real hardware probes
+showed that the first query in a CR-separated multi-query write is echoed but
+its payload is omitted, while every later payload remains ordered.  The guard is
+therefore intentionally expendable; the following 30 payloads are the evidence
+under test.
 
 No route mutation, Audio meter activation, or other state-changing command is
 sent.
@@ -32,9 +37,10 @@ from handlers.extron.matrix import (  # noqa: E402
 )
 
 
-FIRMWARE_COMMAND = "Q"
+BATCH_GUARD_COMMAND = "1I"
 
 VIDEO_STATUS_COMMANDS = (
+    "Q",
     "w20STAT",
     "wE1HDCP",
     "wI1HDCP",
@@ -135,14 +141,14 @@ def main() -> int:
                 "Exact IN1808 identity gate failed; batch was NOT sent."
             )
 
-        firmware_result = handler.send_command(FIRMWARE_COMMAND)
-        _print_result("FIRMWARE BEFORE BATCH", firmware_result)
-
-        batch = "\r".join(VIDEO_STATUS_COMMANDS)
+        probe_commands = (BATCH_GUARD_COMMAND,) + VIDEO_STATUS_COMMANDS
+        batch = "\r".join(probe_commands)
         print("\n=== BATCH COMMAND LIST ===")
-        for index, command in enumerate(VIDEO_STATUS_COMMANDS, 1):
-            print(f"{index:02d}: {command}")
-        print(f"batch_command_count={len(VIDEO_STATUS_COMMANDS)}")
+        for index, command in enumerate(probe_commands, 1):
+            suffix = "  [framing guard]" if index == 1 else ""
+            print(f"{index:02d}: {command}{suffix}")
+        print(f"batch_command_count={len(probe_commands)}")
+        print(f"expected_status_payload_count={len(VIDEO_STATUS_COMMANDS)}")
         print(f"batch_wire_repr={(batch + chr(13))!r}")
 
         started = time.monotonic()

@@ -1,3 +1,15 @@
+> **SECOND REAL VIDEO-BATCH PROBE RESULT / FIRST-QUERY LOSS CONFIRMED**
+> On the same exact `IN1808 IPCP SA`, standalone `Q` correctly returned
+> firmware `1.09`. The following 29-query batch completed in **0.906 s** with
+> `success=True` and `raw_length=459`, but again produced one aggregate echo
+> block plus only **28** payloads: this time the leading `w20STAT` temperature
+> payload was absent, while `wE1HDCP` through `1%` remained in the expected
+> order. A post-batch standalone `1I` again returned `IN1808 IPCP SA`.
+> Combined with the first probe (where leading `Q` alone was missing), the
+> hardware evidence now shows a first-in-batch payload loss independent of query
+> family. The next probe therefore prepends a sacrificial read-only `1I`
+> framing guard and places all 30 required Video status queries after it.
+>
 > **FIRST REAL VIDEO-BATCH PROBE RESULT**
 > Real exact-IN1808 hardware (`IN1808 IPCP SA`) completed the original
 > 30-query mixed Video batch in **0.907 s** with `success=True` and

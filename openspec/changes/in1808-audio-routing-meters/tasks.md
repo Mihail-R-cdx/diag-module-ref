@@ -252,6 +252,16 @@
   by exactly 29 ordered payloads matching `w20STAT` through `1%`; therefore
   the original 30-query production batch is rejected and task 7.36 remains open
   for the revised standalone-`Q` + 29-query batch probe.
+- [x] 7.36d Record second real-IN1808 batch probe: standalone `Q` returned
+  firmware `1.09`, while the following 29-query batch completed in 0.906 s
+  with `success=True`, `raw_length=459`, and a usable post-batch `1I`.
+  The leading `w20STAT` payload was now absent and the remaining 28 payloads
+  (`wE1HDCP` through `1%`) stayed ordered. Together with 7.36c this proves
+  the loss follows the first in-batch query rather than the `Q` command family.
+- [ ] 7.36e Run the revised framing-guard probe: standalone authoritative `1I`,
+  then one batch containing sacrificial read-only guard `1I` followed by all
+  30 required Video status queries (`Q` through `1%`), then post-batch
+  `1I`. Require all 30 status payloads in exact order and a usable session.
 - [ ] 7.37 Re-run architecture review and repository-local strict validation on
   the Video-batching/non-duplicating-LIVE-bootstrap amendment after hardware
   batch evidence
