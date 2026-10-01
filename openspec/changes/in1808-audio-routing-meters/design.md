@@ -424,12 +424,14 @@ calls `request_full_refresh()`. That second poll is redundant. An operator who
 selects `Переключить на аудио` around that time then waits behind duplicate
 Video work that should never have been scheduled.
 
-The two hardware-QA remarks are therefore closed by two independent normative
-contracts:
+The two hardware-QA remarks now have different closure states:
 
-1. legitimate exact-IN1808 full Video snapshots use guarded batching;
-2. same-row LIVE bootstrap reuses the already accepted one-shot snapshot and
-   never manufactures a second full Video refresh.
+1. the duplicate-LIVE-refresh remark is closed normatively: same-row LIVE
+   bootstrap reuses the already accepted one-shot snapshot and never
+   manufactures a second full Video refresh;
+2. the slow sequential Video-poll remark has a required architectural outcome
+   (hardware-proven correlated batching), but its exact production framing is
+   intentionally still gated on the remaining correlation evidence below.
 
 ### Hardware evidence for guarded batching
 

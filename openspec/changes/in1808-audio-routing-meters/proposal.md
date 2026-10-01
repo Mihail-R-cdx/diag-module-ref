@@ -114,8 +114,8 @@ authority. Starting IN1808 LIVE and selecting Audio do not poll that same Video
 snapshot again. A legitimate future full Video refresh is required to use a hardware-proven
 exact-IN1808 correlated batch instead of the old sequential fan-out, but the
 current guard framing is not implementation authority until its remaining
-hardware correlation gates pass. Selecting Audio
-begins Audio acquisition directly on the lazy LIVE owner, with only a minimum
+hardware correlation gates pass. Selecting Audio begins Audio acquisition
+directly on the lazy LIVE owner, with only a minimum
 standalone exact-identity/variant check if a new transport session must be
 established. Returning to Video restores the existing video tile and retires the
 Audio live subcontext.

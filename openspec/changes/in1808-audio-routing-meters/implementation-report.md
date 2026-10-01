@@ -13,7 +13,7 @@
 > no-duplicate-`matrix_room_live`/Video->Audio refresh contract remains
 > normative and unchanged.
 >
-> **NORMATIVE CONTRACT CLOSED FOR BOTH CURRENT HARDWARE-QA REMARKS**
+> **SUPERSEDED HISTORICAL DRAFT — DO NOT USE AS CURRENT BATCH AUTHORITY**
 > The current OpenSpec now fixes both requested behaviors without changing
 > production code yet. First, a legitimate exact-IN1808 full Video refresh uses
 > one standalone authoritative `1I`, then a guarded batch whose first command

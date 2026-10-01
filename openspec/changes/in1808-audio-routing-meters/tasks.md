@@ -232,10 +232,12 @@
   status is still sequential/slow, and after the already-completed room
   `matrix_one_shot` the `matrix_room_live` bootstrap starts an unnecessary
   second full Video refresh; Audio then waits behind that duplicate poll.
-- [ ] 7.36 Complete real-IN1808 evidence for the finalized guarded Video batch
-  contract. Two probes already prove first-in-batch payload loss, preserved
-  ordering of later payloads, and post-batch session usability; 7.36e remains
-  the final exact-shape check. Do not treat Audio batching as proof.
+- [ ] 7.36 Complete real-IN1808 evidence needed to finalize the production
+  Video-batch framing/correlation contract. Two probes already prove
+  first-in-batch payload loss, preserved ordering of later payloads, and
+  post-batch session usability; 7.36e and 7.36f remain mandatory before the
+  exact production rule may be written and approved. Do not treat Audio
+  batching as proof.
 - [x] 7.36a Add a repository-local read-only hardware probe helper that sends
   standalone `1I`, one CR-separated 30-query Video status batch, then a
   post-batch `1I`, and prints the complete raw response framing. This helper is
