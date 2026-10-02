@@ -342,7 +342,7 @@
   with at most the minimum fresh-session exact identity gate. Record actual
   command/log evidence before independent validation.
 
-## 8. Independent validation and completion## 8. Independent validation and completion
+## 8. Independent validation and completion
 
 - [ ] 8.1 Validate the exact current published feature HEAD in a separate clean
   detached worktree from `origin/<branch>`; verify local/remote SHA equality.

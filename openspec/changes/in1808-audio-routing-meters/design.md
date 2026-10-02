@@ -513,7 +513,7 @@ the operator or lifecycle separately admitted a real Video refresh.
 Returning Audio -> Video continues to show the last accepted Video snapshot and
 does not automatically refresh Video.
 
-## Application/session ownership## Application/session ownership
+## Application/session ownership
 
 The new Audio capability SHALL extend the existing IN1808 Matrix application
 owner; it SHALL NOT create a parallel screen, controller, credential planner,
