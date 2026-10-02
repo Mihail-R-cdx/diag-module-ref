@@ -275,6 +275,10 @@ def _in1808_video_payloads():
     return payloads
 
 
+def _in1808_hardware_aggregate_echo():
+    return "\r\n".join(IN1808_VIDEO_BATCH_COMMANDS)
+
+
 class GuardedVideoIN1808(ExtronMatrixHandler):
     def __init__(
         self,
@@ -304,7 +308,11 @@ class GuardedVideoIN1808(ExtronMatrixHandler):
         if command != submitted:
             raise AssertionError(f"Unexpected IN1808 Video command: {command!r}")
         if self.raw_response is None:
-            echo = submitted if self.aggregate_echo is None else self.aggregate_echo
+            echo = (
+                _in1808_hardware_aggregate_echo()
+                if self.aggregate_echo is None
+                else self.aggregate_echo
+            )
             records = [echo.encode("utf-8")]
             records.extend(str(payload).encode("utf-8") for payload in self.payloads)
             raw = IN1808_VIDEO_BATCH_RECORD_SEPARATOR.join(records)
@@ -314,6 +322,20 @@ class GuardedVideoIN1808(ExtronMatrixHandler):
 
 
 class IN1808GuardedVideoBatchTests(unittest.TestCase):
+    def test_hardware_crlf_aggregate_echo_yields_exactly_30_payloads(self):
+        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        expected_payloads = _in1808_video_payloads()
+        records = [_in1808_hardware_aggregate_echo().encode("ascii")]
+        records.extend(value.encode("utf-8") for value in expected_payloads)
+        raw_response = IN1808_VIDEO_BATCH_RECORD_SEPARATOR.join(records)
+
+        payloads = ExtronMatrixHandler._in1808_batch_payloads(
+            raw_response, submitted
+        )
+
+        self.assertEqual(30, len(payloads))
+        self.assertEqual(tuple(expected_payloads), payloads)
+
     def test_happy_path_uses_exact_guarded_batch_and_preserves_snapshot_shape(self):
         handler = GuardedVideoIN1808(identity="IN1808 IPCP SA")
 
@@ -351,9 +373,9 @@ class IN1808GuardedVideoBatchTests(unittest.TestCase):
                     GuardedVideoIN1808(payloads=payloads).get_full_status()
 
     def test_malformed_framing_and_field_specific_parser_failure_fail_closed(self):
-        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS).encode("ascii")
+        aggregate_echo = _in1808_hardware_aggregate_echo().encode("ascii")
         malformed_raw = IN1808_VIDEO_BATCH_RECORD_SEPARATOR.join(
-            [submitted, b"\xff"]
+            [aggregate_echo, b"\xff"]
             + [value.encode("utf-8") for value in _in1808_video_payloads()[1:]]
         )
         with self.assertRaises(ProtocolError):
@@ -374,8 +396,22 @@ class IN1808GuardedVideoBatchTests(unittest.TestCase):
 
     def test_only_exact_aggregate_echo_is_removed_and_unknown_data_is_not_discarded(self):
         submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
-        for echo in (submitted.lower(), "prefix-" + submitted):
-            with self.subTest(echo=echo[:20]):
+        hardware_echo = _in1808_hardware_aggregate_echo()
+        reordered_commands = list(IN1808_VIDEO_BATCH_COMMANDS)
+        reordered_commands[1], reordered_commands[2] = (
+            reordered_commands[2],
+            reordered_commands[1],
+        )
+        invalid_echoes = {
+            "bare_cr_submitted_batch_echo": submitted,
+            "lowercase": hardware_echo.lower(),
+            "prefixed": "prefix-" + hardware_echo,
+            "truncated": hardware_echo[:-1],
+            "reordered": "\r\n".join(reordered_commands),
+            "missing_command": "\r\n".join(IN1808_VIDEO_BATCH_COMMANDS[:-1]),
+        }
+        for label, echo in invalid_echoes.items():
+            with self.subTest(label=label):
                 with self.assertRaises(ProtocolError):
                     GuardedVideoIN1808(aggregate_echo=echo).get_full_status()
 

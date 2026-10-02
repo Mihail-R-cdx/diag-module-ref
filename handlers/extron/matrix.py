@@ -451,7 +451,10 @@ class ExtronMatrixHandler(BaseExtronMatrixHandler):
             records.pop()
         if any(record == b"" for record in records):
             raise ProtocolError("IN1808 Video batch framing contains an empty record")
-        expected_echo = submitted_batch.encode("ascii")
+        expected_submitted_batch = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        if submitted_batch != expected_submitted_batch:
+            raise ProtocolError("IN1808 Video batch submitted command sequence is not exact")
+        expected_echo = "\r\n".join(IN1808_VIDEO_BATCH_COMMANDS).encode("ascii")
         if not records or records[0] != expected_echo:
             raise ProtocolError("IN1808 Video batch aggregate echo does not match exactly")
         payload_records = records[1:]

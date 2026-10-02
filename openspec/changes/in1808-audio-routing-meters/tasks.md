@@ -305,6 +305,13 @@
   including guarded batched initial/full Video refresh, absence of a second
   Video poll when LIVE starts, and direct Audio acquisition after
   `Переключить на аудио`, before independent validation.
+  The attempt on published implementation HEAD
+  `828b9ec1cf8e904564387cb11a4c3a00218b0660` reached SSH authentication,
+  the configured port, and the pre-batch exact identity `IN1808 IPCP SA`, but
+  the GUI then failed closed because the real aggregate echo uses CRLF between
+  commands while the production parser fixture expected bare CR. The parser
+  remediation requires a new hardware run on its final published HEAD; this
+  failed attempt does not complete the task.
 
 ## 8. Independent validation and completion
 

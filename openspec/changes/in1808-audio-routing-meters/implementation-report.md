@@ -1,3 +1,98 @@
+> **CURRENT HARDWARE AGGREGATE-ECHO FRAMING REMEDIATION EVIDENCE**
+> This section is the current implementation handoff for the hardware defect
+> found while attempting task 7.40. The approved architecture is unchanged.
+
+# Exact-IN1808 Hardware Aggregate-Echo Framing Remediation
+
+This bounded remediation started from published implementation HEAD
+`828b9ec1cf8e904564387cb11a4c3a00218b0660`. It changes only the production
+parser's exact aggregate-echo expectation, its deterministic fixture and
+regressions, and factual implementation evidence. No proposal, design, or
+normative delta specification changed.
+
+## Hardware Defect Reproduced from Evidence
+
+- Real-IN1808 GUI QA on `828b9ec1cf8e904564387cb11a4c3a00218b0660`
+  failed with `не удалось подключиться` after SSH authentication, the
+  configured port, and standalone pre-batch `1I` had succeeded.
+- The authoritative pre-batch identity was `IN1808 IPCP SA`.
+- Captured raw bytes showed the aggregate echo record using CRLF between the
+  31 submitted commands: `1I\r\nQ\r\nw20STAT...`.
+- Production correctly split records on `\r\r\n`, but then compared the first
+  record with the bare-CR submitted write `1I\rQ\rw20STAT...`. The exact
+  comparison therefore rejected valid hardware framing before any payload
+  field could be accepted.
+
+## Fix
+
+- The outbound batch remains the same exact bare-CR sequence generated from
+  `IN1808_VIDEO_BATCH_COMMANDS`.
+- The parser first verifies that its submitted-batch argument is that exact
+  canonical sequence, then deterministically constructs the hardware aggregate
+  echo as CRLF-joined `IN1808_VIDEO_BATCH_COMMANDS` and requires byte-for-byte
+  equality with the first raw record.
+- Raw-byte ownership, the `\r\r\n` record separator, empty-record rejection,
+  strict UTF-8 decoding, exactly 30 useful payloads, `E##` rejection,
+  field-specific parsing, and matching post-batch identity remain unchanged
+  and fail closed.
+- Both read-only probe helpers remain unchanged. Their framing split is already
+  explicitly display-only and contains no conflicting production authority.
+
+## Regression Coverage
+
+- The default guarded-Video fixture now emits the hardware-observed CRLF
+  aggregate echo while retaining the real bare-CR outbound command.
+- A direct parser regression proves that the accepted hardware echo returns
+  exactly the expected 30 payloads.
+- The original bare-CR echo and lowercase, prefixed, truncated, reordered, and
+  missing-command variants are rejected.
+- Existing missing/extra/returned-guard, empty/malformed framing, invalid
+  UTF-8, `E##`, field-parser, positional, and post-identity failures remain
+  fail closed.
+
+## Changed Files
+
+- `handlers/extron/matrix.py`: exact hardware CRLF aggregate-echo expectation.
+- `tests/test_in1808_audio_routing_meters.py`: hardware-faithful fixture and
+  strict positive/negative framing regressions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: factual failed
+  hardware-attempt note while task 7.40 remains open.
+- `openspec/changes/in1808-audio-routing-meters/implementation-report.md`:
+  current remediation and validation evidence.
+
+## Fresh Automated Evidence
+
+```text
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters -v
+  -> 73 passed, 0 failed
+
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+  -> 389 passed, 0 failed
+
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+  -> 1083 passed, 0 failed
+
+node --version -> v20.19.0
+npm --version  -> 10.8.2
+npm ci         -> 79 packages installed, 0 vulnerabilities
+.\openspec.cmd validate in1808-audio-routing-meters --strict -> valid
+.\openspec.cmd validate --all --strict -> 18 passed, 0 failed
+```
+
+## Hardware QA
+
+- The hardware attempt on `828b9ec1cf8e904564387cb11a4c3a00218b0660`
+  failed because of the exact parser/fixture mismatch described above.
+- Hardware QA was **NOT REPEATED** on this remediation in this implementation
+  session.
+- Task 7.40 remains open and requires rerun on the final published remediation
+  HEAD before independent validation.
+
+Implementation handoff status: **READY FOR REVIEW**. This is not an
+independent `APPROVE`, archive verdict, merge verdict, or hardware-QA result.
+
+---
+
 > **CURRENT GUARDED VIDEO BATCH / LAZY LIVE IMPLEMENTATION EVIDENCE**
 > This section is the current implementation handoff for tasks 7.38 and 7.39.
 > Historical hardware and implementation evidence below remains unchanged.
