@@ -408,117 +408,77 @@ as component evidence; presentation may use a deterministic combined label.
 Amplifier labeling is variant-derived because it is not part of the seven
 named output IDs.
 
-## IN1808 Video full-status batching and non-duplicating LIVE bootstrap
+## IN1808 Video acquisition rollback and non-duplicating LIVE bootstrap
 
-The current exact-IN1808 Video acquisition is transport-inefficient because
-`get_full_status()` performs identity, firmware, temperature, per-input HDCP
-authorization/status, output HDCP, per-input/output names, signal presence, and
-route reads as separate `send_command()` calls. The shared Matrix transport
-waits after each send before reading its response, so a normal full Video
-snapshot takes many seconds.
+The exact-IN1808 Video full-status path is intentionally returned to the
+established sequential read-only acquisition contract.
 
-Hardware QA established a separate lifecycle defect: after the automatic room
-`matrix_one_shot` has already completed that full Video snapshot,
-`matrix_room_live` constructs a new `MatrixController` and unconditionally
-calls `request_full_refresh()`. That second poll is redundant. An operator who
-selects `Переключить на аудио` around that time then waits behind duplicate
-Video work that should never have been scheduled.
+Hardware probes demonstrated that CR-separated multi-query writes can be much
+faster and that a sacrificial first command can absorb the observed
+first-position payload loss. However, repeated production-GUI hardware QA on
+published implementation heads failed before the grouped snapshot could be
+accepted reliably. The first production attempt exposed an aggregate-echo
+framing mismatch; after that was corrected, a second attempt still failed before
+the post-batch identity gate. Diagnostic instrumentation was then added only to
+localize the grouped-path failure.
 
-The two hardware-QA remarks now have normative architecture outcomes:
+The project therefore chooses reliability over this optimization:
 
-1. same-row LIVE bootstrap reuses the already accepted one-shot snapshot and
-   never manufactures a second full Video refresh;
-2. legitimate exact-IN1808 fresh full Video snapshots use the hardware-proven
-   guarded read-only batch below under an explicitly bounded correlation
-   contract.
+1. exact-IN1808 production full Video status SHALL use the existing sequential
+   read-only commands;
+2. production SHALL NOT submit the grouped CR-separated Video full-status batch
+   introduced by this change;
+3. the probe results and probe helpers remain historical/read-only evidence and
+   navigation aids only; they do not authorize production batching;
+4. the already-approved lifecycle fix is retained independently: same-row LIVE
+   bootstrap reuses the accepted one-shot Video snapshot and SHALL NOT create a
+   second full Video refresh;
+5. Audio entry on a transport-lazy LIVE owner retains the minimum standalone
+   exact identity/variant gate and SHALL NOT re-poll the complete Video snapshot.
 
-### Hardware evidence for guarded batching
+### Sequential production Video acquisition
 
-Three real read-only probes on exact `IN1808 IPCP SA` establish the production
-wire shape:
+A legitimate fresh exact-IN1808 full Video refresh SHALL retain the established
+single-command acquisition sequence under the existing serialized Matrix owner.
+Identity, firmware, temperature, per-input HDCP authorization/status, output
+HDCP, Video names, signal presence, and route evidence are acquired using the
+existing standalone read-only commands and their existing field-specific
+parsers.
 
-- a 30-query batch beginning with `Q` completed in 0.907 s; the `Q` payload
-  was absent, while `w20STAT` through `1%` remained ordered and the following
-  standalone `1I` succeeded;
-- a 29-query batch beginning with `w20STAT` completed in 0.906 s; the
-  `w20STAT` payload was absent, while `wE1HDCP` through `1%` remained
-  ordered and the following standalone `1I` succeeded;
-- the guarded 31-command batch completed in 1.328 s with `success=True`,
-  `raw_length=490`, and 31 observed response chunks: one aggregate command
-  echo plus exactly 30 required Video payloads. The in-batch sacrificial `1I`
-  produced no payload; `Q` through `1%` were all present in the expected
-  order; the following standalone `1I` again returned `IN1808 IPCP SA`.
+No full-status command string in this production path may contain a grouped
+CR-separated sequence of multiple Video status queries.
 
-The loss therefore follows the **first query position inside a CR-separated
-multi-query write**, not the `Q` command family. The sacrificial `1I` absorbs
-that observed omission while preserving all 30 required Video payloads.
+The rollback does not weaken any existing fail-closed parser behavior. Existing
+typed transport/authentication failures, bounded read-only recovery, route
+readback authority, and state-changing replay protections remain unchanged.
 
-### Accepted guarded production wire shape
+The existing Video route contract also remains unchanged:
 
-A legitimate fresh exact-IN1808 full Video refresh SHALL use:
+- read authority: `1%`;
+- mutation authority: `<I>*1%`;
+- a read-only Video snapshot never authorizes or proves a state-changing
+  operation.
 
-```text
-standalone authoritative 1I
+### Historical grouped-batch evidence is non-production
 
-one serialized read-only batch:
-    1I          # sacrificial framing guard
-    Q
-    w20STAT
-    wE1HDCP
-    wI1HDCP
-    ...
-    wE8HDCP
-    wI8HDCP
-    wO1HDCP
-    wI1VNAM
-    ...
-    wI8VNAM
-    wO1VNAM
-    w0LS
-    1%
+The three earlier hardware probes remain factual historical evidence:
 
-standalone post-batch 1I
-```
+- a batch beginning with `Q` omitted the first `Q` payload while later
+  payloads remained ordered;
+- a batch beginning with `w20STAT` omitted the first `w20STAT` payload while
+  later payloads remained ordered;
+- a guarded 31-command probe returned all 30 useful Video payloads and left the
+  session usable.
 
-The production parser SHALL remove only the exact aggregate submitted-command
-echo and SHALL then require exactly the 30 useful payload records corresponding
-to `Q` through `1%`. The hardware-proven production shape expects no guard
-payload. A returned guard payload, missing/extra record, `E##`, malformed
-record, field-specific parse failure, order/framing mismatch, or failed/mismatched
-post-batch exact identity check rejects the complete Video snapshot.
+Those probe results are not erased, but they no longer define production wire
+shape. The grouped parser, aggregate-echo contract, bounded positional
+correlation acceptance, and production diagnostic instrumentation introduced to
+support that optimization SHALL be removed from the production path during the
+rollback implementation.
 
-Every useful record SHALL pass its existing command-specific parser before the
-snapshot is accepted. A batch failure is read-only evidence failure: it SHALL
-NOT shift later payloads to neighboring fields, authorize a route mutation, or
-trigger state-changing replay.
-
-### Bounded correlation authority and accepted residual risk
-
-The Matrix owner already serializes application Matrix I/O: the guarded batch
-runs as one owner operation after the preceding operation has completed, with no
-overlapping application command on the same session. The existing transport
-reads the response for one `send_command()` until the response stream has been
-idle for 350 ms before that operation returns. Production batching SHALL retain
-that serialization boundary and SHALL NOT introduce a parallel Matrix session
-or overlapping request lane.
-
-The IN1808 batch response is nevertheless untagged, and several adjacent fields
-share the same wire grammar (notably HDCP `0/1`). Hardware testing can establish
-the observed framing but cannot prove the universal absence of every possible
-future delayed, unsolicited, stale, or duplicated same-grammar payload.
-Therefore this change does **not** claim perfect command-to-payload correlation.
-
-The architecture explicitly accepts the bounded residual case in which an
-undetectable same-grammar foreign payload could replace a missing positional
-payload while all detectable count/framing/parser checks still pass. This is
-accepted only because the batch publishes a **read-only diagnostic snapshot**.
-It grants no mutation authority and cannot be used as evidence that a
-state-changing command succeeded.
-
-Detectable ambiguity remains fail-closed. If future operational or hardware
-evidence demonstrates response contamination that defeats this bounded
-contract, exact-IN1808 batching SHALL be disabled or replaced by a stronger
-correlation mechanism in a separately approved architecture change.
+A future attempt to reintroduce grouped Video polling requires a separate
+architecture change with new production-level hardware evidence. It must not be
+silently restored under this change.
 
 ### LIVE bootstrap reuses accepted Video authority
 
@@ -553,7 +513,7 @@ the operator or lifecycle separately admitted a real Video refresh.
 Returning Audio -> Video continues to show the last accepted Video snapshot and
 does not automatically refresh Video.
 
-## Application/session ownership
+## Application/session ownership## Application/session ownership
 
 The new Audio capability SHALL extend the existing IN1808 Matrix application
 owner; it SHALL NOT create a parallel screen, controller, credential planner,

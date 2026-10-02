@@ -301,27 +301,48 @@
   indistinguishable same-grammar stale/delayed payload; that limitation remains
   an explicit read-only residual risk. Rerun focused/related/full tests and
   strict validation.
-- [ ] 7.40 Repeat real-IN1808 hardware QA on the final remediation HEAD,
-  including guarded batched initial/full Video refresh, absence of a second
-  Video poll when LIVE starts, and direct Audio acquisition after
-  `Переключить на аудио`, before independent validation.
-  The attempt on published implementation HEAD
-  `828b9ec1cf8e904564387cb11a4c3a00218b0660` reached SSH authentication,
-  the configured port, and the pre-batch exact identity `IN1808 IPCP SA`, but
-  the GUI then failed closed because the real aggregate echo uses CRLF between
-  commands while the production parser fixture expected bare CR. The parser
-  remediation requires a new hardware run on its final published HEAD; this
-  failed attempt does not complete the task.
-  A second run on remediation HEAD
-  `e762c5155dbb4502a3d63e01d835f7bcf9ceca70` again failed before the
-  standalone post-batch `1I`: SSH/authentication, port 22023, standalone
-  pre-batch `1I`, exact `IN1808 IPCP SA` identity, guarded-batch send, and
-  returned batch bytes were all observed. Existing production logs did not
-  expose whether batch framing or a field-specific parser rejected the
-  response. Diagnostic instrumentation must be published and hardware QA rerun;
-  this second failed attempt also does not complete task 7.40.
+- [x] 7.40 Record the production-batch hardware-QA outcome and abandon the
+  grouped Video optimization for this change. Production GUI QA on
+  `828b9ec1cf8e904564387cb11a4c3a00218b0660` failed on aggregate-echo
+  framing; QA on `e762c5155dbb4502a3d63e01d835f7bcf9ceca70` still failed
+  before post-batch identity after that remediation. Diagnostic HEAD
+  `4a22b6feb7659851dd8eb90657b9c56bac73e749` added failure localization,
+  but the architecture decision is now to stop pursuing grouped Video polling
+  in this change rather than continue hardware-debugging that optimization.
+- [x] 7.41 Amend the architecture so exact-IN1808 production full Video status
+  returns to the established sequential standalone read-only acquisition path.
+  Historical batch probes remain evidence only and no longer define production
+  wire authority. Preserve accepted one-shot reuse, no duplicate LIVE full
+  refresh, transport-lazy LIVE ownership, minimum standalone `1I` Audio gate,
+  existing Audio routing/meters, route mutation authority, credential ownership,
+  and serialized Matrix I/O.
+- [ ] 7.42 Validate and review the published rollback architecture on the exact
+  remote HEAD before changing production code:
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
+  `.\openspec.cmd validate --all --strict`, `git diff --check`, and
+  `git diff --check origin/master...HEAD`; require clean worktree,
+  local/remote SHA equality, and architecture `APPROVE`.
+- [ ] 7.43 After 7.42 `APPROVE`, implement only the approved production
+  rollback: remove exact-IN1808 grouped Video batch selection, batch
+  parser/framing constants, and batch-only production diagnostics; restore
+  sequential full Video acquisition while retaining the `_establish_identity`
+  split needed for minimum fresh-session Audio identity authority and retaining
+  the non-duplicating LIVE bootstrap in `gui/main_window.py`.
+- [ ] 7.44 Add/update regressions proving exact-IN1808 production full Video
+  refresh uses standalone sequential commands with no grouped CR-separated
+  Video query; preserve field parsing, existing route read/mutation semantics,
+  accepted-one-shot LIVE reuse, no duplicate Video refresh, minimum fresh Audio
+  identity gate, Audio-without-Video-repoll, no overlapping Matrix I/O, and
+  non-IN1808 behavior. Rerun focused/related/full offline tests, strict
+  change/all validation, and Git checks.
+- [ ] 7.45 Repeat real-IN1808 hardware QA on the final sequential-rollback HEAD:
+  initial/full Video diagnostics must connect and render through the sequential
+  path; starting LIVE after accepted one-shot must not start a second full Video
+  poll; `Переключить на аудио` must enter Audio without re-polling Video and
+  with at most the minimum fresh-session exact identity gate. Record actual
+  command/log evidence before independent validation.
 
-## 8. Independent validation and completion
+## 8. Independent validation and completion## 8. Independent validation and completion
 
 - [ ] 8.1 Validate the exact current published feature HEAD in a separate clean
   detached worktree from `origin/<branch>`; verify local/remote SHA equality.

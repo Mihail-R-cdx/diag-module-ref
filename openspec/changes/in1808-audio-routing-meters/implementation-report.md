@@ -1,3 +1,24 @@
+> **CURRENT ARCHITECTURE DECISION — ROLLBACK GROUPED VIDEO POLLING**
+> Repeated production-GUI hardware QA showed that the experimental exact-IN1808
+> grouped Video full-status optimization is not reliable enough to remain a
+> production requirement in this change. The project now returns production
+> full Video acquisition to the established sequential standalone read-only
+> command path. Historical grouped-batch probes remain factual evidence only.
+>
+> This rollback is intentionally narrow. It preserves the independently useful
+> lifecycle fixes already established in this change: an accepted
+> `matrix_one_shot` Video snapshot is reused when `matrix_room_live` starts,
+> no duplicate full Video refresh is scheduled for LIVE bootstrap or Audio
+> entry, a fresh Audio session uses only the minimum standalone exact
+> `1I` identity/variant gate, Audio routing/meters remain read-only, Matrix I/O
+> remains serialized, application/composition retains credential ownership, and
+> existing Video route read/mutation authority remains `1%` / `<I>*1%`.
+>
+> Production code is not changed by this architecture-decision commit. The
+> grouped implementation and its diagnostic instrumentation remain in the branch
+> until the published rollback architecture receives fresh strict validation
+> and architecture `APPROVE`; only then may task 7.43 remove them.
+>
 > **CURRENT GUARDED-BATCH DIAGNOSTIC INSTRUMENTATION EVIDENCE**
 > This section is the current implementation handoff for safe hardware
 > diagnostics after the second task-7.40 failure. Parser acceptance and the

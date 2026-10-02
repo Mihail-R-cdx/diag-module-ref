@@ -55,16 +55,13 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   parallel handler/controller/session lane.
 - Keep existing video Matrix routing semantics unchanged: IN1808 video route
   authority remains `1%` / `<I>*1%`.
-- For exact `Extron IN1808` only, replace the long sequential read-only Video
-  full-status fan-out with the hardware-proven guarded batch: standalone exact
-  `1I`, then one serialized sacrificial-`1I` + 30-query read-only batch, then
-  a matching post-batch `1I`. Hardware evidence confirms that the first
-  in-batch payload is omitted while all 30 required payloads remain ordered.
-  Production requires the exact aggregate-echo + 30-useful-payload shape and
-  field-specific parsing. Because the SIS payloads are untagged, the change
-  explicitly accepts the residual possibility of an indistinguishable
-  same-grammar stale/delayed/duplicate payload only as a bounded risk for
-  read-only diagnostic evidence; the batch grants no mutation authority.
+- Keep exact `Extron IN1808` production Video full-status acquisition on the
+  established sequential read-only command path. The grouped CR-separated
+  multi-query Video experiment remains historical hardware evidence only and
+  SHALL NOT be used by production in this change. Repeated production-GUI
+  hardware QA failed before the grouped snapshot could be accepted reliably, so
+  the performance optimization is explicitly abandoned without weakening any
+  existing Video field parser or route authority.
 - Reuse the already accepted current room `matrix_one_shot` Video snapshot when
   exact-IN1808 `matrix_room_live` starts. LIVE bootstrap SHALL NOT launch a
   second full Video refresh, and an accepted `Переключить на аудио` action
@@ -92,8 +89,9 @@ is diagnostic/read-only; this change does not authorize audio-route mutation.
   identity does not establish that amplifier capability.
 - Adding a second room interaction lane, second persistent Matrix session, or
   handler-owned credential fallback.
-- Generalizing IN1808 Video batching to IN1804, IN1806, IN1608 xi, DTP
-  CrossPoint, or another Matrix profile without separate protocol evidence.
+- Using grouped/multi-query Video full-status acquisition in production for
+  IN1808 or generalizing that experimental batching path to another Matrix
+  profile.
 - Re-polling the complete Video snapshot solely because exact-IN1808 room LIVE
   starts or because the operator switches from Video presentation to Audio.
 
@@ -111,13 +109,10 @@ complete.
 
 The accepted Video snapshot from the completed room one-shot remains the Video
 authority. Starting IN1808 LIVE and selecting Audio do not poll that same Video
-snapshot again. A legitimate future full Video refresh uses the hardware-proven exact-IN1808
-guarded batch instead of the old sequential fan-out. Its correlation authority
-is deliberately bounded: all detectable count/framing/parser/identity ambiguity
-fails closed, while an indistinguishable same-grammar stale/delayed substitution
-remains an explicit read-only diagnostic limitation and grants no mutation
-authority. Selecting Audio begins Audio acquisition
-directly on the lazy LIVE owner, with only a minimum
+snapshot again. Any independently admitted fresh IN1808 full Video refresh uses
+the established sequential read-only acquisition path; grouped/multi-query Video
+status polling is not production-authorized by this change. Selecting Audio
+begins Audio acquisition directly on the lazy LIVE owner, with only a minimum
 standalone exact-identity/variant check if a new transport session must be
 established. Returning to Video restores the existing video tile and retires the
 Audio live subcontext.

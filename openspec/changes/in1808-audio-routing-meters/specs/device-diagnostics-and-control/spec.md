@@ -189,103 +189,62 @@ This change SHALL generate no state-changing `M<oid>*<value>AU` command.
 - **AND** its source/output labels come from `IN1808_PRODSP_PROFILE_MAPPING`
 - **AND** runtime does not claim to have hardware-verified those labels from the response
 
-### Requirement: Exact IN1808 Video batching uses a hardware-proven guard with bounded correlation
+### Requirement: Exact IN1808 production Video full status remains sequential
 
 For exact canonical `Extron IN1808`, a legitimate fresh full Video status
-operation SHALL replace the legacy long sequential fan-out with the exact
-hardware-proven guarded read-only transaction below:
+operation SHALL use the established serialized sequence of standalone read-only
+SIS commands and their existing field-specific parsers.
 
-```text
-standalone authoritative 1I
+Production under this change SHALL NOT submit a CR-separated grouped/multi-query
+Video full-status batch. The earlier grouped-batch probes remain historical
+hardware evidence only and SHALL NOT be treated as production wire authority.
 
-one serialized batch:
-    1I
-    Q
-    w20STAT
-    wE1HDCP
-    wI1HDCP
-    ...
-    wE8HDCP
-    wI8HDCP
-    wO1HDCP
-    wI1VNAM
-    ...
-    wI8VNAM
-    wO1VNAM
-    w0LS
-    1%
+The sequential acquisition SHALL preserve the existing exact-model identity
+gate, firmware and temperature reads, per-input HDCP authorization/status,
+output HDCP, Video input/output names, signal presence, and route evidence.
+Existing fail-closed parsing and typed transport/authentication semantics remain
+unchanged.
 
-standalone post-batch 1I
-```
+The existing Video route authority remains unchanged:
 
-The first in-batch `1I` is a sacrificial read-only framing guard. Accepted
-hardware evidence on exact `IN1808 IPCP SA` shows that the first query payload
-is omitted in a CR-separated multi-query write while later payloads remain
-ordered; with the guard present, all 30 required `Q` through `1%` payloads
-were returned in order and the post-batch session remained usable.
+- `1%` is the read-only route query;
+- `<I>*1%` remains the state-changing route mutation;
+- read-only Video evidence SHALL NOT authorize a mutation or prove mutation
+  success.
 
-The Matrix application owner SHALL execute this batch as one serialized
-operation with no overlapping application Matrix I/O on the same session.
-After removing only the exact aggregate submitted-command echo, the parser SHALL
-require exactly 30 useful payload records corresponding positionally to `Q`
-through `1%`. The accepted production shape expects the guard payload to be
-omitted.
+A future grouped Video optimization requires a separate approved architecture
+change with new production-level hardware evidence.
 
-Every useful payload SHALL pass its existing command-specific parser. Any
-detectable `E##`, malformed, missing, extra, guard-return, framing/order
-mismatch, parser failure, or mismatched/unavailable post-batch exact identity
-SHALL fail the complete Video batch closed. No later payload may be deliberately
-shifted to repair a detected mismatch.
+#### Scenario: Fresh IN1808 Video status uses standalone read-only commands
 
-The response protocol is untagged and some adjacent fields share the same
-grammar. This change therefore does not claim that hardware testing can prove
-the universal absence of every possible delayed, unsolicited, duplicated, or
-stale same-grammar payload. The architecture explicitly accepts the bounded
-residual risk that such an undetectable payload could replace a missing
-positional payload while all detectable checks still pass.
+- **GIVEN** exact canonical `Extron IN1808` has been established
+- **WHEN** a fresh full Video status operation is admitted
+- **THEN** Video status fields are acquired through the existing standalone
+  read-only command path
+- **AND** no grouped CR-separated multi-query Video status command is submitted
+- **AND** existing field-specific parsers remain authoritative
 
-That residual risk is accepted only for this read-only diagnostic snapshot. A
-batched Video result SHALL NOT authorize route mutation, state-changing replay,
-credential fallback, or any conclusion that a state-changing command succeeded.
-If future evidence demonstrates response contamination that defeats this
-bounded contract, exact-IN1808 batching SHALL be disabled or replaced by a
-stronger separately approved correlation mechanism.
+#### Scenario: Historical batch evidence does not authorize production batching
 
-Batch support SHALL NOT be generalized to another Matrix model without separate
-protocol evidence.
+- **GIVEN** earlier hardware probes produced useful grouped-batch evidence
+- **WHEN** production acquires IN1808 full Video status under this change
+- **THEN** that evidence does not authorize the grouped batch path
+- **AND** production continues to use sequential standalone queries
 
-#### Scenario: Guarded hardware-proven batch is accepted
+#### Scenario: Video rollback does not restore duplicate LIVE polling
 
-- **GIVEN** standalone `1I` establishes the accepted exact IN1808 identity
-- **AND** the serialized guarded batch returns exactly 30 useful payload records after its exact aggregate echo
-- **AND** each record passes the parser for its corresponding `Q` through `1%` field
-- **AND** the post-batch standalone `1I` returns the same accepted exact IN1808 identity
-- **WHEN** the Video snapshot is normalized
-- **THEN** the 30 payloads may be accepted positionally for this read-only snapshot
-- **AND** no mutation authority is created
-
-#### Scenario: Detectable batch ambiguity fails closed
-
-- **WHEN** the guarded batch contains an `E##`, malformed, missing, extra,
-  returned-guard, framing/order mismatch, or field-specific parser failure
-- **OR** the post-batch exact identity check fails or mismatches
-- **THEN** the complete Video batch is rejected
-- **AND** no payload is shifted to a neighboring Video field
-- **AND** no route mutation is generated
-
-#### Scenario: Same-grammar substitution is an explicit residual limitation
-
-- **GIVEN** the SIS response stream is untagged
-- **AND** two distinct expected fields can share the same accepted wire grammar
-- **WHEN** a hypothetical delayed, unsolicited, duplicated, or stale payload is
-  indistinguishable from the missing positional payload by all available
-  count/framing/field-parser checks
-- **THEN** this change does not claim that the substitution is detectable
-- **AND** the accepted risk is limited to read-only diagnostic evidence
-- **AND** that evidence cannot authorize a state-changing operation
+- **GIVEN** the current room generation already accepted a usable IN1808
+  `matrix_one_shot` Video snapshot
+- **WHEN** same-row `matrix_room_live` starts or the operator switches to Audio
+- **THEN** that accepted Video snapshot remains the Video authority
+- **AND** no duplicate full Video refresh is scheduled solely for LIVE bootstrap
+  or Audio entry
+- **AND** a fresh Audio session performs at most the minimum standalone exact
+  identity/variant gate required by the Audio profile
 
 #### Scenario: Another Matrix model keeps its existing acquisition contract
 
 - **GIVEN** the current exact Matrix model is not canonical `Extron IN1808`
 - **WHEN** full Video status is acquired
-- **THEN** this change does not infer IN1808 batch support from family similarity
+- **THEN** this rollback does not change that model's existing acquisition
+  contract
