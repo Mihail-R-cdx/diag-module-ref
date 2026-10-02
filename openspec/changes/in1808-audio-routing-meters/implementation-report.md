@@ -1,3 +1,102 @@
+> **CURRENT GUARDED-BATCH DIAGNOSTIC INSTRUMENTATION EVIDENCE**
+> This section is the current implementation handoff for safe hardware
+> diagnostics after the second task-7.40 failure. Parser acceptance and the
+> approved architecture are unchanged.
+
+# Exact-IN1808 Guarded Video Failure Diagnostics
+
+This diagnostic-only implementation started from published remediation HEAD
+`e762c5155dbb4502a3d63e01d835f7bcf9ceca70`. It adds structured, redacted
+`[in1808-video]` stage evidence through the existing handler `_emit_log` path,
+then stops for another real-hardware run. It does not infer or implement a new
+parser remediation.
+
+## Second Hardware Failure Recorded
+
+- Real-IN1808 production GUI QA was repeated on
+  `e762c5155dbb4502a3d63e01d835f7bcf9ceca70` and again ended with
+  `не удалось подключиться`.
+- SSH connection, authentication, port 22023, standalone pre-batch `1I`, and
+  exact identity `IN1808 IPCP SA` all passed.
+- The guarded 31-command batch was sent and batch response bytes were received.
+- No standalone post-batch `1I` appeared in the log, bounding the failure to
+  `_in1808_batch_payloads()` or a field-specific parser before the post-identity
+  gate.
+- Existing production logging did not expose which exact fail-closed check
+  fired. This second failed run does not complete task 7.40.
+
+## Instrumentation Added
+
+- Successful acquisition now emits stable markers for pre-identity, batch
+  transport with raw length, batch framing with record/payload counts,
+  firmware, temperature, each input HDCP authorization/status, output HDCP,
+  grouped input names, output name, signal presence, route, the point
+  immediately before post-identity, and successful post-identity.
+- Batch failures distinguish absent/non-byte raw evidence, zero-length raw
+  evidence, empty records, submitted-command mismatch, exact aggregate-echo
+  mismatch, useful-payload cardinality, invalid UTF-8, embedded payload CR/LF,
+  and `E##` responses. Relevant safe lengths/counts/indexes and the failing
+  echo or payload are included where useful.
+- Field failures identify the exact firmware, temperature, numbered input HDCP
+  authorization/status, numbered input name, output HDCP/name, signal, route,
+  or post-identity stage and include only the relevant payload.
+- Transport or parser exceptions are logged by stage and exception type, then
+  re-raised unchanged. Existing `ProtocolError` messages, exception classes,
+  framing, cardinality, grammar, identity gates, and snapshot construction are
+  unchanged.
+- All production messages use `self._emit_log`, whose existing redaction path
+  removes the handler username/password. Tests inject both secrets into failing
+  evidence and prove neither reaches the log callback.
+
+## Changed Files
+
+- `handlers/extron/matrix.py`: diagnostic stage markers and failure evidence
+  only; no parser acceptance changes.
+- `tests/test_in1808_audio_routing_meters.py`: success, failure-stage,
+  unchanged-exception, and credential-redaction regressions.
+- `openspec/changes/in1808-audio-routing-meters/tasks.md`: factual second
+  failed hardware attempt while task 7.40 remains open.
+- `openspec/changes/in1808-audio-routing-meters/implementation-report.md`:
+  current diagnostic evidence.
+
+No proposal, design, normative delta specification, GUI/LIVE/Audio behavior,
+credential behavior, Graphify output, or hardware probe changed.
+
+## Fresh Automated Evidence
+
+```text
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters -v
+  -> 76 passed, 0 failed
+
+py -3.12 -m unittest tests.test_in1808_audio_routing_meters tests.test_extron_matrix_profiles tests.test_matrix_controller tests.test_matrix_handler_security tests.test_matrix_modern_ui tests.test_audio_dsp_modern_ui tests.test_extron_dmp64_plus_meter_diagnostics tests.test_inventory_diagnostic_dispatch tests.test_room_equipment_diagnostic_tree tests.test_room_interaction tests.test_gui_theme tests.test_room_live_production_lifecycle -v
+  -> 392 passed, 0 failed
+
+py -3.12 -m unittest discover -s tests -p "test_*.py" -v
+  -> 1086 passed, 0 failed
+
+node --version -> v20.19.0
+npm --version  -> 10.8.2
+npm ci         -> 79 packages installed, 0 vulnerabilities
+.\openspec.cmd validate in1808-audio-routing-meters --strict -> valid
+.\openspec.cmd validate --all --strict -> 18 passed, 0 failed
+```
+
+Git whitespace checks are repeated immediately before publication and recorded
+in the final implementation handoff.
+
+## Hardware QA
+
+- Hardware QA on `e762c5155dbb4502a3d63e01d835f7bcf9ceca70`:
+  **FAILED BEFORE POST-BATCH IDENTITY**.
+- Hardware QA on the diagnostic publication HEAD: **NOT YET REPEATED**.
+- Task 7.40 remains open. The next action is a real production-GUI rerun and
+  collection of its new `[in1808-video]` log; no parser fix is inferred here.
+
+Implementation handoff status: **READY FOR REVIEW**. This is not an
+independent `APPROVE`, archive verdict, merge verdict, or hardware-QA success.
+
+---
+
 > **CURRENT HARDWARE AGGREGATE-ECHO FRAMING REMEDIATION EVIDENCE**
 > This section is the current implementation handoff for the hardware defect
 > found while attempting task 7.40. The approved architecture is unchanged.

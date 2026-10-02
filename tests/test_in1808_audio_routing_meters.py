@@ -322,6 +322,139 @@ class GuardedVideoIN1808(ExtronMatrixHandler):
 
 
 class IN1808GuardedVideoBatchTests(unittest.TestCase):
+    def test_success_diagnostics_reach_post_identity_without_changing_snapshot(self):
+        logs = []
+        handler = GuardedVideoIN1808(identity="IN1808 IPCP SA")
+        handler.log_callback = logs.append
+
+        status = handler.get_full_status()
+
+        self.assertEqual("1.09", status["device_info"]["firmware"])
+        self.assertEqual(52, status["device_info"]["temperature"])
+        self.assertEqual({1: 3}, status["routes"])
+        expected_markers = (
+            "[in1808-video] pre_identity=PASS",
+            "[in1808-video] batch_transport=PASS raw_length=",
+            "[in1808-video] batch_framing=PASS records=31 payloads=30",
+            "[in1808-video] firmware=PASS",
+            "[in1808-video] temperature=PASS",
+            "[in1808-video] hdcp_input_1_auth=PASS",
+            "[in1808-video] hdcp_input_1_status=PASS",
+            "[in1808-video] hdcp_output_1=PASS",
+            "[in1808-video] input_names=PASS",
+            "[in1808-video] output_name=PASS",
+            "[in1808-video] signal_presence=PASS",
+            "[in1808-video] route=PASS",
+            "[in1808-video] sending_post_identity",
+            "[in1808-video] post_identity=PASS",
+        )
+        for marker in expected_markers:
+            with self.subTest(marker=marker):
+                self.assertTrue(any(marker in entry for entry in logs))
+        self.assertLess(
+            logs.index("[in1808-video] sending_post_identity"),
+            logs.index("[in1808-video] post_identity=PASS"),
+        )
+
+    def test_field_failure_diagnostic_preserves_protocol_error_and_redacts_secrets(self):
+        username = "diagnostic-user-secret"
+        password = "diagnostic-password-secret"
+        payloads = _in1808_video_payloads()
+        payloads[1] = f"{username}:{password}"
+        logs = []
+        handler = GuardedVideoIN1808(payloads=payloads)
+        handler.username = username
+        handler.password = password
+        handler.log_callback = logs.append
+
+        with self.assertRaises(ProtocolError) as caught:
+            handler.get_full_status()
+
+        self.assertEqual(
+            "Malformed IN1808 Video temperature payload", str(caught.exception)
+        )
+        diagnostic_text = "\n".join(logs)
+        self.assertIn("[in1808-video] FAIL stage=temperature", diagnostic_text)
+        self.assertNotIn(username, diagnostic_text)
+        self.assertNotIn(password, diagnostic_text)
+
+    def test_batch_failure_diagnostics_distinguish_every_fail_closed_boundary(self):
+        submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
+        expected_echo = _in1808_hardware_aggregate_echo().encode("ascii")
+        payload_records = [
+            value.encode("utf-8") for value in _in1808_video_payloads()
+        ]
+
+        def framed(records):
+            return IN1808_VIDEO_BATCH_RECORD_SEPARATOR.join(records)
+
+        valid_raw = framed([expected_echo] + payload_records)
+        invalid_payloads = list(payload_records)
+        invalid_payloads[0] = b"\xff"
+        embedded_newline_payloads = list(payload_records)
+        embedded_newline_payloads[0] = b"bad\rline"
+        protocol_error_payloads = list(payload_records)
+        protocol_error_payloads[0] = b"E13"
+        cases = {
+            "missing_raw_type": (None, submitted, "batch_raw"),
+            "empty_raw": (b"", submitted, "batch_raw"),
+            "empty_record": (
+                framed([expected_echo, b""] + payload_records),
+                submitted,
+                "batch_empty_record",
+            ),
+            "submitted_commands": (
+                valid_raw,
+                "Q",
+                "batch_submitted_commands",
+            ),
+            "submitted_commands_non_string": (
+                valid_raw,
+                None,
+                "batch_submitted_commands",
+            ),
+            "aggregate_echo": (
+                framed([expected_echo.lower()] + payload_records),
+                submitted,
+                "batch_echo",
+            ),
+            "payload_count": (
+                framed([expected_echo] + payload_records[:-1]),
+                submitted,
+                "payload_count",
+            ),
+            "payload_utf8": (
+                framed([expected_echo] + invalid_payloads),
+                submitted,
+                "payload_utf8",
+            ),
+            "payload_framing": (
+                framed([expected_echo] + embedded_newline_payloads),
+                submitted,
+                "payload_framing",
+            ),
+            "payload_protocol_error": (
+                framed([expected_echo] + protocol_error_payloads),
+                submitted,
+                "payload_protocol_error",
+            ),
+        }
+        for label, (raw_response, submitted_batch, expected_stage) in cases.items():
+            with self.subTest(label=label):
+                logs = []
+                with self.assertRaises(ProtocolError):
+                    ExtronMatrixHandler._in1808_batch_payloads(
+                        raw_response,
+                        submitted_batch,
+                        diagnostic_log=logs.append,
+                    )
+                self.assertTrue(
+                    any(
+                        f"[in1808-video] FAIL stage={expected_stage}" in entry
+                        for entry in logs
+                    )
+                )
+
     def test_hardware_crlf_aggregate_echo_yields_exactly_30_payloads(self):
         submitted = "\r".join(IN1808_VIDEO_BATCH_COMMANDS)
         expected_payloads = _in1808_video_payloads()

@@ -312,6 +312,14 @@
   commands while the production parser fixture expected bare CR. The parser
   remediation requires a new hardware run on its final published HEAD; this
   failed attempt does not complete the task.
+  A second run on remediation HEAD
+  `e762c5155dbb4502a3d63e01d835f7bcf9ceca70` again failed before the
+  standalone post-batch `1I`: SSH/authentication, port 22023, standalone
+  pre-batch `1I`, exact `IN1808 IPCP SA` identity, guarded-batch send, and
+  returned batch bytes were all observed. Existing production logs did not
+  expose whether batch framing or a field-specific parser rejected the
+  response. Diagnostic instrumentation must be published and hardware QA rerun;
+  this second failed attempt also does not complete task 7.40.
 
 ## 8. Independent validation and completion
 
