@@ -1,0 +1,375 @@
+# Tasks: IN1808 audio routing meters
+
+## 1. Architecture
+
+- [x] 1.1 Re-read current `RULES.md`, current `master`, current Matrix/DMP
+  source boundaries, and archived approved Matrix/Audio DSP architecture.
+- [x] 1.2 Record the available real-hardware IN1808 evidence for `ANAM`,
+  `V<OID>AU`, meter state 0/1 behavior, representative 300xx/400xx/600xx
+  domains, and the bounded 200xx mix-point address space.
+- [x] 1.3 Select Variant B: one IN1808 Audio/Video mode control, unchanged
+  General information, and replacement of only the right tile.
+- [x] 1.4 Keep audio routing read-only and keep existing IN1808 video routing
+  authority unchanged.
+- [x] 1.5 Define one Matrix-owned audio live subcontext; no second controller,
+  transport session, credential lane, or GUI-thread I/O.
+- [x] 1.6 Separate hardware-proven facts from the adopted
+  `IN1808_PRODSP_PROFILE_MAPPING`; do not claim runtime can detect a valid but
+  semantically permuted 200xx map.
+- [x] 1.7 Make documented read-only `1$` mandatory Audio metadata so physical
+  DP/HDMI/TP/Aux input 1..9 is linked to `Program L/R`.
+- [x] 1.8 Resolve unknown meter-update ownership scope by forbidding production
+  cleanup `*0` until authoritative scope evidence exists.
+- [x] 1.9 Bind Audio polling to existing `RoomInteractionKind.LIVE` and retain
+  bounded cleanup gates before Local Refresh, video mutation, and reconciliation.
+- [x] 1.10 Run repository-local
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
+  `.\openspec.cmd validate --all --strict`, and `git diff --check` on the
+  exact published architecture HEAD.
+- [x] 1.11 Perform independent architecture review and obtain `APPROVE` before
+  production implementation.
+
+## 2. Protocol/domain implementation
+
+- [x] 2.1 Add an exact IN1808 audio profile without changing other Matrix
+  profiles or DMP wire semantics.
+- [x] 2.2 Preserve exact accepted IN1808 `1I` wire identity as variant evidence
+  while keeping canonical application model `Extron IN1808`.
+- [x] 2.3 Implement audio-name reads for the approved input/output IDs with
+  deterministic fallback labels.
+- [x] 2.4 Implement the approved 300xx/400xx/600xx meter topology and retain raw
+  component evidence.
+- [x] 2.5 Implement stereo meter aggregation as max available dBFS while
+  preserving partial-component outcomes.
+- [x] 2.6 Implement IN1808 meter update lifecycle with initial-state read,
+  `*1` activation when needed, no `*2`, no production cleanup `*0`, and
+  no blind replay after ambiguous instrumentation send.
+- [x] 2.7 Implement mandatory read-only `1$` current Program-source metadata
+  with 1..9/UNKNOWN normalization independent from video `1%`.
+- [x] 2.8 Implement read-only 200xx mix-point snapshot parsing with the bounded
+  address formula, adopted `IN1808_PRODSP_PROFILE_MAPPING`, variant output
+  filtering, and 0/1/UNKNOWN protocol semantics.
+- [x] 2.9 Do not add any audio-route, gain, mute, volume, or DSP mutation API.
+
+## 3. Application/lifecycle implementation
+
+- [x] 3.1 Publish exact IN1808 audio capability through unified application
+  registration/composition rather than a widget/model-substring allowlist.
+- [x] 3.2 Extend existing Matrix owner/session serialization with an IN1808
+  audio subcontext; do not create a parallel persistent session.
+- [x] 3.3 Schedule audio metadata/routing acquisition once on Audio entry and
+  meter polling approximately once per second without overlapping cycles.
+- [x] 3.4 Stop/quiesce the Audio subcontext on Video toggle, collapse, another
+  expanded row, room/search/context replacement, credential revision,
+  invalidation, and shutdown; cleanup sends no `*0` under current evidence.
+- [x] 3.5 Bind Audio to existing LIVE authority and preserve bounded retirement
+  gates before Local Refresh/video mutation plus reconciliation exclusivity.
+- [x] 3.6 Reject stale audio work before acquisition/I/O where possible and
+  before accepted GUI update in all cases.
+- [x] 3.7 Keep application-owned credential selection/fallback authority and
+  prohibit handler/worker credential iteration.
+
+## 4. Room GUI implementation
+
+- [x] 4.1 Add the exact-IN1808 row-header `Аудио` control; in Audio mode the
+  same control reads `Видео`.
+- [x] 4.2 Preserve the left `Общая информация` card field semantics and swap
+  only the right tile.
+- [x] 4.3 Render the all-source meter band and output meters using the modern
+  segmented DMP visual language.
+- [x] 4.4 Render current Program source from `1$`, including explicit UNKNOWN.
+- [x] 4.5 Render the DSP routing grid read-only with channel-accurate L/R axes,
+  ACTIVE/INACTIVE/UNKNOWN non-color semantics, and safe profile-mapping basis metadata.
+- [x] 4.6 Keep stereo meters combined without collapsing L/R route evidence.
+- [x] 4.7 Keep Video network actions locked until Audio subcontext cleanup
+  reaches its permitted boundary.
+- [x] 4.8 Isolate Audio no-data/error presentation from accepted Matrix row,
+  General-information, and video-routing state.
+- [x] 4.9 Leave standalone `MatrixScreen`, `AudioDSPScreen`, and
+  `DMPPollingController` ownership unchanged.
+
+## 5. Regression coverage
+
+- [x] 5.1 Cover exact capability gating: IN1808 gets Audio mode; IN1804,
+  IN1806, IN1608 xi and DTP models do not.
+- [x] 5.2 Cover accepted IN1808 wire variants and amplifier capability filtering.
+- [x] 5.3 Cover ANAM parsing/fallback and stable IDs.
+- [x] 5.4 Cover meter command generation, state transitions, raw parsing,
+  derived dBFS, stereo aggregation and partial evidence.
+- [x] 5.5 Prove no IN1808 path sends DMP `*2` and no cleanup path sends
+  `*0` under the unknown-scope contract.
+- [x] 5.6 Cover mandatory `1$` Program-source mapping 1..9 and UNKNOWN
+  independently from video `1%`.
+- [x] 5.7 Cover 200xx boundaries/formula, adopted mapping-basis metadata, and
+  prove no state-changing mix-point command is generated.
+- [x] 5.8 Cover one routing snapshot per Audio entry and non-overlapping live
+  meter cycles.
+- [x] 5.9 Cover Audio -> Video cleanup lock, Local Refresh/mutation retirement
+  gates, reconciliation exclusion, and cleanup-timeout fail-closed behavior.
+- [x] 5.10 Cover mode-toggle/collapse/context replacement cleanup and stale
+  callback rejection.
+- [x] 5.11 Cover Audio-only failure isolation.
+- [x] 5.12 Re-run existing Matrix video route/read/mutation regressions and DMP
+  meter regressions to prove protocol separation.
+
+## 6. Implementation validation
+
+- [x] 6.1 Run focused IN1808 audio/domain/controller/room GUI tests.
+- [x] 6.2 Run the full required offline Python suite.
+- [x] 6.3 Run
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`.
+- [x] 6.4 Run `.\openspec.cmd validate --all --strict`.
+- [x] 6.5 Run `git diff --check` and `git diff --cached --check`.
+- [x] 6.6 Create and push one focused implementation commit after architecture
+  approval; the implementation session must not issue its own final
+  independent `APPROVE`.
+- [x] 6.7 Correct independent-review findings: batch production Audio reads on
+  the existing Matrix session, preserve literal `1$`, and retry a temporarily
+  busy serialized Audio entry/meter request without overlap or backlog.
+- [x] 6.8 Re-run focused and full offline tests, strict change/all OpenSpec
+  validation, and Git whitespace validation after the review corrections.
+
+## 7. Hardware-QA GUI refinement
+
+- [x] 7.1 Record hardware QA finding that the first `Аудио` click can appear
+  to do nothing while background acquisition/controller availability is pending.
+- [x] 7.2 Replace the free-standing meter bands with one shared logical grid:
+  horizontal input meters aligned to routing rows and vertical output meters
+  aligned to routing columns, with an empty top-left spacer.
+- [x] 7.3 Define presentation-only L/R grouping while retaining the raw
+  channel-accurate 8 x 12 routing evidence; grouped routes use topology-aware
+  stereo->stereo, stereo->mono, mono->stereo and mono->mono
+  FULL/INACTIVE/MIXED/UNKNOWN semantics, with normal diagonal stereo routing
+  classified as FULL.
+- [x] 7.4 Define Program L/R meter binding to the physical DP/HDMI/TP/Aux source
+  selected by mandatory `1$`.
+- [x] 7.5 Remove duplicate meter labels plus visible
+  `ACTIVE`/`INACTIVE`/`MIXED`/`VALID`/`INVALID` text; retain compact
+  `●`/`○`/`◐`/`—` markers and numeric dBFS.
+- [x] 7.6 Separate stable semantic row/column identity from accepted ANAM:
+  structural labels stay fixed, while device names are deterministic secondary
+  tooltip/accessibility metadata, including stereo and Program-source rules.
+- [x] 7.7 Correct the proposal to state horizontal logical-input meters and
+  vertical logical-output meters.
+- [x] 7.8 Mark the previous implementation report as superseded by the
+  hardware-QA GUI-refinement architecture without rewriting its old evidence.
+- [x] 7.9 Run repository-local
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
+  `.\openspec.cmd validate --all --strict`, and `git diff --check` on the
+  published GUI-refinement architecture HEAD.
+- [x] 7.10 Perform architecture review of the GUI refinement and obtain
+  `APPROVE` before changing production GUI/tests.
+- [x] 7.11 Implement immediate first-click Audio layout rendering before I/O and
+  keep it visible through temporary controller-busy retry.
+- [x] 7.12 Implement the six logical input rows and exact variant-filtered
+  seven/eight logical output columns using the approved fail-safe grouping
+  semantics.
+- [x] 7.13 Implement shared row/column geometry so meter centerlines and routing
+  row/column centerlines are exactly aligned; compact row height and allow
+  narrower meters as needed.
+- [x] 7.14 Implement Program L/R meter projection from the `1$`-selected
+  physical source while keeping all normalized raw meter evidence unchanged.
+- [x] 7.15 Implement stable primary semantic labels plus deterministic ANAM
+  tooltip/accessibility metadata without changing grid geometry.
+- [x] 7.16 Add GUI/lifecycle regression coverage for immediate switching,
+  topology-aware stereo->stereo/stereo->mono/mono->stereo/mono->mono
+  FULL/INACTIVE/MIXED/UNKNOWN grouping (including normal diagonal stereo FULL,
+  crossed/partial MIXED and UNKNOWN fail-safe), exact alignment/sizing ownership,
+  naming authority, no duplicate labels/status words, Program-source meter
+  projection, and variant Amplifier presence/absence.
+- [x] 7.17 Re-run focused/full offline tests, strict change/all OpenSpec
+  validation, `git diff --check`, and `git diff --cached --check`.
+- [x] 7.18 Create and push one focused GUI-refinement implementation commit; the
+  implementation session must not issue its own independent `APPROVE`.
+- [x] 7.19 Record hardware-QA follow-up that the horizontal logical input meter
+  reuses legacy vertical-track QSS and can render the 20-segment scale clipped
+  while the dBFS number remains visible.
+- [x] 7.20 Define bounded local acknowledgement for an accepted `Аудио` click:
+  disable the same mode control until the complete Audio layout is committed,
+  never wait for network/device completion, and enforce a currentness-safe
+  10-second fail-safe maximum.
+- [x] 7.21 Re-run repository-local strict change/all validation and Git
+  whitespace checks on the published acknowledgement amendment, then obtain
+  architecture review `APPROVE` before production remediation.
+- [x] 7.22 Fix IN1808 orientation-specific meter-track sizing so horizontal
+  input and vertical output 20-segment scales are visibly compatible with the
+  shared-grid geometry; add geometry regression coverage that can catch legacy
+  vertical-QSS clipping.
+- [x] 7.23 Implement the bounded Audio-toggle disabled state and stale-safe
+  10-second fail-safe, with regression coverage proving re-enable on committed
+  layout and no dependency on controller/device completion.
+- [x] 7.24 Re-run focused/full offline tests, strict change/all OpenSpec
+  validation, Git checks, then create and push one focused remediation commit.
+- [ ] 7.25 Repeat hardware QA on the final published remediation HEAD before
+  independent validation; record any new blocking UX/protocol finding before
+  proceeding.
+- [x] 7.26 Record the hardware-QA wording decision: the mode control uses explicit
+  action labels `Переключить на аудио` in Video mode and `Переключить на видео`
+  in Audio mode so the label cannot be misread as the current mode.
+- [x] 7.27 Re-run repository-local strict change/all validation and Git checks on
+  the published wording amendment, then obtain architecture review `APPROVE`
+  before changing production GUI/tests for these labels.
+- [x] 7.28 Admit the real rendered Video -> Audio mode control during the exact
+  same-row non-retiring Matrix LIVE owner, while retaining quiescence,
+  stale/currentness, retiring-LIVE, and unrelated-exclusive-operation gates.
+- [x] 7.29 Implement the approved exact action labels and scope 15 pt routing
+  markers only to the IN1808 route cells without changing compact grid geometry.
+- [x] 7.30 Add real-button, negative admission, exact-label, actual Qt marker
+  geometry, and Audio -> Video no-refresh regression coverage.
+- [x] 7.31 Re-run focused/related/full tests, repository-local strict change/all
+  validation, Git checks, then publish one focused hardware-QA follow-up commit.
+- [x] 7.32 Record the post-hardware-QA presentation decision that all visible
+  IN1808 Audio meter text omits the literal `dBFS` suffix while preserving the
+  numeric value and the internal `dbfs`/raw evidence contract; unavailable
+  numeric evidence renders as `—`.
+- [x] 7.33 Re-run repository-local strict change/all validation and Git checks on
+  the published no-unit-suffix architecture amendment, then obtain architecture
+  review `APPROVE` before changing production GUI/tests.
+- [ ] 7.34 Implement the approved no-`dBFS` visible meter wording, update
+  regressions, rerun focused/related/full validation, publish one focused
+  implementation commit, and repeat real-IN1808 hardware QA on that final HEAD.
+- [x] 7.35 Record final-head hardware QA blockers: exact IN1808 Video full
+  status is still sequential/slow, and after the already-completed room
+  `matrix_one_shot` the `matrix_room_live` bootstrap starts an unnecessary
+  second full Video refresh; Audio then waits behind that duplicate poll.
+- [x] 7.36 Complete the real-IN1808 evidence/architecture decision for the
+  production Video batch. The first two probes establish first-in-batch payload
+  loss and preserved later ordering; the third guarded probe establishes the
+  exact useful-payload wire shape. The remaining unprovable same-grammar
+  substitution case is explicitly bounded and accepted only for read-only
+  diagnostic evidence rather than being misrepresented as perfect correlation.
+- [x] 7.36a Add a repository-local read-only hardware probe helper that sends
+  standalone `1I`, one CR-separated Video status batch, then a post-batch
+  `1I`, and prints complete raw response framing. Evidence tooling only.
+- [x] 7.36b Add a simple PyQt hardware-probe GUI that accepts only target IP/
+  port, resolves `credentials.local.json` through `JsonCredentialProvider`,
+  keeps secrets out of UI/output, and performs credential fallback only after
+  structured confirmed Matrix authentication rejection.
+- [x] 7.36c Record first real-IN1808 batch probe: the 30-query batch completed
+  in 0.907 s and left the session usable, but leading `Q` produced no payload.
+  The aggregate command echo was followed by 29 ordered payloads matching
+  `w20STAT` through `1%`.
+- [x] 7.36d Record second real-IN1808 batch probe: standalone `Q` returned
+  firmware `1.09`; the following 29-query batch completed in 0.906 s with
+  `success=True`, `raw_length=459`, and a usable post-batch `1I`.
+  Leading `w20STAT` produced no payload while `wE1HDCP` through `1%`
+  remained ordered, proving loss follows first batch position rather than the
+  `Q` command family.
+- [x] 7.36e Record the guarded third real-IN1808 probe: standalone authoritative
+  `1I` returned `IN1808 IPCP SA`; the 31-command guarded batch completed in
+  1.328 s with `success=True`, `raw_length=490`, and 31 observed chunks
+  consisting of one aggregate echo plus exactly 30 useful payloads. The
+  sacrificial in-batch `1I` payload was omitted; every required `Q` through
+  `1%` payload was present in expected order; post-batch `1I` again returned
+  `IN1808 IPCP SA`.
+- [x] 7.36f Replace the unattainable universal transaction-isolation proof with
+  the approved bounded correlation contract: one serialized Matrix owner
+  operation, no overlapping application Matrix I/O, exact aggregate-echo
+  removal, exactly 30 useful payloads, field-specific parsing, and matching
+  pre/post exact identity gates. Explicitly accept the residual undetectable
+  same-grammar delayed/unsolicited/duplicated/stale substitution risk only for
+  read-only diagnostic evidence; it grants no mutation authority.
+- [x] 7.36g Close the second hardware-QA remark normatively: an accepted
+  `matrix_one_shot` snapshot is reused by `matrix_room_live` and Video ->
+  Audio without any duplicate full Video refresh.
+- [x] 7.37 On the exact published architecture HEAD containing the bounded
+  guarded-batch contract, perform fresh architecture review and repository-local
+  validation before production implementation:
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
+  `.\openspec.cmd validate --all --strict`, `git diff --check`, and
+  `git diff --check origin/master...HEAD`. Record clean worktree and
+  local/remote SHA equality. Do not begin production implementation before
+  architecture `APPROVE`. A separate independent architecture-validation
+  session returned `APPROVE` for exact published SHA
+  `2898af6aed8cb892ede20e19703fbd6339c4bc2d`; this implementation session did
+  not issue that verdict.
+- [x] 7.38 Implement only the approved exact-IN1808 guarded Video batch:
+  standalone authoritative `1I`, one serialized sacrificial-`1I` + 30-query
+  read-only batch, then matching post-batch standalone `1I`; require the exact
+  aggregate echo + 30 useful payload shape and field-specific parsing, and fail
+  closed on every detectable mismatch. Independently implement exact-IN1808
+  `matrix_room_live` transport-lazy bootstrap so accepted one-shot Video
+  evidence is reused and Audio entry performs at most the minimum standalone
+  identity/variant gate on a fresh session.
+- [x] 7.39 Add regression coverage for the approved bounded batch contract:
+  exact happy-path framing, echo handling, missing/extra/returned-guard/`E##`/
+  malformed payloads, field-specific parser failures, post-batch identity
+  mismatch, non-IN1808 isolation, no mutation batching, no duplicate IN1808
+  LIVE full refresh after accepted one-shot, minimal fresh-session identity
+  gate before Audio, Audio-without-Video-repoll, and no overlapping Matrix I/O.
+  Tests SHALL NOT falsely claim they prove universal exclusion of an
+  indistinguishable same-grammar stale/delayed payload; that limitation remains
+  an explicit read-only residual risk. Rerun focused/related/full tests and
+  strict validation.
+- [x] 7.40 Record the production-batch hardware-QA outcome and abandon the
+  grouped Video optimization for this change. Production GUI QA on
+  `828b9ec1cf8e904564387cb11a4c3a00218b0660` failed on aggregate-echo
+  framing; QA on `e762c5155dbb4502a3d63e01d835f7bcf9ceca70` still failed
+  before post-batch identity after that remediation. Diagnostic HEAD
+  `4a22b6feb7659851dd8eb90657b9c56bac73e749` added failure localization,
+  but the architecture decision is now to stop pursuing grouped Video polling
+  in this change rather than continue hardware-debugging that optimization.
+- [x] 7.41 Amend the architecture so exact-IN1808 production full Video status
+  returns to the established sequential standalone read-only acquisition path.
+  Historical batch probes remain evidence only and no longer define production
+  wire authority. Preserve accepted one-shot reuse, no duplicate LIVE full
+  refresh, transport-lazy LIVE ownership, minimum standalone `1I` Audio gate,
+  existing Audio routing/meters, route mutation authority, credential ownership,
+  and serialized Matrix I/O.
+- [x] 7.42 Add an evidence-only homogeneous-family batching experiment before
+  finalizing the production rollback. Production authority remains sequential;
+  this task does not authorize grouped polling.
+- [x] 7.42a Add repository-local read-only CLI/GUI probe helpers for exactly
+  three candidate IN1808 Video families: input names `wI#VNAM`, input HDCP
+  authorization `wE#HDCP`, and input HDCP status `wI#HDCP`. Each family
+  uses a duplicate input-1 query as the sacrificial first command, then useful
+  input-1..8 queries.
+- [ ] 7.42b Run the homogeneous-family probe on real exact IN1808 hardware. For
+  each family first capture standalone input-1..8 baseline, then require exactly
+  eight useful batched payloads matching that baseline in exact order, followed
+  by a matching standalone post-family `1I`. Record raw framing, elapsed time,
+  payload count, comparison result, and session usability separately per family.
+- [ ] 7.43 After 7.42b, amend OpenSpec to one final production architecture:
+  either selectively batch only the hardware-proven homogeneous families while
+  leaving all other Video reads standalone, or keep the complete sequential
+  fallback if any required family evidence is not trustworthy. Historical mixed
+  31-command batching remains non-production.
+- [ ] 7.44 Validate and review the final published architecture on the exact
+  remote HEAD before changing production code:
+  `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
+  `.\openspec.cmd validate --all --strict`, `git diff --check`, and
+  `git diff --check origin/master...HEAD`; require clean worktree,
+  local/remote SHA equality, and architecture `APPROVE`.
+- [ ] 7.45 After 7.44 `APPROVE`, implement only the selected final Video
+  acquisition architecture while retaining the `_establish_identity` split
+  needed for minimum fresh-session Audio identity authority and retaining the
+  non-duplicating LIVE bootstrap in `gui/main_window.py`.
+- [ ] 7.46 Add/update regressions for the final selected Video acquisition path;
+  preserve field parsing, existing route read/mutation semantics,
+  accepted-one-shot LIVE reuse, no duplicate Video refresh, minimum fresh Audio
+  identity gate, Audio-without-Video-repoll, no overlapping Matrix I/O, and
+  non-IN1808 behavior. Rerun focused/related/full offline tests, strict
+  change/all validation, and Git checks.
+- [ ] 7.47 Repeat real-IN1808 production hardware QA on the final implementation
+  HEAD: initial/full Video diagnostics must connect and render, LIVE bootstrap
+  after accepted one-shot must not start a second full Video poll, and
+  `Переключить на аудио` must enter Audio without re-polling Video and with
+  at most the minimum fresh-session exact identity gate. Record actual command
+  evidence before independent validation.
+
+## 8. Independent validation and completion
+
+- [ ] 8.1 Validate the exact current published feature HEAD in a separate clean
+  detached worktree from `origin/<branch>`; verify local/remote SHA equality.
+- [ ] 8.2 Re-run focused tests, full offline tests, strict change/all OpenSpec
+  validation, Git checks, and implementation-vs-approved-architecture review.
+- [ ] 8.3 Do not fix findings in the independent validation session.
+- [ ] 8.4 Perform the mandatory disposable archive-applicability check in the
+  clean detached validation worktree before `READY FOR ARCHIVE` because this
+  change adds requirements to existing root specs. Concurrent root-spec changes
+  require the check to be repeated/reconciled against the then-current base.
+- [ ] 8.5 Archive only after a permitting independent verdict; then run
+  post-archive strict-all, full offline tests, Git checks, archive/root-spec
+  diff review, and a dedicated archive commit/push.
+- [ ] 8.6 Merge only after current remote archive HEAD/master are rechecked and
+  the user explicitly authorizes merge.

@@ -135,6 +135,9 @@ class MatrixController(QObject):
     routeAccepted = pyqtSignal(int)
     routeAcceptedForOutput = pyqtSignal(int, int)
     routeError = pyqtSignal(str)
+    audioResultAccepted = pyqtSignal(dict, object)
+    audioErrorAccepted = pyqtSignal(tuple, object)
+    audioFinished = pyqtSignal(object)
 
     def __init__(
         self,
@@ -285,6 +288,52 @@ class MatrixController(QObject):
         except ValueError:
             return
         self._submit(context, candidates)
+
+    def request_in1808_audio_entry(self):
+        """Acquire names, ``1$``, one routing snapshot, then current meters."""
+        return self._request_in1808_audio("audio_entry")
+
+    def request_in1808_audio_meters(self):
+        """Submit one non-overlapping meter cycle through this Matrix owner."""
+        return self._request_in1808_audio("audio_meters")
+
+    def _request_in1808_audio(self, operation_kind):
+        provided = self._provided_context()
+        if provided is None or provided[0] != "Extron IN1808":
+            return False
+        model, ip_address = provided
+        candidates = tuple(self._credential_candidates_provider(model, ip_address) or ())
+        if not candidates:
+            return False
+        candidate_index = self._credential_index_provider(model, ip_address, candidates)
+        if candidate_index < 0 or candidate_index >= len(candidates):
+            candidate_index = 0
+        with self._authority_lock:
+            if self._active_context is not None:
+                return False
+        try:
+            context = self._make_context(
+                operation_kind=operation_kind,
+                ip_address=ip_address,
+                candidate_index=candidate_index,
+                state_changing=False,
+            )
+        except ValueError:
+            return False
+        self._submit(context, candidates)
+        return context
+
+    def cancel_in1808_audio_subcontext(self):
+        """Revoke Audio publication without performing meter-state cleanup I/O."""
+        with self._authority_lock:
+            current = self._active_context
+            if current is None or current.operation_kind not in {"audio_entry", "audio_meters"}:
+                return False
+            self._generation += 1
+            self._active_context = None
+            self._keepalive_authority = None
+        self._request_keepalive_stop()
+        return True
 
     @pyqtSlot()
     def request_keepalive(self):
@@ -538,6 +587,17 @@ class MatrixController(QObject):
             finally:
                 handler.log_callback = original_log_callback
             self._signals.result.emit(context, {"keepalive": True})
+        elif context.operation_kind in {"audio_entry", "audio_meters"}:
+            handler = self._acquire_session(context, secrets, retirement_checked=True)
+            if not self._is_current(context):
+                return
+            current = lambda: self._is_current(context)
+            if context.operation_kind == "audio_entry":
+                data = handler.get_in1808_audio_entry_snapshot(is_current=current)
+            else:
+                data = handler.get_in1808_audio_meter_snapshot(is_current=current)
+            if self._is_current(context):
+                self._signals.result.emit(context, redact_data(data, secrets))
 
     def _is_credential_mapping(self, candidate) -> bool:
         return isinstance(candidate, Mapping)
@@ -909,6 +969,9 @@ class MatrixController(QObject):
                 if self._is_current_locked(context) and self._active_context == context:
                     self._active_context = None
             return
+        if context.operation_kind in {"audio_entry", "audio_meters"}:
+            self.audioResultAccepted.emit(data, self._handle(context))
+            return
         self._authoritative_input_ids = tuple(data.get("available_input_ids", ()) or ())
         self._authoritative_output_ids = tuple(data.get("available_output_ids", ()) or ())
         self.resultAccepted.emit(data, self._handle(context))
@@ -945,6 +1008,9 @@ class MatrixController(QObject):
                 )
                 self._submit(retry, candidates)
                 return
+        if context.operation_kind in {"audio_entry", "audio_meters"}:
+            self.audioErrorAccepted.emit(error, self._handle(context))
+            return
         if context.operation_kind in {"route", "quick_refresh", "keepalive"}:
             if context.operation_kind == "keepalive":
                 self._release_session_background()
@@ -967,6 +1033,10 @@ class MatrixController(QObject):
 
     def _on_finished(self, context: MatrixOperationContext):
         self._candidate_snapshots.pop(context.operation_id, None)
+        if context.operation_kind in {"audio_entry", "audio_meters"}:
+            # Quiescence is a physical worker boundary and must be observable
+            # even when Audio publication authority was revoked meanwhile.
+            self.audioFinished.emit(self._handle(context))
         if context.operation_kind == "retirement":
             self.cleanupFinished.emit(context)
             return

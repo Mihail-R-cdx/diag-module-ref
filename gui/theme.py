@@ -726,6 +726,21 @@ def build_stylesheet() -> str:
             max-width: 22px;
             min-height: 146px;
         }}
+        QWidget#roomIN1808MeterTrack[meterOrientation="horizontal"] {{
+            min-width: 99px;
+            max-width: 99px;
+            min-height: 8px;
+            max-height: 8px;
+        }}
+        QWidget#roomIN1808MeterTrack[meterOrientation="vertical"] {{
+            min-width: 12px;
+            max-width: 12px;
+            min-height: 99px;
+            max-height: 99px;
+        }}
+        QLabel#roomIN1808RouteCell {{
+            font-size: 15pt;
+        }}
         QFrame#roomAudioDspMeterSegment {{
             background-color: {c["surface"]};
             border: 1px solid {c["border"]};

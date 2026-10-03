@@ -79,6 +79,7 @@ class RoomModelCapability:
     requires_credentials: bool = True
     credentialless_allowed: bool = False
     call_activity_binding_key: str | None = None
+    in1808_audio_capability: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,13 @@ class DeviceRowState:
     # alongside the exact row identity rather than fetched from a device.
     serial_number: str | None = None
     mac_address: str | None = None
+    # Exact IN1808 Audio is a local presentation subcontext of Matrix LIVE.
+    # It never changes the canonical Matrix/video snapshot stored above.
+    matrix_view_mode: str = "video"
+    matrix_audio_snapshot: Any | None = None
+    matrix_audio_error: str | None = None
+    matrix_audio_generation: int = 0
+    matrix_audio_quiescent: bool = True
 
     @property
     def eligible(self) -> bool:
