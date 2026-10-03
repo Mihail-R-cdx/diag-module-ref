@@ -316,31 +316,46 @@
   refresh, transport-lazy LIVE ownership, minimum standalone `1I` Audio gate,
   existing Audio routing/meters, route mutation authority, credential ownership,
   and serialized Matrix I/O.
-- [ ] 7.42 Validate and review the published rollback architecture on the exact
+- [x] 7.42 Add an evidence-only homogeneous-family batching experiment before
+  finalizing the production rollback. Production authority remains sequential;
+  this task does not authorize grouped polling.
+- [x] 7.42a Add repository-local read-only CLI/GUI probe helpers for exactly
+  three candidate IN1808 Video families: input names `wI#VNAM`, input HDCP
+  authorization `wE#HDCP`, and input HDCP status `wI#HDCP`. Each family
+  uses a duplicate input-1 query as the sacrificial first command, then useful
+  input-1..8 queries.
+- [ ] 7.42b Run the homogeneous-family probe on real exact IN1808 hardware. For
+  each family first capture standalone input-1..8 baseline, then require exactly
+  eight useful batched payloads matching that baseline in exact order, followed
+  by a matching standalone post-family `1I`. Record raw framing, elapsed time,
+  payload count, comparison result, and session usability separately per family.
+- [ ] 7.43 After 7.42b, amend OpenSpec to one final production architecture:
+  either selectively batch only the hardware-proven homogeneous families while
+  leaving all other Video reads standalone, or keep the complete sequential
+  fallback if any required family evidence is not trustworthy. Historical mixed
+  31-command batching remains non-production.
+- [ ] 7.44 Validate and review the final published architecture on the exact
   remote HEAD before changing production code:
   `.\openspec.cmd validate in1808-audio-routing-meters --strict`,
   `.\openspec.cmd validate --all --strict`, `git diff --check`, and
   `git diff --check origin/master...HEAD`; require clean worktree,
   local/remote SHA equality, and architecture `APPROVE`.
-- [ ] 7.43 After 7.42 `APPROVE`, implement only the approved production
-  rollback: remove exact-IN1808 grouped Video batch selection, batch
-  parser/framing constants, and batch-only production diagnostics; restore
-  sequential full Video acquisition while retaining the `_establish_identity`
-  split needed for minimum fresh-session Audio identity authority and retaining
-  the non-duplicating LIVE bootstrap in `gui/main_window.py`.
-- [ ] 7.44 Add/update regressions proving exact-IN1808 production full Video
-  refresh uses standalone sequential commands with no grouped CR-separated
-  Video query; preserve field parsing, existing route read/mutation semantics,
+- [ ] 7.45 After 7.44 `APPROVE`, implement only the selected final Video
+  acquisition architecture while retaining the `_establish_identity` split
+  needed for minimum fresh-session Audio identity authority and retaining the
+  non-duplicating LIVE bootstrap in `gui/main_window.py`.
+- [ ] 7.46 Add/update regressions for the final selected Video acquisition path;
+  preserve field parsing, existing route read/mutation semantics,
   accepted-one-shot LIVE reuse, no duplicate Video refresh, minimum fresh Audio
   identity gate, Audio-without-Video-repoll, no overlapping Matrix I/O, and
   non-IN1808 behavior. Rerun focused/related/full offline tests, strict
   change/all validation, and Git checks.
-- [ ] 7.45 Repeat real-IN1808 hardware QA on the final sequential-rollback HEAD:
-  initial/full Video diagnostics must connect and render through the sequential
-  path; starting LIVE after accepted one-shot must not start a second full Video
-  poll; `Переключить на аудио` must enter Audio without re-polling Video and
-  with at most the minimum fresh-session exact identity gate. Record actual
-  command/log evidence before independent validation.
+- [ ] 7.47 Repeat real-IN1808 production hardware QA on the final implementation
+  HEAD: initial/full Video diagnostics must connect and render, LIVE bootstrap
+  after accepted one-shot must not start a second full Video poll, and
+  `Переключить на аудио` must enter Audio without re-polling Video and with
+  at most the minimum fresh-session exact identity gate. Record actual command
+  evidence before independent validation.
 
 ## 8. Independent validation and completion
 

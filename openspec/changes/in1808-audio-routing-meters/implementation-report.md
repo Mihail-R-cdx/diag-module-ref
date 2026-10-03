@@ -1,3 +1,13 @@
+> **CURRENT HARDWARE EXPERIMENT — HOMOGENEOUS VIDEO FAMILY BATCHES**
+> Production Video authority remains sequential. Before implementing that
+> rollback, the project is testing a narrower read-only optimization that never
+> mixes response grammars: input names (`wI#VNAM`), input HDCP authorization
+> (`wE#HDCP`), and input HDCP status (`wI#HDCP`) are probed as three
+> independent family batches. Each uses a duplicate input-1 query as a
+> sacrificial first command and compares the following eight batched payloads
+> against an immediately captured standalone input-1..8 baseline. No probe
+> result becomes production authority until OpenSpec is amended and re-approved.
+>
 > **CURRENT ARCHITECTURE DECISION — ROLLBACK GROUPED VIDEO POLLING**
 > Repeated production-GUI hardware QA showed that the experimental exact-IN1808
 > grouped Video full-status optimization is not reliable enough to remain a

@@ -480,6 +480,74 @@ A future attempt to reintroduce grouped Video polling requires a separate
 architecture change with new production-level hardware evidence. It must not be
 silently restored under this change.
 
+### Candidate homogeneous family micro-batches (evidence only)
+
+Before finalizing the sequential rollback implementation, one narrower
+performance experiment is permitted as **read-only hardware evidence only**.
+It does not change the current production authority: production remains
+sequential until a later OpenSpec amendment receives fresh architecture review
+and `APPROVE`.
+
+Only command families with the same SIS function and the same per-input response
+grammar may be tested together. For exact IN1808 the candidate families are:
+
+```text
+Input Video names:
+    wI1VNAM      # sacrificial duplicate
+    wI1VNAM
+    wI2VNAM
+    ...
+    wI8VNAM
+
+Input HDCP authorization:
+    wE1HDCP      # sacrificial duplicate
+    wE1HDCP
+    wE2HDCP
+    ...
+    wE8HDCP
+
+Input HDCP status:
+    wI1HDCP      # sacrificial duplicate
+    wI1HDCP
+    wI2HDCP
+    ...
+    wI8HDCP
+```
+
+The first command in each 9-command family batch deliberately duplicates the
+first useful query. Earlier hardware probes showed that the first command
+position in a CR-separated multi-query write can lose its payload. If that
+behavior also holds for a homogeneous family batch, the sacrificial duplicate
+may be omitted while the following eight useful responses remain attributable
+to inputs 1..8.
+
+The hardware probe SHALL establish an authoritative standalone baseline for all
+eight commands in a family before sending that family's batch. A family is a
+candidate for later production use only if one real-device run shows all of the
+following:
+
+- exact IN1808 identity is established before testing;
+- the batch contains only one command family;
+- exactly eight useful payloads remain after the aggregate echo;
+- those eight payloads match the immediately captured standalone input-1..8
+  baseline in exact order;
+- the sacrificial first duplicate does not create an extra accepted payload;
+- a standalone post-family `1I` still returns the same exact IN1808 identity.
+
+A failed count, mismatch, ambiguous framing, returned extra guard payload, or
+session-usability failure rejects that family as a production candidate.
+
+No batching is proposed for `Q`, `w20STAT`, `wO1HDCP`, `wO1VNAM`,
+`w0LS`, or `1%`: on IN1808 these are already single reads (and `w0LS`
+already returns all input signal-presence evidence in one command), so combining
+them would reintroduce mixed response grammars without meaningful same-family
+fan-out savings.
+
+Even successful hardware evidence does not by itself authorize production
+family batching. After the probe, OpenSpec SHALL explicitly choose either the
+proven subset of homogeneous families or the fully sequential fallback, then
+run fresh architecture validation/review before production code changes.
+
 ### LIVE bootstrap reuses accepted Video authority
 
 Once the current room generation has accepted a usable exact-IN1808
